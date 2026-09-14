@@ -25,7 +25,10 @@ pub mod sse;
 pub mod tools;
 
 pub use agent::{AgentLoop, AgentOutcome};
-pub use compiler::{compile_freestanding, CompileOutput, CompilerConfig};
+pub use compiler::{
+    compile_freestanding, CompileOutput, CompilerConfig, ToolchainError, ToolchainSource,
+    TOOLCHAIN_URL,
+};
 pub use config::AgentConfig;
 pub use error::AgentError;
 pub use llm::{DeepSeekClient, LlmClient, MockLlm, OpenAiCompatClient};
