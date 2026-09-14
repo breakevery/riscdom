@@ -51,6 +51,7 @@ fn write_source_writes_file_and_audits_two_events() {
         audit: Arc::clone(&audit),
         vm: &mut vm_slot,
         compiler: &compiler,
+        serial_observers: Arc::new(Mutex::new(Vec::new())),
     };
 
     let msg = execute_tool(
@@ -83,6 +84,7 @@ fn compile_fixture_succeeds() {
         audit: Arc::clone(&audit),
         vm: &mut vm_slot,
         compiler: &compiler,
+        serial_observers: Arc::new(Mutex::new(Vec::new())),
     };
 
     let src = include_str!("fixtures/hello.c");
@@ -119,6 +121,7 @@ fn policy_denies_traversal_and_bad_extension() {
         audit: Arc::clone(&audit),
         vm: &mut vm_slot,
         compiler: &compiler,
+        serial_observers: Arc::new(Mutex::new(Vec::new())),
     };
 
     let traversal = execute_tool(

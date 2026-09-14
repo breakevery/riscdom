@@ -12,7 +12,7 @@ use crate::message::{FunctionCall, ToolCall};
 use crate::policy::WorkspacePolicy;
 use audit::AuditSink;
 use sandbox::platform::{QmpEndpoint, SerialEndpoint};
-use sandbox::vm::{RiscVVirtualMachine, VMConfig};
+use sandbox::vm::{RiscVVirtualMachine, SerialObserver, VMConfig};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -61,6 +61,23 @@ pub struct ToolContext<'a> {
     pub audit: Arc<Mutex<dyn AuditSink>>,
     pub vm: &'a mut Option<RiscVVirtualMachine>,
     pub compiler: &'a CompilerConfig,
+    /// Live serial subscribers, fanned out to each started VM's observer.
+    pub serial_observers: Arc<Mutex<Vec<std::sync::mpsc::Sender<Vec<u8>>>>>,
+}
+
+/// Build a serial observer that fans out to every live subscriber.
+///
+/// Closed receivers make `send` fail, and such senders are dropped from the
+/// list on the next event.
+pub fn serial_observer_for(
+    senders: Arc<Mutex<Vec<std::sync::mpsc::Sender<Vec<u8>>>>>,
+) -> SerialObserver {
+    Arc::new(move |chunk: &[u8]| {
+        let data = chunk.to_vec();
+        if let Ok(mut list) = senders.lock() {
+            list.retain(|tx| tx.send(data.clone()).is_ok());
+        }
+    })
 }
 
 /// The MVP tool catalogue.
@@ -284,7 +301,7 @@ fn tool_start_vm(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<Stri
         qmp: QmpEndpoint::tcp("127.0.0.1", qmp_port),
         serial: SerialEndpoint::tcp("127.0.0.1", serial_port),
         snapshot_dir,
-        serial_observer: None,
+        serial_observer: Some(serial_observer_for(Arc::clone(&ctx.serial_observers))),
     };
     let mut vm = RiscVVirtualMachine::new(config, Arc::clone(&ctx.audit))?;
     vm.start()?;

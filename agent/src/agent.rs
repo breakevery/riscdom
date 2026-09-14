@@ -10,6 +10,7 @@ use crate::policy::WorkspacePolicy;
 use crate::tools::{execute_tool, tools_json, ToolContext};
 use audit::{AuditEvent, AuditSink};
 use sandbox::vm::RiscVVirtualMachine;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 /// Per-message byte cap (user input / tool results).
@@ -42,6 +43,8 @@ pub struct AgentLoop {
     messages: Vec<ChatMessage>,
     vm: Option<RiscVVirtualMachine>,
     compiler: CompilerConfig,
+    /// Live serial subscribers (one `Sender` per `subscribe_serial` call).
+    serial_observers: Arc<Mutex<Vec<Sender<Vec<u8>>>>>,
 }
 
 impl AgentLoop {
@@ -61,7 +64,21 @@ impl AgentLoop {
             messages: vec![ChatMessage::text("system", system_prompt)],
             vm: None,
             compiler: CompilerConfig::from_env(),
+            serial_observers: Arc::new(Mutex::new(Vec::new())),
         })
+    }
+
+    /// Subscribe to live serial output.
+    ///
+    /// Each call returns a fresh channel: the receiver gets **data that arrives
+    /// after subscribing** (no history replay). The sender is dropped from the
+    /// internal list automatically once the receiver is closed.
+    pub fn subscribe_serial(&self) -> Receiver<Vec<u8>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        if let Ok(mut list) = self.serial_observers.lock() {
+            list.push(tx);
+        }
+        rx
     }
 
     /// The current conversation (for inspection/tests).
@@ -160,6 +177,7 @@ impl AgentLoop {
                         audit: Arc::clone(&self.audit),
                         vm: &mut self.vm,
                         compiler: &self.compiler,
+                        serial_observers: Arc::clone(&self.serial_observers),
                     };
                     match execute_tool(&call.function.name, &call.function.arguments, &mut ctx) {
                         Ok(result) => result,

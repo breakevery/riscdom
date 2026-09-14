@@ -117,9 +117,18 @@ cargo test -p agent -- --ignored --nocapture
 原因：本环境下 `medlow` 模型在 `0x80000000` 会截断重定位；且 `-bios none` 下 QEMU
 从 `0x80000000` 起跳，入口必须位于镜像最前。详见 `sandbox/README.md` 与 `ENVIRONMENT.md`。
 
+## 串口订阅
+
+`AgentLoop::subscribe_serial() -> std::sync::mpsc::Receiver<Vec<u8>>`：每次调用创建一个新的
+channel（sender 内部保存），返回 receiver。启动 VM 时会把 `VMConfig.serial_observer`
+设为一个统一 observer，把沙箱**实时推送**的串口分帧扇出给所有订阅者。
+
+- 只收到**订阅之后**的数据（不做历史回放）；需要全量请调用 `read_serial` 工具。
+- receiver 关闭后，下一次事件会自动把对应 sender 从列表移除（不会 panic）。
+- 无 tokio 依赖（纯 `std::sync::mpsc`）。
+
 ## v0.2 TODO
 
-- 给 `AgentLoop` 暴露最小串口访问接口（当前 host 从审计派生串口内容，依赖脆弱）
 - 流式 LLM 响应（SSE 逐字）
 - `OpenAiCompatClient` + 本地模型支持：`DeepSeekClient` 重构为通用 OpenAI 兼容客户端，
   内置 DeepSeek（默认）/ OpenAI / Ollama（本地）/ LM Studio（本地）预设，支持无 key 的本地模型
