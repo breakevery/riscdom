@@ -1,4 +1,25 @@
-//! agent — LLM 循环、工具调用。
+//! agent — 智芯城 RiscDom 的 AI 代理运行时。
+//!
+//! 职责：用自然语言驱动 LLM 在 RISC-V 虚拟沙箱里写 C / 汇编、编译、运行、
+//! 读串口并循环迭代。
+//!
+//! 依赖方向：`agent → sandbox`，`agent → audit`（不允许反向依赖）。
+//!
+//! 安全约束（见 PROJECT_CONSTITUTION.md）：
+//! - API key 绝不写入代码 / 仓库 / 审计 / 日志 / Debug 输出。
+//! - 所有 LLM 请求响应、工具调用结果、策略拒绝都产生审计事件。
+//! - 工具执行前必须过能力策略检查（默认拒绝）。
+//! - 绝不绕过 `sandbox` crate 直接起 QEMU。
 
-/// 占位函数，仅用于保证 workspace 骨架可通过 `cargo check`。
-pub fn placeholder() {}
+pub mod audit_hook;
+pub mod config;
+pub mod error;
+pub mod llm;
+pub mod message;
+
+pub use config::AgentConfig;
+pub use error::AgentError;
+pub use llm::{DeepSeekClient, LlmClient, MockLlm};
+pub use message::{
+    ChatMessage, ChatRequest, ChatResponse, Choice, FunctionCall, ToolCall, Usage,
+};
