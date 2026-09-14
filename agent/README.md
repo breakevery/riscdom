@@ -17,6 +17,23 @@
 - `prompt` — 系统提示词构建
 - `agent` — `AgentLoop` / `AgentOutcome`
 
+## 服务商预设
+
+`presets` 模块是**纯数据**：描述如何到达一个 OpenAI 兼容端点，不含任何服务商专用逻辑。
+
+| id | 名称 | base_url | 默认 model | 需 key | 本地 |
+| --- | --- | --- | --- | --- | --- |
+| `deepseek`（默认） | DeepSeek | `https://api.deepseek.com` | `deepseek-chat` | 是 | 否 |
+| `openai` | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` | 是 | 否 |
+| `ollama` | Ollama（本地） | `http://localhost:11434/v1` | `qwen2.5-coder` | 否 | 是 |
+| `lmstudio` | LM Studio（本地） | `http://localhost:1234/v1` | （用户填） | 否 | 是 |
+| `custom` | 自定义 | （用户填） | （用户填） | 否 | 否 |
+
+- `DEFAULT_PRESET_ID = "deepseek"`；`find_preset(id)` 查表；`builtin_presets()` 返回全部。
+- `AgentConfig::from_preset(preset, api_key)`：按预设填 `base_url` / `model`；
+  `requires_key=true` 且无 key → **明确报错**（不静默）；本地预设允许空 key；最后过一遍 `validate()`。
+- “自定义”允许用户填**任意** OpenAI 兼容服务（含自建网关）。
+
 ## 配置
 
 LLM 客户端为 **OpenAI 兼容协议**（`OpenAiCompatClient`）：只要 `base_url` / `model`

@@ -6,6 +6,7 @@ use crate::events::{EventSink, EV_AGENT_FINAL, EV_AGENT_ITERATION, EV_AGENT_TOOL
 use agent::llm::{DeepSeekClient, LlmClient};
 use agent::message::{ChatRequest, ChatResponse};
 use agent::policy::WorkspacePolicy;
+use agent::presets::{builtin_presets, find_preset, ProviderPreset, DEFAULT_PRESET_ID};
 use agent::{AgentConfig, AgentLoop, AgentOutcome};
 use audit::{AuditSink, AuditStore, ChainStatus, SqliteAuditSink, StoredEvent};
 use sandbox::vm::RiscVVirtualMachine;
@@ -25,6 +26,7 @@ pub const POLL_INTERVAL: Duration = Duration::from_millis(200);
 /// LLM configuration (in memory only — never persisted).
 #[derive(Clone)]
 pub struct LlmConfigInput {
+    pub provider_id: String,
     pub api_key: String,
     pub base_url: String,
     pub model: String,
@@ -33,6 +35,7 @@ pub struct LlmConfigInput {
 impl std::fmt::Debug for LlmConfigInput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LlmConfigInput")
+            .field("provider_id", &self.provider_id)
             .field("api_key", &agent::config::mask_key(&self.api_key))
             .field("base_url", &self.base_url)
             .field("model", &self.model)
@@ -44,8 +47,33 @@ impl std::fmt::Debug for LlmConfigInput {
 #[derive(Debug, Clone, Serialize)]
 pub struct LlmConfigStatus {
     pub configured: bool,
+    pub provider_id: String,
     pub base_url: String,
     pub model: String,
+}
+
+/// A provider preset, shaped for the frontend.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderPresetView {
+    pub id: String,
+    pub display_name: String,
+    pub base_url: String,
+    pub default_model: String,
+    pub requires_key: bool,
+    pub is_local: bool,
+}
+
+impl From<ProviderPreset> for ProviderPresetView {
+    fn from(p: ProviderPreset) -> Self {
+        Self {
+            id: p.id,
+            display_name: p.display_name,
+            base_url: p.base_url,
+            default_model: p.default_model,
+            requires_key: p.requires_key,
+            is_local: p.is_local,
+        }
+    }
 }
 
 /// Audit chain status (serialisable view).
@@ -188,6 +216,58 @@ impl AppState {
 
     // ----- LLM config -------------------------------------------------------
 
+    /// The built-in provider presets (pure data).
+    pub fn provider_presets(&self) -> Vec<ProviderPresetView> {
+        builtin_presets()
+            .into_iter()
+            .map(ProviderPresetView::from)
+            .collect()
+    }
+
+    /// Store LLM config, filling base_url / model from a preset when omitted.
+    pub fn set_llm_config_with(
+        &self,
+        provider_id: Option<String>,
+        api_key: String,
+        base_url: String,
+        model: String,
+    ) -> Result<(), HostError> {
+        let pid = provider_id
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_PRESET_ID.to_string());
+
+        let (base_url, model) = match find_preset(&pid) {
+            Some(p) if p.id != "custom" => (
+                if base_url.trim().is_empty() {
+                    p.base_url
+                } else {
+                    base_url
+                },
+                if model.trim().is_empty() {
+                    p.default_model
+                } else {
+                    model
+                },
+            ),
+            // custom (or unknown id): take the user's values as-is.
+            _ => (base_url, model),
+        };
+
+        if pid == "custom" && (base_url.trim().is_empty() || model.trim().is_empty()) {
+            return Err(HostError::Other(
+                "custom provider requires base_url and model".into(),
+            ));
+        }
+
+        self.set_llm_config(LlmConfigInput {
+            provider_id: pid,
+            api_key,
+            base_url,
+            model,
+        });
+        Ok(())
+    }
+
     /// Store LLM config in memory (replaces any previous value).
     pub fn set_llm_config(&self, input: LlmConfigInput) {
         if let Ok(mut g) = self.llm_config.lock() {
@@ -204,47 +284,55 @@ impl AppState {
 
     /// Status for the UI (never returns the key).
     pub fn llm_config_status(&self) -> LlmConfigStatus {
+        let unconfigured = || LlmConfigStatus {
+            configured: false,
+            provider_id: DEFAULT_PRESET_ID.to_string(),
+            base_url: String::new(),
+            model: String::new(),
+        };
         match self.llm_config.lock() {
             Ok(g) => match g.as_ref() {
                 Some(c) => LlmConfigStatus {
                     configured: true,
+                    provider_id: c.provider_id.clone(),
                     base_url: c.base_url.clone(),
                     model: c.model.clone(),
                 },
-                None => LlmConfigStatus {
-                    configured: false,
-                    base_url: String::new(),
-                    model: String::new(),
-                },
+                None => unconfigured(),
             },
-            Err(_) => LlmConfigStatus {
-                configured: false,
-                base_url: String::new(),
-                model: String::new(),
-            },
+            Err(_) => unconfigured(),
         }
     }
 
     fn agent_config(&self) -> AgentConfig {
-        let (api_key, base_url, model) = match self.llm_config.lock() {
+        let default = AgentConfig::deepseek_default();
+        let (api_key, base_url, model, provider_id) = match self.llm_config.lock() {
             Ok(g) => match g.as_ref() {
-                Some(c) => (c.api_key.clone(), c.base_url.clone(), c.model.clone()),
+                Some(c) => (
+                    c.api_key.clone(),
+                    c.base_url.clone(),
+                    c.model.clone(),
+                    c.provider_id.clone(),
+                ),
                 None => (
                     String::new(),
-                    "https://api.deepseek.com".to_string(),
-                    "deepseek-chat".to_string(),
+                    default.base_url.clone(),
+                    default.model.clone(),
+                    default.provider_id.clone(),
                 ),
             },
             Err(_) => (
                 String::new(),
-                "https://api.deepseek.com".to_string(),
-                "deepseek-chat".to_string(),
+                default.base_url.clone(),
+                default.model.clone(),
+                default.provider_id.clone(),
             ),
         };
         AgentConfig {
             api_key,
             base_url,
             model,
+            provider_id,
             max_iterations: 10,
             request_timeout_secs: 120,
         }

@@ -18,8 +18,19 @@ export interface AuditStatus {
 
 export interface LlmStatus {
   configured: boolean;
+  provider_id: string;
   base_url: string;
   model: string;
+}
+
+/** A selectable LLM provider preset (pure data from the host). */
+export interface ProviderPreset {
+  id: string;
+  display_name: string;
+  base_url: string;
+  default_model: string;
+  requires_key: boolean;
+  is_local: boolean;
 }
 
 export interface AuditEvent {
@@ -52,8 +63,15 @@ export const listAuditEvents = (
     actionPrefix: actionPrefix ?? null,
   });
 
-export const setLlmConfig = (apiKey: string, baseUrl: string, model: string) =>
-  invoke<void>("set_llm_config", { apiKey, baseUrl, model });
+export const setLlmConfig = (
+  apiKey: string,
+  baseUrl: string,
+  model: string,
+  providerId: string,
+) => invoke<void>("set_llm_config", { apiKey, baseUrl, model, providerId });
+
+export const getProviderPresets = () =>
+  invoke<ProviderPreset[]>("get_provider_presets");
 
 export const clearLlmConfig = () => invoke<void>("clear_llm_config");
 

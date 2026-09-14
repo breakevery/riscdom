@@ -1,6 +1,7 @@
 //! Agent configuration, loaded from environment variables.
 
 use crate::error::AgentError;
+use crate::presets::{ProviderPreset, DEFAULT_PRESET_ID};
 use std::fmt;
 
 /// Runtime configuration for the agent.
@@ -12,6 +13,8 @@ pub struct AgentConfig {
     pub base_url: String,
     /// Model name (default `deepseek-chat`).
     pub model: String,
+    /// Provider preset id (default [`DEFAULT_PRESET_ID`]).
+    pub provider_id: String,
     /// Max tool-use iterations per run.
     pub max_iterations: u32,
     /// Per-request HTTP timeout.
@@ -48,6 +51,7 @@ impl AgentConfig {
             api_key,
             base_url,
             model,
+            provider_id: DEFAULT_PRESET_ID.to_string(),
             max_iterations,
             request_timeout_secs,
         })
@@ -67,9 +71,37 @@ impl AgentConfig {
             api_key: String::new(),
             base_url: "https://api.deepseek.com".to_string(),
             model: "deepseek-chat".to_string(),
+            provider_id: DEFAULT_PRESET_ID.to_string(),
             max_iterations: 10,
             request_timeout_secs: 120,
         }
+    }
+
+    /// Build a configuration from a provider preset.
+    ///
+    /// Fails loudly (never silently) when a key-requiring provider is selected
+    /// without a key, and runs [`Self::validate`] as a final check.
+    pub fn from_preset(
+        preset: &ProviderPreset,
+        api_key: Option<String>,
+    ) -> Result<Self, AgentError> {
+        let api_key = api_key.unwrap_or_default();
+        if preset.requires_key && api_key.trim().is_empty() {
+            return Err(AgentError::Config(format!(
+                "provider '{}' requires an api_key",
+                preset.id
+            )));
+        }
+        let config = Self {
+            api_key,
+            base_url: preset.base_url.clone(),
+            model: preset.default_model.clone(),
+            provider_id: preset.id.clone(),
+            max_iterations: 10,
+            request_timeout_secs: 120,
+        };
+        config.validate()?;
+        Ok(config)
     }
 
     /// Validate the configuration.
@@ -127,6 +159,7 @@ impl fmt::Debug for AgentConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AgentConfig")
             .field("api_key", &self.masked_key())
+            .field("provider_id", &self.provider_id)
             .field("base_url", &self.base_url)
             .field("model", &self.model)
             .field("max_iterations", &self.max_iterations)
@@ -144,6 +177,7 @@ mod tests {
             api_key: "sk-1234567890abcdef".into(),
             base_url: "https://api.deepseek.com".into(),
             model: "deepseek-chat".into(),
+            provider_id: "deepseek".into(),
             max_iterations: 10,
             request_timeout_secs: 120,
         }

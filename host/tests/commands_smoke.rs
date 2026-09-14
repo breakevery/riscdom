@@ -31,6 +31,7 @@ fn llm_config_roundtrip_and_no_key_leak() {
     assert!(!state.llm_config_status().configured);
 
     state.set_llm_config(LlmConfigInput {
+        provider_id: "deepseek".into(),
         api_key: "sk-secret-value-1234".into(),
         base_url: "https://api.deepseek.com".into(),
         model: "deepseek-chat".into(),
@@ -64,4 +65,32 @@ fn workspace_file_reads_are_policy_checked() {
 
     // Escaping the workspace is denied.
     assert!(state.read_workspace_file("../secret.txt".into()).is_err());
+}
+
+#[test]
+fn provider_presets_are_available() {
+    let state = AppState::in_memory(unique_ws("presets")).expect("state");
+    let presets = state.provider_presets();
+    assert_eq!(presets.len(), 5, "expected 5 builtin presets");
+    assert!(presets.iter().any(|p| p.id == "deepseek"));
+    assert!(presets.iter().any(|p| p.id == "ollama" && p.is_local && !p.requires_key));
+}
+
+#[test]
+fn set_llm_config_fills_from_preset() {
+    let state = AppState::in_memory(unique_ws("preset-fill")).expect("state");
+
+    // Ollama preset: no key, base_url/model omitted -> filled from the preset.
+    state
+        .set_llm_config_with(Some("ollama".into()), String::new(), String::new(), String::new())
+        .expect("ollama preset");
+    let status = state.llm_config_status();
+    assert_eq!(status.provider_id, "ollama");
+    assert_eq!(status.base_url, "http://localhost:11434/v1");
+    assert_eq!(status.model, "qwen2.5-coder");
+
+    // custom without base_url/model is rejected.
+    assert!(state
+        .set_llm_config_with(Some("custom".into()), String::new(), String::new(), String::new())
+        .is_err());
 }

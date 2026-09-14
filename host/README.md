@@ -18,9 +18,10 @@
 | --- | --- |
 | `get_audit_status()` | `{ count, chain }` |
 | `list_audit_events(limit, actor?, action_prefix?)` | `StoredEventView[]`（倒序） |
-| `set_llm_config(api_key, base_url, model)` | `()` |
+| `set_llm_config(api_key, base_url, model, provider_id?)` | `()`（`provider_id` 缺省为 `deepseek`；预设且 base_url/model 为空时自动填充；`custom` 必填两者） |
 | `clear_llm_config()` | `()` |
-| `get_llm_config_status()` | `{ configured, base_url, model }`（**不含 key**） |
+| `get_llm_config_status()` | `{ configured, provider_id, base_url, model }`（**不含 key**） |
+| `get_provider_presets()` | `ProviderPresetView[]`（5 个内置预设，纯数据） |
 | `run_agent(user_input)` | `AgentOutcomeView` |
 | `get_workspace_files()` | `string[]` |
 | `read_workspace_file(path)` | `string`（经策略检查） |
@@ -32,6 +33,13 @@
 - `agent:iteration` / `agent:tool_call` / `agent:tool_result` / `agent:final`
 - `serial:chunk`
 - `vm:state`
+
+## 服务商预设
+
+`host` 通过 `get_provider_presets` 把 `agent::presets::builtin_presets()`（纯数据）暴露给前端；
+`set_llm_config` 接受 `provider_id`，当传入的是预设且 `base_url` / `model` 为空时用预设值填充；
+`provider_id = "custom"` 时两者必填。5 个内置预设：`deepseek`（默认）/ `openai` /
+`ollama`（本地，无需 key）/ `lmstudio`（本地，无需 key）/ `custom`。详见 `agent/README.md`。
 
 ## 安全
 

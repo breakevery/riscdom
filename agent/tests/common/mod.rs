@@ -33,6 +33,7 @@ pub fn test_config() -> AgentConfig {
         api_key: "sk-test-not-a-real-key-0000".into(),
         base_url: "https://api.deepseek.com".into(),
         model: "mock".into(),
+        provider_id: "deepseek".into(),
         max_iterations: 10,
         request_timeout_secs: 30,
     }

@@ -19,6 +19,7 @@ pub mod error;
 pub mod llm;
 pub mod message;
 pub mod policy;
+pub mod presets;
 pub mod prompt;
 pub mod tools;
 
@@ -31,5 +32,6 @@ pub use message::{
     ChatMessage, ChatRequest, ChatResponse, Choice, FunctionCall, ToolCall, Usage,
 };
 pub use policy::WorkspacePolicy;
+pub use presets::{builtin_presets, find_preset, ProviderPreset, DEFAULT_PRESET_ID};
 pub use prompt::build_system_prompt;
 pub use tools::{execute_tool, tool_specs, tools_json, ToolContext, ToolSpec};

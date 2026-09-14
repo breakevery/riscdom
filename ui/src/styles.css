@@ -59,7 +59,8 @@ button.tiny {
 }
 
 input,
-textarea {
+textarea,
+select {
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -71,9 +72,15 @@ textarea {
 }
 
 input:focus,
-textarea:focus {
+textarea:focus,
+select:focus {
   outline: 1px solid var(--accent);
   border-color: var(--accent);
+}
+
+input:disabled,
+select:disabled {
+  opacity: 0.55;
 }
 
 h3 {

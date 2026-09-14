@@ -5,7 +5,7 @@
 
 use crate::events::TauriEventSink;
 use crate::state::{
-    AgentOutcomeView, AppState, AuditStatusView, LlmConfigInput, LlmConfigStatus, StoredEventView,
+    AgentOutcomeView, AppState, AuditStatusView, LlmConfigStatus, ProviderPresetView, StoredEventView,
 };
 use std::sync::Arc;
 use tauri::State;
@@ -29,6 +29,14 @@ pub async fn list_audit_events(
         .map_err(|e| e.user_message())
 }
 
+/// The built-in provider presets (for the settings dropdown).
+#[tauri::command]
+pub async fn get_provider_presets(
+    state: State<'_, AppState>,
+) -> Result<Vec<ProviderPresetView>, String> {
+    Ok(state.provider_presets())
+}
+
 /// Store LLM config for this session (in memory only).
 #[tauri::command]
 pub async fn set_llm_config(
@@ -36,13 +44,11 @@ pub async fn set_llm_config(
     api_key: String,
     base_url: String,
     model: String,
+    provider_id: Option<String>,
 ) -> Result<(), String> {
-    state.set_llm_config(LlmConfigInput {
-        api_key,
-        base_url,
-        model,
-    });
-    Ok(())
+    state
+        .set_llm_config_with(provider_id, api_key, base_url, model)
+        .map_err(|e| e.user_message())
 }
 
 /// Forget LLM config.

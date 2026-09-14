@@ -19,5 +19,5 @@ pub use error::HostError;
 pub use events::EventSink;
 pub use state::{
     AgentOutcomeView, AppState, AuditStatusView, ChainStatusView, LlmConfigInput,
-    LlmConfigStatus, StoredEventView,
+    LlmConfigStatus, ProviderPresetView, StoredEventView,
 };

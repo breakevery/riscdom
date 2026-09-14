@@ -10,6 +10,7 @@ fn cfg(base_url: &str, api_key: &str, model: &str) -> AgentConfig {
         api_key: api_key.into(),
         base_url: base_url.into(),
         model: model.into(),
+        provider_id: "custom".into(),
         max_iterations: 10,
         request_timeout_secs: 120,
     }

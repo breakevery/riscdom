@@ -23,6 +23,7 @@ pub fn run() {
             host::commands::get_audit_status,
             host::commands::list_audit_events,
             host::commands::set_llm_config,
+            host::commands::get_provider_presets,
             host::commands::clear_llm_config,
             host::commands::get_llm_config_status,
             host::commands::run_agent,

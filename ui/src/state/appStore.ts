@@ -45,6 +45,7 @@ export function useAppStore(): AppStore {
   const [busy, setBusy] = useState(false);
   const [llmStatus, setLlmStatus] = useState<api.LlmStatus>({
     configured: false,
+    provider_id: "deepseek",
     base_url: "",
     model: "",
   });
