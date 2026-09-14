@@ -24,6 +24,18 @@ pub async fn delete_snapshot(state: State<'_, AppState>, name: String) -> Result
     state.delete_snapshot(&name).map_err(|e| e.user_message())
 }
 
+/// Stop the host-owned VM (no-op when none is running).
+#[tauri::command]
+pub async fn stop_current_vm(state: State<'_, AppState>) -> Result<(), String> {
+    state.stop_current_vm().map_err(|e| e.user_message())
+}
+
+/// Is a VM currently held by the host (i.e. kept alive across runs)?
+#[tauri::command]
+pub async fn vm_is_running(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state.vm_is_running())
+}
+
 /// Recent sessions, newest first.
 #[tauri::command]
 pub async fn list_sessions(

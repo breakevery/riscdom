@@ -279,9 +279,9 @@ impl From<AgentOutcome> for AgentOutcomeView {
 pub struct AppState {
     pub audit: Arc<Mutex<AuditStore>>,
     pub sink: Arc<Mutex<dyn AuditSink>>,
-    /// Reserved: the VM slot. In the current MVP the agent loop owns its own VM,
-    /// so this stays `None`; it exists for the v0.2 host-owned-VM mode.
-    pub vm: Mutex<Option<RiscVVirtualMachine>>,
+    /// Host-owned VM slot: a VM started during a run stays here after the run
+    /// ends, so later runs reuse the same guest (v0.2 host-owned lifecycle).
+    pub vm_slot: Arc<Mutex<Option<RiscVVirtualMachine>>>,
     pub llm_config: Mutex<Option<LlmConfigInput>>,
     pub workspace_root: PathBuf,
     pub compiler: agent::CompilerConfig,
@@ -291,8 +291,9 @@ pub struct AppState {
     pub keyring: Arc<dyn KeyringBackend>,
     /// Whether the current key has been persisted to the keyring.
     persisted: Mutex<bool>,
-    /// Live serial receiver for the current run (sandbox pushes via the agent).
-    pub serial_receiver: Arc<Mutex<Option<Receiver<Vec<u8>>>>>,
+    /// Serial broadcast list shared by the long-lived forwarder and every run.
+    /// The forwarder owns the matching `Receiver`.
+    pub serial_senders: Arc<Mutex<Vec<std::sync::mpsc::Sender<Vec<u8>>>>>,
     /// Accumulated serial text from the push stream (for `get_serial_buffer`).
     pub serial_accum: Arc<Mutex<String>>,
     /// Live LLM stream receiver for the current run.
@@ -435,14 +436,14 @@ impl AppState {
         Self {
             audit: shared,
             sink,
-            vm: Mutex::new(None),
+            vm_slot: Arc::new(Mutex::new(None)),
             llm_config: Mutex::new(None),
             workspace_root: root,
             compiler: agent::CompilerConfig::from_env(),
             llm_override: Mutex::new(None),
             keyring,
             persisted: Mutex::new(false),
-            serial_receiver: Arc::new(Mutex::new(None)),
+            serial_senders: Arc::new(Mutex::new(Vec::new())),
             serial_accum: Arc::new(Mutex::new(String::new())),
             stream_receiver: Arc::new(Mutex::new(None)),
             sessions: Arc::new(Mutex::new(sessions)),
@@ -1169,6 +1170,52 @@ impl AppState {
 
     // ----- Agent ------------------------------------------------------------
 
+    /// Start the **long-lived** serial forwarder (call once at app startup).
+    ///
+    /// The forwarder owns the receiving end of a broadcast channel whose sender
+    /// lives in [`Self::serial_senders`]. Every run attaches that same list, so
+    /// serial output keeps flowing to the UI across runs.
+    pub fn start_serial_forwarder(&self, emitter: Arc<dyn EventSink>) -> Result<(), HostError> {
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        self.serial_senders
+            .lock()
+            .map_err(|_| HostError::Other("serial senders poisoned".into()))?
+            .push(tx);
+
+        let accum = Arc::clone(&self.serial_accum);
+        std::thread::spawn(move || loop {
+            match rx.recv_timeout(Duration::from_millis(200)) {
+                Ok(bytes) => {
+                    let text = append_serial_chunk(&accum, &bytes);
+                    emitter.emit(EV_SERIAL_CHUNK, serde_json::json!({ "chunk": text }));
+                }
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+        });
+        Ok(())
+    }
+
+    // ----- VM lifecycle -----------------------------------------------------
+
+    /// Is the host currently holding a VM?
+    pub fn vm_is_running(&self) -> bool {
+        self.vm_slot.lock().map(|g| g.is_some()).unwrap_or(false)
+    }
+
+    /// Stop the host-owned VM and clear the slot (no-op when empty).
+    pub fn stop_current_vm(&self) -> Result<(), HostError> {
+        let taken = self
+            .vm_slot
+            .lock()
+            .map_err(|_| HostError::Other("vm slot poisoned".into()))?
+            .take();
+        if let Some(mut vm) = taken {
+            vm.stop().map_err(|e| HostError::Other(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     /// Run one agent turn, emitting host events through `emitter`.
     pub fn run_agent(
         &self,
@@ -1183,13 +1230,17 @@ impl AppState {
         let llm = self.build_llm()?;
         let policy = WorkspacePolicy::new(self.workspace_root.clone());
         let system_prompt = format!("{CONSTITUTION}\n\n{}", agent::prompt::OPERATING_RULES);
-        let mut agent = AgentLoop::new(
+        let mut agent = AgentLoop::with_vm(
             llm,
             self.agent_config(),
             policy,
             Arc::clone(&self.sink),
+            Arc::clone(&self.vm_slot),
             system_prompt,
         )?;
+        // Host-owned VM: the loop works on `vm_slot`; serial bytes go to the
+        // same broadcast list that the long-lived forwarder reads from.
+        agent.attach_serial(Arc::clone(&self.serial_senders));
 
         // Sessions: restore prior turns, then persist whatever this turn adds.
         let session_id = self.ensure_session(user_input)?;
@@ -1199,10 +1250,6 @@ impl AppState {
         }
         let pre_len = agent.messages().len();
 
-        // Serial subscription: the sandbox pushes bytes via the agent's observer.
-        if let Ok(mut slot) = self.serial_receiver.lock() {
-            *slot = Some(agent.subscribe_serial());
-        }
         // Stream subscription: forwarded as `agent:stream:delta` / `:done`.
         if let Ok(mut slot) = self.stream_receiver.lock() {
             *slot = Some(agent.subscribe_stream());
@@ -1220,47 +1267,6 @@ impl AppState {
                 std::thread::sleep(POLL_INTERVAL);
             }
             bridge.tick(); // final flush
-        });
-
-        // Forwarder: sandbox push -> `serial:chunk` (+ accumulate for queries).
-        let stop_serial = Arc::clone(&stop);
-        let receiver_slot = Arc::clone(&self.serial_receiver);
-        let accum = Arc::clone(&self.serial_accum);
-        let serial_emitter = Arc::clone(&emitter);
-        let serial_thread = std::thread::spawn(move || {
-            let rx = match receiver_slot.lock() {
-                Ok(mut slot) => slot.take(),
-                Err(_) => None,
-            };
-            let Some(rx) = rx else { return };
-
-            let forward = |bytes: &[u8]| {
-                let text = append_serial_chunk(&accum, bytes);
-                serial_emitter.emit(EV_SERIAL_CHUNK, serde_json::json!({ "chunk": text }));
-            };
-
-            while !stop_serial.load(Ordering::Relaxed) {
-                match rx.recv_timeout(Duration::from_millis(100)) {
-                    Ok(bytes) => forward(&bytes),
-                    Err(RecvTimeoutError::Timeout) => continue,
-                    Err(RecvTimeoutError::Disconnected) => break,
-                }
-            }
-
-            // Grace drain: capture any tail output still in flight.
-            let mut idle = 0;
-            while idle < 10 {
-                match rx.try_recv() {
-                    Ok(bytes) => {
-                        forward(&bytes);
-                        idle = 0;
-                    }
-                    Err(_) => {
-                        idle += 1;
-                        std::thread::sleep(Duration::from_millis(30));
-                    }
-                }
-            }
         });
 
         // Forwarder: LLM stream -> `agent:stream:delta` / `agent:stream:done`.
@@ -1313,7 +1319,6 @@ impl AppState {
 
         stop.store(true, Ordering::Relaxed);
         let _ = bridge.join();
-        let _ = serial_thread.join();
         let _ = stream_thread.join();
 
         let outcome = outcome?;

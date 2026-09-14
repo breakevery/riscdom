@@ -28,6 +28,8 @@
 | `get_workspace_files()` | `string[]` |
 | `read_workspace_file(path)` | `string`（经策略检查） |
 | `get_serial_buffer()` | `string` |
+| `stop_current_vm()` | `()`（停止并清空 host 持有的 VM；空槽为 no-op） |
+| `vm_is_running()` | `bool`（host 是否持有常驻 VM） |
 | `export_audit_jsonl(path)` | `usize`（写入工作区内） |
 
 ## 事件（host → 前端）
@@ -99,13 +101,15 @@ e. 不勾选记住 → 保存后状态为“仅本次会话”；重启后需重
 
 ## 事件桥接与串口（当前实现）
 
-`run_agent` 期间 host 起三个后台线程：
+每次 `run_agent` 起两个后台线程（串口转发器改为长驻，见第 2 项）：
 
 1. **AuditBridge**（200ms 轮询审计）→ 只负责 `agent:iteration` / `agent:tool_call` /
    `agent:tool_result`，以及 `vm.start` / `vm.stop` / `vm.snapshot.save` → `vm:state`。
-2. **串口转发器**（sandbox 主动推送）→ 读取 `AgentLoop::subscribe_serial()` 返回的
-   `std::sync::mpsc::Receiver<Vec<u8>>`，把每个分帧用 lossy UTF-8 转成字符串后
-   emit `serial:chunk`，并累加到 `get_serial_buffer()` 的返回值中。
+2. **串口转发器（长驻，20b）**——应用启动（`setup`）时创建，**不随 run 结束**：
+   拥有广播通道的接收端（`Receiver<Vec<u8>>`，`recv_timeout(200ms)` 轮询），把每个
+   分帧用 lossy UTF-8 转成字符串后 emit `serial:chunk`，并累加到
+   `get_serial_buffer()` 的返回值中。发送端保存在 `AppState::serial_senders`，每次 run
+   通过 `AgentLoop::attach_serial()` 注入同一份列表——因此**跨 run 连续**。
 3. **流式转发器**（LLM 流式）→ 读取 `AgentLoop::subscribe_stream()` 的
    `Receiver<StreamEvent>`：`Delta` → `agent:stream:delta { text }`，`Done` →
    `agent:stream:done`；`ToolCallDelta` **不转发**（工具调用仍由 `agent:tool_call` 处理）。
@@ -118,7 +122,10 @@ e. 不勾选记住 → 保存后状态为“仅本次会话”；重启后需重
 
 订阅**只收到订阅之后**的数据（无历史回放）；需要全量请调用 `read_serial` 工具。
 
-后续（v0.2）：让 `AppState.vm` 槽真正启用、订阅跨 run 常驻。
+VM 生命周期（20b）：VM 归 `AppState::vm_slot` 所有。`run_agent` 用
+`AgentLoop::with_vm(...)` 注入该槽，run 结束后 VM 仍留在槽内（不再随 run 销毁），
+下一次 run 复用同一台 guest（再调 `start_vm` 会得到 “already running”）。`stop_current_vm()`
+停止并清空槽，`vm_is_running()` 供 UI 判断按钮可用性。
 
 ## 手工验证
 

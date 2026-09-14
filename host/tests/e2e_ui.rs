@@ -100,6 +100,9 @@ fn e2e_ui_mock_run_emits_final_and_serial() {
     *state.llm_override.lock().unwrap() = Some(Arc::new(MockLlm::new(script)));
 
     let sink = Arc::new(RecordingEventSink::new());
+    state
+        .start_serial_forwarder(sink.clone() as Arc<dyn host::EventSink>)
+        .expect("serial forwarder");
     let outcome = state
         .run_agent(
             sink.clone() as Arc<dyn host::EventSink>,

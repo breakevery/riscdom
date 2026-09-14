@@ -85,6 +85,9 @@ fn run_with(script: Vec<ChatResponse>, tag: &str) -> Arc<RecordingEventSink> {
     *state.llm_override.lock().unwrap() = Some(Arc::new(MockLlm::new(script)));
     let sink = Arc::new(RecordingEventSink::new());
     state
+        .start_serial_forwarder(sink.clone() as Arc<dyn host::EventSink>)
+        .expect("serial forwarder");
+    state
         .run_agent(
             sink.clone() as Arc<dyn host::EventSink>,
             "写一个 Hello World",

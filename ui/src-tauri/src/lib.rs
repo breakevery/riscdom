@@ -18,6 +18,14 @@ pub fn run() {
             host::paths::set_app_data_dir(base.clone());
             let state = host::AppState::new(&workspace)
                 .map_err(|e| format!("failed to init host state: {e}"))?;
+            // Long-lived serial forwarder: outlives individual runs so the UI
+            // keeps receiving serial output across runs.
+            let emitter: std::sync::Arc<dyn host::EventSink> = std::sync::Arc::new(
+                host::events::TauriEventSink::new(app.handle().clone()),
+            );
+            state
+                .start_serial_forwarder(emitter)
+                .map_err(|e| format!("failed to start serial forwarder: {e}"))?;
             app.manage(state);
             Ok(())
         })
@@ -41,6 +49,8 @@ pub fn run() {
             host::commands::get_current_session_id,
             host::commands::list_snapshots,
             host::commands::delete_snapshot,
+            host::commands::stop_current_vm,
+            host::commands::vm_is_running,
             host::commands::run_agent,
             host::commands::get_workspace_files,
             host::commands::read_workspace_file,
