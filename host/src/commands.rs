@@ -1,0 +1,104 @@
+//! Tauri commands. Thin wrappers over [`AppState`]; all logic lives in state.
+//!
+//! Every command returns `Result<T, String>`; the error string is derived from
+//! [`HostError`] and never contains secrets.
+
+use crate::events::TauriEventSink;
+use crate::state::{
+    AgentOutcomeView, AppState, AuditStatusView, LlmConfigInput, LlmConfigStatus, StoredEventView,
+};
+use std::sync::Arc;
+use tauri::State;
+
+/// Audit event count + chain status.
+#[tauri::command]
+pub async fn get_audit_status(state: State<'_, AppState>) -> Result<AuditStatusView, String> {
+    state.audit_status().map_err(|e| e.user_message())
+}
+
+/// Recent audit events (newest first), optionally filtered.
+#[tauri::command]
+pub async fn list_audit_events(
+    state: State<'_, AppState>,
+    limit: usize,
+    actor: Option<String>,
+    action_prefix: Option<String>,
+) -> Result<Vec<StoredEventView>, String> {
+    state
+        .list_events(limit, actor, action_prefix)
+        .map_err(|e| e.user_message())
+}
+
+/// Store LLM config for this session (in memory only).
+#[tauri::command]
+pub async fn set_llm_config(
+    state: State<'_, AppState>,
+    api_key: String,
+    base_url: String,
+    model: String,
+) -> Result<(), String> {
+    state.set_llm_config(LlmConfigInput {
+        api_key,
+        base_url,
+        model,
+    });
+    Ok(())
+}
+
+/// Forget LLM config.
+#[tauri::command]
+pub async fn clear_llm_config(state: State<'_, AppState>) -> Result<(), String> {
+    state.clear_llm_config();
+    Ok(())
+}
+
+/// Whether an LLM is configured (never returns the key).
+#[tauri::command]
+pub async fn get_llm_config_status(
+    state: State<'_, AppState>,
+) -> Result<LlmConfigStatus, String> {
+    Ok(state.llm_config_status())
+}
+
+/// Run one agent turn, streaming events to the webview.
+#[tauri::command]
+pub async fn run_agent(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    user_input: String,
+) -> Result<AgentOutcomeView, String> {
+    let emitter: Arc<dyn crate::events::EventSink> = Arc::new(TauriEventSink::new(app));
+    state
+        .run_agent(emitter, &user_input)
+        .map_err(|e| e.user_message())
+}
+
+/// Workspace files (relative paths).
+#[tauri::command]
+pub async fn get_workspace_files(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    state.workspace_files().map_err(|e| e.user_message())
+}
+
+/// Read a workspace file (policy-checked).
+#[tauri::command]
+pub async fn read_workspace_file(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<String, String> {
+    state.read_workspace_file(path).map_err(|e| e.user_message())
+}
+
+/// The accumulated serial output so far.
+#[tauri::command]
+pub async fn get_serial_buffer(state: State<'_, AppState>) -> Result<String, String> {
+    Ok(state.serial_buffer())
+}
+
+/// Export the audit log as JSONL into the workspace.
+#[tauri::command]
+pub async fn export_audit_jsonl(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<usize, String> {
+    state.export_audit_jsonl(path).map_err(|e| e.user_message())
+}
