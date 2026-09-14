@@ -181,6 +181,9 @@ mod tests {
         let out = std::env::temp_dir().join("riscdom-build-test-bad.elf");
         let result = compile_freestanding(&cfg, &fixture("broken.c"), &out).expect("run gcc");
         assert!(!result.ok, "broken source must not compile");
-        assert!(!result.stderr.trim().is_empty(), "stderr should be captured");
+        assert!(
+            !result.stderr.trim().is_empty(),
+            "stderr should be captured"
+        );
     }
 }

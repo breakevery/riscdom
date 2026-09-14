@@ -14,7 +14,10 @@ pub fn unique_dir(tag: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("riscdom-agent-{tag}-{}-{nanos}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "riscdom-agent-{tag}-{}-{nanos}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("create workspace");
     dir
 }
@@ -22,8 +25,9 @@ pub fn unique_dir(tag: &str) -> PathBuf {
 /// An in-memory audit sink plus a handle to inspect it.
 pub fn sink() -> (Arc<Mutex<dyn AuditSink>>, Arc<Mutex<AuditStore>>) {
     let shared = Arc::new(Mutex::new(AuditStore::in_memory().expect("store")));
-    let s: Arc<Mutex<dyn AuditSink>> =
-        Arc::new(Mutex::new(SqliteAuditSink::from_shared(Arc::clone(&shared))));
+    let s: Arc<Mutex<dyn AuditSink>> = Arc::new(Mutex::new(SqliteAuditSink::from_shared(
+        Arc::clone(&shared),
+    )));
     (s, shared)
 }
 

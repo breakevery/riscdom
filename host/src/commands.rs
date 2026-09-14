@@ -92,9 +92,7 @@ pub async fn clear_llm_config(state: State<'_, AppState>) -> Result<(), String> 
 
 /// Whether an LLM is configured (never returns the key).
 #[tauri::command]
-pub async fn get_llm_config_status(
-    state: State<'_, AppState>,
-) -> Result<LlmConfigStatus, String> {
+pub async fn get_llm_config_status(state: State<'_, AppState>) -> Result<LlmConfigStatus, String> {
     Ok(state.llm_config_status())
 }
 
@@ -123,7 +121,9 @@ pub async fn read_workspace_file(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<String, String> {
-    state.read_workspace_file(path).map_err(|e| e.user_message())
+    state
+        .read_workspace_file(path)
+        .map_err(|e| e.user_message())
 }
 
 /// The accumulated serial output so far.
@@ -134,18 +134,12 @@ pub async fn get_serial_buffer(state: State<'_, AppState>) -> Result<String, Str
 
 /// Write the serial log into the workspace. Returns bytes written.
 #[tauri::command]
-pub async fn export_serial_log(
-    state: State<'_, AppState>,
-    path: String,
-) -> Result<usize, String> {
+pub async fn export_serial_log(state: State<'_, AppState>, path: String) -> Result<usize, String> {
     state.export_serial_log(path).map_err(|e| e.user_message())
 }
 
 /// Export the audit log as JSONL into the workspace.
 #[tauri::command]
-pub async fn export_audit_jsonl(
-    state: State<'_, AppState>,
-    path: String,
-) -> Result<usize, String> {
+pub async fn export_audit_jsonl(state: State<'_, AppState>, path: String) -> Result<usize, String> {
     state.export_audit_jsonl(path).map_err(|e| e.user_message())
 }

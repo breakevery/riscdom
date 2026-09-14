@@ -20,7 +20,6 @@ pub use error::HostError;
 pub use events::EventSink;
 pub use keyring::{KeyringBackend, OsKeyring, SERVICE};
 pub use state::{
-    AgentOutcomeView, AppState, AuditStatusView, ChainStatusView, LlmConfigInput,
-    LlmConfigStatus, LlmReadiness, LocalProbeResult, LocalProviderInfo, ProviderPresetView,
-    StoredEventView,
+    AgentOutcomeView, AppState, AuditStatusView, ChainStatusView, LlmConfigInput, LlmConfigStatus,
+    LlmReadiness, LocalProbeResult, LocalProviderInfo, ProviderPresetView, StoredEventView,
 };

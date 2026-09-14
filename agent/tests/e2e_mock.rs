@@ -20,7 +20,11 @@ fn e2e_mock_full_cycle() {
 
     // The scripted model: 5 tool calls, then a final answer.
     let script = vec![
-        tool_response("c1", "write_source", json!({"path": "hello.c", "content": hello})),
+        tool_response(
+            "c1",
+            "write_source",
+            json!({"path": "hello.c", "content": hello}),
+        ),
         tool_response(
             "c2",
             "compile",
@@ -42,9 +46,14 @@ fn e2e_mock_full_cycle() {
     )
     .expect("agent loop");
 
-    let outcome = agent.run("写一个 RISC-V 裸机 Hello World 并运行").expect("run");
+    let outcome = agent
+        .run("写一个 RISC-V 裸机 Hello World 并运行")
+        .expect("run");
     match outcome {
-        AgentOutcome::Final { content, iterations } => {
+        AgentOutcome::Final {
+            content,
+            iterations,
+        } => {
             assert_eq!(content, "done");
             assert_eq!(iterations, 6, "six LLM round-trips expected");
         }

@@ -50,7 +50,10 @@ fn policy_deny_is_audited_and_model_continues() {
             "policy denial not audited"
         );
         assert!(
-            matches!(verify_chain(&store).expect("verify"), ChainStatus::Intact { .. }),
+            matches!(
+                verify_chain(&store).expect("verify"),
+                ChainStatus::Intact { .. }
+            ),
             "chain broken"
         );
     }
@@ -62,7 +65,10 @@ fn policy_deny_is_audited_and_model_continues() {
         .find(|m| m.role == "tool")
         .expect("a tool message");
     let text = tool_message.content.as_deref().unwrap_or_default();
-    assert!(text.contains("error"), "expected error feedback, got: {text:?}");
+    assert!(
+        text.contains("error"),
+        "expected error feedback, got: {text:?}"
+    );
 
     // Nothing was written outside the workspace.
     assert!(!root.join("etc").exists());

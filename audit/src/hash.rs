@@ -74,9 +74,7 @@ pub fn verify_chain(store: &AuditStore) -> Result<ChainStatus, AuditError> {
         expected_prev = row.hash.clone();
     }
 
-    Ok(ChainStatus::Intact {
-        length: rows.len(),
-    })
+    Ok(ChainStatus::Intact { length: rows.len() })
 }
 
 #[cfg(test)]
@@ -94,14 +92,24 @@ mod tests {
 
     #[test]
     fn hash_is_sha256_lowercase_hex() {
-        let h = compute_hash(GENESIS_PREV_HASH, &ev(1, "sandbox", "vm.start"), "{\"n\":1}");
+        let h = compute_hash(
+            GENESIS_PREV_HASH,
+            &ev(1, "sandbox", "vm.start"),
+            "{\"n\":1}",
+        );
         assert_eq!(h.len(), 64);
-        assert!(h.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(h
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
     }
 
     #[test]
     fn hash_changes_with_input() {
-        let a = compute_hash(GENESIS_PREV_HASH, &ev(1, "sandbox", "vm.start"), "{\"n\":1}");
+        let a = compute_hash(
+            GENESIS_PREV_HASH,
+            &ev(1, "sandbox", "vm.start"),
+            "{\"n\":1}",
+        );
         let b = compute_hash(GENESIS_PREV_HASH, &ev(1, "sandbox", "vm.stop"), "{\"n\":1}");
         assert_ne!(a, b);
     }

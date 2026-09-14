@@ -1,7 +1,7 @@
 //! Stage 6a — serial increment logic (no duplicate, no loss).
 
-use host::state::{serial_full_text, SerialDiff};
 use audit::{AuditEvent, AuditStore, StoredEvent};
+use host::state::{serial_full_text, SerialDiff};
 
 fn tool_call(store: &mut AuditStore, id: &str, name: &str) -> StoredEvent {
     store

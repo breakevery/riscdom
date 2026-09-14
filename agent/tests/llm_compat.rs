@@ -40,7 +40,9 @@ fn requires_scheme() {
     assert!(cfg("api.deepseek.com", "test-key", "deepseek-chat")
         .validate()
         .is_err());
-    assert!(cfg("ftp://example.com", "test-key", "m").validate().is_err());
+    assert!(cfg("ftp://example.com", "test-key", "m")
+        .validate()
+        .is_err());
 }
 
 #[test]
@@ -92,17 +94,18 @@ fn client_alias_and_trait_object_are_compatible() {
     // `DeepSeekClient` remains a usable alias of `OpenAiCompatClient`.
     let c = cfg("https://api.deepseek.com", "test-key", "deepseek-chat");
     let client: OpenAiCompatClient = OpenAiCompatClient::new(c.clone()).expect("client");
-    assert_eq!(client.endpoint(), "https://api.deepseek.com/chat/completions");
+    assert_eq!(
+        client.endpoint(),
+        "https://api.deepseek.com/chat/completions"
+    );
     let _alias = DeepSeekClient::new(c).expect("alias client");
 
     // Both implementations are usable behind the same trait object.
     let boxed: Vec<Box<dyn LlmClient>> = vec![
-        Box::new(OpenAiCompatClient::new(cfg(
-            "http://localhost:11434/v1",
-            "",
-            "qwen2.5-coder",
-        ))
-        .expect("local client")),
+        Box::new(
+            OpenAiCompatClient::new(cfg("http://localhost:11434/v1", "", "qwen2.5-coder"))
+                .expect("local client"),
+        ),
         Box::new(MockLlm::new(vec![])),
     ];
     assert_eq!(boxed.len(), 2);

@@ -54,10 +54,7 @@ impl WorkspacePolicy {
     /// Shared resolution: reject traversal, resolve against the root, and
     /// require the result to stay inside the root.
     fn resolve(&self, path: &Path) -> Result<PathBuf, AgentError> {
-        if path
-            .components()
-            .any(|c| matches!(c, Component::ParentDir))
-        {
+        if path.components().any(|c| matches!(c, Component::ParentDir)) {
             return Err(AgentError::PolicyDenied(format!(
                 "path traversal not allowed: {}",
                 path.display()
@@ -154,11 +151,7 @@ mod tests {
     fn rejects_outside_root() {
         let (p, _) = policy();
         // Drive-less absolute path on Windows, or genuinely absolute elsewhere.
-        let outside = if cfg!(windows) {
-            PathBuf::from("/etc/passwd")
-        } else {
-            PathBuf::from("/etc/passwd")
-        };
+        let outside = PathBuf::from("/etc/passwd");
         assert!(matches!(
             p.check_read(&outside),
             Err(AgentError::PolicyDenied(_))

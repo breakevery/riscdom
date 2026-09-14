@@ -109,12 +109,7 @@ pub fn record_tool_call(sink: &Arc<Mutex<dyn AuditSink>>, call: &ToolCall) {
 }
 
 /// Record the result of a tool call.
-pub fn record_tool_result(
-    sink: &Arc<Mutex<dyn AuditSink>>,
-    call_id: &str,
-    result: &str,
-    ok: bool,
-) {
+pub fn record_tool_result(sink: &Arc<Mutex<dyn AuditSink>>, call_id: &str, result: &str, ok: bool) {
     emit(
         sink,
         "agent.tool.result",
@@ -143,13 +138,14 @@ pub fn record_policy_deny(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::{Choice, FunctionCall, ChatMessage};
+    use crate::message::{ChatMessage, Choice, FunctionCall};
     use audit::{verify_chain, AuditStore, ChainStatus, SqliteAuditSink};
 
     fn sink() -> (Arc<Mutex<dyn AuditSink>>, Arc<Mutex<AuditStore>>) {
         let shared = Arc::new(Mutex::new(AuditStore::in_memory().expect("store")));
-        let s: Arc<Mutex<dyn AuditSink>> =
-            Arc::new(Mutex::new(SqliteAuditSink::from_shared(Arc::clone(&shared))));
+        let s: Arc<Mutex<dyn AuditSink>> = Arc::new(Mutex::new(SqliteAuditSink::from_shared(
+            Arc::clone(&shared),
+        )));
         (s, shared)
     }
 
@@ -193,7 +189,11 @@ mod tests {
         };
         record_tool_call(&sink, &call);
         record_tool_result(&sink, "call_1", "wrote 12 bytes", true);
-        record_policy_deny(&sink, "path outside workspace", serde_json::json!({"path": "/etc/passwd"}));
+        record_policy_deny(
+            &sink,
+            "path outside workspace",
+            serde_json::json!({"path": "/etc/passwd"}),
+        );
 
         let store = shared.lock().expect("lock");
         assert_eq!(
@@ -213,7 +213,10 @@ mod tests {
             "agent.tool.result",
             "agent.policy.deny",
         ] {
-            assert!(actions.iter().any(|a| a == want), "missing {want}: {actions:?}");
+            assert!(
+                actions.iter().any(|a| a == want),
+                "missing {want}: {actions:?}"
+            );
         }
     }
 }

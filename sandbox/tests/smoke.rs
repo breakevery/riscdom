@@ -49,7 +49,10 @@ fn stage3a_lifecycle_serial_and_audit() {
     vm.stop().expect("stop vm");
 
     let text = String::from_utf8_lossy(&captured);
-    assert!(text.contains("HELLO RISCV"), "expected banner, got: {text:?}");
+    assert!(
+        text.contains("HELLO RISCV"),
+        "expected banner, got: {text:?}"
+    );
 
     // Audit chain must be intact and cover at least vm.start / serial.read / vm.stop.
     let store = shared.lock().expect("lock store");

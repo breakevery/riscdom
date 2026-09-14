@@ -14,15 +14,19 @@ fn unique_dir(tag: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("riscdom-tools-{tag}-{}-{nanos}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "riscdom-tools-{tag}-{}-{nanos}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("create workspace");
     dir
 }
 
 fn sink() -> (Arc<Mutex<dyn AuditSink>>, Arc<Mutex<AuditStore>>) {
     let shared = Arc::new(Mutex::new(AuditStore::in_memory().expect("store")));
-    let s: Arc<Mutex<dyn AuditSink>> =
-        Arc::new(Mutex::new(SqliteAuditSink::from_shared(Arc::clone(&shared))));
+    let s: Arc<Mutex<dyn AuditSink>> = Arc::new(Mutex::new(SqliteAuditSink::from_shared(
+        Arc::clone(&shared),
+    )));
     (s, shared)
 }
 
@@ -97,7 +101,10 @@ fn compile_fixture_succeeds() {
     let store = shared.lock().unwrap();
     assert_eq!(count_actions(&store, "agent.compile.start"), 1);
     assert_eq!(count_actions(&store, "agent.compile.result"), 1);
-    assert!(matches!(verify_chain(&store).unwrap(), ChainStatus::Intact { .. }));
+    assert!(matches!(
+        verify_chain(&store).unwrap(),
+        ChainStatus::Intact { .. }
+    ));
 }
 
 #[test]
@@ -133,5 +140,8 @@ fn policy_denies_traversal_and_bad_extension() {
     let store = shared.lock().unwrap();
     assert_eq!(count_actions(&store, "agent.policy.deny"), 2);
     assert_eq!(count_actions(&store, "agent.tool.result"), 2);
-    assert!(matches!(verify_chain(&store).unwrap(), ChainStatus::Intact { .. }));
+    assert!(matches!(
+        verify_chain(&store).unwrap(),
+        ChainStatus::Intact { .. }
+    ));
 }

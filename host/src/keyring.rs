@@ -85,7 +85,10 @@ impl KeyringBackend for InMemoryKeyring {
             .store
             .lock()
             .map_err(|_| "keyring store poisoned".to_string())?;
-        store.insert((service.to_string(), user.to_string()), password.to_string());
+        store.insert(
+            (service.to_string(), user.to_string()),
+            password.to_string(),
+        );
         Ok(())
     }
 

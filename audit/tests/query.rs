@@ -116,7 +116,14 @@ fn export_jsonl_is_independently_parseable() {
     for (i, line) in lines.iter().enumerate() {
         let v: serde_json::Value = serde_json::from_str(line).expect("parse line");
         assert_eq!(v["id"].as_i64().unwrap(), i as i64 + 1);
-        for key in ["timestamp_ms", "actor", "action", "detail", "prev_hash", "hash"] {
+        for key in [
+            "timestamp_ms",
+            "actor",
+            "action",
+            "detail",
+            "prev_hash",
+            "hash",
+        ] {
             assert!(!v[key].is_null(), "missing {key} in line {line}");
         }
         assert_eq!(v["hash"].as_str().unwrap().len(), 64);

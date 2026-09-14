@@ -31,14 +31,8 @@ fn real_deepseek_writes_and_runs_hello_world() {
     let (audit, shared) = sink();
     let system = build_system_prompt(&constitution_path()).expect("system prompt");
 
-    let mut agent = AgentLoop::new(
-        Box::new(client),
-        config,
-        policy,
-        Arc::clone(&audit),
-        system,
-    )
-    .expect("agent loop");
+    let mut agent = AgentLoop::new(Box::new(client), config, policy, Arc::clone(&audit), system)
+        .expect("agent loop");
 
     let outcome = agent
         .run("写一个 RISC-V 裸机 Hello World，编译、启动并在串口打印 HELLO RISCV，然后读回串口输出")

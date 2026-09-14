@@ -65,11 +65,7 @@ pub fn build_guest_elf() -> PathBuf {
 }
 
 /// Poll `serial_output` until `needle` appears or `timeout` elapses.
-pub fn wait_for_serial(
-    vm: &RiscVVirtualMachine,
-    needle: &[u8],
-    timeout: Duration,
-) -> bool {
+pub fn wait_for_serial(vm: &RiscVVirtualMachine, needle: &[u8], timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         let out = vm.serial_output();

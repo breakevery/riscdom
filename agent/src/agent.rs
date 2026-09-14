@@ -105,7 +105,12 @@ impl AgentLoop {
                 temperature: Some(0.0),
                 stream: None,
             };
-            record_llm_request(&self.audit, &request, &self.config.model, &self.config.base_url);
+            record_llm_request(
+                &self.audit,
+                &request,
+                &self.config.model,
+                &self.config.base_url,
+            );
 
             iterations += 1;
             let response = match self.llm.chat(request) {
@@ -161,8 +166,10 @@ impl AgentLoop {
                         Err(e) => format!("error: {e}"),
                     }
                 };
-                self.messages
-                    .push(ChatMessage::tool_result(&call.id, truncate(&text, MAX_MESSAGE_BYTES)));
+                self.messages.push(ChatMessage::tool_result(
+                    &call.id,
+                    truncate(&text, MAX_MESSAGE_BYTES),
+                ));
             }
 
             if iterations >= self.config.max_iterations {
@@ -265,6 +272,10 @@ mod tests {
         trim(&mut messages);
         assert_eq!(messages.len(), CONTEXT_KEEP + 2);
         assert_eq!(messages[0].role, "system");
-        assert!(messages[1].content.as_deref().unwrap().contains("truncated"));
+        assert!(messages[1]
+            .content
+            .as_deref()
+            .unwrap()
+            .contains("truncated"));
     }
 }

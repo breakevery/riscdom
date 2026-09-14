@@ -10,7 +10,8 @@ fn unique_ws(tag: &str) -> std::path::PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("riscdom-host-{tag}-{}-{nanos}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("riscdom-host-{tag}-{}-{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -47,7 +48,10 @@ fn llm_config_roundtrip_and_no_key_leak() {
     // The serialised status must not contain the key.
     let json = serde_json::to_string(&status).unwrap();
     assert!(!json.contains("placeholder-key"), "key leaked: {json}");
-    assert!(!json.to_lowercase().contains("api_key"), "api_key field leaked: {json}");
+    assert!(
+        !json.to_lowercase().contains("api_key"),
+        "api_key field leaked: {json}"
+    );
 
     state.clear_llm_config();
     assert!(!state.llm_config_status().configured);
@@ -75,7 +79,9 @@ fn provider_presets_are_available() {
     let presets = state.provider_presets();
     assert_eq!(presets.len(), 5, "expected 5 builtin presets");
     assert!(presets.iter().any(|p| p.id == "deepseek"));
-    assert!(presets.iter().any(|p| p.id == "ollama" && p.is_local && !p.requires_key));
+    assert!(presets
+        .iter()
+        .any(|p| p.id == "ollama" && p.is_local && !p.requires_key));
 }
 
 #[test]
@@ -84,7 +90,13 @@ fn set_llm_config_fills_from_preset() {
 
     // Ollama preset: no key, base_url/model omitted -> filled from the preset.
     state
-        .set_llm_config_with(Some("ollama".into()), String::new(), String::new(), String::new(), None)
+        .set_llm_config_with(
+            Some("ollama".into()),
+            String::new(),
+            String::new(),
+            String::new(),
+            None,
+        )
         .expect("ollama preset");
     let status = state.llm_config_status();
     assert_eq!(status.provider_id, "ollama");
@@ -93,7 +105,13 @@ fn set_llm_config_fills_from_preset() {
 
     // custom without base_url/model is rejected.
     assert!(state
-        .set_llm_config_with(Some("custom".into()), String::new(), String::new(), String::new(), None)
+        .set_llm_config_with(
+            Some("custom".into()),
+            String::new(),
+            String::new(),
+            String::new(),
+            None
+        )
         .is_err());
 }
 
@@ -110,7 +128,13 @@ fn readiness_no_config() {
 fn readiness_ok_with_local_preset() {
     let state = AppState::in_memory(unique_ws("ready-ollama")).expect("state");
     state
-        .set_llm_config_with(Some("ollama".into()), String::new(), String::new(), String::new(), None)
+        .set_llm_config_with(
+            Some("ollama".into()),
+            String::new(),
+            String::new(),
+            String::new(),
+            None,
+        )
         .expect("ollama preset");
     let r = state.llm_readiness();
     assert!(r.ready, "{r:?}");
@@ -123,7 +147,13 @@ fn readiness_missing_api_key_for_cloud() {
 
     // Saving DeepSeek without a key is rejected (structured code).
     let err = state
-        .set_llm_config_with(Some("deepseek".into()), String::new(), String::new(), String::new(), None)
+        .set_llm_config_with(
+            Some("deepseek".into()),
+            String::new(),
+            String::new(),
+            String::new(),
+            None,
+        )
         .expect_err("should reject keyless cloud provider");
     assert!(err.to_string().contains("missing_api_key"), "{err}");
 

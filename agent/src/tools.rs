@@ -131,11 +131,7 @@ pub fn tools_json() -> Vec<serde_json::Value> {
 }
 
 /// Execute a tool call.
-pub fn execute_tool(
-    name: &str,
-    args: &str,
-    ctx: &mut ToolContext,
-) -> Result<String, AgentError> {
+pub fn execute_tool(name: &str, args: &str, ctx: &mut ToolContext) -> Result<String, AgentError> {
     let parsed: serde_json::Value = if args.trim().is_empty() {
         serde_json::json!({})
     } else {
@@ -222,25 +218,31 @@ fn tool_compile(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<Strin
         .check_read(Path::new(out_rel))
         .map_err(|e| deny(ctx, "compile", out_rel, e))?;
     if out.extension().and_then(|e| e.to_str()) != Some("elf") {
-        return Err(AgentError::Tool(
-            "output_elf must end in .elf".to_string(),
-        ));
+        return Err(AgentError::Tool("output_elf must end in .elf".to_string()));
     }
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
-    emit_compile(ctx, "agent.compile.start", serde_json::json!({
-        "source": src_rel, "output": out_rel,
-    }));
+    emit_compile(
+        ctx,
+        "agent.compile.start",
+        serde_json::json!({
+            "source": src_rel, "output": out_rel,
+        }),
+    );
 
     let res = compile_freestanding(ctx.compiler, &src, &out)?;
 
-    emit_compile(ctx, "agent.compile.result", serde_json::json!({
-        "ok": res.ok,
-        "stderr": truncate_result(&res.stderr),
-        "stdout": truncate_result(&res.stdout),
-    }));
+    emit_compile(
+        ctx,
+        "agent.compile.result",
+        serde_json::json!({
+            "ok": res.ok,
+            "stderr": truncate_result(&res.stderr),
+            "stdout": truncate_result(&res.stdout),
+        }),
+    );
 
     if res.ok {
         Ok(format!("compiled {} -> {} (ok)", src_rel, out_rel))
@@ -355,8 +357,12 @@ fn two_free_ports() -> Result<(u16, u16), AgentError> {
     let a = TcpListener::bind("127.0.0.1:0").map_err(|e| AgentError::Tool(e.to_string()))?;
     let b = TcpListener::bind("127.0.0.1:0").map_err(|e| AgentError::Tool(e.to_string()))?;
     Ok((
-        a.local_addr().map_err(|e| AgentError::Tool(e.to_string()))?.port(),
-        b.local_addr().map_err(|e| AgentError::Tool(e.to_string()))?.port(),
+        a.local_addr()
+            .map_err(|e| AgentError::Tool(e.to_string()))?
+            .port(),
+        b.local_addr()
+            .map_err(|e| AgentError::Tool(e.to_string()))?
+            .port(),
     ))
 }
 

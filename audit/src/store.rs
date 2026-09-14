@@ -36,8 +36,7 @@ BEGIN
 END;
 "#;
 
-const SELECT_COLUMNS: &str =
-    "id, timestamp_ms, actor, action, detail_json, prev_hash, hash";
+const SELECT_COLUMNS: &str = "id, timestamp_ms, actor, action, detail_json, prev_hash, hash";
 
 /// Filter for [`AuditStore::list`]. All fields are optional (ANDed together).
 #[derive(Debug, Clone, Default)]
@@ -260,9 +259,6 @@ impl AuditStore {
 
     /// All events in chain order, decoded.
     pub fn all(&self) -> Result<Vec<StoredEvent>, AuditError> {
-        self.scan()?
-            .into_iter()
-            .map(RawRow::into_stored)
-            .collect()
+        self.scan()?.into_iter().map(RawRow::into_stored).collect()
     }
 }

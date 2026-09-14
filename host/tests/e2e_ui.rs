@@ -101,7 +101,10 @@ fn e2e_ui_mock_run_emits_final_and_serial() {
 
     let sink = Arc::new(RecordingEventSink::new());
     let outcome = state
-        .run_agent(sink.clone() as Arc<dyn host::EventSink>, "写一个 RISC-V 裸机 Hello World")
+        .run_agent(
+            sink.clone() as Arc<dyn host::EventSink>,
+            "写一个 RISC-V 裸机 Hello World",
+        )
         .expect("run_agent");
 
     println!("outcome: {outcome:?}");
@@ -114,7 +117,11 @@ fn e2e_ui_mock_run_emits_final_and_serial() {
 
     assert_eq!(outcome.kind, "final");
     assert_eq!(outcome.content.as_deref(), Some("done"));
-    assert_eq!(sink.count(EV_AGENT_FINAL), 1, "agent:final must arrive once");
+    assert_eq!(
+        sink.count(EV_AGENT_FINAL),
+        1,
+        "agent:final must arrive once"
+    );
     assert!(
         sink.serial_text().contains("HELLO RISCV"),
         "serial:chunk must contain the guest banner, got: {:?}",

@@ -36,8 +36,7 @@ impl AgentConfig {
 
         let base_url = std::env::var("DEEPSEEK_BASE_URL")
             .unwrap_or_else(|_| "https://api.deepseek.com".to_string());
-        let model =
-            std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
+        let model = std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
         let max_iterations = std::env::var("RISCDOM_MAX_ITERATIONS")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -149,8 +148,14 @@ pub fn mask_key(key: &str) -> String {
 fn is_local_url(url: &str) -> bool {
     let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
     let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    let hostport = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
-    let host = hostport.rsplit_once(':').map(|(h, _)| h).unwrap_or(hostport);
+    let hostport = authority
+        .rsplit_once('@')
+        .map(|(_, h)| h)
+        .unwrap_or(authority);
+    let host = hostport
+        .rsplit_once(':')
+        .map(|(h, _)| h)
+        .unwrap_or(hostport);
     let host = host.trim_start_matches('[').trim_end_matches(']');
     matches!(host, "localhost" | "127.0.0.1" | "::1" | "0.0.0.0")
 }

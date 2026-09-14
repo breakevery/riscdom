@@ -70,10 +70,7 @@ pub struct RiscVVirtualMachine {
 
 impl RiscVVirtualMachine {
     /// Create a new VM handle. Does not spawn anything yet.
-    pub fn new(
-        config: VMConfig,
-        audit: Arc<Mutex<dyn AuditSink>>,
-    ) -> Result<Self, SandboxError> {
+    pub fn new(config: VMConfig, audit: Arc<Mutex<dyn AuditSink>>) -> Result<Self, SandboxError> {
         if !config.kernel.exists() {
             return Err(SandboxError::Config(format!(
                 "kernel not found: {}",
@@ -253,10 +250,7 @@ impl RiscVVirtualMachine {
                     .map_err(|e| SandboxError::Serial(e.to_string()))?;
             }
         }
-        self.emit(
-            "serial.write",
-            serde_json::json!({ "bytes": data.len() }),
-        );
+        self.emit("serial.write", serde_json::json!({ "bytes": data.len() }));
         Ok(())
     }
 
@@ -305,8 +299,8 @@ impl RiscVVirtualMachine {
         let path = self.snapshot_path(name);
         let text = std::fs::read_to_string(&path)
             .map_err(|e| SandboxError::Snapshot(format!("{}: {e}", path.display())))?;
-        let value: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| SandboxError::Snapshot(e.to_string()))?;
+        let value: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| SandboxError::Snapshot(e.to_string()))?;
         let stored = value
             .get("config")
             .cloned()

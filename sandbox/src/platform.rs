@@ -17,9 +17,14 @@ use std::path::PathBuf;
 /// QMP (QEMU Machine Protocol) endpoint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QmpEndpoint {
-    Tcp { host: String, port: u16 },
+    Tcp {
+        host: String,
+        port: u16,
+    },
     #[cfg(unix)]
-    UnixSocket { path: PathBuf },
+    UnixSocket {
+        path: PathBuf,
+    },
 }
 
 /// Serial (UART) endpoint.

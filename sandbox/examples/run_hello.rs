@@ -84,8 +84,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = std::fs::remove_file(work.join(format!("audit.db{suffix}")));
     }
 
-    let audit: Arc<Mutex<dyn AuditSink>> =
-        Arc::new(Mutex::new(SqliteAuditSink::new(AuditStore::open(&db_path)?)));
+    let audit: Arc<Mutex<dyn AuditSink>> = Arc::new(Mutex::new(SqliteAuditSink::new(
+        AuditStore::open(&db_path)?,
+    )));
     let (qmp_port, serial_port) = two_free_ports();
     let config = VMConfig {
         kernel: kernel.clone(),
@@ -109,7 +110,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    println!("serial : {}", String::from_utf8_lossy(&vm.serial_output()).trim_end());
+    println!(
+        "serial : {}",
+        String::from_utf8_lossy(&vm.serial_output()).trim_end()
+    );
     vm.stop()?;
     drop(vm);
 

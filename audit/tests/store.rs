@@ -1,8 +1,6 @@
 //! Stage 4a — store basics and concurrent append behaviour.
 
-use audit::{
-    verify_chain, AuditEvent, AuditSink, AuditStore, ChainStatus, SqliteAuditSink,
-};
+use audit::{verify_chain, AuditEvent, AuditSink, AuditStore, ChainStatus, SqliteAuditSink};
 use std::sync::{Arc, Mutex};
 use std::thread;
 

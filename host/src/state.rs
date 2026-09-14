@@ -1,8 +1,10 @@
 //! Application state shared by all Tauri commands.
 
 use crate::error::HostError;
-use crate::events::{EventSink, EV_AGENT_FINAL, EV_AGENT_ITERATION, EV_AGENT_TOOL_CALL,
-                    EV_AGENT_TOOL_RESULT, EV_SERIAL_CHUNK, EV_VM_STATE};
+use crate::events::{
+    EventSink, EV_AGENT_FINAL, EV_AGENT_ITERATION, EV_AGENT_TOOL_CALL, EV_AGENT_TOOL_RESULT,
+    EV_SERIAL_CHUNK, EV_VM_STATE,
+};
 use crate::keyring::{user_for_provider, InMemoryKeyring, KeyringBackend, OsKeyring, SERVICE};
 use agent::llm::{DeepSeekClient, LlmClient};
 use agent::message::{ChatRequest, ChatResponse};
@@ -111,10 +113,26 @@ pub const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(
 
 /// Candidate local endpoints (id, display name, `/v1/models` URL).
 const PROBE_TARGETS: &[(&str, &str, &str)] = &[
-    ("ollama", "Ollama（本地）", "http://localhost:11434/v1/models"),
-    ("ollama", "Ollama（本地）", "http://127.0.0.1:11434/v1/models"),
-    ("lmstudio", "LM Studio（本地）", "http://localhost:1234/v1/models"),
-    ("lmstudio", "LM Studio（本地）", "http://127.0.0.1:1234/v1/models"),
+    (
+        "ollama",
+        "Ollama（本地）",
+        "http://localhost:11434/v1/models",
+    ),
+    (
+        "ollama",
+        "Ollama（本地）",
+        "http://127.0.0.1:11434/v1/models",
+    ),
+    (
+        "lmstudio",
+        "LM Studio（本地）",
+        "http://localhost:1234/v1/models",
+    ),
+    (
+        "lmstudio",
+        "LM Studio（本地）",
+        "http://127.0.0.1:1234/v1/models",
+    ),
 ];
 
 /// Build an [`AgentConfig`] view of a stored input (for validation only).
@@ -310,8 +328,7 @@ impl AppState {
         };
         let base_url = std::env::var("DEEPSEEK_BASE_URL")
             .unwrap_or_else(|_| "https://api.deepseek.com".to_string());
-        let model =
-            std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
+        let model = std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
 
         let input = LlmConfigInput {
             provider_id: DEFAULT_PRESET_ID.to_string(),
@@ -332,8 +349,9 @@ impl AppState {
 
     fn from_store(root: PathBuf, store: AuditStore, keyring: Arc<dyn KeyringBackend>) -> Self {
         let shared = Arc::new(Mutex::new(store));
-        let sink: Arc<Mutex<dyn AuditSink>> =
-            Arc::new(Mutex::new(SqliteAuditSink::from_shared(Arc::clone(&shared))));
+        let sink: Arc<Mutex<dyn AuditSink>> = Arc::new(Mutex::new(SqliteAuditSink::from_shared(
+            Arc::clone(&shared),
+        )));
         Self {
             audit: shared,
             sink,
@@ -445,15 +463,19 @@ impl AppState {
             Err(e) => return Err(e),
         };
 
-        let existing = self.llm_config.lock().ok().and_then(|g| g.as_ref().cloned());
+        let existing = self
+            .llm_config
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().cloned());
         let input = match existing {
             Some(current) if current.provider_id == provider_id => LlmConfigInput {
                 api_key: key,
                 ..current
             },
             _ => {
-                let preset = find_preset(provider_id)
-                    .ok_or_else(|| "unknown_provider".to_string())?;
+                let preset =
+                    find_preset(provider_id).ok_or_else(|| "unknown_provider".to_string())?;
                 LlmConfigInput {
                     provider_id: preset.id.clone(),
                     api_key: key,
@@ -571,7 +593,12 @@ impl AppState {
     /// Whether the LLM is ready to run (never includes the key).
     pub fn llm_readiness(&self) -> LlmReadiness {
         // Test seam: an injected client is always considered ready.
-        if self.llm_override.lock().map(|g| g.is_some()).unwrap_or(false) {
+        if self
+            .llm_override
+            .lock()
+            .map(|g| g.is_some())
+            .unwrap_or(false)
+        {
             return LlmReadiness {
                 ready: true,
                 reason: None,
@@ -581,9 +608,7 @@ impl AppState {
         let no_config = || LlmReadiness {
             ready: false,
             reason: Some("no_config".into()),
-            suggestion: Some(
-                "请在设置中选择服务商并填写 API Key，或使用本地模型".to_string(),
-            ),
+            suggestion: Some("请在设置中选择服务商并填写 API Key，或使用本地模型".to_string()),
         };
         match self.llm_config.lock() {
             Ok(g) => match g.as_ref() {
@@ -792,7 +817,10 @@ impl AppState {
     /// agent's `read_serial` tool results in the audit log).
     pub fn serial_buffer(&self) -> String {
         match self.audit.lock() {
-            Ok(store) => store.all().map(|e| serial_full_text(&e)).unwrap_or_default(),
+            Ok(store) => store
+                .all()
+                .map(|e| serial_full_text(&e))
+                .unwrap_or_default(),
             Err(_) => String::new(),
         }
     }

@@ -41,7 +41,10 @@ fn stage3b_snapshot_save_and_load() {
     );
 
     vm.save_snapshot("s1").expect("save snapshot");
-    assert!(snapshot_dir.join("s1.json").exists(), "snapshot file missing");
+    assert!(
+        snapshot_dir.join("s1.json").exists(),
+        "snapshot file missing"
+    );
     vm.stop().expect("stop vm");
 
     vm.load_snapshot("s1").expect("load snapshot");
@@ -52,7 +55,10 @@ fn stage3b_snapshot_save_and_load() {
     let text = String::from_utf8_lossy(&vm.serial_output()).to_string();
     vm.stop().expect("stop vm");
 
-    assert!(text.contains("HELLO RISCV"), "boot output after load: {text:?}");
+    assert!(
+        text.contains("HELLO RISCV"),
+        "boot output after load: {text:?}"
+    );
 
     let store = shared.lock().expect("lock store");
     let status = verify_chain(&store).expect("verify chain");
@@ -66,7 +72,12 @@ fn stage3b_snapshot_save_and_load() {
         .into_iter()
         .map(|e| e.event.action)
         .collect();
-    for want in ["vm.start", "vm.snapshot.save", "vm.snapshot.load", "vm.stop"] {
+    for want in [
+        "vm.start",
+        "vm.snapshot.save",
+        "vm.snapshot.load",
+        "vm.stop",
+    ] {
         assert!(
             actions.iter().any(|a| a == want),
             "audit missing {want}: {actions:?}"

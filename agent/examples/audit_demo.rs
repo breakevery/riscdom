@@ -8,7 +8,9 @@ use agent::audit_hook::{
     record_llm_request, record_llm_response, record_policy_deny, record_tool_call,
     record_tool_result,
 };
-use agent::message::{ChatMessage, ChatRequest, ChatResponse, Choice, FunctionCall, ToolCall, Usage};
+use agent::message::{
+    ChatMessage, ChatRequest, ChatResponse, Choice, FunctionCall, ToolCall, Usage,
+};
 use audit::{AuditSink, AuditStore, SqliteAuditSink};
 use std::sync::{Arc, Mutex};
 
@@ -21,8 +23,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let shared = Arc::new(Mutex::new(AuditStore::open(&db)?));
-    let sink: Arc<Mutex<dyn AuditSink>> =
-        Arc::new(Mutex::new(SqliteAuditSink::from_shared(Arc::clone(&shared))));
+    let sink: Arc<Mutex<dyn AuditSink>> = Arc::new(Mutex::new(SqliteAuditSink::from_shared(
+        Arc::clone(&shared),
+    )));
 
     let req = ChatRequest {
         model: "deepseek-chat".into(),

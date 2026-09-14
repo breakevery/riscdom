@@ -47,7 +47,9 @@ mod tests {
     use std::path::PathBuf;
 
     fn constitution() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("AGENTS.md")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("AGENTS.md")
     }
 
     #[test]

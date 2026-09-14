@@ -20,10 +20,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("sandbox", "serial.read"),
         ("sandbox", "vm.stop"),
     ] {
-        store.append(AuditEvent::new(actor, action, serde_json::json!({ "demo": true })))?;
+        store.append(AuditEvent::new(
+            actor,
+            action,
+            serde_json::json!({ "demo": true }),
+        ))?;
     }
 
-    println!("{:<3} {:<9} {:<13} {:<64} {}", "id", "actor", "action", "prev_hash", "hash");
+    let columns = ["id", "actor", "action", "prev_hash", "hash"];
+    println!(
+        "{:<3} {:<9} {:<13} {:<64} {}",
+        columns[0], columns[1], columns[2], columns[3], columns[4]
+    );
     for e in store.all()? {
         println!(
             "{:<3} {:<9} {:<13} {:<64} {}",
