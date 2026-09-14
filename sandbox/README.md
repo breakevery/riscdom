@@ -3,15 +3,26 @@
 智芯城（RiscDom）的 **QEMU RISC-V 沙箱层**。
 
 在 QEMU `virt` 机器上启动 RISC-V 裸机 ELF，通过 QMP 控制，捕获串口输出，
-并提供（MVP 降级的）快照/回滚能力。所有对外操作都会写入 `AuditSink`。
+并提供（MVP 降级的）快照/回滚能力。所有对外操作都会写入审计。
 
 ## 模块
 
 - `vm` — `RiscVVirtualMachine` / `VMConfig`：QEMU 生命周期、串口捕获、快照
 - `platform` — `QmpEndpoint` / `SerialEndpoint`：平台端点抽象（端点 → QEMU 参数）
 - `qmp` — `QmpClient`：最小 QMP 客户端（greeting / `qmp_capabilities` / `stop` / `cont` / `quit`）
-- `audit_sink` — `AuditSink` trait + `FileAuditSink`（占位实现）
 - `error` — `SandboxError`
+
+## 审计（audit crate）
+
+审计实现来自 **`audit` crate**（append-only SQLite + SHA-256 hash chain）。
+依赖方向为 `sandbox → audit`；`sandbox` 不自定义审计类型。
+
+- 构造函数要求 `Arc<Mutex<dyn AuditSink>>`（`AuditSink` 的 `record` 为 `&mut self`）。
+- 直接写 SQLite（append-only），不再是 JSONL 占位。
+- 事件 `actor` 统一为 `"sandbox"`，当前类型：
+  `vm.start` / `vm.stop` / `vm.snapshot.save` / `vm.snapshot.load` / `serial.read` / `serial.write`。
+
+`audit::FileAuditSink` 保留在 `audit` crate 中**仅作示例**，生产请用 `audit::SqliteAuditSink`。
 
 ## 平台限制
 
@@ -37,27 +48,13 @@
 
 也就是说，MVP 的“回滚”等于“用相同参数重启”。设备状态与内存不会被保存。
 
-## AuditSink 是占位接口
-
-`audit_sink` 模块中的 `AuditSink` trait 与 `FileAuditSink` 只是**占位实现**，
-用于让每个对外操作从第一天就产生审计事件（JSONL 追加）。
-
-真正的 append-only + hash chain 实现属于 `audit` crate，落地后会替换 `FileAuditSink`。
-按项目宪法：审计日志在 AI 之外、append-only、不可关闭。
-
-`actor` 统一为 `"sandbox"`；当前事件类型：
-
-- `vm.start` / `vm.stop`
-- `vm.snapshot.save` / `vm.snapshot.load`
-- `serial.read` / `serial.write`
-
 ## 测试
 
 ```text
 cargo test -p sandbox
 ```
 
-- `tests/smoke.rs`（3a）：启动 QEMU → 捕获 `HELLO RISCV` → 停止 → 校验审计
+- `tests/smoke.rs`（3a）：启动 QEMU → 捕获 `HELLO RISCV` → 停止 → 校验审计链 Intact
 - `tests/snapshot.rs`（3b）：启动 → 保存快照 → 停止 → 加载 → 再启动成功
 - `tests/fixtures/`：最小 RISC-V 裸机 guest（`hello.c` + `link.ld`）
 
@@ -69,10 +66,17 @@ cargo test -p sandbox
 cargo run -p sandbox --example run_hello
 ```
 
+启动 guest、打印串口输出，并把审计写入 SQLite 后调用 `verify_chain` 打印结果。
+
+可再用独立工具复核：
+
+```text
+cargo run -p audit --bin audit-verify -- <path-to-db>
+```
+
 ## v0.2 待办
 
 - 用 QEMU `savevm` / `loadvm` 替换 MVP 快照降级方案（真实内存 + 设备状态）
 - 接入 `gdbstub`（TCP）做调试
 - virtio 设备（块设备 / 网络）
 - Unix socket 端点实现（`QmpEndpoint::UnixSocket`）
-- 用真正的 `audit` crate 替换 `FileAuditSink`

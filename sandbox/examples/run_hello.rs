@@ -1,19 +1,20 @@
 //! Minimal end-to-end usage example for the `sandbox` crate.
 //!
 //! Builds the bundled bare-metal guest (unless a kernel path is given as the
-//! first argument), boots it in QEMU, prints the captured UART output, and
-//! stops the VM.
+//! first argument), boots it in QEMU, prints the captured UART output, stops
+//! the VM, and verifies the audit chain written to a SQLite file.
 //!
 //! ```text
 //! cargo run -p sandbox --example run_hello
 //! cargo run -p sandbox --example run_hello -- path/to/kernel.elf
 //! ```
 
-use sandbox::{FileAuditSink, QmpEndpoint, RiscVVirtualMachine, SerialEndpoint, VMConfig};
+use audit::{verify_chain, AuditSink, AuditStore, SqliteAuditSink};
+use sandbox::{QmpEndpoint, RiscVVirtualMachine, SerialEndpoint, VMConfig};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 fn two_free_ports() -> (u16, u16) {
@@ -70,16 +71,21 @@ fn build_guest() -> PathBuf {
     elf
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let kernel = match std::env::args().nth(1) {
         Some(p) => PathBuf::from(p),
         None => build_guest(),
     };
 
     let work = std::env::temp_dir().join("riscdom-example");
-    std::fs::create_dir_all(&work).expect("create work dir");
+    std::fs::create_dir_all(&work)?;
+    let db_path = work.join("audit.db");
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(work.join(format!("audit.db{suffix}")));
+    }
 
-    let audit = Arc::new(FileAuditSink::new(work.join("audit.jsonl")));
+    let audit: Arc<Mutex<dyn AuditSink>> =
+        Arc::new(Mutex::new(SqliteAuditSink::new(AuditStore::open(&db_path)?)));
     let (qmp_port, serial_port) = two_free_ports();
     let config = VMConfig {
         kernel: kernel.clone(),
@@ -90,10 +96,10 @@ fn main() {
     };
 
     println!("kernel : {}", kernel.display());
-    println!("audit  : {}", work.join("audit.jsonl").display());
+    println!("audit db: {}", db_path.display());
 
-    let mut vm = RiscVVirtualMachine::new(config, audit).expect("construct vm");
-    vm.start().expect("start vm");
+    let mut vm = RiscVVirtualMachine::new(config, audit)?;
+    vm.start()?;
     println!("QEMU started (qmp={qmp_port}, serial={serial_port})");
 
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -103,10 +109,13 @@ fn main() {
         }
         std::thread::sleep(Duration::from_millis(50));
     }
+    println!("serial : {}", String::from_utf8_lossy(&vm.serial_output()).trim_end());
+    vm.stop()?;
+    drop(vm);
 
-    let out = String::from_utf8_lossy(&vm.serial_output()).to_string();
-    println!("serial : {}", out.trim_end());
-
-    vm.stop().expect("stop vm");
-    println!("stopped.");
+    // Verify the chain from a fresh connection to the on-disk DB.
+    let store = AuditStore::open(&db_path)?;
+    println!("events : {}", store.count()?);
+    println!("verify : {:?}", verify_chain(&store)?);
+    Ok(())
 }

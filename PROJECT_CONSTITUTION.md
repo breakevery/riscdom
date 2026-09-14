@@ -68,6 +68,11 @@ MVP 沙箱内 AI 只能生成：
 
 事件分类（actor）：`human`、`host`、`agent`、`sandbox`、`system`。
 
+实现说明（2026-09-14 更新）：上述事件由 `audit` crate 落地——append-only SQLite
+（`BEFORE UPDATE` / `BEFORE DELETE` 触发器硬保证）+ SHA-256 hash chain，无任何
+UPDATE / DELETE API、无关闭审计的开关。`sandbox` 通过 `audit::AuditSink` 写入，
+依赖方向为 `sandbox → audit`。`audit::FileAuditSink` 仅作示例实现保留。
+
 ## 7. 开发纪律
 
 - 每个动作写入审计事件。

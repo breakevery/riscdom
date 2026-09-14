@@ -12,10 +12,7 @@
 //! `-bios none` is required so the guest ELF entry at `0x80000000` runs
 //! directly (the default OpenSBI firmware would occupy `0x80000000`).
 
-use crate::audit_sink::{AuditEvent, AuditSink};
-use crate::error::SandboxError;
-use crate::platform::{connect_with_retry, QmpEndpoint, SerialEndpoint};
-use crate::qmp::QmpClient;
+use audit::{AuditEvent, AuditSink};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -24,6 +21,10 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use crate::error::SandboxError;
+use crate::platform::{connect_with_retry, QmpEndpoint, SerialEndpoint};
+use crate::qmp::QmpClient;
 
 /// Actor name used for all sandbox-originated audit events.
 const AUDIT_ACTOR: &str = "sandbox";
@@ -53,7 +54,7 @@ pub struct VMConfig {
 /// A running (or startable) RISC-V virtual machine.
 pub struct RiscVVirtualMachine {
     config: VMConfig,
-    audit: Arc<dyn AuditSink>,
+    audit: Arc<Mutex<dyn AuditSink>>,
     qemu_bin: PathBuf,
 
     child: Option<Child>,
@@ -69,7 +70,10 @@ pub struct RiscVVirtualMachine {
 
 impl RiscVVirtualMachine {
     /// Create a new VM handle. Does not spawn anything yet.
-    pub fn new(config: VMConfig, audit: Arc<dyn AuditSink>) -> Result<Self, SandboxError> {
+    pub fn new(
+        config: VMConfig,
+        audit: Arc<Mutex<dyn AuditSink>>,
+    ) -> Result<Self, SandboxError> {
         if !config.kernel.exists() {
             return Err(SandboxError::Config(format!(
                 "kernel not found: {}",
@@ -143,11 +147,13 @@ impl RiscVVirtualMachine {
                             if let Ok(mut guard) = buf.lock() {
                                 guard.extend_from_slice(&chunk[..n]);
                             }
-                            audit.record(AuditEvent::now(
-                                AUDIT_ACTOR,
-                                "serial.read",
-                                serde_json::json!({ "bytes": n }),
-                            ));
+                            if let Ok(mut sink) = audit.lock() {
+                                sink.record(AuditEvent::new(
+                                    AUDIT_ACTOR,
+                                    "serial.read",
+                                    serde_json::json!({ "bytes": n }),
+                                ));
+                            }
                         }
                         Err(_) => break,
                     }
@@ -158,8 +164,7 @@ impl RiscVVirtualMachine {
         // 2. QMP: connect, consume greeting, negotiate capabilities.
         self.qmp = Some(QmpClient::connect(&self.config.qmp, CONNECT_TIMEOUT)?);
 
-        self.audit.record(AuditEvent::now(
-            AUDIT_ACTOR,
+        self.emit(
             "vm.start",
             serde_json::json!({
                 "kernel": self.config.kernel.display().to_string(),
@@ -167,7 +172,7 @@ impl RiscVVirtualMachine {
                 "qemu": self.qemu_bin.display().to_string(),
                 "args": args,
             }),
-        ));
+        );
 
         Ok(())
     }
@@ -208,11 +213,7 @@ impl RiscVVirtualMachine {
         }
 
         if was_running {
-            self.audit.record(AuditEvent::now(
-                AUDIT_ACTOR,
-                "vm.stop",
-                serde_json::json!({}),
-            ));
+            self.emit("vm.stop", serde_json::json!({}));
         }
         Ok(())
     }
@@ -252,11 +253,10 @@ impl RiscVVirtualMachine {
                     .map_err(|e| SandboxError::Serial(e.to_string()))?;
             }
         }
-        self.audit.record(AuditEvent::now(
-            AUDIT_ACTOR,
+        self.emit(
             "serial.write",
             serde_json::json!({ "bytes": data.len() }),
-        ));
+        );
         Ok(())
     }
 
@@ -284,15 +284,14 @@ impl RiscVVirtualMachine {
             .map_err(|e| SandboxError::Snapshot(e.to_string()))?;
         std::fs::write(&path, text).map_err(|e| SandboxError::Snapshot(e.to_string()))?;
 
-        self.audit.record(AuditEvent::now(
-            AUDIT_ACTOR,
+        self.emit(
             "vm.snapshot.save",
             serde_json::json!({
                 "name": name,
                 "path": path.display().to_string(),
                 "mode": "mvp-reboot",
             }),
-        ));
+        );
         Ok(())
     }
 
@@ -321,20 +320,26 @@ impl RiscVVirtualMachine {
         self.serial_buf = Arc::new(Mutex::new(Vec::new()));
         self.start()?;
 
-        self.audit.record(AuditEvent::now(
-            AUDIT_ACTOR,
+        self.emit(
             "vm.snapshot.load",
             serde_json::json!({
                 "name": name,
                 "path": path.display().to_string(),
                 "mode": "mvp-reboot",
             }),
-        ));
+        );
         Ok(())
     }
 
     fn snapshot_path(&self, name: &str) -> PathBuf {
         self.config.snapshot_dir.join(format!("{name}.json"))
+    }
+
+    /// Record an audit event (best-effort: never fails the caller).
+    fn emit(&self, action: &str, detail: serde_json::Value) {
+        if let Ok(mut sink) = self.audit.lock() {
+            sink.record(AuditEvent::new(AUDIT_ACTOR, action, detail));
+        }
     }
 
     /// Build the QEMU command-line arguments (excluding argv[0]).
