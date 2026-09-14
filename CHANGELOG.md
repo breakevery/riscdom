@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - gdbstub 接入（调试）
 - Unix socket（macOS / Linux）与 virtio 设备
 - 审计日志分片与远程备份
+- **公开前完成中英双语文档**：README / CHANGELOG / PROJECT_CONSTITUTION / AGENTS /
+  Release notes 双语；英文为主文档（GitHub 默认展示），中文为 `*.zh-CN.md`；顶部加
+  语言切换链接；LICENSE 无需翻译
 
 ## [0.1.0] - 2026-09-14
 

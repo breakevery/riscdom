@@ -152,3 +152,10 @@ l. host 串口轮询改为 sandbox 主动回调
 - gdbstub 接入（调试）
 - Unix socket（macOS / Linux）与 virtio 设备
 - 审计日志分片与远程备份
+
+m. **公开前完成中英双语文档**
+   - README / CHANGELOG / PROJECT_CONSTITUTION / AGENTS / Release notes 双语
+   - 英文为主文档（GitHub 默认展示），中文为 `*.zh-CN.md`
+   - 顶部加语言切换链接
+   - 内容不逐字对应：英文版更简练，中文版保留原文风格
+   - LICENSE 无需翻译，保持英文法律原文
