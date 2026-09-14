@@ -32,7 +32,7 @@ fn llm_config_roundtrip_and_no_key_leak() {
 
     state.set_llm_config(LlmConfigInput {
         provider_id: "deepseek".into(),
-        api_key: "sk-secret-value-1234".into(),
+        api_key: "placeholder-key".into(),
         base_url: "https://api.deepseek.com".into(),
         model: "deepseek-chat".into(),
     });
@@ -44,7 +44,7 @@ fn llm_config_roundtrip_and_no_key_leak() {
 
     // The serialised status must not contain the key.
     let json = serde_json::to_string(&status).unwrap();
-    assert!(!json.contains("sk-secret"), "key leaked: {json}");
+    assert!(!json.contains("placeholder-key"), "key leaked: {json}");
     assert!(!json.to_lowercase().contains("api_key"), "api_key field leaked: {json}");
 
     state.clear_llm_config();

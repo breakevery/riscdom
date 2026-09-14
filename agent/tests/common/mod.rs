@@ -30,7 +30,7 @@ pub fn sink() -> (Arc<Mutex<dyn AuditSink>>, Arc<Mutex<AuditStore>>) {
 /// Test configuration (a clearly fake key, never used against the network).
 pub fn test_config() -> AgentConfig {
     AgentConfig {
-        api_key: "sk-test-not-a-real-key-0000".into(),
+        api_key: "placeholder-key".into(),
         base_url: "https://api.deepseek.com".into(),
         model: "mock".into(),
         provider_id: "deepseek".into(),

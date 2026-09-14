@@ -174,7 +174,7 @@ mod tests {
 
     fn sample() -> AgentConfig {
         AgentConfig {
-            api_key: "sk-1234567890abcdef".into(),
+            api_key: "test-key-not-real".into(),
             base_url: "https://api.deepseek.com".into(),
             model: "deepseek-chat".into(),
             provider_id: "deepseek".into(),
@@ -187,13 +187,13 @@ mod tests {
     fn debug_masks_api_key() {
         let cfg = sample();
         let text = format!("{cfg:?}");
-        assert!(!text.contains("sk-1234567890abcdef"), "leaked key: {text}");
-        assert!(text.contains("sk-1****cdef"), "unexpected mask: {text}");
+        assert!(!text.contains("test-key-not-real"), "leaked key: {text}");
+        assert!(text.contains("test****real"), "unexpected mask: {text}");
     }
 
     #[test]
     fn mask_key_shape() {
-        assert_eq!(mask_key("sk-1234567890abcdef"), "sk-1****cdef");
+        assert_eq!(mask_key("test-key-not-real"), "test****real");
         assert_eq!(mask_key("short"), "*****");
         assert_eq!(mask_key(""), "*");
     }
