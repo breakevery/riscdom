@@ -50,18 +50,19 @@
 
 也就是说，MVP 的“回滚”等于“用相同参数重启”。设备状态与内存不会被保存。
 
-### 真实快照：[BLOCKED]（阶段 18a 实测）
+### 真实快照：TCP 中继方案（方案 A′），已于 v0.2 实现
 
-已尝试用 QMP `migrate` 到文件（路径 A），**在当前环境不可用**：
+真实快照**已实现**：sandbox 通过 QMP `migrate` 迁移到本地 TCP 中继，由中继把迁移流落盘为
+`<snapshot_dir>/<name>.mig`；恢复时把该文件喂给以 `-incoming tcp:` 启动的 QEMU。
 
-- `migrate` → `file:<path>`：`Failed to set FD nonblocking: Input/output error`（快照 0 字节）
-- `exec:` 变体：`Failed to execute helper program`（Windows 无 `cat`；QEMU 不做 PATH 解析）
-- `file:/<path>` 形式：`Could not create ... Invalid argument`
-- 对照组：`migrate` → `tcp:` **成功**（495,403 字节，目的端 `status: running`）
-  → 迁移引擎可用，**失败仅限 Windows 的 file/exec 传输通道**
-
-完整实验记录见 [`docs/snapshot-experiment.md`](docs/snapshot-experiment.md)。
-按约定不硬上路径 B（virtio-blk + qcow2），**保留重启式降级**。
+- 为什么不用文件 URI：`migrate` → `file:` 在 Windows + QEMU 11.1.0 不可用
+  （`Failed to set FD nonblocking`），`exec:` / `fd:` 变体同样不可用，而 `tcp:` 通道正常。
+  当时的探索过程作为**历史记录**保留在
+  [`docs/snapshot-experiment.md`](docs/snapshot-experiment.md)。
+- 方案 B（virtio-blk + qcow2 + `savevm`/`loadvm`）未采用。
+- 旧的重启式降级（`.json`）保留兼容。
+- 残留限制：同名快照**拒绝覆盖**；VM 归 host 持有（`AppState::vm_slot`），UI 可保存/恢复
+  （阶段 20b–20d）。
 
 ## 测试
 
@@ -91,9 +92,7 @@ cargo run -p audit --bin audit-verify -- <path-to-db>
 
 ## v0.2 TODO
 
-- **真实快照 [BLOCKED]**：路径 A（`migrate` → file）在 Windows + QEMU 11.1.0 不可用；
-  v0.3 评估**方案 A′**（迁移改走 TCP + host 侧文件中继，不新增依赖、不改 `-kernel` 启动路径）
-  或方案 B（virtio-blk + qcow2 + `savevm`/`loadvm`，需重做启动链）
+- ~~真实快照~~ **已完成**（方案 A′：TCP 迁移 + 本地文件中继；阶段 19b/20c）
 - Unix socket 支持（macOS / Linux，`QmpEndpoint::UnixSocket`）
 - virtio 设备（块设备 / 网络）
 - ~~sandbox 主动回调串口~~ ✅ 已完成（阶段 15a）

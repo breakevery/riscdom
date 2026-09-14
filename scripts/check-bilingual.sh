@@ -6,8 +6,10 @@
 #   X.md        -> first line `[中文](X.zh-CN.md) | English`, and X.zh-CN.md must exist
 #   X.zh-CN.md  -> first line `[English](X.md) | 中文`, and X.md must exist
 #
-# Excluded: LICENSE (kept in English legal text by design) and the agent-workspace identity
-# notes (IDENTITY.md / SOUL.md / USER.md), which are single-language by design.
+# Excluded:
+#   - LICENSE: kept as English legal text by design.
+#   - IDENTITY.md / SOUL.md / USER.md: agent-workspace identity files that are read by the AI,
+#     not human-facing user documentation; they are deliberately single-language.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

@@ -59,20 +59,20 @@ dependency direction is `sandbox → audit`; `sandbox` defines no audit types of
 In other words, an MVP "rollback" equals "restart with the same parameters". Device state and
 memory are not saved.
 
-### Real snapshots: `[BLOCKED]` (stage 18a measurement)
+### Real snapshots: TCP relay (plan A′), implemented in v0.2
 
-Path A — QMP `migrate` to a file — was attempted and is **unusable in this environment**:
+Real snapshots are **implemented**: the sandbox migrates over QMP `migrate` to a local TCP
+relay which persists the stream to `<snapshot_dir>/<name>.mig`; restoring feeds that file to
+a QEMU started with `-incoming tcp:`.
 
-- `migrate` → `file:<path>`: `Failed to set FD nonblocking: Input/output error` (0-byte file)
-- `exec:` variants: `Failed to execute helper program` (no `cat` on Windows; QEMU does no
-  PATH resolution)
-- `file:/<path>` form: `Could not create ... Invalid argument`
-- Control group: `migrate` → `tcp:` **succeeded** (495,403 bytes, destination
-  `status: running`) → the migration engine works; **only the Windows file/exec transport
-  channel fails**
-
-The full experiment log is in [`docs/snapshot-experiment.md`](docs/snapshot-experiment.md).
-As agreed, path B (virtio-blk + qcow2) was not forced; the **reboot fallback is kept**.
+- Why not a file URI: `migrate` → `file:` is unusable on Windows + QEMU 11.1.0
+  (`Failed to set FD nonblocking`), and the `exec:` / `fd:` variants do not work either,
+  while the `tcp:` channel does. That exploration is kept as a **historical record** in
+  [`docs/snapshot-experiment.md`](docs/snapshot-experiment.md).
+- Plan B (virtio-blk + qcow2 + `savevm`/`loadvm`) was not needed.
+- The old reboot fallback (`.json`) is kept for compatibility.
+- Residual limits: an existing snapshot name is **refused rather than overwritten**; the VM
+  is host-owned (`AppState::vm_slot`) and the UI can save/restore (stages 20b–20d).
 
 ## Tests
 
@@ -105,10 +105,7 @@ cargo run -p audit --bin audit-verify -- <path-to-db>
 
 ## v0.2 TODO
 
-- **Real snapshots `[BLOCKED]`**: path A (`migrate` → file) is unusable on Windows + QEMU
-  11.1.0; v0.3 evaluates **plan A′** (migrate over TCP plus a host-side file relay, no new
-  dependency, `-kernel` start path untouched) or plan B (virtio-blk + qcow2 +
-  `savevm`/`loadvm`, which needs the boot chain reworked)
+- ~~real snapshots~~ **done** (plan A′: TCP migration + a local file relay; stages 19b/20c)
 - Unix socket support (macOS / Linux, `QmpEndpoint::UnixSocket`)
 - virtio devices (block / network)
 - ~~sandbox-driven serial callbacks~~ ? done (stage 15a)

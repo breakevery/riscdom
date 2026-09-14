@@ -5,8 +5,10 @@
 #   X.md        -> first line "[ZH](X.zh-CN.md) | English"   (ZH = U+4E2D U+6587)
 #   X.zh-CN.md  -> first line "[English](X.md) | ZH"
 #
-# Excluded: LICENSE (kept in English legal text by design) and the agent-workspace identity
-# notes (IDENTITY.md / SOUL.md / USER.md), which are single-language by design.
+# Excluded:
+#   - LICENSE: kept as English legal text by design.
+#   - IDENTITY.md / SOUL.md / USER.md: agent-workspace identity files that are read by the AI,
+#     not human-facing user documentation; they are deliberately single-language.
 #
 # NOTE: the Chinese token is built from code points on purpose. Windows PowerShell 5.1 reads
 # a BOM-less script as ANSI, which would mangle a literal CJK string on the comparison side.
