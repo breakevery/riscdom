@@ -1,0 +1,14 @@
+# Rust
+/target
+**/target
+
+# Node / Vite
+/ui/node_modules
+/ui/dist
+
+# Tauri generated
+/ui/src-tauri/gen/schemas
+
+# OS
+Thumbs.db
+.DS_Store
