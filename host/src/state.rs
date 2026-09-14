@@ -344,6 +344,17 @@ impl AppState {
         }
     }
 
+    /// Write the current serial buffer into the workspace. Returns bytes written.
+    pub fn export_serial_log(&self, path: String) -> Result<usize, HostError> {
+        let policy = WorkspacePolicy::new(self.workspace_root.clone());
+        let abs = policy
+            .check_read(Path::new(&path))
+            .map_err(|e| HostError::Policy(e.to_string()))?;
+        let text = self.serial_buffer();
+        std::fs::write(&abs, &text)?;
+        Ok(text.len())
+    }
+
     // ----- Agent ------------------------------------------------------------
 
     /// Run one agent turn, emitting host events through `emitter`.

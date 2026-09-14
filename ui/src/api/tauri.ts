@@ -70,6 +70,9 @@ export const readWorkspaceFile = (path: string) =>
 
 export const getSerialBuffer = () => invoke<string>("get_serial_buffer");
 
+export const exportSerialLog = (path: string) =>
+  invoke<number>("export_serial_log", { path });
+
 export const exportAuditJsonl = (path: string) =>
   invoke<number>("export_audit_jsonl", { path });
 

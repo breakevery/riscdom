@@ -143,6 +143,47 @@
 }
 
 /* Canvas panel */
+.canvas-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.canvas-head .spacer {
+  flex: 1 1 auto;
+}
+
+.vm-state {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #21262d;
+  color: var(--muted);
+}
+
+.vm-state.running {
+  background: #1a7f3722;
+  color: var(--ok);
+}
+
+.vm-state.stopped {
+  background: #f8514922;
+  color: var(--bad);
+}
+
+.canvas-note {
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.canvas-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 6px 8px;
+  background: #0b0f14;
+  overflow: hidden;
+}
+
 .canvas-placeholder {
   flex: 1 1 auto;
   display: flex;
