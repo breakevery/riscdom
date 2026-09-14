@@ -32,4 +32,7 @@ cargo check --manifest-path ui/src-tauri/Cargo.toml || fail "cargo check ui/src-
 echo "==> npm run build (ui)"
 (cd ui && npm run build) || fail "npm run build"
 
+echo "==> bilingual doc links"
+sh scripts/check-bilingual.sh || fail "bilingual links"
+
 echo "gate: OK"

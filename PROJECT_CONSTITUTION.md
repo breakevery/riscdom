@@ -178,7 +178,7 @@ l. Host serial polling moved to sandbox push callbacks
 - Unix sockets (macOS / Linux) and virtio devices
 - Audit log sharding and remote backup
 
-m. **Bilingual (English/Chinese) docs before going public**
+m. **[DONE]** Bilingual (English/Chinese) docs before going public
    - README / CHANGELOG / PROJECT_CONSTITUTION / AGENTS / release notes in both languages
    - English is the main document (GitHub default); Chinese lives in `*.zh-CN.md`
    - Language switcher at the top

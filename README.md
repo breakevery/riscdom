@@ -161,6 +161,18 @@ disk / audit / logs, and status read-outs never contain it. Closing the app inva
   session replays history messages only, never tool calls.
 - **Compiler injects crt0**: the AI only writes `int main(void)` (see `agent/README.md`).
 
+## Contributing
+
+Bug reports, fixes and documentation improvements are welcome. Please read
+[CONTRIBUTING.md](CONTRIBUTING.md) first: every change must pass the local gate
+(`scripts/gate.ps1` / `scripts/gate.sh`) and go through the gated commit wrapper
+(`scripts/commit.ps1` / `scripts/commit.sh`), which refuses to commit while the gate is red.
+
+## Code of conduct
+
+This project follows the [Contributor Covenant v2.1](CODE_OF_CONDUCT.md). Report unacceptable
+behaviour through the contact listed there.
+
 ## License
 
 [Apache License 2.0](LICENSE).

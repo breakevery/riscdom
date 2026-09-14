@@ -41,5 +41,9 @@ $buildCode = $LASTEXITCODE
 Pop-Location
 if ($buildCode -ne 0) { Fail "npm run build" }
 
+Write-Host "==> bilingual doc links"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-bilingual.ps1
+if ($LASTEXITCODE -ne 0) { Fail "bilingual links" }
+
 Write-Host "gate: OK"
 exit 0

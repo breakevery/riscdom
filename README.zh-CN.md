@@ -152,6 +152,17 @@ Key 只存在后端内存：**不写** localStorage / sessionStorage / 磁盘 / 
 - **无会话持久化**：每轮 `run_agent` 是独立上下文。
 - **编译器注入 crt0**：AI 只需写 `int main(void)`（原因见 `agent/README.md`）。
 
+## 贡献
+
+欢迎提交问题、修复与文档改进。请先读 [CONTRIBUTING.md](CONTRIBUTING.md)：所有改动都必须通过本地
+gate（`scripts/gate.ps1` / `scripts/gate.sh`），并经由受门禁保护的提交包装
+（`scripts/commit.ps1` / `scripts/commit.sh`）提交——gate 非零时它拒绝提交。
+
+## 行为准则
+
+本项目采用 [Contributor Covenant v2.1](CODE_OF_CONDUCT.md)。如有不当行为，
+请通过该文件中的联系方式报告。
+
 ## 许可证
 
 [Apache License 2.0](LICENSE)。
