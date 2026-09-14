@@ -78,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cargo check --manifest-path ui/src-tauri/Cargo.toml` 通过。
 - mock LLM 端到端：`cargo test -p host -- --ignored --nocapture` →
   `agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
-- **真实 DeepSeek API 端到端未执行**（构建环境无 `DEEPSEEK_API_KEY`）。
+- 真实 DeepSeek API 端到端：**已执行通过**（2026-09-14，`iterations = 6`，串口捕获 `HELLO RISCV`；结果见 `host/README.md`）。
 
 [Unreleased]: https://github.com/breakevery/riscdom/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/breakevery/riscdom/releases/tag/v0.1.0

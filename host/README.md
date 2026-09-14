@@ -62,8 +62,27 @@ v0.2：给 agent 增加最小增量 API（让 host 持有 VM 槽），改为直�
 
 ## 手工验证
 
-真实 API 全链路（需 key）在 v0.1 发布前**未执行**（构建环境无 `DEEPSEEK_API_KEY`）。
-请按以下步骤人工验证：
+真实 API 全链路（需 key）在 v0.1.0 上**已执行通过**（2026-09-14）。
+
+### 真实 DeepSeek 端到端结果（2026-09-14）
+
+```text
+cargo test -p agent -- --ignored --nocapture
+real_deepseek_writes_and_runs_hello_world ... ok
+AgentOutcome: Final，iterations = 6
+串口（read_serial 工具结果）：
+  wrote 634 bytes to hello.c
+  compiled hello.c -> hello.elf (ok)
+  VM started (qmp=*****, serial=*****)
+  HELLO RISCV
+测试耗时：约 7.6s（含编译 + QEMU 启动）；总耗时约 12.8s
+```
+
+- 串口含 `HELLO RISCV` ✅
+- 模型只使用了白名单工具（write_source → compile → start_vm → read_serial → stop_vm）✅
+- 注意：该测试本身只断言“串口含 HELLO RISCV + 非 Failed”，**未包含** `verify_chain` 断言（属测试覆盖缺口，未在本轮修改代码）。链完整性证据见 mock e2e（`cargo test -p host -- --ignored`，Intact length 29）。
+
+### UI 全链路人工步骤
 
 1. `cd ui && npm run tauri dev` 启动桌面窗口。
 2. 设置栏填入 Key / Base URL / Model → “保存到本次会话”（状态点变绿，**不回显 key**）。
