@@ -1,0 +1,9 @@
+# gitleaks ignore list (fingerprints).
+#
+# The entry below is a *fake* placeholder API key used only in a unit test that
+# verifies key masking. It was replaced with a non-key string in stage 12.0
+# (commit d5daf4f), so it exists only in old history. Suppressing it by exact
+# fingerprint keeps full-history scanning enabled instead of permanently red.
+#
+# Fingerprint: <commit>:<file>:<rule>:<line>
+d1b87d1389b9155c3d55b2bf64fada848afff042:agent/src/config.rs:generic-api-key:95

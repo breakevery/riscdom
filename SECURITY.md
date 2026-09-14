@@ -22,10 +22,15 @@
 
 `.github/workflows/ci.yml` 只跑跨平台可执行的检查：
 
-- secret scanning（gitleaks，全历史）
+- secret scanning（gitleaks **全历史**；使用社区二进制，而非 `gitleaks-action`，
+  因为组织私有仓库使用该 action 需要 `GITLEAKS_LICENSE`）
 - Rust：`fmt --check`、`clippy -D warnings`、`check`、`audit --lib` 测试
   （**仅可移植 crate**：`audit` / `sandbox` / `agent`）
 - 前端：`npm ci` + `npm run build`
+
+`.gitleaksignore` 中按**指纹**精确豁免了一条历史命中：早期单测里用于验证打码逻辑的
+**假占位 key**（已在 12.0 提交 `d5daf4f` 替换为非 key 字符串，仅存于历史）。
+这是针对单个已知误报的豁免，不影响其余全历史扫描。
 
 **完整测试**（`sandbox` / `agent` / `host` 的端到端）需要本机 QEMU
 （`qemu-system-riscv64`）与 RISC-V 交叉编译器（`riscv64-unknown-elf-gcc`），

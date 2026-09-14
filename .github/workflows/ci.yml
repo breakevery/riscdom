@@ -5,7 +5,7 @@
 # The complete suite (sandbox / agent / host end-to-end) needs a local QEMU
 # (`qemu-system-riscv64`) plus an `riscv64-unknown-elf-gcc` cross compiler and a
 # machine that can actually boot a VM. Standard GitHub runners have neither, and
-# installing them is expensive/brittle — so those tests are run **locally** by
+# installing them is expensive/brittle -- so those tests are run **locally** by
 # the developer (`cargo test`) before releasing, not here.
 #
 # WHY `host` IS NOT LINTED HERE
@@ -15,6 +15,9 @@
 # checked locally on Windows. CI covers the portable crates: audit / sandbox /
 # agent. (`ui` is a separate Tauri app, not a workspace member, and is covered
 # by the `web-checks` job.)
+#
+# NOTE ON YAML: step names must not contain ": " inside an unquoted scalar --
+# YAML reads it as a nested mapping and GitHub rejects the whole workflow.
 name: CI
 
 on:
@@ -32,21 +35,25 @@ jobs:
           # gitleaks scans the full history, so a shallow clone is not enough.
           fetch-depth: 0
 
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # gitleaks-action@v2 needs a GITLEAKS_LICENSE for organization-owned
+      # private repositories, so the community binary is used instead.
+      - name: install gitleaks
+        run: |
+          set -euo pipefail
+          V=8.30.1
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${V}/gitleaks_${V}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
 
-      # Fallback if the action is unavailable for this repository (e.g. a
-      # private org repo that wants a licence-free scan). Replace the step above
-      # with:
-      #
-      #   - name: Install gitleaks
-      #     run: |
-      #       curl -sSL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_linux_x64.tar.gz \
-      #         | tar xz -C /usr/local/bin gitleaks
-      #   - name: Scan
-      #     run: gitleaks detect --source . --redact --verbose
+      - name: scan git history
+        run: |
+          set -euo pipefail
+          if gitleaks git --help >/dev/null 2>&1; then
+            gitleaks git --redact --verbose
+          else
+            gitleaks detect --source . --redact --verbose
+          fi
 
   rust-checks:
     name: rust (fmt / clippy / check / audit tests)
@@ -70,10 +77,11 @@ jobs:
       - name: rustfmt
         run: cargo fmt --all -- --check
 
-      - name: clippy (portable crates: audit / sandbox / agent)
+      # Portable crates only (host is excluded: Tauri needs Linux system libs).
+      - name: clippy (portable crates audit sandbox agent)
         run: cargo clippy -p audit -p sandbox -p agent --all-targets -- -D warnings
 
-      - name: check (portable crates: audit / sandbox / agent)
+      - name: check (portable crates audit sandbox agent)
         run: cargo check -p audit -p sandbox -p agent
 
       # The audit crate has no external toolchain needs, so its unit tests can
@@ -82,7 +90,7 @@ jobs:
         run: cargo test -p audit --lib
 
   web-checks:
-    name: web (tsc + vite build)
+    name: web (tsc and vite build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
