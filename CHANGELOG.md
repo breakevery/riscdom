@@ -64,6 +64,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ui/src-tauri/target/release/bundle/msi/RiscDom_0.1.0_x64_en-US.msi` （约 5.16 MB）
 - `ui/src-tauri/target/release/bundle/nsis/RiscDom_0.1.0_x64-setup.exe` （约 3.65 MB）
 
+### GitHub Release
+
+仓库保持**私有**。v0.1.0 以 **draft** 形式创建（未发布），附件为上面两个安装包：
+
+- 草稿：https://github.com/breakevery/riscdom/releases/tag/untagged-58f649f39cb279793575
+- 发布后：https://github.com/breakevery/riscdom/releases/tag/v0.1.0
+
 ### Verification
 
 - 全 workspace `cargo test` 通过（sandbox/audit/agent/host + doc tests）。
