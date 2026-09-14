@@ -319,6 +319,39 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
             : "未配置（API key 不会落盘）"}
         </div>
 
+        <h3>快照</h3>
+        <div className="muted small">
+          {store.snapshots.length} 个快照
+          <button className="ghost tiny" onClick={() => void store.refreshSnapshots()}>
+            刷新
+          </button>
+        </div>
+        <div className="muted small">
+          保存/恢复需由 host 持有运行中的 VM；当前 VM 只在单次运行内存在（见 host/README.md）。
+        </div>
+        <ul className="audit-list">
+          {store.snapshots.map((s) => (
+            <li key={s.name}>
+              <span className="badge">
+                {s.mode === "tcp-relay" ? "真实" : "重启式"}
+              </span>
+              <span className="action">{s.name}</span>
+              <span className="muted small">{(s.size_bytes / 1024).toFixed(0)} KB</span>
+              <span className="spacer" />
+              <button
+                className="ghost tiny"
+                onClick={() => {
+                  if (window.confirm(`删除快照“${s.name}”？`)) {
+                    void store.deleteSnapshot(s.name);
+                  }
+                }}
+              >
+                删除
+              </button>
+            </li>
+          ))}
+        </ul>
+
         <h3>工作区</h3>
         <div className="muted small">
           {store.workspaceFiles.length} 个文件

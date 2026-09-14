@@ -39,6 +39,8 @@ pub fn run() {
             host::commands::delete_session,
             host::commands::clear_all_sessions,
             host::commands::get_current_session_id,
+            host::commands::list_snapshots,
+            host::commands::delete_snapshot,
             host::commands::run_agent,
             host::commands::get_workspace_files,
             host::commands::read_workspace_file,

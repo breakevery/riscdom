@@ -65,6 +65,14 @@ cargo test -p agent -- --ignored --nocapture
 npm run tauri dev   # 或直接手动操作界面
 ```
 
+## 快照面板
+
+设置栏的“快照”区列出 `<workspace>/.riscdom/snapshots` 下的快照：
+
+- 标注“**真实**”（`.mig`，QMP 迁移流）或“**重启式**”（`.json`，旧降级方案）；
+- 支持刷新与删除（删除前二次确认）；
+- “保存当前状态 / 恢复”暂未提供：host 尚未持有常驻 VM（见 `host/README.md`）。
+
 ## 会话持久化
 
 对话会自动保存，重启后可在 ChatPanel 顶部“会话”面板里打开 / 重命名 / 删除。

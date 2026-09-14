@@ -66,6 +66,22 @@ query-migrate: {"return": {"status": "completed", "total-time": 66,
   （仅恢复时多加 `-incoming tcp:`）。
 - **方案 B（成本高）**：引入 virtio-blk + qcow2，改用 QEMU `savevm`/`loadvm`；需重做启动链与镜像管理。
 
+## 方案 A′ 实施结果（阶段 19b/19c）
+
+**已实现并验证通过。** 实现方式与上面“方案 A′”略有不同（实测修正）：
+
+- **保存**：host/sandbox 起一个本地 TCP 监听（`MigrationRelay`），发 `migrate` 到该地址；
+  QEMU 作为客户端接入，我们把它写出的字节流落入 `<snapshot_dir>/<name>.mig`。
+  QEMU 迁移完成后并不总是关闭套接字，因此中继带**停止信号**：QMP 报 `completed` 即收尾。
+- **恢复**：`-incoming tcp:<addr>` 是**目的端监听**，所以改由我们的线程**主动连接** QEMU
+  并推送文件（`relay::send_file_to`），随后用 QMP `query-status` 等到 `running` 才返回。
+- 实测（`sandbox/tests/snapshot_real.rs`，fixture `hello_phases.c`）：快照 ~3.5 MB；
+  恢复后串口在迁移点之后继续输出 `PHASE2`；串口/审计链均正常。
+- 同名快照**拒绝覆盖**（返回错误），不会静默替换旧快照。
+
+剩余限制：host 当前不持有常驻 VM，因此 UI 只能**列出/删除**快照，“保存/恢复”留待
+v0.3（需启用 `AppState.vm` 槽与跨 run 常驻）。
+
 ## 复现
 
 实验脚本（未入库，位于会话工作区）：`experiment.ps1` / `variants.ps1` / `tcp-variant.ps1`。

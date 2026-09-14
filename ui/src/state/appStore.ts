@@ -41,6 +41,10 @@ export interface AppStore {
   // sessions (stage 17c)
   sessions: api.SessionMeta[];
   currentSessionId: string | null;
+  // snapshots (stage 19c)
+  snapshots: api.SnapshotMeta[];
+  refreshSnapshots: () => Promise<void>;
+  deleteSnapshot: (name: string) => Promise<void>;
   refreshSessions: () => Promise<void>;
   openSession: (id: string) => Promise<void>;
   newSession: () => Promise<void>;
@@ -117,6 +121,7 @@ export function useAppStore(): AppStore {
   const [streamingActive, setStreamingActive] = useState(false);
   const [sessions, setSessions] = useState<api.SessionMeta[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [snapshots, setSnapshots] = useState<api.SnapshotMeta[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
 
   const push = useCallback((item: Omit<ChatItem, "id">) => {
@@ -230,6 +235,30 @@ export function useAppStore(): AppStore {
   useEffect(() => {
     void refreshSessions();
   }, [refreshSessions]);
+
+  const refreshSnapshots = useCallback(async () => {
+    try {
+      setSnapshots(await api.listSnapshots());
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
+  const deleteSnapshot = useCallback(
+    async (name: string) => {
+      try {
+        await api.deleteSnapshot(name);
+        await refreshSnapshots();
+      } catch (e) {
+        setLastError(String(e));
+      }
+    },
+    [refreshSnapshots],
+  );
+
+  useEffect(() => {
+    void refreshSnapshots();
+  }, [refreshSnapshots]);
 
   // Host events → chat stream / serial / vm state.
   useEffect(() => {
@@ -346,6 +375,9 @@ export function useAppStore(): AppStore {
     streamingActive,
     sessions,
     currentSessionId,
+    snapshots,
+    refreshSnapshots,
+    deleteSnapshot,
     refreshSessions,
     openSession,
     newSession,

@@ -131,6 +131,20 @@ export const exportSerialLog = (path: string) =>
 export const exportAuditJsonl = (path: string) =>
   invoke<number>("export_audit_jsonl", { path });
 
+/** A snapshot on disk. */
+export interface SnapshotMeta {
+  name: string;
+  size_bytes: number;
+  created_at_ms: number;
+  /** "tcp-relay" (real) or "reboot-fallback". */
+  mode: string;
+}
+
+export const listSnapshots = () => invoke<SnapshotMeta[]>("list_snapshots");
+
+export const deleteSnapshot = (name: string) =>
+  invoke<boolean>("delete_snapshot", { name });
+
 /** A persisted session summary. */
 export interface SessionMeta {
   id: string;

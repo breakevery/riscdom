@@ -66,6 +66,16 @@ c. 关闭应用重启 → 状态自动恢复为“已配置”（从钥匙串读
 d. 清除配置 → 重启 → 状态为未配置（钥匙串条目已删）。
 e. 不勾选记住 → 保存后状态为“仅本次会话”；重启后需重填。
 
+## 快照
+
+- **真实快照（`.mig`）**：由 sandbox 通过 QMP `migrate` + 本地 TCP 中继落盘（见
+  `sandbox/docs/snapshot-experiment.md`）；因 Windows 上 `migrate` → `file:` 不可用。
+- **重启式降级（`.json`）**：旧方案，保留兼容。
+- host 命令：`list_snapshots` / `delete_snapshot`（扫描 `<workspace>/.riscdom/snapshots`，
+  审计事件 `host.snapshot.delete`）。
+- **限制**：host 目前不持有常驻 VM（VM 只在单次 run 内由 `AgentLoop` 持有），因此
+  UI 只能列出/删除快照；“保存当前状态 / 恢复”留待启用 `AppState.vm` 槽后的后续阶段。
+
 ## 会话持久化
 
 对话保存在**应用数据目录**的 `sessions.db`（SQLite，复用 `rusqlite`，不新增依赖）：

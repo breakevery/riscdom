@@ -142,9 +142,10 @@ f. **公开前安全清单**
 
 ### v0.2 其他
 
-g. 给 `AgentLoop` 暴露最小串口访问接口（当前 host 从审计派生，依赖脆弱）
-h. **[BLOCKED]** QEMU 真实快照：`migrate` → file 在 Windows + QEMU 11.1.0 不可用（详见
-   `sandbox/docs/snapshot-experiment.md`）；v0.3 评估方案 A′（TCP + host 侧文件中继）或路径 B
+g. 给 `AgentLoop` 暴露最小串口访问接口（已完成，见 15b）
+h. **[DONE: A′]** QEMU 真实快照：以 **TCP 迁移 + 本地文件中继**实现（`migrate` → file 在
+   Windows + QEMU 11.1.0 不可用，见 `sandbox/docs/snapshot-experiment.md`）；
+   残留限制：host 不持有常驻 VM，UI 目前只能列出/删除快照，保存/恢复待 v0.3
 i. 流式 LLM 响应
 j. 会话持久化
 k. `real_api` 测试补 `verify_chain` 断言（当前只断言串口输出）

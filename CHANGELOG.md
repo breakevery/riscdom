@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **快照面板**（列表 / 删除；真实快照标注“真实”、重启式标注“重启式”），host 命令
+  `list_snapshots` / `delete_snapshot`（审计 `host.snapshot.delete`）。
 - **会话持久化**（列表 / 打开 / 重命名 / 删除 / 清空）：host `SessionStore`（SQLite，复用
   `rusqlite`）+ 7 个 Tauri 命令；会话自动保存到应用数据目录，重启后可恢复；恢复只注入
   历史消息（不重放工具调用），**不持久化** API key / system prompt / 审计事件。
@@ -42,11 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 
-- **真实快照受阻，保留重启式降级**：阶段 18a 实测表明 QMP `migrate` → `file:` 在 Windows +
-  QEMU 11.1.0 不可用（`Failed to set FD nonblocking`），`exec:` 变体同样不可用；对照组
-  `migrate` → `tcp:` 成功，说明迁移引擎可用、失败仅限 file/exec 通道。
-  按约定不硬上路径 B，快照仍为重启式；v0.3 评估方案 A′（TCP + host 侧文件中继）。
-  完整记录：`sandbox/docs/snapshot-experiment.md`。
+- **真实快照：已用方案 A′（TCP 迁移 + 本地文件中继）实现。** 阶段 18a 实测 `migrate` → `file:`
+  在 Windows + QEMU 11.1.0 不可用，但 `migrate` → `tcp:` 成功；19b 用本地 TCP 中继把迁移流
+  落盘为 `<name>.mig`，恢复时由中继反向喂给 `-incoming tcp:` 的 QEMU。
+  详见 `sandbox/docs/snapshot-experiment.md`。
+  残留限制：旧的重启式降级（`.json`）仍保留兼容；host 尚未持有常驻 VM，UI 只支持列出/删除快照。
 
 ### Planned (v0.2) — 多模型接入与密钥安全
 
@@ -67,7 +69,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Planned (v0.2) — 其他
 
 - 给 `AgentLoop` 暴露最小串口访问接口（当前 host 从审计派生，依赖脆弱）
-- QEMU 真实快照 `savevm` / `loadvm`（替代重启式降级）
+- QEMU 真实快照 `savevm` / `loadvm`（已由方案 A′ 满足；待办：启用 `AppState.vm` 槽，
+  让 UI 可保存/恢复）
 - `real_api` 测试补 `verify_chain` 断言（当前只断言串口输出）
 - host 串口轮询改为 sandbox 主动回调
 - gdbstub 接入（调试）

@@ -6,11 +6,23 @@
 use crate::events::TauriEventSink;
 use crate::state::{
     AgentOutcomeView, AppState, AuditStatusView, LlmConfigStatus, LlmReadiness, LocalProbeResult,
-    ProviderPresetView, SessionDetailView, StoredEventView,
+    ProviderPresetView, SessionDetailView, SnapshotMetaView, StoredEventView,
 };
 use crate::SessionMeta;
 use std::sync::Arc;
 use tauri::State;
+
+/// List snapshots on disk (real `.mig` and reboot-fallback `.json`).
+#[tauri::command]
+pub async fn list_snapshots(state: State<'_, AppState>) -> Result<Vec<SnapshotMetaView>, String> {
+    state.list_snapshots().map_err(|e| e.user_message())
+}
+
+/// Delete a snapshot by name.
+#[tauri::command]
+pub async fn delete_snapshot(state: State<'_, AppState>, name: String) -> Result<bool, String> {
+    state.delete_snapshot(&name).map_err(|e| e.user_message())
+}
 
 /// Recent sessions, newest first.
 #[tauri::command]

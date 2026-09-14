@@ -306,6 +306,16 @@ pub struct AppState {
 /// Messages restored into a fresh `AgentLoop` (never the system prompt).
 const HISTORY_LIMIT: usize = 100;
 
+/// A snapshot on disk, shaped for the frontend.
+#[derive(Debug, Clone, Serialize)]
+pub struct SnapshotMetaView {
+    pub name: String,
+    pub size_bytes: u64,
+    pub created_at_ms: i64,
+    /// `"tcp-relay"` (real, migration stream) or `"reboot-fallback"` (JSON).
+    pub mode: String,
+}
+
 /// A session plus its messages, for `open_session`.
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionDetailView {
@@ -438,6 +448,79 @@ impl AppState {
             sessions: Arc::new(Mutex::new(sessions)),
             current_session_id: Mutex::new(None),
         }
+    }
+
+    // ----- Snapshots --------------------------------------------------------
+
+    /// Snapshot directory used by the sandbox (`<workspace>/.riscdom/snapshots`).
+    fn snapshot_dir(&self) -> PathBuf {
+        self.workspace_root.join(".riscdom").join("snapshots")
+    }
+
+    /// Snapshots present on disk: real (`.mig`) and reboot-fallback (`.json`).
+    pub fn list_snapshots(&self) -> Result<Vec<SnapshotMetaView>, HostError> {
+        let dir = self.snapshot_dir();
+        if !dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let (name, mode) = match path.extension().and_then(|e| e.to_str()) {
+                Some("mig") => (
+                    path.file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string(),
+                    "tcp-relay",
+                ),
+                Some("json") => (
+                    path.file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string(),
+                    "reboot-fallback",
+                ),
+                _ => continue,
+            };
+            let meta = entry.metadata()?;
+            let created_at_ms = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            out.push(SnapshotMetaView {
+                name,
+                size_bytes: meta.len(),
+                created_at_ms,
+                mode: mode.to_string(),
+            });
+        }
+        out.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
+        Ok(out)
+    }
+
+    /// Delete a snapshot (either mode). Returns whether a file was removed.
+    pub fn delete_snapshot(&self, name: &str) -> Result<bool, HostError> {
+        let dir = self.snapshot_dir();
+        let mut removed = false;
+        for ext in ["mig", "json"] {
+            let path = dir.join(format!("{name}.{ext}"));
+            if path.is_file() {
+                std::fs::remove_file(&path)?;
+                removed = true;
+            }
+        }
+        self.emit_host(
+            "host.snapshot.delete",
+            serde_json::json!({ "name": name, "removed": removed }),
+        );
+        Ok(removed)
     }
 
     // ----- Sessions ---------------------------------------------------------
