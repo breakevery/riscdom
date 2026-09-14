@@ -1,87 +1,103 @@
+[中文](README.zh-CN.md) | English
+
 # sandbox
 
-智芯城（RiscDom）的 **QEMU RISC-V 沙箱层**。
+The RiscDom **QEMU RISC-V sandbox layer**.
 
-在 QEMU `virt` 机器上启动 RISC-V 裸机 ELF，通过 QMP 控制，捕获串口输出，
-并提供（MVP 降级的）快照/回滚能力。所有对外操作都会写入审计。
+It boots a RISC-V bare-metal ELF on the QEMU `virt` machine, controls it over QMP, captures
+serial output, and offers (MVP-fallback) snapshot/rollback. Every outbound operation is
+audited.
 
-## 模块
+## Modules
 
-- `vm` — `RiscVVirtualMachine` / `VMConfig`：QEMU 生命周期、串口捕获、快照
-- `platform` — `QmpEndpoint` / `SerialEndpoint`：平台端点抽象（端点 → QEMU 参数）
-- `qmp` — `QmpClient`：最小 QMP 客户端（greeting / `qmp_capabilities` / `stop` / `cont` / `quit`）
+- `vm` — `RiscVVirtualMachine` / `VMConfig`: QEMU lifecycle, serial capture, snapshots
+- `platform` — `QmpEndpoint` / `SerialEndpoint`: platform endpoint abstraction
+  (endpoint → QEMU arguments)
+- `qmp` — `QmpClient`: minimal QMP client (greeting / `qmp_capabilities` / `stop` / `cont` /
+  `quit`)
 - `error` — `SandboxError`
 
-## 审计（audit crate）
+## Auditing (the audit crate)
 
-审计实现来自 **`audit` crate**（append-only SQLite + SHA-256 hash chain）。
-依赖方向为 `sandbox → audit`；`sandbox` 不自定义审计类型。
+Auditing comes from the **`audit` crate** (append-only SQLite + SHA-256 hash chain). The
+dependency direction is `sandbox → audit`; `sandbox` defines no audit types of its own.
 
-- 构造函数要求 `Arc<Mutex<dyn AuditSink>>`（`AuditSink` 的 `record` 为 `&mut self`）。
-- 直接写 SQLite（append-only），不再是 JSONL 占位。
-- 事件 `actor` 统一为 `"sandbox"`，当前类型：
-  `vm.start` / `vm.stop` / `vm.snapshot.save` / `vm.snapshot.load` / `serial.read` / `serial.write`。
+- Constructors take `Arc<Mutex<dyn AuditSink>>` (`AuditSink::record` takes `&mut self`).
+- It writes SQLite directly (append-only); no JSONL placeholder any more.
+- The event `actor` is always `"sandbox"`; current types:
+  `vm.start` / `vm.stop` / `vm.snapshot.save` / `vm.snapshot.load` / `serial.read` /
+  `serial.write`.
 
-`audit::FileAuditSink` 保留在 `audit` crate 中**仅作示例**，生产请用 `audit::SqliteAuditSink`。
+`audit::FileAuditSink` is kept in the `audit` crate as an **example only**; use
+`audit::SqliteAuditSink` in production.
 
-## 平台限制
+## Platform limits
 
-1. **Windows：全部走 TCP。** QMP 用 `tcp:host:port,server=on,wait=off`，串口用
-   `tcp:host:port,server=on,wait=on`。不使用 Unix domain socket，不使用 `mon:stdio`。
-2. **Unix：** `QmpEndpoint::UnixSocket` 已在类型层预留（`#[cfg(unix)]`），但 MVP 尚未实现，
-   连接时会返回 `SandboxError::Unsupported`。当前只在 Windows 上测试通过。
-3. **串口 `wait=on` 的意义：** QEMU 会阻塞到宿主机连上串口 socket 才开始运行 guest，
-   从而保证开机早期输出不被丢失（这是捕获线程与 guest 之间的竞态解法）。
-4. **`-bios none` 是必需的：** 否则默认 OpenSBI 固件会占用 `0x80000000`。
-   guest ELF 的入口必须链接在镜像最前（见 `tests/fixtures/link.ld` 的 `.text.start`），
-   因为 `-bios none` 下 QEMU 从 `0x80000000` 起跳。
-5. 需要宿主安装 `qemu-system-riscv64`。可用环境变量 `RISCDOM_QEMU` 指定其绝对路径；
-   否则按常见安装路径 / `PATH` 解析。
+1. **Windows: everything goes over TCP.** QMP uses `tcp:host:port,server=on,wait=off` and
+   the serial uses `tcp:host:port,server=on,wait=on`. No Unix domain sockets, no `mon:stdio`.
+2. **Unix:** `QmpEndpoint::UnixSocket` is reserved at the type level (`#[cfg(unix)]`) but is
+   not implemented in the MVP; connecting returns `SandboxError::Unsupported`. Only Windows
+   is currently tested.
+3. **Why serial `wait=on`:** QEMU blocks until the host connects to the serial socket before
+   running the guest, which guarantees early boot output is not lost (this is the fix for the
+   race between the capture thread and the guest).
+4. **`-bios none` is required:** otherwise the default OpenSBI firmware occupies
+   `0x80000000`. The guest ELF entry must be linked first in the image (see `.text.start` in
+   `tests/fixtures/link.ld`), because with `-bios none` QEMU jumps to `0x80000000`.
+5. The host must have `qemu-system-riscv64` installed. Set `RISCDOM_QEMU` to its absolute
+   path; otherwise common install locations / `PATH` are used.
 
-## MVP 快照降级方案
+## MVP snapshot fallback
 
-`save_snapshot` / `load_snapshot` **不是真正的虚拟机状态快照**：
+`save_snapshot` / `load_snapshot` are **not real virtual-machine snapshots**:
 
-- `save_snapshot(name)`：把 `(kernel path, memory_mb, qemu args, timestamp)` 序列化为
-  JSON，写入 `<snapshot_dir>/<name>.json`，`mode` 字段标记为 `"mvp-reboot"`。
-- `load_snapshot(name)`：停止当前 VM，读取 JSON，用相同参数重启。
+- `save_snapshot(name)`: serialises `(kernel path, memory_mb, qemu args, timestamp)` to JSON
+  under `<snapshot_dir>/<name>.json` with `mode: "mvp-reboot"`.
+- `load_snapshot(name)`: stops the current VM, reads the JSON and restarts with the same
+  parameters.
 
-也就是说，MVP 的“回滚”等于“用相同参数重启”。设备状态与内存不会被保存。
+In other words, an MVP "rollback" equals "restart with the same parameters". Device state and
+memory are not saved.
 
-### 真实快照：[BLOCKED]（阶段 18a 实测）
+### Real snapshots: `[BLOCKED]` (stage 18a measurement)
 
-已尝试用 QMP `migrate` 到文件（路径 A），**在当前环境不可用**：
+Path A — QMP `migrate` to a file — was attempted and is **unusable in this environment**:
 
-- `migrate` → `file:<path>`：`Failed to set FD nonblocking: Input/output error`（快照 0 字节）
-- `exec:` 变体：`Failed to execute helper program`（Windows 无 `cat`；QEMU 不做 PATH 解析）
-- `file:/<path>` 形式：`Could not create ... Invalid argument`
-- 对照组：`migrate` → `tcp:` **成功**（495,403 字节，目的端 `status: running`）
-  → 迁移引擎可用，**失败仅限 Windows 的 file/exec 传输通道**
+- `migrate` → `file:<path>`: `Failed to set FD nonblocking: Input/output error` (0-byte file)
+- `exec:` variants: `Failed to execute helper program` (no `cat` on Windows; QEMU does no
+  PATH resolution)
+- `file:/<path>` form: `Could not create ... Invalid argument`
+- Control group: `migrate` → `tcp:` **succeeded** (495,403 bytes, destination
+  `status: running`) → the migration engine works; **only the Windows file/exec transport
+  channel fails**
 
-完整实验记录见 [`docs/snapshot-experiment.md`](docs/snapshot-experiment.md)。
-按约定不硬上路径 B（virtio-blk + qcow2），**保留重启式降级**。
+The full experiment log is in [`docs/snapshot-experiment.md`](docs/snapshot-experiment.md).
+As agreed, path B (virtio-blk + qcow2) was not forced; the **reboot fallback is kept**.
 
-## 测试
+## Tests
 
 ```text
 cargo test -p sandbox
 ```
 
-- `tests/smoke.rs`（3a）：启动 QEMU → 捕获 `HELLO RISCV` → 停止 → 校验审计链 Intact
-- `tests/snapshot.rs`（3b）：启动 → 保存快照 → 停止 → 加载 → 再启动成功
-- `tests/fixtures/`：最小 RISC-V 裸机 guest（`hello.c` + `link.ld`）
+- `tests/smoke.rs` (3a): boot QEMU → capture `HELLO RISCV` → stop → check the audit chain is
+  Intact
+- `tests/snapshot.rs` (3b): boot → save snapshot → stop → load → boot again successfully
+- `tests/fixtures/`: a minimal RISC-V bare-metal guest (`hello.c` + `link.ld`)
 
-需要 `riscv64-unknown-elf-gcc` 编译 fixture（可用 `RISCDOM_RISCV_GCC` 指定路径）。
+Compiling the fixture needs `riscv64-unknown-elf-gcc` (set `RISCDOM_RISCV_GCC` to override the
+path).
 
-## 示例
+## Example
 
 ```text
 cargo run -p sandbox --example run_hello
 ```
 
-启动 guest、打印串口输出，并把审计写入 SQLite 后调用 `verify_chain` 打印结果。
+It boots the guest, prints the serial output, writes the audit log to SQLite and calls
+`verify_chain`, printing the result.
 
-可再用独立工具复核：
+You can double-check it with a standalone tool:
 
 ```text
 cargo run -p audit --bin audit-verify -- <path-to-db>
@@ -89,9 +105,10 @@ cargo run -p audit --bin audit-verify -- <path-to-db>
 
 ## v0.2 TODO
 
-- **真实快照 [BLOCKED]**：路径 A（`migrate` → file）在 Windows + QEMU 11.1.0 不可用；
-  v0.3 评估**方案 A′**（迁移改走 TCP + host 侧文件中继，不新增依赖、不改 `-kernel` 启动路径）
-  或方案 B（virtio-blk + qcow2 + `savevm`/`loadvm`，需重做启动链）
-- Unix socket 支持（macOS / Linux，`QmpEndpoint::UnixSocket`）
-- virtio 设备（块设备 / 网络）
-- ~~sandbox 主动回调串口~~ ✅ 已完成（阶段 15a）
+- **Real snapshots `[BLOCKED]`**: path A (`migrate` → file) is unusable on Windows + QEMU
+  11.1.0; v0.3 evaluates **plan A′** (migrate over TCP plus a host-side file relay, no new
+  dependency, `-kernel` start path untouched) or plan B (virtio-blk + qcow2 +
+  `savevm`/`loadvm`, which needs the boot chain reworked)
+- Unix socket support (macOS / Linux, `QmpEndpoint::UnixSocket`)
+- virtio devices (block / network)
+- ~~sandbox-driven serial callbacks~~ ? done (stage 15a)

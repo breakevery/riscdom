@@ -1,92 +1,111 @@
+[中文](README.zh-CN.md) | English
+
 # ui
 
-智芯城（RiscDom）的桌面前端（Tauri 2 + React + TypeScript + Vite）。
+The RiscDom desktop frontend (Tauri 2 + React + TypeScript + Vite).
 
-## 三栏布局
+## Three-pane layout
 
-- **左 · 对话框**（`panels/ChatPanel.tsx`）：消息列表（user / assistant / tool），
-  底部输入框。工具调用显示为可折叠块（工具名 + 参数 + 结果）。运行中输入框禁用并显示"思考中…"。
-- **中 · 设置**（`panels/SettingsPanel.tsx`）：LLM 配置、工作区、审计状态与最近事件。
-- **右 · 串口画布**（`panels/CanvasPanel.tsx`）：xterm.js 终端，实时显示 guest 串口输出；
-  顶部有 VM 状态条 + 清屏 + 导出串口日志。串口输出**跨 run 累积**（不自动清屏，需清空请点“清屏”）。
+- **Left · chat** (`panels/ChatPanel.tsx`): the message list (user / assistant / tool) plus
+  the input box at the bottom. Tool calls render as collapsible blocks (tool name +
+  arguments + result). While a run is in flight the input box is disabled and shows
+  "thinking…".
+- **Middle · settings** (`panels/SettingsPanel.tsx`): LLM configuration, workspace, audit
+  status and recent events.
+- **Right · serial canvas** (`panels/CanvasPanel.tsx`): an xterm.js terminal that shows
+  guest serial output live, with a VM status bar, a clear button and serial-log export on
+  top. Serial output **accumulates across runs** (it is never cleared automatically; use
+  "clear" when you want a blank terminal).
 
-三栏用 CSS Grid，中间两条可拖拽的分隔条（`layout/AppShell.tsx`，无第三方分栏库）。
+The three panes use CSS Grid with two draggable splitters (`layout/AppShell.tsx`, no
+third-party splitter library).
 
-## 运行
+## Running
 
 ```powershell
 npm install
 npm run build        # tsc + vite build
-npm run tauri dev    # 启动桌面应用（需要 Rust 工具链）
+npm run tauri dev    # launch the desktop app (needs the Rust toolchain)
 ```
 
-`npm run tauri build` 出安装包（需图标等，MVP 未打磨）。
+`npm run tauri build` produces installers (icons etc. are still MVP-rough).
 
-## 设置 API Key（仅本次会话）
+## Setting the API key (this session only)
 
-在**设置**栏填写 API Key / Base URL / Model，点"保存到本次会话"。
+Fill in API Key / Base URL / Model in the **settings** pane and click "save for this
+session".
 
-- Key 只存在后端内存（`host::AppState::llm_config`）；
-- **不写 localStorage / sessionStorage / console / 审计 / 磁盘**；
-- 前端保存后立即清空输入框；
-- 状态显示只回显 `base_url` / `model`，**不回显 key**。
+- The key only lives in backend memory (`host::AppState::llm_config`);
+- it is **never** written to localStorage / sessionStorage / console / the audit log / disk;
+- the frontend clears the input box immediately after saving;
+- status read-outs echo `base_url` / `model` and **never the key**.
 
-## 架构
+## Architecture
 
 ```
-前端 (React)  --invoke/listen-->  ui/src-tauri (Tauri shell)  -->  host crate
-                                                                    |--> agent
-                                                                    |--> sandbox
-                                                                    |--> audit
+frontend (React)  --invoke/listen-->  ui/src-tauri (Tauri shell)  -->  host crate
+                                                                        |--> agent
+                                                                        |--> sandbox
+                                                                        |--> audit
 ```
 
-- 所有 `invoke` 调用集中在 `src/api/tauri.ts`，便于审计。
-- 前端**不直接**接触 QEMU / gcc / Rust crate。
-- 不使用 `innerHTML` / `dangerouslySetInnerHTML` 渲染 LLM 或串口内容（防 XSS）。
+- All `invoke` calls are centralised in `src/api/tauri.ts` so they are easy to audit.
+- The frontend **never** touches QEMU / gcc / Rust crates directly.
+- LLM and serial content is never rendered with `innerHTML` / `dangerouslySetInnerHTML`
+  (XSS guard).
 
-## 事件
+## Events
 
 `agent:iteration` / `agent:tool_call` / `agent:tool_result` / `agent:final` /
-`serial:chunk` / `vm:state`。详见 `host/README.md`。
+`serial:chunk` / `vm:state`. See `host/README.md`.
 
-## 测试
+## Tests
 
-端到端（mock LLM，需 QEMU + RISC-V 工具链）：
+End-to-end (mock LLM, needs QEMU + the RISC-V toolchain):
 
 ```text
 cargo test -p host -- --ignored --nocapture
 ```
 
-真实 API 端到端（需 key）：
+Real-API end-to-end (needs a key):
 
 ```powershell
 $env:DEEPSEEK_API_KEY = "***"
 cargo test -p agent -- --ignored --nocapture
-npm run tauri dev   # 或直接手动操作界面
+npm run tauri dev   # or drive the UI by hand
 ```
 
-## 快照面板
+## Snapshot panel
 
-设置栏的“快照”区列出 `<workspace>/.riscdom/snapshots` 下的快照：
+The "snapshots" section of the settings pane lists snapshots under
+`<workspace>/.riscdom/snapshots`:
 
-- 标注“**真实**”（`.mig`，QMP 迁移流）或“**重启式**”（`.json`，旧降级方案）；
-- 支持刷新与删除（删除前二次确认）；
-- “**保存当前状态**”：把 host 持有的运行中 VM 存成真实快照（VM 未运行时按钮禁用）；
-- “**恢复**”（仅真实快照）：二次确认后停止当前 VM 并从快照恢复（见 `host/README.md`）。
+- labelled "**real**" (`.mig`, a QMP migration stream) or "**reboot**" (`.json`, the old
+  fallback);
+- refresh and delete are supported (delete asks for confirmation);
+- "**save current state**": stores the running host-owned VM as a real snapshot (the button
+  is disabled while no VM runs);
+- "**restore**" (real snapshots only): after confirmation the current VM is stopped and
+  restored from the snapshot (see `host/README.md`).
 
-## 会话持久化
+## Session persistence
 
-对话会自动保存，重启后可在 ChatPanel 顶部“会话”面板里打开 / 重命名 / 删除。
+Conversations are saved automatically; after a restart you can open / rename / delete them
+from the "sessions" panel at the top of ChatPanel.
 
-- 存储位置：**应用数据目录**下的 `sessions.db`（SQLite），不在仓库、不在 AI 工作区。
-- 可用环境变量 `RISCDOM_SESSION_DB_PATH` 覆盖路径。
-- 清除：在会话面板逐条删除，或调用 `clear_all_sessions`（UI 二次确认）。
-- **不会**持久化：API Key、system prompt 原文、流式中间状态、审计事件。
-- 恢复会话只把历史消息注入 `AgentLoop`，**不重放**工具调用。
+- Storage: `sessions.db` (SQLite) under the **app data directory** — not in the repository
+  and not in the AI workspace.
+- The `RISCDOM_SESSION_DB_PATH` environment variable can override the path.
+- Clearing: delete entries one by one in the panel, or call `clear_all_sessions` (the UI asks
+  for confirmation).
+- **Never persisted**: API keys, the raw system prompt, streaming intermediate state, audit
+  events.
+- Restoring a session injects history messages into `AgentLoop` and **never replays** tool
+  calls.
 
-## v0.2 待办
+## v0.2 TODO
 
-- keyring 持久化（系统钥匙串，替代仅会话内）
-- 流式输出（SSE 逐字）
-- 会话：搜索 / 标签 / 导入导出 / 加密（均属 v0.2 后续）
-- 串口改为 sandbox 主动回调（去掉 host 轮询）
+- keyring persistence (the OS keyring, replacing session-only storage)
+- streaming output (SSE, token by token)
+- sessions: search / tags / import-export / encryption (all v0.2 follow-ups)
+- serial moved to sandbox push callbacks (dropping host polling)

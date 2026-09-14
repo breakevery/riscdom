@@ -164,4 +164,5 @@ Key 只存在后端内存：**不写** localStorage / sessionStorage / 磁盘 / 
 - [PROJECT_CONSTITUTION.md](PROJECT_CONSTITUTION.md) — 完整宪法、架构分层、审计事件类型
 - [ENVIRONMENT.md](ENVIRONMENT.md) — 工具链与平台限制
 - [CHANGELOG.md](CHANGELOG.md) — 版本历史
-- 各 crate 的 README：`sandbox/` `audit/` `agent/` `host/` `ui/`
+- 各 crate 的 README：[sandbox](sandbox/README.md) · [audit](audit/README.md) ·
+  [agent](agent/README.md) · [host](host/README.md) · [ui](ui/README.md)

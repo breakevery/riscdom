@@ -1,173 +1,196 @@
+[中文](README.zh-CN.md) | English
+
 # agent
 
-智芯城（RiscDom）的 **AI 代理运行时**：用自然语言驱动 LLM 在 RISC-V 虚拟沙箱里
-写 C / 汇编、编译、运行、读串口并循环迭代。
+The RiscDom **AI agent runtime**: natural language drives an LLM to write C / assembly,
+compile, run, read the serial console and iterate inside a RISC-V virtual sandbox.
 
-依赖方向：`agent → sandbox`，`agent → audit`。
+Dependency direction: `agent → sandbox`, `agent → audit`.
 
-## 模块
+## Modules
 
-- `config` — `AgentConfig`（从环境变量读取；`Debug` 对 API key 打码）
-- `message` — `ChatMessage` / `ChatRequest` / `ChatResponse` / `ToolCall`（DeepSeek 兼容）
-- `llm` — `LlmClient` trait（`chat` + `chat_stream`）+ `OpenAiCompatClient`（OpenAI 兼容 HTTP 客户端；`DeepSeekClient` 为向后兼容别名）+ `MockLlm`（测试脚本）
-- `audit_hook` — 统一的审计写入辅助
-- `policy` — `WorkspacePolicy`（能力策略，默认拒绝）
-- `compiler` — `compile_freestanding`（C → 裸机 ELF，注入 crt0）
-- `tools` — 工具集与 `execute_tool`
-- `prompt` — 系统提示词构建
+- `config` — `AgentConfig` (read from environment variables; `Debug` masks the API key)
+- `message` — `ChatMessage` / `ChatRequest` / `ChatResponse` / `ToolCall` (DeepSeek-compatible)
+- `llm` — the `LlmClient` trait (`chat` + `chat_stream`) + `OpenAiCompatClient` (an
+  OpenAI-compatible HTTP client; `DeepSeekClient` is a backwards-compatible alias) + `MockLlm`
+  (scripted test double)
+- `audit_hook` — shared audit-writing helpers
+- `policy` — `WorkspacePolicy` (capability policy, deny by default)
+- `compiler` — `compile_freestanding` (C → bare-metal ELF, injecting crt0)
+- `tools` — the tool set and `execute_tool`
+- `prompt` — system prompt construction
 - `agent` — `AgentLoop` / `AgentOutcome`
 
-## 服务商预设
+## Provider presets
 
-`presets` 模块是**纯数据**：描述如何到达一个 OpenAI 兼容端点，不含任何服务商专用逻辑。
+The `presets` module is **pure data**: it describes how to reach an OpenAI-compatible endpoint
+and contains no provider-specific logic.
 
-| id | 名称 | base_url | 默认 model | 需 key | 本地 |
+| id | name | base_url | default model | needs key | local |
 | --- | --- | --- | --- | --- | --- |
-| `deepseek`（默认） | DeepSeek | `https://api.deepseek.com` | `deepseek-chat` | 是 | 否 |
-| `openai` | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` | 是 | 否 |
-| `ollama` | Ollama（本地） | `http://localhost:11434/v1` | `qwen2.5-coder` | 否 | 是 |
-| `lmstudio` | LM Studio（本地） | `http://localhost:1234/v1` | （用户填） | 否 | 是 |
-| `custom` | 自定义 | （用户填） | （用户填） | 否 | 否 |
+| `deepseek` (default) | DeepSeek | `https://api.deepseek.com` | `deepseek-chat` | yes | no |
+| `openai` | OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` | yes | no |
+| `ollama` | Ollama (local) | `http://localhost:11434/v1` | `qwen2.5-coder` | no | yes |
+| `lmstudio` | LM Studio (local) | `http://localhost:1234/v1` | (user fills) | no | yes |
+| `custom` | custom | (user fills) | (user fills) | no | no |
 
-- `DEFAULT_PRESET_ID = "deepseek"`；`find_preset(id)` 查表；`builtin_presets()` 返回全部。
-- `AgentConfig::from_preset(preset, api_key)`：按预设填 `base_url` / `model`；
-  `requires_key=true` 且无 key → **明确报错**（不静默）；本地预设允许空 key；最后过一遍 `validate()`。
-- “自定义”允许用户填**任意** OpenAI 兼容服务（含自建网关）。
+- `DEFAULT_PRESET_ID = "deepseek"`; `find_preset(id)` looks one up; `builtin_presets()` returns
+  all of them.
+- `AgentConfig::from_preset(preset, api_key)`: fills `base_url` / `model` from the preset;
+  `requires_key=true` without a key → **an explicit error** (never silent); local presets
+  accept an empty key; `validate()` runs last.
+- "custom" lets users point at **any** OpenAI-compatible service (including a self-hosted
+  gateway).
 
-## 配置
+## Configuration
 
-LLM 客户端为 **OpenAI 兼容协议**（`OpenAiCompatClient`）：只要 `base_url` / `model`
-指向任何兼容服务商即可（DeepSeek 为默认预设）。`api_key` 对本地地址（localhost /
-127.0.0.1）可为空，对云端地址必填。
+The LLM client speaks the **OpenAI-compatible protocol** (`OpenAiCompatClient`): point
+`base_url` / `model` at any compatible provider (DeepSeek is the default preset). `api_key`
+may be empty for a local address (localhost / 127.0.0.1) and is required for a cloud address.
 
-> v0.2 OPENAI 兼容重构已完成（本阶段）；服务商预设下拉、本地模型（Ollama / LM Studio）
-> 与无 key 降级体验见 [PROJECT_CONSTITUTION.md §10](../PROJECT_CONSTITUTION.md)。
+> The v0.2 OpenAI-compatible refactor is complete (this stage); the provider dropdown, local
+> models (Ollama / LM Studio) and the key-less experience are tracked in
+> [PROJECT_CONSTITUTION.md §10](../PROJECT_CONSTITUTION.md).
 
-| 环境变量 | 必需 | 默认 |
+| environment variable | required | default |
 | --- | --- | --- |
-| `DEEPSEEK_API_KEY` | 是 | — |
-| `DEEPSEEK_BASE_URL` | 否 | `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | 否 | `deepseek-chat` |
-| `RISCDOM_MAX_ITERATIONS` | 否 | `10` |
-| `RISCDOM_REQUEST_TIMEOUT` | 否 | `120` |
-| `RISCDOM_RISCV_GCC` | 否 | `D:\tools\...\riscv64-unknown-elf-gcc.exe` |
-| `RISCDOM_QEMU` | 否 | `C:\Program Files\qemu\qemu-system-riscv64.exe` |
+| `DEEPSEEK_API_KEY` | yes | — |
+| `DEEPSEEK_BASE_URL` | no | `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | no | `deepseek-chat` |
+| `RISCDOM_MAX_ITERATIONS` | no | `10` |
+| `RISCDOM_REQUEST_TIMEOUT` | no | `120` |
+| `RISCDOM_RISCV_GCC` | no | `D:\tools\...\riscv64-unknown-elf-gcc.exe` |
+| `RISCDOM_QEMU` | no | `C:\Program Files\qemu\qemu-system-riscv64.exe` |
 
-PowerShell：
+PowerShell:
 
 ```powershell
 $env:DEEPSEEK_API_KEY = "sk-..."
 ```
 
-**API key 从不写入**代码、仓库、审计事件、错误信息或 Debug 输出（仅显示前 4 后 4）。
+**The API key is never written** into code, the repository, audit events, error messages or
+Debug output (only the first 4 and last 4 characters are ever shown).
 
-## 运行测试
+## Running the tests
 
-Mock（无需网络 / key）：
+Mock (no network / no key):
 
 ```text
 cargo test -p agent
 ```
 
-真实 DeepSeek 端到端（需 key + 网络 + QEMU + 工具链）：
+Real DeepSeek end-to-end (needs a key + network + QEMU + the toolchain):
 
 ```powershell
 $env:DEEPSEEK_API_KEY = "sk-..."
 cargo test -p agent -- --ignored --nocapture
 ```
 
-该测试的审计后端是**文件 SQLite**（`%TEMP%\riscdom-audit-real-*.db`）：run 结束后用**新的
-句柄**重开同一个库，`audit::verify_chain` 必须返回 `ChainStatus::Intact`（且 `length > 0`），
-并要求 `agent.llm.request` / `agent.tool.call` / `agent.tool.result` 各至少 1 条。临时库用
-`Drop` 守卫清理（失败/panic 时同样删除）。
+That test's audit backend is **file SQLite** (`%TEMP%\riscdom-audit-real-*.db`): after the run
+a **new handle** reopens the same database and `audit::verify_chain` must return
+`ChainStatus::Intact` (with `length > 0`), plus at least one each of `agent.llm.request` /
+`agent.tool.call` / `agent.tool.result`. The temp database is removed by a `Drop` guard (it is
+deleted on failure and panic too).
 
-## 工具清单
+## Tools
 
-| 工具 | 说明 |
+| tool | description |
 | --- | --- |
-| `write_source(path, content)` | 写 C / 汇编源文件（仅 `.c/.h/.S/.s`） |
-| `compile(source_path, output_elf)` | 编译成裸机 ELF（加载地址 `0x80000000`） |
-| `start_vm(elf_path)` | 用 `sandbox` crate 启动 QEMU |
-| `read_serial()` | 读取当前串口缓冲 |
-| `stop_vm()` | 停止 QEMU |
-| `list_workspace()` | 列出工作区文件 |
+| `write_source(path, content)` | write a C / assembly source file (`.c/.h/.S/.s` only) |
+| `compile(source_path, output_elf)` | compile to a bare-metal ELF (load address `0x80000000`) |
+| `start_vm(elf_path)` | start QEMU through the `sandbox` crate |
+| `read_serial()` | read the current serial buffer |
+| `stop_vm()` | stop QEMU |
+| `list_workspace()` | list workspace files |
 
-## 能力策略
+## Capability policy
 
-`WorkspacePolicy` **默认拒绝**：
+`WorkspacePolicy` **denies by default**:
 
-1. 任何含 `..` 的路径直接拒绝（防穿越）。
-2. 解析为绝对路径后必须位于工作区根内，否则拒绝。
-3. 写操作额外要求扩展名在白名单内（`.c/.h/.S/.s`）。
-4. 每次拒绝都写 `agent.policy.deny` 审计事件。
+1. Any path containing `..` is rejected outright (traversal guard).
+2. Resolved to an absolute path it must stay inside the workspace root, otherwise rejected.
+3. Writes additionally require an allowlisted extension (`.c/.h/.S/.s`).
+4. Every rejection writes an `agent.policy.deny` audit event.
 
-工具执行前必经策略检查；agent 从不直接调用 QEMU，一律通过 `sandbox` crate。
+Tools always pass the policy check before executing; the agent never calls QEMU directly, only
+through the `sandbox` crate.
 
-## 循环与上下文
+## Loop and context
 
-- 每轮：`llm.chat` → 若有 `tool_calls` 则逐个执行并回填 `tool` 消息，否则返回 `Final`。
-- **入口即校验**：`run()` 第一件事是 `config.validate()`；不通过直接返回
-  `AgentOutcome::Failed { iterations: 0 }`，不会发出任何 LLM 请求。
-- 上限 `max_iterations`（默认 10），达到后返回 `MaxIterations`，绝不无限循环。
-- 上下文裁剪：超过 40 条消息时保留 system + 最近 30 条，并插入 truncation 标记。
-- 单条消息（用户输入 / 工具结果）上限 8 KB。
-- 串口内容视为**数据**，绝不当指令处理（prompt injection 防线）。
+- Each turn: `llm.chat` → if there are `tool_calls`, execute them one by one and feed back
+  `tool` messages; otherwise return `Final`.
+- **Validation first**: `run()` starts with `config.validate()`; on failure it returns
+  `AgentOutcome::Failed { iterations: 0 }` without issuing a single LLM request.
+- The cap is `max_iterations` (default 10); reaching it returns `MaxIterations` and never loops
+  forever.
+- Context trimming: beyond 40 messages it keeps the system message plus the last 30 and inserts
+  a truncation marker.
+- A single message (user input / tool result) is capped at 8 KB.
+- Serial content is treated as **data**, never as instructions (the prompt-injection guard).
 
-## 编译器说明
+## A note on the compiler
 
-`compile` 在 spec 建议的 `-Ttext=0x80000000` 之外，额外使用 `-mcmodel=medany`
-并链接一个生成的链接脚本 + 注入的 `crt0`：`crt0` 提供 `_start`（放在镜像最前），
-设置 `sp`，再 `call main`。因此 AI 只需写 `int main(void) { ... }`。
+Besides the spec-suggested `-Ttext=0x80000000`, `compile` also uses `-mcmodel=medany` and links
+a generated linker script plus an injected `crt0`: `crt0` provides `_start` (placed first in
+the image), sets up `sp` and then `call main`. The AI therefore only writes
+`int main(void) { ... }`.
 
-原因：本环境下 `medlow` 模型在 `0x80000000` 会截断重定位；且 `-bios none` 下 QEMU
-从 `0x80000000` 起跳，入口必须位于镜像最前。详见 `sandbox/README.md` 与 `ENVIRONMENT.md`。
+Why: in this environment the `medlow` model truncates relocations at `0x80000000`, and with
+`-bios none` QEMU jumps to `0x80000000`, so the entry must be first in the image. See
+`sandbox/README.md` and `ENVIRONMENT.md`.
 
-## 串口订阅
+## Serial subscriptions
 
-`AgentLoop::subscribe_serial() -> std::sync::mpsc::Receiver<Vec<u8>>`：每次调用创建一个新的
-channel（sender 内部保存），返回 receiver。启动 VM 时会把 `VMConfig.serial_observer`
-设为一个统一 observer，把沙箱**实时推送**的串口分帧扇出给所有订阅者。
+`AgentLoop::subscribe_serial() -> std::sync::mpsc::Receiver<Vec<u8>>`: each call creates a new
+channel (the sender is kept internally) and returns the receiver. Starting a VM sets
+`VMConfig.serial_observer` to a shared observer that fans the sandbox's **real-time** serial
+frames out to every subscriber.
 
-- 只收到**订阅之后**的数据（不做历史回放）；需要全量请调用 `read_serial` 工具。
-- receiver 关闭后，下一次事件会自动把对应 sender 从列表移除（不会 panic）。
-- 无 tokio 依赖（纯 `std::sync::mpsc`）。
+- Only data from **after** subscribing arrives (no history replay); call the `read_serial`
+  tool when you need everything.
+- Once a receiver closes, the next event removes its sender from the list automatically (no
+  panic).
+- No tokio dependency (pure `std::sync::mpsc`).
 
-## 流式响应
+## Streaming responses
 
-`LlmClient::chat_stream(req, on_event) -> ChatResponse`：`on_event` 收到 `StreamEvent`：
+`LlmClient::chat_stream(req, on_event) -> ChatResponse`: `on_event` receives `StreamEvent`s:
 
-- `Delta(String)` — 增量文本
-- `ToolCallDelta { index, id, name, args_delta }` — **工具调用分片**（不逐字显示，按 `index` 缓冲到完整后再处理）
-- `Done` — 流结束
+- `Delta(String)` — incremental text
+- `ToolCallDelta { index, id, name, args_delta }` — **tool-call fragments** (not rendered
+  character by character; buffered per `index` until complete)
+- `Done` — the stream finished
 
-- 默认实现**退化到 `chat`**（整段 content 作为单个 `Delta`），因此任何 `LlmClient` 都可用；
-  `OpenAiCompatClient` 覆盖为真实 SSE（`stream: true` + `data:` 逐行解析），
-  `MockLlm` 按 8 字符切片以便测试。
-- SSE 解析在 [`sse`] 模块（`parse_sse_line` / `SseAccumulator`），已覆盖空行、注释、
-  `data:` 有无空格、多行 data 拼接、`[DONE]`。
-- 网络/JSON 错误返回 `Err`，不 panic。
-- 真实 API 流式测试：`cargo test -p agent --test stream_real -- --ignored --nocapture`。
+- The default implementation **degrades to `chat`** (the whole content arrives as one `Delta`),
+  so any `LlmClient` works; `OpenAiCompatClient` overrides it with real SSE (`stream: true` +
+  line-by-line `data:` parsing) and `MockLlm` chunks text 8 characters at a time for testing.
+- SSE parsing lives in the `sse` module (`parse_sse_line` / `SseAccumulator`) and covers blank
+  lines, comments, `data:` with and without a space, multi-line data joining and `[DONE]`.
+- Network/JSON errors return `Err`, never panic.
+- Real-API streaming test:
+  `cargo test -p agent --test stream_real -- --ignored --nocapture`.
 
-### 订阅（`AgentLoop`）
+### Subscriptions (`AgentLoop`)
 
-`AgentLoop::subscribe_stream() -> std::sync::mpsc::Receiver<StreamEvent>`：每次调用新建一个
-channel（sender 内部保存），`run` 中把同一个 `StreamEvent` 扇出给所有订阅者；
-receiver 关闭后自动剔除。
+`AgentLoop::subscribe_stream() -> std::sync::mpsc::Receiver<StreamEvent>`: each call creates a
+new channel (the sender is kept internally) and `run` fans the same `StreamEvent` out to every
+subscriber; a closed receiver is dropped automatically.
 
-### 审计事件
+### Audit events
 
 | action | detail |
 | --- | --- |
 | `agent.llm.stream.start` | `{ model, base_url_host }` |
 | `agent.llm.stream.end` | `{ chunks, duration_ms, has_tool_calls }` |
-| `agent.llm.request` / `agent.llm.response` | 保持不变（response 仍记完整响应） |
+| `agent.llm.request` / `agent.llm.response` | unchanged (response still records the full response) |
 
-**不**逐 chunk 记审计事件。
+Audit events are **not** recorded per chunk.
 
 ## v0.2 TODO
 
-- `OpenAiCompatClient` + 本地模型支持：`DeepSeekClient` 重构为通用 OpenAI 兼容客户端，
-  内置 DeepSeek（默认）/ OpenAI / Ollama（本地）/ LM Studio（本地）预设，支持无 key 的本地模型
-- gdbstub 接入（调试）
-- 多轮会话持久化（跨轮上下文）
-- ~~`real_api` 补 `verify_chain` 断言~~（已完成，阶段 21：文件 SQLite + 独立句柄验证链完整）
+- `OpenAiCompatClient` + local model support: refactor `DeepSeekClient` into a generic
+  OpenAI-compatible client with built-in DeepSeek (default) / OpenAI / Ollama (local) /
+  LM Studio (local) presets, including key-less local models
+- gdbstub integration (debugging)
+- multi-turn session persistence (cross-turn context)
+- ~~`real_api` asserts `verify_chain`~~ (done, stage 21: file SQLite + independent handle)

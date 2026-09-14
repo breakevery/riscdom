@@ -174,4 +174,5 @@ disk / audit / logs, and status read-outs never contain it. Closing the app inva
   layers, audit event types
 - [ENVIRONMENT.md](ENVIRONMENT.md) — toolchain and platform limits
 - [CHANGELOG.md](CHANGELOG.md) — version history
-- Per-crate READMEs: `sandbox/` `audit/` `agent/` `host/` `ui/`
+- Per-crate READMEs: [sandbox](sandbox/README.md) · [audit](audit/README.md) ·
+  [agent](agent/README.md) · [host](host/README.md) · [ui](ui/README.md)
