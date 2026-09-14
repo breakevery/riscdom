@@ -25,6 +25,15 @@
 - **双语文档**：所有文档都有英文（正本）与中文（`*.zh-CN.md`）两版，并由本地门禁的自动检查
   保持同步。
 
+## 前置条件
+
+**必须安装 RISC-V 裸机 GCC 才能编译任何东西。** RiscDom 会自动探测
+（`RISCDOM_RISCV_GCC` / `RISCV_GCC` → 常见安装路径 → `PATH`）；全部未命中时，它会明确告诉你
+搜过哪些路径、怎么修（包括在 **设置 → 工具链** 手动指定路径）。请安装 xPack
+[riscv-none-elf-gcc](https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases)
+或等价的 `riscv64-unknown-elf-gcc`；三平台步骤见
+[docs/toolchain-setup.md](docs/toolchain-setup.md)。
+
 ## 已知限制
 
 - **以 Windows 为主平台**：QMP 与串口走 TCP；Unix socket、macOS 与 Linux 尚未实现。

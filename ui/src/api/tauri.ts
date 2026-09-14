@@ -156,6 +156,23 @@ export const resumeFromSnapshotReal = (name: string) =>
 /** Is the host currently holding a (cross-run) VM? */
 export const vmIsRunning = () => invoke<boolean>("vm_is_running");
 
+/** RISC-V GCC toolchain status. */
+export interface ToolchainView {
+  found: boolean;
+  path: string | null;
+  /** "EnvVar" | "KnownPath" | "Path" | "Manual" */
+  source: string;
+  /** Full search record (where we looked and what happened). */
+  diagnostics: string;
+}
+
+export const probeToolchain = () => invoke<ToolchainView>("probe_toolchain");
+
+export const setToolchainPath = (path: string) =>
+  invoke<void>("set_toolchain_path", { path });
+
+export const clearToolchainPath = () => invoke<void>("clear_toolchain_path");
+
 /** A persisted session summary. */
 export interface SessionMeta {
   id: string;

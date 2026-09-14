@@ -121,6 +121,19 @@ impl CompilerConfig {
         }
     }
 
+    /// Build explicitly from a user-chosen path (`Manual` source).
+    ///
+    /// Used by the host when the user points the app at a toolchain by hand.
+    pub fn manual(gcc: PathBuf) -> Self {
+        Self {
+            gcc,
+            source: ToolchainSource::Manual,
+            march: "rv64gc".into(),
+            mabi: "lp64d".into(),
+            link_addr: "0x80000000".into(),
+        }
+    }
+
     /// Human-readable record of the search: where we looked and what happened.
     pub fn diagnostics() -> String {
         let (found, log) = search();

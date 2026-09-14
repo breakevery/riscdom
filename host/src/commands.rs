@@ -6,7 +6,7 @@
 use crate::events::TauriEventSink;
 use crate::state::{
     AgentOutcomeView, AppState, AuditStatusView, LlmConfigStatus, LlmReadiness, LocalProbeResult,
-    ProviderPresetView, SessionDetailView, SnapshotMetaView, StoredEventView,
+    ProviderPresetView, SessionDetailView, SnapshotMetaView, StoredEventView, ToolchainView,
 };
 use crate::SessionMeta;
 use std::sync::Arc;
@@ -34,6 +34,26 @@ pub async fn stop_current_vm(state: State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 pub async fn vm_is_running(state: State<'_, AppState>) -> Result<bool, String> {
     Ok(state.vm_is_running())
+}
+
+/// Where the RISC-V GCC toolchain is (and the full search record).
+#[tauri::command]
+pub async fn probe_toolchain(state: State<'_, AppState>) -> Result<ToolchainView, String> {
+    Ok(state.probe_toolchain())
+}
+
+/// Point the app at a specific RISC-V GCC (validated with `--version`).
+#[tauri::command]
+pub async fn set_toolchain_path(state: State<'_, AppState>, path: String) -> Result<(), String> {
+    state
+        .set_toolchain_path(&path)
+        .map_err(|e| e.user_message())
+}
+
+/// Forget the manual path and go back to auto-discovery.
+#[tauri::command]
+pub async fn clear_toolchain_path(state: State<'_, AppState>) -> Result<(), String> {
+    state.clear_toolchain_path().map_err(|e| e.user_message())
 }
 
 /// Save a real (tcp-relay) snapshot of the host-owned VM. Returns bytes written.

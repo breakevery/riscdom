@@ -55,7 +55,11 @@ and `agent → sandbox → audit`.
 
 - Windows 10/11 (MVP is verified on Windows only; QMP/serial use TCP)
 - QEMU (`qemu-system-riscv64`, verified with 11.1.0)
-- RISC-V bare-metal GCC (`riscv64-unknown-elf-gcc`, verified with xPack 15.2.0)
+- **A RISC-V bare-metal GCC is required to compile anything** — install the xPack
+  [riscv-none-elf-gcc](https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases)
+  (verified with 15.2.0) or an equivalent `riscv64-unknown-elf-gcc`. RiscDom auto-detects it
+  (`RISCDOM_RISCV_GCC` / `RISCV_GCC`, well-known install paths, then `PATH`); otherwise set the
+  path in **Settings → Toolchain**. Per-platform steps: [docs/toolchain-setup.md](docs/toolchain-setup.md).
 - Rust / cargo (verified with 1.98.1) + MSVC toolchain (required by Tauri)
 - Node / npm (verified with 24.11.1 / 11.16.0)
 

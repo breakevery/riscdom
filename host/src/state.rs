@@ -31,6 +31,39 @@ pub const POLL_INTERVAL: Duration = Duration::from_millis(200);
 /// Guest RAM used by the agent's `start_vm` tool (kept in sync there).
 const VM_MEMORY_MB: u32 = 128;
 
+/// Toolchain status shown in the UI (stage 24b).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ToolchainView {
+    /// Is a usable RISC-V GCC available?
+    pub found: bool,
+    /// Resolved path (absent when not found).
+    pub path: Option<String>,
+    /// `EnvVar` / `KnownPath` / `Path` / `Manual`.
+    pub source: String,
+    /// Human-readable search record.
+    pub diagnostics: String,
+}
+
+/// Run `<path> --version`; returns its first output line.
+fn toolchain_runs(path: &Path) -> Result<String, HostError> {
+    match std::process::Command::new(path).arg("--version").output() {
+        Ok(out) if out.status.success() => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let first = text.lines().next().unwrap_or_default().trim().to_string();
+            Ok(if first.is_empty() {
+                "ok".to_string()
+            } else {
+                first
+            })
+        }
+        Ok(out) => Err(HostError::Other(format!(
+            "`--version` exited with {}",
+            out.status
+        ))),
+        Err(e) => Err(HostError::Other(e.to_string())),
+    }
+}
+
 /// LLM configuration (in memory only — never persisted).
 #[derive(Clone)]
 pub struct LlmConfigInput {
@@ -286,6 +319,8 @@ pub struct AppState {
     /// Host-owned VM slot: a VM started during a run stays here after the run
     /// ends, so later runs reuse the same guest (v0.2 host-owned lifecycle).
     pub vm_slot: Arc<Mutex<Option<RiscVVirtualMachine>>>,
+    /// User-chosen RISC-V GCC (`set_toolchain_path`); `None` means auto-discovery.
+    pub toolchain_path: Mutex<Option<PathBuf>>,
     pub llm_config: Mutex<Option<LlmConfigInput>>,
     pub workspace_root: PathBuf,
     pub compiler: agent::CompilerConfig,
@@ -441,6 +476,7 @@ impl AppState {
             audit: shared,
             sink,
             vm_slot: Arc::new(Mutex::new(None)),
+            toolchain_path: Mutex::new(None),
             llm_config: Mutex::new(None),
             workspace_root: root,
             compiler: agent::CompilerConfig::from_env(),
@@ -635,6 +671,68 @@ impl AppState {
     }
 
     // ----- Sessions ---------------------------------------------------------
+
+    // ----- Toolchain (stage 24b) --------------------------------------------
+
+    /// Effective compiler config: an explicit user path wins over discovery.
+    fn toolchain_config(&self) -> agent::CompilerConfig {
+        match self.toolchain_path.lock().ok().and_then(|g| g.clone()) {
+            Some(path) => agent::CompilerConfig::manual(path),
+            None => agent::CompilerConfig::from_env(),
+        }
+    }
+
+    /// Current toolchain status for the UI.
+    pub fn probe_toolchain(&self) -> ToolchainView {
+        if let Some(path) = self.toolchain_path.lock().ok().and_then(|g| g.clone()) {
+            let runnable = toolchain_runs(&path);
+            return ToolchainView {
+                found: runnable.is_ok(),
+                path: Some(path.display().to_string()),
+                source: "Manual".to_string(),
+                diagnostics: match &runnable {
+                    Ok(version) => format!("manual path: {}\n{version}", path.display()),
+                    Err(e) => format!("manual path: {} is not runnable: {e}", path.display()),
+                },
+            };
+        }
+        let cfg = agent::CompilerConfig::from_env();
+        let found = cfg.gcc.is_file();
+        ToolchainView {
+            found,
+            path: found.then(|| cfg.gcc.display().to_string()),
+            source: cfg.source.as_str().to_string(),
+            diagnostics: agent::CompilerConfig::diagnostics(),
+        }
+    }
+
+    /// Store a user-chosen RISC-V GCC after checking that it really runs.
+    pub fn set_toolchain_path(&self, path: &str) -> Result<(), HostError> {
+        let p = PathBuf::from(path.trim());
+        if !p.is_file() {
+            return Err(HostError::Other(format!("not a file: {}", p.display())));
+        }
+        let version = toolchain_runs(&p)?;
+        *self
+            .toolchain_path
+            .lock()
+            .map_err(|_| HostError::Other("toolchain lock poisoned".into()))? = Some(p.clone());
+        self.emit_host(
+            "host.toolchain.set",
+            serde_json::json!({ "path": p.display().to_string(), "version": version }),
+        );
+        Ok(())
+    }
+
+    /// Drop the manual toolchain and fall back to auto-discovery.
+    pub fn clear_toolchain_path(&self) -> Result<(), HostError> {
+        *self
+            .toolchain_path
+            .lock()
+            .map_err(|_| HostError::Other("toolchain lock poisoned".into()))? = None;
+        self.emit_host("host.toolchain.clear", serde_json::json!({}));
+        Ok(())
+    }
 
     /// The session the next run appends to.
     pub fn current_session_id(&self) -> Option<String> {
@@ -1337,6 +1435,14 @@ impl AppState {
         if !readiness.ready {
             return Err(HostError::Other(readiness_error(&readiness)));
         }
+        // Toolchain pre-check: never enter the loop without a working compiler.
+        let toolchain = self.probe_toolchain();
+        if !toolchain.found {
+            return Err(HostError::Other(format!(
+                "toolchain_missing\n{}",
+                toolchain.diagnostics
+            )));
+        }
         let llm = self.build_llm()?;
         let policy = WorkspacePolicy::new(self.workspace_root.clone());
         let system_prompt = format!("{CONSTITUTION}\n\n{}", agent::prompt::OPERATING_RULES);
@@ -1351,6 +1457,8 @@ impl AppState {
         // Host-owned VM: the loop works on `vm_slot`; serial bytes go to the
         // same broadcast list that the long-lived forwarder reads from.
         agent.attach_serial(Arc::clone(&self.serial_senders));
+        // Host-configured toolchain (falls back to auto-discovery).
+        agent.set_compiler(self.toolchain_config());
 
         // Sessions: restore prior turns, then persist whatever this turn adds.
         let session_id = self.ensure_session(user_input)?;

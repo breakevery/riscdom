@@ -113,6 +113,12 @@ impl AgentLoop {
         self.serial_observers = senders;
     }
 
+    /// Replace the compiler configuration (the host injects a manually chosen
+    /// RISC-V toolchain here; auto-discovery stays the default).
+    pub fn set_compiler(&mut self, compiler: CompilerConfig) {
+        self.compiler = compiler;
+    }
+
     /// Append restored messages to the conversation.
     ///
     /// Used to rehydrate a persisted session: it only extends `messages`, it

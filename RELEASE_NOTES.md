@@ -31,6 +31,16 @@ privilege.
 - **Bilingual documentation**: every document now exists in English (main) and Chinese
   (`*.zh-CN.md`), kept in sync by an automated check in the local gate.
 
+## Prerequisites
+
+**A RISC-V bare-metal GCC is required to compile anything.** RiscDom auto-detects it
+(`RISCDOM_RISCV_GCC` / `RISCV_GCC`, well-known install paths, then `PATH`) and, when nothing is
+found, tells you exactly what was searched and how to fix it — including setting the path by
+hand in **Settings → Toolchain**. Install the xPack
+[riscv-none-elf-gcc](https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases) or an
+equivalent `riscv64-unknown-elf-gcc`; per-platform steps are in
+[docs/toolchain-setup.md](docs/toolchain-setup.md).
+
 ## Known limitations
 
 - **Windows is the primary platform**: QMP and the serial console go over TCP; Unix sockets,

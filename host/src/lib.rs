@@ -25,5 +25,5 @@ pub use session::{SessionMessage, SessionMeta, SessionStore};
 pub use state::{
     AgentOutcomeView, AppState, AuditStatusView, ChainStatusView, LlmConfigInput, LlmConfigStatus,
     LlmReadiness, LocalProbeResult, LocalProviderInfo, ProviderPresetView, SessionDetailView,
-    SnapshotMetaView, StoredEventView,
+    SnapshotMetaView, StoredEventView, ToolchainView,
 };

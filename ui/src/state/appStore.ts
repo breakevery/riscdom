@@ -50,6 +50,12 @@ export interface AppStore {
   refreshVmState: () => Promise<void>;
   saveSnapshot: (name: string) => Promise<void>;
   resumeSnapshot: (name: string) => Promise<void>;
+  // RISC-V toolchain (stage 24b)
+  toolchain: api.ToolchainView | null;
+  toolchainMissing: boolean;
+  refreshToolchain: () => Promise<void>;
+  setToolchain: (path: string) => Promise<void>;
+  clearToolchain: () => Promise<void>;
   refreshSessions: () => Promise<void>;
   openSession: (id: string) => Promise<void>;
   newSession: () => Promise<void>;
@@ -128,6 +134,7 @@ export function useAppStore(): AppStore {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<api.SnapshotMeta[]>([]);
   const [vmIsRunning, setVmIsRunning] = useState(false);
+  const [toolchain, setToolchain] = useState<api.ToolchainView | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
   const push = useCallback((item: Omit<ChatItem, "id">) => {
@@ -301,6 +308,39 @@ export function useAppStore(): AppStore {
     [refreshVmState],
   );
 
+  const refreshToolchain = useCallback(async () => {
+    try {
+      setToolchain(await api.probeToolchain());
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
+  const setToolchainPath = useCallback(
+    async (path: string) => {
+      try {
+        await api.setToolchainPath(path);
+        await refreshToolchain();
+      } catch (e) {
+        setLastError(String(e));
+      }
+    },
+    [refreshToolchain],
+  );
+
+  const clearToolchain = useCallback(async () => {
+    try {
+      await api.clearToolchainPath();
+      await refreshToolchain();
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, [refreshToolchain]);
+
+  useEffect(() => {
+    void refreshToolchain();
+  }, [refreshToolchain]);
+
   // Host events → chat stream / serial / vm state.
   useEffect(() => {
     const offs: Array<() => void> = [];
@@ -426,6 +466,11 @@ export function useAppStore(): AppStore {
     refreshVmState,
     saveSnapshot,
     resumeSnapshot,
+    toolchain,
+    toolchainMissing: toolchain !== null && !toolchain.found,
+    refreshToolchain,
+    setToolchain: setToolchainPath,
+    clearToolchain,
     refreshSessions,
     openSession,
     newSession,

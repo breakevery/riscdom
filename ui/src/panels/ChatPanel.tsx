@@ -37,6 +37,13 @@ export default function ChatPanel({ store }: { store: AppStore }) {
         </button>
       </header>
 
+      {store.toolchainMissing ? (
+        <div className="banner warn">
+          未找到 RISC-V GCC：现在无法编译。请到「设置 → 工具链」点“重新探测”或“手动指定”填入
+          riscv64-unknown-elf-gcc.exe 的完整路径（详见 docs/toolchain-setup.md）。
+        </div>
+      ) : null}
+
       {showSessions ? (
         <div className="session-list">
           <div className="row">

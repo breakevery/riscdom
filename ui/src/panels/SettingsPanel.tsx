@@ -319,6 +319,50 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
             : "未配置（API key 不会落盘）"}
         </div>
 
+        <h3>工具链</h3>
+        {store.toolchain && !store.toolchain.found ? (
+          <div className="banner warn">
+            未找到 RISC-V GCC。请安装 xPack RISC-V GCC（
+            https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases
+            ），或点“手动指定”填入 riscv64-unknown-elf-gcc.exe 的完整路径。
+          </div>
+        ) : null}
+        <div className="status-line">
+          <span className={`dot ${store.toolchain?.found ? "ok" : "bad"}`} />
+          {store.toolchain?.found ? (
+            <>
+              RISC-V GCC · <span className="badge">{store.toolchain.source}</span>
+            </>
+          ) : (
+            "未找到工具链"
+          )}
+          <button className="ghost tiny" onClick={() => void store.refreshToolchain()}>
+            重新探测
+          </button>
+          <button
+            className="ghost tiny"
+            onClick={() => {
+              const p = window.prompt(
+                "riscv64-unknown-elf-gcc.exe 的完整路径",
+                store.toolchain?.path ?? "",
+              );
+              if (p) void store.setToolchain(p.trim());
+            }}
+          >
+            手动指定
+          </button>
+          {store.toolchain?.path ? (
+            <button className="ghost tiny" onClick={() => void store.clearToolchain()}>
+              清除手动路径
+            </button>
+          ) : null}
+        </div>
+        <div className="muted small">{store.toolchain?.path ?? "（未解析到路径）"}</div>
+        <details>
+          <summary className="muted small">探测详情</summary>
+          <pre className="muted small">{store.toolchain?.diagnostics ?? ""}</pre>
+        </details>
+
         <h3>快照</h3>
         <div className="muted small">
           {store.snapshots.length} 个快照
