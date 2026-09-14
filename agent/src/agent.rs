@@ -146,19 +146,6 @@ impl AgentLoop {
 
             iterations += 1;
 
-            // Fan stream events out to live subscribers (never per-chunk audit).
-            let mut chunks = 0usize;
-            let observers = Arc::clone(&self.stream_observers);
-            let mut on_event = |event: StreamEvent| {
-                match &event {
-                    StreamEvent::Delta(_) | StreamEvent::ToolCallDelta { .. } => chunks += 1,
-                    StreamEvent::Done => {}
-                }
-                if let Ok(mut list) = observers.lock() {
-                    list.retain(|tx| tx.send(event.clone()).is_ok());
-                }
-            };
-
             self.emit(
                 "agent.llm.stream.start",
                 serde_json::json!({
@@ -167,16 +154,33 @@ impl AgentLoop {
                 }),
             );
             let started = std::time::Instant::now();
-            let response = match self.llm.chat_stream(request, &mut on_event) {
-                Ok(r) => r,
-                Err(e) => {
-                    return Ok(AgentOutcome::Failed {
-                        reason: e.to_string(),
-                        iterations,
-                    })
-                }
+
+            // Fan stream events out to live subscribers (never per-chunk audit).
+            // Scoped so the borrow of `chunks` ends before it is read below.
+            let (response, chunks) = {
+                let mut chunks = 0usize;
+                let observers = Arc::clone(&self.stream_observers);
+                let mut on_event = |event: StreamEvent| {
+                    match &event {
+                        StreamEvent::Delta(_) | StreamEvent::ToolCallDelta { .. } => chunks += 1,
+                        StreamEvent::Done => {}
+                    }
+                    if let Ok(mut list) = observers.lock() {
+                        list.retain(|tx| tx.send(event.clone()).is_ok());
+                    }
+                };
+                let response = match self.llm.chat_stream(request, &mut on_event) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        return Ok(AgentOutcome::Failed {
+                            reason: e.to_string(),
+                            iterations,
+                        })
+                    }
+                };
+                (response, chunks)
             };
-            drop(on_event);
+
             self.emit(
                 "agent.llm.stream.end",
                 serde_json::json!({
