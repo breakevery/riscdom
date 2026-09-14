@@ -41,6 +41,7 @@
 pub mod error;
 pub mod platform;
 pub mod qmp;
+pub mod relay;
 pub mod vm;
 
 pub use error::SandboxError;

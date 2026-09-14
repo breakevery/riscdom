@@ -23,6 +23,10 @@ pub enum SandboxError {
     AlreadyRunning,
     /// Snapshot save/load error.
     Snapshot(String),
+    /// Migration relay error.
+    Relay(String),
+    /// The migration relay timed out (nobody connected, or the stream stalled).
+    RelayTimeout(String),
     /// Feature not supported on this platform / in MVP.
     Unsupported(String),
 }
@@ -39,6 +43,8 @@ impl fmt::Display for SandboxError {
             SandboxError::NotRunning => write!(f, "the virtual machine is not running"),
             SandboxError::AlreadyRunning => write!(f, "the virtual machine is already running"),
             SandboxError::Snapshot(m) => write!(f, "snapshot error: {m}"),
+            SandboxError::Relay(m) => write!(f, "relay error: {m}"),
+            SandboxError::RelayTimeout(m) => write!(f, "relay timeout: {m}"),
             SandboxError::Unsupported(m) => write!(f, "unsupported: {m}"),
         }
     }
