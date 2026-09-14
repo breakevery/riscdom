@@ -4,6 +4,8 @@
 
 > Let the AI take charge inside a RISC-V virtual sandbox — while humans keep root privilege.
 
+**License:** [Apache-2.0](LICENSE).
+
 RiscDom is a desktop application: inside a QEMU RISC-V bare-metal sandbox the AI holds
 **virtual kernel-level privilege**. It can write C / RISC-V assembly, compile, run, read the
 serial console and iterate. Everything is **auditable and rollback-able**; humans keep root

@@ -9,6 +9,8 @@
 
 ## [未发布]
 
+## [0.2.0] - 2026-09-14
+
 ### 变更
 
 - **VM 生命周期归 host**：VM 从 `AgentLoop` 解绑到 `AppState::vm_slot`，run 结束后 VM 仍
@@ -149,5 +151,6 @@
   `agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
 - 真实 DeepSeek API 端到端：**已执行通过**（2026-09-14，`iterations = 6`，串口捕获 `HELLO RISCV`；结果见 `host/README.md`）。
 
-[未发布]: https://github.com/breakevery/riscdom/compare/v0.1.0...HEAD
+[未发布]: https://github.com/breakevery/riscdom/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/breakevery/riscdom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/breakevery/riscdom/releases/tag/v0.1.0
