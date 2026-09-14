@@ -5,7 +5,8 @@
 
 use crate::events::TauriEventSink;
 use crate::state::{
-    AgentOutcomeView, AppState, AuditStatusView, LlmConfigStatus, ProviderPresetView, StoredEventView,
+    AgentOutcomeView, AppState, AuditStatusView, LlmConfigStatus, LlmReadiness, LocalProbeResult,
+    ProviderPresetView, StoredEventView,
 };
 use std::sync::Arc;
 use tauri::State;
@@ -27,6 +28,18 @@ pub async fn list_audit_events(
     state
         .list_events(limit, actor, action_prefix)
         .map_err(|e| e.user_message())
+}
+
+/// Probe localhost for local OpenAI-compatible LLM servers.
+#[tauri::command]
+pub async fn probe_local_llm(state: State<'_, AppState>) -> Result<LocalProbeResult, String> {
+    Ok(state.probe_local_llm())
+}
+
+/// Whether the LLM is ready to run, and why not.
+#[tauri::command]
+pub async fn get_llm_readiness(state: State<'_, AppState>) -> Result<LlmReadiness, String> {
+    Ok(state.llm_readiness())
 }
 
 /// The built-in provider presets (for the settings dropdown).

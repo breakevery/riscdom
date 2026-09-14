@@ -76,6 +76,93 @@ impl From<ProviderPreset> for ProviderPresetView {
     }
 }
 
+/// Whether the LLM is ready to run, and why not (never includes the key).
+#[derive(Debug, Clone, Serialize)]
+pub struct LlmReadiness {
+    pub ready: bool,
+    /// `"no_config"` / `"missing_api_key"` / `"invalid_base_url"` / `"invalid_config"`.
+    pub reason: Option<String>,
+    /// Human-readable next step.
+    pub suggestion: Option<String>,
+}
+
+/// A locally-detected OpenAI-compatible provider.
+#[derive(Debug, Clone, Serialize)]
+pub struct LocalProviderInfo {
+    pub id: String,
+    pub display_name: String,
+    pub base_url: String,
+    pub models: Vec<String>,
+}
+
+/// Result of probing localhost for local LLM servers.
+#[derive(Debug, Clone, Serialize)]
+pub struct LocalProbeResult {
+    pub found: bool,
+    pub providers: Vec<LocalProviderInfo>,
+    pub probed: Vec<String>,
+}
+
+/// Timeout for each local probe request (must stay short).
+pub const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// Candidate local endpoints (id, display name, `/v1/models` URL).
+const PROBE_TARGETS: &[(&str, &str, &str)] = &[
+    ("ollama", "Ollama（本地）", "http://localhost:11434/v1/models"),
+    ("ollama", "Ollama（本地）", "http://127.0.0.1:11434/v1/models"),
+    ("lmstudio", "LM Studio（本地）", "http://localhost:1234/v1/models"),
+    ("lmstudio", "LM Studio（本地）", "http://127.0.0.1:1234/v1/models"),
+];
+
+/// Build an [`AgentConfig`] view of a stored input (for validation only).
+fn readiness_of(input: &LlmConfigInput) -> LlmReadiness {
+    let config = AgentConfig {
+        api_key: input.api_key.clone(),
+        base_url: input.base_url.clone(),
+        model: input.model.clone(),
+        provider_id: input.provider_id.clone(),
+        max_iterations: 10,
+        request_timeout_secs: 120,
+    };
+    match config.validate() {
+        Ok(()) => LlmReadiness {
+            ready: true,
+            reason: None,
+            suggestion: None,
+        },
+        Err(e) => {
+            let message = e.to_string();
+            let (reason, suggestion) = if message.contains("api_key") {
+                (
+                    "missing_api_key",
+                    "缺少 API Key。请填写，或切换到本地模型预设（如 Ollama）",
+                )
+            } else if message.contains("base_url") {
+                (
+                    "invalid_base_url",
+                    "Base URL 无效，请检查（需以 http:// 或 https:// 开头）",
+                )
+            } else {
+                ("invalid_config", "配置无效，请检查 Model 与服务商")
+            };
+            LlmReadiness {
+                ready: false,
+                reason: Some(reason.into()),
+                suggestion: Some(suggestion.into()),
+            }
+        }
+    }
+}
+
+/// `"<code>|<human message>"` — machine-readable code + readable hint.
+pub fn readiness_error(r: &LlmReadiness) -> String {
+    let code = r.reason.clone().unwrap_or_else(|| "not_ready".into());
+    match &r.suggestion {
+        Some(msg) if !msg.is_empty() => format!("{code}|{msg}"),
+        _ => code,
+    }
+}
+
 /// Audit chain status (serialisable view).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "status")]
@@ -255,16 +342,25 @@ impl AppState {
 
         if pid == "custom" && (base_url.trim().is_empty() || model.trim().is_empty()) {
             return Err(HostError::Other(
-                "custom provider requires base_url and model".into(),
+                "invalid_config|custom provider requires base_url and model".into(),
             ));
         }
 
-        self.set_llm_config(LlmConfigInput {
+        let input = LlmConfigInput {
             provider_id: pid,
             api_key,
             base_url,
             model,
-        });
+        };
+
+        // Validate before persisting; return a structured code the UI can map
+        // to a field-level hint. The message never contains the key.
+        let readiness = readiness_of(&input);
+        if !readiness.ready {
+            return Err(HostError::Other(readiness_error(&readiness)));
+        }
+
+        self.set_llm_config(input);
         Ok(())
     }
 
@@ -301,6 +397,97 @@ impl AppState {
                 None => unconfigured(),
             },
             Err(_) => unconfigured(),
+        }
+    }
+
+    /// Whether the LLM is ready to run (never includes the key).
+    pub fn llm_readiness(&self) -> LlmReadiness {
+        // Test seam: an injected client is always considered ready.
+        if self.llm_override.lock().map(|g| g.is_some()).unwrap_or(false) {
+            return LlmReadiness {
+                ready: true,
+                reason: None,
+                suggestion: None,
+            };
+        }
+        let no_config = || LlmReadiness {
+            ready: false,
+            reason: Some("no_config".into()),
+            suggestion: Some(
+                "请在设置中选择服务商并填写 API Key，或使用本地模型".to_string(),
+            ),
+        };
+        match self.llm_config.lock() {
+            Ok(g) => match g.as_ref() {
+                Some(input) => readiness_of(input),
+                None => no_config(),
+            },
+            Err(_) => no_config(),
+        }
+    }
+
+    /// Probe localhost for local OpenAI-compatible LLM servers.
+    ///
+    /// Short timeout per request; all failures are silent.
+    pub fn probe_local_llm(&self) -> LocalProbeResult {
+        let client = match reqwest::blocking::Client::builder()
+            .timeout(PROBE_TIMEOUT)
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => {
+                return LocalProbeResult {
+                    found: false,
+                    providers: Vec::new(),
+                    probed: Vec::new(),
+                }
+            }
+        };
+
+        let mut providers: Vec<LocalProviderInfo> = Vec::new();
+        let mut probed: Vec<String> = Vec::new();
+
+        for (id, name, url) in PROBE_TARGETS {
+            probed.push((*url).to_string());
+            let models = match fetch_models(&client, url) {
+                Some(m) => m,
+                None => continue,
+            };
+            if providers.iter().any(|p| p.id == *id) {
+                continue;
+            }
+            providers.push(LocalProviderInfo {
+                id: (*id).to_string(),
+                display_name: (*name).to_string(),
+                base_url: url.trim_end_matches("/models").to_string(),
+                models,
+            });
+        }
+
+        let found = !providers.is_empty();
+        self.emit_host(
+            "host.llm.probe",
+            serde_json::json!({
+                "found": found,
+                "probed": probed,
+                "providers": providers
+                    .iter()
+                    .map(|p| serde_json::json!({ "id": p.id, "models": p.models.len() }))
+                    .collect::<Vec<_>>(),
+            }),
+        );
+
+        LocalProbeResult {
+            found,
+            providers,
+            probed,
+        }
+    }
+
+    /// Record a host-originated audit event (best effort).
+    fn emit_host(&self, action: &str, detail: serde_json::Value) {
+        if let Ok(mut sink) = self.sink.lock() {
+            sink.record(audit::AuditEvent::new("host", action, detail));
         }
     }
 
@@ -451,6 +638,11 @@ impl AppState {
         emitter: Arc<dyn EventSink>,
         user_input: &str,
     ) -> Result<AgentOutcomeView, HostError> {
+        // Readiness gate: never enter the loop when the LLM is not usable.
+        let readiness = self.llm_readiness();
+        if !readiness.ready {
+            return Err(HostError::Other(readiness_error(&readiness)));
+        }
         let llm = self.build_llm()?;
         let policy = WorkspacePolicy::new(self.workspace_root.clone());
         let system_prompt = format!("{CONSTITUTION}\n\n{}", agent::prompt::OPERATING_RULES);
@@ -637,6 +829,26 @@ pub fn serial_full_text(events: &[StoredEvent]) -> String {
         }
     }
     out
+}
+
+/// Fetch `/v1/models` and return up to 20 model ids (silent on any failure).
+fn fetch_models(client: &reqwest::blocking::Client, url: &str) -> Option<Vec<String>> {
+    let response = client.get(url).send().ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = response.json().ok()?;
+    let data = body.get("data")?.as_array()?;
+    let models: Vec<String> = data
+        .iter()
+        .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(String::from))
+        .take(20)
+        .collect();
+    if models.is_empty() {
+        None
+    } else {
+        Some(models)
+    }
 }
 
 fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), HostError> {

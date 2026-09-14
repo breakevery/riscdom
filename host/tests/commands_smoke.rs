@@ -94,3 +94,58 @@ fn set_llm_config_fills_from_preset() {
         .set_llm_config_with(Some("custom".into()), String::new(), String::new(), String::new())
         .is_err());
 }
+
+#[test]
+fn readiness_no_config() {
+    let state = AppState::in_memory(unique_ws("ready-none")).expect("state");
+    let r = state.llm_readiness();
+    assert!(!r.ready);
+    assert_eq!(r.reason.as_deref(), Some("no_config"));
+    assert!(r.suggestion.is_some());
+}
+
+#[test]
+fn readiness_ok_with_local_preset() {
+    let state = AppState::in_memory(unique_ws("ready-ollama")).expect("state");
+    state
+        .set_llm_config_with(Some("ollama".into()), String::new(), String::new(), String::new())
+        .expect("ollama preset");
+    let r = state.llm_readiness();
+    assert!(r.ready, "{r:?}");
+    assert!(r.reason.is_none());
+}
+
+#[test]
+fn readiness_missing_api_key_for_cloud() {
+    let state = AppState::in_memory(unique_ws("ready-ds")).expect("state");
+
+    // Saving DeepSeek without a key is rejected (structured code).
+    let err = state
+        .set_llm_config_with(Some("deepseek".into()), String::new(), String::new(), String::new())
+        .expect_err("should reject keyless cloud provider");
+    assert!(err.to_string().contains("missing_api_key"), "{err}");
+
+    // A keyless cloud config read back is reported as missing_api_key.
+    state.set_llm_config(LlmConfigInput {
+        provider_id: "deepseek".into(),
+        api_key: String::new(),
+        base_url: "https://api.deepseek.com".into(),
+        model: "deepseek-chat".into(),
+    });
+    let r = state.llm_readiness();
+    assert!(!r.ready);
+    assert_eq!(r.reason.as_deref(), Some("missing_api_key"));
+}
+
+#[test]
+fn probe_local_llm_returns_valid_structure() {
+    let state = AppState::in_memory(unique_ws("probe")).expect("state");
+    let p = state.probe_local_llm();
+    // No panic, and the structure is always self-consistent.
+    assert_eq!(p.found, !p.providers.is_empty());
+    assert!(!p.probed.is_empty(), "should record probed urls");
+    for provider in &p.providers {
+        assert!(!provider.id.is_empty());
+        assert!(!provider.base_url.is_empty());
+    }
+}

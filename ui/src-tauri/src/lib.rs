@@ -26,6 +26,8 @@ pub fn run() {
             host::commands::get_provider_presets,
             host::commands::clear_llm_config,
             host::commands::get_llm_config_status,
+            host::commands::get_llm_readiness,
+            host::commands::probe_local_llm,
             host::commands::run_agent,
             host::commands::get_workspace_files,
             host::commands::read_workspace_file,
