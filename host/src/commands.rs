@@ -6,10 +6,69 @@
 use crate::events::TauriEventSink;
 use crate::state::{
     AgentOutcomeView, AppState, AuditStatusView, LlmConfigStatus, LlmReadiness, LocalProbeResult,
-    ProviderPresetView, StoredEventView,
+    ProviderPresetView, SessionDetailView, StoredEventView,
 };
+use crate::SessionMeta;
 use std::sync::Arc;
 use tauri::State;
+
+/// Recent sessions, newest first.
+#[tauri::command]
+pub async fn list_sessions(
+    state: State<'_, AppState>,
+    limit: usize,
+) -> Result<Vec<SessionMeta>, String> {
+    state.list_sessions(limit).map_err(|e| e.user_message())
+}
+
+/// Create a session and make it current.
+#[tauri::command]
+pub async fn create_session(state: State<'_, AppState>, title: String) -> Result<String, String> {
+    state.create_session(&title).map_err(|e| e.user_message())
+}
+
+/// Open a session: returns its metadata and messages, and makes it current.
+#[tauri::command]
+pub async fn open_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<SessionDetailView, String> {
+    state
+        .open_session(&session_id)
+        .map_err(|e| e.user_message())
+}
+
+/// Rename a session.
+#[tauri::command]
+pub async fn rename_session(
+    state: State<'_, AppState>,
+    session_id: String,
+    title: String,
+) -> Result<(), String> {
+    state
+        .rename_session(&session_id, &title)
+        .map_err(|e| e.user_message())
+}
+
+/// Delete a session (its messages cascade).
+#[tauri::command]
+pub async fn delete_session(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    state
+        .delete_session(&session_id)
+        .map_err(|e| e.user_message())
+}
+
+/// Delete every session. The UI must ask for confirmation first.
+#[tauri::command]
+pub async fn clear_all_sessions(state: State<'_, AppState>) -> Result<(), String> {
+    state.clear_all_sessions().map_err(|e| e.user_message())
+}
+
+/// The session the next run appends to.
+#[tauri::command]
+pub async fn get_current_session_id(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    Ok(state.current_session_id())
+}
 
 /// Audit event count + chain status.
 #[tauri::command]

@@ -71,6 +71,14 @@ impl AgentLoop {
         })
     }
 
+    /// Append restored messages to the conversation.
+    ///
+    /// Used to rehydrate a persisted session: it only extends `messages`, it
+    /// never calls the LLM and never replays tool calls.
+    pub fn push_history(&mut self, history: Vec<ChatMessage>) {
+        self.messages.extend(history);
+    }
+
     /// Subscribe to live LLM stream events.
     ///
     /// Each call returns a fresh channel carrying [`StreamEvent`]s for runs

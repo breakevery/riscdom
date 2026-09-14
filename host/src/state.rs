@@ -6,8 +6,9 @@ use crate::events::{
     EV_AGENT_TOOL_CALL, EV_AGENT_TOOL_RESULT, EV_SERIAL_CHUNK, EV_VM_STATE,
 };
 use crate::keyring::{user_for_provider, InMemoryKeyring, KeyringBackend, OsKeyring, SERVICE};
+use crate::session::{SessionMessage, SessionMeta, SessionStore};
 use agent::llm::{DeepSeekClient, LlmClient};
-use agent::message::{ChatRequest, ChatResponse, StreamEvent};
+use agent::message::{ChatMessage, ChatRequest, ChatResponse, StreamEvent};
 use agent::policy::WorkspacePolicy;
 use agent::presets::{builtin_presets, find_preset, ProviderPreset, DEFAULT_PRESET_ID};
 use agent::{AgentConfig, AgentLoop, AgentOutcome};
@@ -296,6 +297,56 @@ pub struct AppState {
     pub serial_accum: Arc<Mutex<String>>,
     /// Live LLM stream receiver for the current run.
     pub stream_receiver: Arc<Mutex<Option<Receiver<StreamEvent>>>>,
+    /// Persisted conversations.
+    pub sessions: Arc<Mutex<SessionStore>>,
+    /// The session the next run appends to (created on demand).
+    pub current_session_id: Mutex<Option<String>>,
+}
+
+/// Messages restored into a fresh `AgentLoop` (never the system prompt).
+const HISTORY_LIMIT: usize = 100;
+
+/// A session plus its messages, for `open_session`.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionDetailView {
+    pub meta: SessionMeta,
+    pub messages: Vec<SessionMessage>,
+}
+
+/// Title derived from the first user input (first 60 characters).
+fn title_from(user_input: &str) -> String {
+    let trimmed = user_input.trim();
+    let title: String = trimmed.chars().take(60).collect();
+    if title.is_empty() {
+        "新会话".to_string()
+    } else {
+        title
+    }
+}
+
+/// Convert a persisted row back into a chat message (system rows are skipped).
+fn history_to_chat(row: &SessionMessage) -> Option<ChatMessage> {
+    match row.role.as_str() {
+        "user" => Some(ChatMessage::text("user", row.content.clone())),
+        "assistant" => Some(ChatMessage {
+            role: "assistant".to_string(),
+            content: if row.content.is_empty() {
+                None
+            } else {
+                Some(row.content.clone())
+            },
+            tool_calls: row
+                .tool_call_json
+                .as_ref()
+                .and_then(|json| serde_json::from_str(json).ok()),
+            tool_call_id: None,
+        }),
+        "tool" => Some(ChatMessage::tool_result(
+            row.tool_call_id.clone().unwrap_or_default(),
+            row.content.clone(),
+        )),
+        _ => None,
+    }
 }
 
 impl AppState {
@@ -306,7 +357,13 @@ impl AppState {
         let db_dir = root.join(".riscdom");
         std::fs::create_dir_all(&db_dir)?;
         let store = AuditStore::open(&db_dir.join("audit.db"))?;
-        let state = Self::from_store(root, store, Arc::new(OsKeyring::new()));
+        let state = Self::from_store(
+            root,
+            store,
+            Arc::new(OsKeyring::new()),
+            SessionStore::open(&crate::paths::sessions_db_path())
+                .map_err(|e| HostError::Other(format!("session store: {e}")))?,
+        );
         state.init_from_env();
         Ok(state)
     }
@@ -320,6 +377,8 @@ impl AppState {
             root,
             store,
             Arc::new(InMemoryKeyring::new()),
+            SessionStore::in_memory()
+                .map_err(|e| HostError::Other(format!("session store: {e}")))?,
         ))
     }
 
@@ -353,7 +412,12 @@ impl AppState {
         self
     }
 
-    fn from_store(root: PathBuf, store: AuditStore, keyring: Arc<dyn KeyringBackend>) -> Self {
+    fn from_store(
+        root: PathBuf,
+        store: AuditStore,
+        keyring: Arc<dyn KeyringBackend>,
+        sessions: SessionStore,
+    ) -> Self {
         let shared = Arc::new(Mutex::new(store));
         let sink: Arc<Mutex<dyn AuditSink>> = Arc::new(Mutex::new(SqliteAuditSink::from_shared(
             Arc::clone(&shared),
@@ -371,7 +435,186 @@ impl AppState {
             serial_receiver: Arc::new(Mutex::new(None)),
             serial_accum: Arc::new(Mutex::new(String::new())),
             stream_receiver: Arc::new(Mutex::new(None)),
+            sessions: Arc::new(Mutex::new(sessions)),
+            current_session_id: Mutex::new(None),
         }
+    }
+
+    // ----- Sessions ---------------------------------------------------------
+
+    /// The session the next run appends to.
+    pub fn current_session_id(&self) -> Option<String> {
+        self.current_session_id
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+    }
+
+    /// Create a session and make it current.
+    pub fn create_session(&self, title: &str) -> Result<String, HostError> {
+        let id = {
+            let store = self
+                .sessions
+                .lock()
+                .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
+            store
+                .create_session(title)
+                .map_err(|e| HostError::Other(e.to_string()))?
+        };
+        if let Ok(mut slot) = self.current_session_id.lock() {
+            *slot = Some(id.clone());
+        }
+        self.emit_host(
+            "host.session.create",
+            serde_json::json!({ "session_id": id }),
+        );
+        Ok(id)
+    }
+
+    /// Recent sessions, newest first.
+    pub fn list_sessions(&self, limit: usize) -> Result<Vec<SessionMeta>, HostError> {
+        let store = self
+            .sessions
+            .lock()
+            .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
+        store
+            .list_sessions(limit)
+            .map_err(|e| HostError::Other(e.to_string()))
+    }
+
+    /// Open a session (and make it current), returning its messages.
+    pub fn open_session(&self, session_id: &str) -> Result<SessionDetailView, HostError> {
+        let store = self
+            .sessions
+            .lock()
+            .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
+        let meta = store
+            .list_sessions(1000)
+            .map_err(|e| HostError::Other(e.to_string()))?
+            .into_iter()
+            .find(|s| s.id == session_id)
+            .ok_or_else(|| HostError::Other("session not found".to_string()))?;
+        let messages = store
+            .load_messages(session_id, HISTORY_LIMIT)
+            .map_err(|e| HostError::Other(e.to_string()))?;
+        drop(store);
+
+        if let Ok(mut slot) = self.current_session_id.lock() {
+            *slot = Some(session_id.to_string());
+        }
+        self.emit_host(
+            "host.session.open",
+            serde_json::json!({ "session_id": session_id }),
+        );
+        Ok(SessionDetailView { meta, messages })
+    }
+
+    /// Rename a session.
+    pub fn rename_session(&self, session_id: &str, title: &str) -> Result<(), HostError> {
+        let store = self
+            .sessions
+            .lock()
+            .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
+        store
+            .rename_session(session_id, title)
+            .map_err(|e| HostError::Other(e.to_string()))?;
+        drop(store);
+        self.emit_host(
+            "host.session.rename",
+            serde_json::json!({ "session_id": session_id }),
+        );
+        Ok(())
+    }
+
+    /// Delete a session (its messages cascade) and forget it if current.
+    pub fn delete_session(&self, session_id: &str) -> Result<(), HostError> {
+        let store = self
+            .sessions
+            .lock()
+            .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
+        store
+            .delete_session(session_id)
+            .map_err(|e| HostError::Other(e.to_string()))?;
+        drop(store);
+        if let Ok(mut slot) = self.current_session_id.lock() {
+            if slot.as_deref() == Some(session_id) {
+                *slot = None;
+            }
+        }
+        self.emit_host(
+            "host.session.delete",
+            serde_json::json!({ "session_id": session_id }),
+        );
+        Ok(())
+    }
+
+    /// Delete every session.
+    pub fn clear_all_sessions(&self) -> Result<(), HostError> {
+        let store = self
+            .sessions
+            .lock()
+            .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
+        store
+            .clear_all()
+            .map_err(|e| HostError::Other(e.to_string()))?;
+        drop(store);
+        if let Ok(mut slot) = self.current_session_id.lock() {
+            *slot = None;
+        }
+        self.emit_host("host.session.delete", serde_json::json!({ "all": true }));
+        Ok(())
+    }
+
+    /// The current session, creating one titled from `user_input` if needed.
+    fn ensure_session(&self, user_input: &str) -> Result<String, HostError> {
+        if let Some(id) = self.current_session_id() {
+            return Ok(id);
+        }
+        self.create_session(&title_from(user_input))
+    }
+
+    /// Messages to rehydrate a fresh `AgentLoop` with (never the system prompt).
+    fn load_session_history(&self, session_id: &str) -> Result<Vec<ChatMessage>, HostError> {
+        let store = self
+            .sessions
+            .lock()
+            .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
+        let rows = store
+            .load_messages(session_id, HISTORY_LIMIT)
+            .map_err(|e| HostError::Other(e.to_string()))?;
+        Ok(rows.iter().filter_map(history_to_chat).collect())
+    }
+
+    /// Persist everything the turn produced (system messages are never stored).
+    fn persist_turn(
+        &self,
+        session_id: &str,
+        messages: &[ChatMessage],
+        from: usize,
+    ) -> Result<(), HostError> {
+        let store = self
+            .sessions
+            .lock()
+            .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
+        for message in messages.iter().skip(from) {
+            if message.role == "system" {
+                continue;
+            }
+            let mut row = SessionMessage::new(
+                session_id,
+                message.role.clone(),
+                message.content.clone().unwrap_or_default(),
+            );
+            row.tool_call_json = message
+                .tool_calls
+                .as_ref()
+                .and_then(|calls| serde_json::to_string(calls).ok());
+            row.tool_call_id = message.tool_call_id.clone();
+            store
+                .append_message(session_id, row)
+                .map_err(|e| HostError::Other(e.to_string()))?;
+        }
+        Ok(())
     }
 
     // ----- LLM config -------------------------------------------------------
@@ -865,6 +1108,14 @@ impl AppState {
             system_prompt,
         )?;
 
+        // Sessions: restore prior turns, then persist whatever this turn adds.
+        let session_id = self.ensure_session(user_input)?;
+        let history = self.load_session_history(&session_id)?;
+        if !history.is_empty() {
+            agent.push_history(history);
+        }
+        let pre_len = agent.messages().len();
+
         // Serial subscription: the sandbox pushes bytes via the agent's observer.
         if let Ok(mut slot) = self.serial_receiver.lock() {
             *slot = Some(agent.subscribe_serial());
@@ -983,6 +1234,10 @@ impl AppState {
         let _ = stream_thread.join();
 
         let outcome = outcome?;
+
+        // Persist the turn (system messages are skipped inside).
+        self.persist_turn(&session_id, agent.messages(), pre_len)?;
+
         let view = AgentOutcomeView::from(outcome);
         emitter.emit(
             EV_AGENT_FINAL,

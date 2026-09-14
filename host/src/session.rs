@@ -8,6 +8,7 @@
 //! stored, so a restored session can be replayed into the agent as history.
 
 use rusqlite::{params, Connection};
+use serde::Serialize;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
@@ -26,7 +27,7 @@ pub enum SessionError {
 }
 
 /// Session summary for the session list.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SessionMeta {
     pub id: String,
     pub title: String,
@@ -36,7 +37,7 @@ pub struct SessionMeta {
 }
 
 /// One persisted conversation message.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SessionMessage {
     pub id: i64,
     pub session_id: String,
@@ -226,6 +227,12 @@ impl SessionStore {
             "UPDATE sessions SET updated_at_ms = ?2 WHERE id = ?1",
             params![id, now_ms()],
         )?;
+        Ok(())
+    }
+
+    /// Delete every session (their messages cascade).
+    pub fn clear_all(&self) -> Result<(), SessionError> {
+        self.conn.execute("DELETE FROM sessions", [])?;
         Ok(())
     }
 
