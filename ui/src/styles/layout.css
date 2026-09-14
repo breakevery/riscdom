@@ -1,0 +1,38 @@
+.shell {
+  display: grid;
+  height: 100vh;
+  width: 100vw;
+  background: var(--bg);
+}
+
+.resizer {
+  background: var(--border);
+  cursor: col-resize;
+  user-select: none;
+}
+
+.resizer:hover {
+  background: var(--accent);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+
+.panel:last-child {
+  border-right: 0;
+}
+
+.panel-head {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
