@@ -57,6 +57,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   （原因见 `agent/README.md` 与 `ENVIRONMENT.md`）。
 - **API key 仅内存**：不落盘、不进审计；关闭应用即失效。
 
+### Build artifacts (Windows x64)
+
+由 `npm run tauri build` 生成（构建输出，位于 `target/`，不入库）：
+
+- `ui/src-tauri/target/release/bundle/msi/RiscDom_0.1.0_x64_en-US.msi` （约 5.16 MB）
+- `ui/src-tauri/target/release/bundle/nsis/RiscDom_0.1.0_x64-setup.exe` （约 3.65 MB）
+
 ### Verification
 
 - 全 workspace `cargo test` 通过（sandbox/audit/agent/host + doc tests）。

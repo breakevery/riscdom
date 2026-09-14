@@ -28,6 +28,15 @@
   - `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools`
 - git：2.55.0.3（`C:\Program Files\Git\cmd`）
 
+## 本机已知环境坑（打包/CLI）
+
+- **`ELECTRON_RUN_AS_NODE=1`**：本机 `node` 实际是 LobsterAI 的 Electron（as-node），
+  所以 `process.argv[0]` 是 `LobsterAI.exe`。`@tauri-apps/cli` 的包装脚本因此
+  把它当成子命令，报 `unrecognized subcommand '<...LobsterAI.exe>'`。
+  绕过：用一个 argv 归一化启动器（把 `process.argv[0]` 改成 `node`）再 require
+  `node_modules/@tauri-apps/cli/tauri.js`。已验证可正常 `build`。
+- Tauri 首次打包会从 GitHub 下载 WiX3 与 NSIS，需要网络。
+
 ## Windows 平台限制（重要）
 
 - QMP（QEMU Monitor Protocol）：使用 **TCP**，不用 Unix domain socket。
