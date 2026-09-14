@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **VM 生命周期归 host**：VM 从 `AgentLoop` 解绑到 `AppState::vm_slot`，run 结束后 VM 仍
+  留在槽内，下一次 run 复用同一台 guest（`AgentLoop::with_vm` 注入；无注入时行为不变）。
+  串口转发器改为**长驻**（应用启动时创建），订阅**跨 run 连续**。
 - **串口来源改为 sandbox 主动推送**：`sandbox` 的串口读取线程经 `VMConfig.serial_observer`
   实时扇出分帧 → `agent::AgentLoop::subscribe_serial()`（`std::sync::mpsc`）→
   host 转发为 `serial:chunk` 并累加到 `get_serial_buffer()`。**不再**从审计里
@@ -18,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **真实快照保存 / 恢复**：host `save_snapshot_real` / `resume_from_snapshot_real`
+  （审计 `host.snapshot.save` / `host.snapshot.resume`），UI 提供“保存当前状态”与每项
+  “恢复”按钮（二次确认）。
 - **快照面板**（列表 / 删除；真实快照标注“真实”、重启式标注“重启式”），host 命令
   `list_snapshots` / `delete_snapshot`（审计 `host.snapshot.delete`）。
 - **会话持久化**（列表 / 打开 / 重命名 / 删除 / 清空）：host `SessionStore`（SQLite，复用
@@ -48,7 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   在 Windows + QEMU 11.1.0 不可用，但 `migrate` → `tcp:` 成功；19b 用本地 TCP 中继把迁移流
   落盘为 `<name>.mig`，恢复时由中继反向喂给 `-incoming tcp:` 的 QEMU。
   详见 `sandbox/docs/snapshot-experiment.md`。
-  残留限制：旧的重启式降级（`.json`）仍保留兼容；host 尚未持有常驻 VM，UI 只支持列出/删除快照。
+  残留限制：旧的重启式降级（`.json`）仍保留兼容；恢复用的 `-kernel` 取工作区内最新的
+  `*.elf`（迁移流会覆盖内存，内核仅用于让 QEMU 起机）。
 
 ### Planned (v0.2) — 多模型接入与密钥安全
 

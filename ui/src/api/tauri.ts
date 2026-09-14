@@ -145,6 +145,17 @@ export const listSnapshots = () => invoke<SnapshotMeta[]>("list_snapshots");
 export const deleteSnapshot = (name: string) =>
   invoke<boolean>("delete_snapshot", { name });
 
+/** Save a real (tcp-relay) snapshot of the host-owned VM. Returns bytes. */
+export const saveSnapshotReal = (name: string) =>
+  invoke<number>("save_snapshot_real", { name });
+
+/** Restore the VM from a real snapshot (stops the current VM first). */
+export const resumeFromSnapshotReal = (name: string) =>
+  invoke<void>("resume_from_snapshot_real", { name });
+
+/** Is the host currently holding a (cross-run) VM? */
+export const vmIsRunning = () => invoke<boolean>("vm_is_running");
+
 /** A persisted session summary. */
 export interface SessionMeta {
   id: string;

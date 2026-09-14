@@ -45,6 +45,11 @@ export interface AppStore {
   snapshots: api.SnapshotMeta[];
   refreshSnapshots: () => Promise<void>;
   deleteSnapshot: (name: string) => Promise<void>;
+  // vm lifecycle + real snapshots (stage 20d)
+  vmIsRunning: boolean;
+  refreshVmState: () => Promise<void>;
+  saveSnapshot: (name: string) => Promise<void>;
+  resumeSnapshot: (name: string) => Promise<void>;
   refreshSessions: () => Promise<void>;
   openSession: (id: string) => Promise<void>;
   newSession: () => Promise<void>;
@@ -122,6 +127,7 @@ export function useAppStore(): AppStore {
   const [sessions, setSessions] = useState<api.SessionMeta[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<api.SnapshotMeta[]>([]);
+  const [vmIsRunning, setVmIsRunning] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
   const push = useCallback((item: Omit<ChatItem, "id">) => {
@@ -260,6 +266,41 @@ export function useAppStore(): AppStore {
     void refreshSnapshots();
   }, [refreshSnapshots]);
 
+  const refreshVmState = useCallback(async () => {
+    try {
+      setVmIsRunning(await api.vmIsRunning());
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
+  // Save the VM's current state as a real snapshot (`<name>.mig`).
+  const saveSnapshot = useCallback(
+    async (name: string) => {
+      try {
+        await api.saveSnapshotReal(name);
+        await refreshSnapshots();
+        await refreshVmState();
+      } catch (e) {
+        setLastError(String(e));
+      }
+    },
+    [refreshSnapshots, refreshVmState],
+  );
+
+  // Restore the VM from a real snapshot (the current VM is stopped first).
+  const resumeSnapshot = useCallback(
+    async (name: string) => {
+      try {
+        await api.resumeFromSnapshotReal(name);
+        await refreshVmState();
+      } catch (e) {
+        setLastError(String(e));
+      }
+    },
+    [refreshVmState],
+  );
+
   // Host events → chat stream / serial / vm state.
   useEffect(() => {
     const offs: Array<() => void> = [];
@@ -309,6 +350,8 @@ export function useAppStore(): AppStore {
         void refreshAudit();
         void refreshWorkspace();
         void refreshSessions();
+        // The VM (if the run started one) now lives in the host slot.
+        void refreshVmState();
       }),
       api.onAgentStreamDelta((text) => {
         if (!text) return;
@@ -325,6 +368,7 @@ export function useAppStore(): AppStore {
       api.onHostEvent("vm:state", (p) => {
         const d = p as { state?: string };
         setVmState(d.state ?? "unknown");
+        void refreshVmState();
       }),
     );
     return () => offs.forEach((f) => f());
@@ -378,6 +422,10 @@ export function useAppStore(): AppStore {
     snapshots,
     refreshSnapshots,
     deleteSnapshot,
+    vmIsRunning,
+    refreshVmState,
+    saveSnapshot,
+    resumeSnapshot,
     refreshSessions,
     openSession,
     newSession,

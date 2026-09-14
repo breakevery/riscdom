@@ -325,9 +325,23 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
           <button className="ghost tiny" onClick={() => void store.refreshSnapshots()}>
             刷新
           </button>
+          <button
+            className="ghost tiny"
+            disabled={!store.vmIsRunning}
+            title={
+              store.vmIsRunning ? "保存当前 VM 状态" : "需要运行中的 VM（先让 AI 启动一台）"
+            }
+            onClick={() => {
+              const name = window.prompt("快照名称（字母/数字/-/_）", "snap1");
+              if (name) void store.saveSnapshot(name.trim());
+            }}
+          >
+            保存当前状态
+          </button>
         </div>
         <div className="muted small">
-          保存/恢复需由 host 持有运行中的 VM；当前 VM 只在单次运行内存在（见 host/README.md）。
+          VM {store.vmIsRunning ? "运行中（host 持有，跨 run 复用）" : "未运行"}
+          · 保存/恢复为真实快照（tcp-relay），需由 host 持有 VM。
         </div>
         <ul className="audit-list">
           {store.snapshots.map((s) => (
@@ -338,6 +352,18 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
               <span className="action">{s.name}</span>
               <span className="muted small">{(s.size_bytes / 1024).toFixed(0)} KB</span>
               <span className="spacer" />
+              {s.mode === "tcp-relay" ? (
+                <button
+                  className="ghost tiny"
+                  onClick={() => {
+                    if (window.confirm(`从快照“${s.name}”恢复？当前 VM 会被停止。`)) {
+                      void store.resumeSnapshot(s.name);
+                    }
+                  }}
+                >
+                  恢复
+                </button>
+              ) : null}
               <button
                 className="ghost tiny"
                 onClick={() => {

@@ -93,12 +93,12 @@ UPDATE / DELETE API、无关闭审计的开关。`sandbox` 通过 `audit::AuditS
 - [DONE] 宿主监控层（`host`）不可被 AI 修改；前端只能经 Tauri command 访问。
 - [DONE] 审计日志在 AI 之外、append-only、不可关闭（`audit`：SQLite 触发器 + hash chain + `audit-verify`）。
 - [DONE] 能力默认拒绝（`agent::WorkspacePolicy`，防穿越 + 扩展名白名单）。
-- [DONE] 人类可暂停/回滚/终止（VMP 生命周期可控；快照为 MVP 降级方案）。
+- [DONE] 人类可暂停/回滚/终止（VMP 生命周期可控；VM 归 host 持有，快照支持真实保存/恢复）。
 - [DONE] AI 接入使用 API keys（`DEEPSEEK_API_KEY`，仅内存，不落盘/不进审计）。
 - [DONE] 沙箱内 AI 只生成 C11 与 RV64GC 汇编（`agent::tools` 白名单 + 编译器参数）。
 - [DONE] 所有动作写入审计（sandbox / agent / host 均产生事件）。
-- [PARTIAL] MVP 快照为“重启式”降级方案，非真实 VM 状态。
-- [PARTIAL] 串口事件由 host 从审计派生（agent 尚未暴露串口接口）。
+- [DONE] 真实快照（TCP 迁移 + 本地文件中继）：保存/恢复可用；旧“重启式”降级保留兼容。
+- [DONE] 串口事件由 sandbox 主动推送；串口订阅**跨 run 常驻**（20b）。
 
 ## 10. v0.2 路线图
 
@@ -145,7 +145,8 @@ f. **公开前安全清单**
 g. 给 `AgentLoop` 暴露最小串口访问接口（已完成，见 15b）
 h. **[DONE: A′]** QEMU 真实快照：以 **TCP 迁移 + 本地文件中继**实现（`migrate` → file 在
    Windows + QEMU 11.1.0 不可用，见 `sandbox/docs/snapshot-experiment.md`）；
-   残留限制：host 不持有常驻 VM，UI 目前只能列出/删除快照，保存/恢复待 v0.3
+   **20b/20c/20d 完成**：VM 归 `AppState::vm_slot`、串口订阅跨 run 常驻，UI 可保存/恢复。
+   残留限制：恢复用的 `-kernel` 取工作区内最新的 `*.elf`；不做多 VM 并行（v0.3 评估）。
 i. 流式 LLM 响应
 j. 会话持久化
 k. `real_api` 测试补 `verify_chain` 断言（当前只断言串口输出）
