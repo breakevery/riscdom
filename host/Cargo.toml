@@ -12,6 +12,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["sync"] }
 thiserror = "1"
+# Reused for session persistence (same version/features as `audit`).
+rusqlite = { version = "0.32", features = ["bundled"] }
 keyring = "3"
 # Reused for the local-model probe (same version/features as `agent`, so the
 # dependency graph is unchanged).

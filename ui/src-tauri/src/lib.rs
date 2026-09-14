@@ -14,6 +14,8 @@ pub fn run() {
                 .app_data_dir()
                 .unwrap_or_else(|_| std::env::temp_dir());
             let workspace = base.join("workspace");
+            // Session data lives next to it, in app data (never in the repo).
+            host::paths::set_app_data_dir(base.clone());
             let state = host::AppState::new(&workspace)
                 .map_err(|e| format!("failed to init host state: {e}"))?;
             app.manage(state);

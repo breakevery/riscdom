@@ -14,11 +14,14 @@ pub mod commands;
 pub mod error;
 pub mod events;
 pub mod keyring;
+pub mod paths;
+pub mod session;
 pub mod state;
 
 pub use error::HostError;
 pub use events::EventSink;
 pub use keyring::{KeyringBackend, OsKeyring, SERVICE};
+pub use session::{SessionMessage, SessionMeta, SessionStore};
 pub use state::{
     AgentOutcomeView, AppState, AuditStatusView, ChainStatusView, LlmConfigInput, LlmConfigStatus,
     LlmReadiness, LocalProbeResult, LocalProviderInfo, ProviderPresetView, StoredEventView,

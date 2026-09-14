@@ -1343,6 +1343,7 @@ dependencies = [
  "audit",
  "keyring",
  "reqwest 0.12.28",
+ "rusqlite",
  "sandbox",
  "serde",
  "serde_json",
