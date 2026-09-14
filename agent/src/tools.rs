@@ -17,12 +17,16 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// Cap for tool results handed back to the model / stored in audit detail.
 pub const MAX_TOOL_RESULT: usize = 8 * 1024;
 
 /// Guest memory size for agent-started VMs (MiB).
 const VM_MEMORY_MB: u32 = 128;
+
+/// How long `read_serial` waits for the first UART output before returning.
+const SERIAL_READ_WAIT: Duration = Duration::from_millis(2000);
 
 static CALL_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -290,7 +294,18 @@ fn tool_read_serial(ctx: &mut ToolContext) -> Result<String, AgentError> {
         .vm
         .as_ref()
         .ok_or_else(|| AgentError::Tool("no VM running; call start_vm first".into()))?;
-    Ok(String::from_utf8_lossy(&vm.serial_output()).to_string())
+
+    // Wait briefly for the guest to emit something (the model calls this right
+    // after start_vm). Returns whatever is buffered once it is non-empty or the
+    // wait elapses.
+    let deadline = Instant::now() + SERIAL_READ_WAIT;
+    loop {
+        let out = vm.serial_output();
+        if !out.is_empty() || Instant::now() >= deadline {
+            return Ok(String::from_utf8_lossy(&out).to_string());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn tool_stop_vm(ctx: &mut ToolContext) -> Result<String, AgentError> {

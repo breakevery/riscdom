@@ -4,6 +4,7 @@ use crate::error::AgentError;
 use std::fmt;
 
 /// Runtime configuration for the agent.
+#[derive(Clone)]
 pub struct AgentConfig {
     /// API key (from `DEEPSEEK_API_KEY`). Never logged or audited.
     pub api_key: String,

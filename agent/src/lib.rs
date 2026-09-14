@@ -11,6 +11,7 @@
 //! - 工具执行前必须过能力策略检查（默认拒绝）。
 //! - 绝不绕过 `sandbox` crate 直接起 QEMU。
 
+pub mod agent;
 pub mod audit_hook;
 pub mod compiler;
 pub mod config;
@@ -18,8 +19,10 @@ pub mod error;
 pub mod llm;
 pub mod message;
 pub mod policy;
+pub mod prompt;
 pub mod tools;
 
+pub use agent::{AgentLoop, AgentOutcome};
 pub use compiler::{compile_freestanding, CompileOutput, CompilerConfig};
 pub use config::AgentConfig;
 pub use error::AgentError;
@@ -28,4 +31,5 @@ pub use message::{
     ChatMessage, ChatRequest, ChatResponse, Choice, FunctionCall, ToolCall, Usage,
 };
 pub use policy::WorkspacePolicy;
+pub use prompt::build_system_prompt;
 pub use tools::{execute_tool, tool_specs, tools_json, ToolContext, ToolSpec};
