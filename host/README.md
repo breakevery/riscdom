@@ -72,25 +72,24 @@ e. 不勾选记住 → 保存后状态为“仅本次会话”；重启后需重
 - 文件读写经 `agent::WorkspacePolicy` 检查（默认拒绝 + 防穿越）。
 - 前端无法绕过 host 直接调用 sandbox / agent。
 
-## ⚠️ MVP 说明：审计/串口桥接（重要）
+## 事件桥接与串口（当前实现）
 
-`run_agent` 期间，host 起一个 **200ms 轮询** 的后台线程（`AuditBridge`），
-把审计日志中的新事件转成前端事件：
+`run_agent` 期间 host 起两个后台线程：
 
-- `agent.llm.request` → `agent:iteration`
-- `agent.tool.call` → `agent:tool_call`
-- `agent.tool.result` → `agent:tool_result`
-- `vm.start` / `vm.stop` / `vm.snapshot.save` → `vm:state`
+1. **AuditBridge**（200ms 轮询审计）→ 只负责 `agent:iteration` / `agent:tool_call` /
+   `agent:tool_result`，以及 `vm.start` / `vm.stop` / `vm.snapshot.save` → `vm:state`。
+2. **串口转发器**（sandbox 主动推送）→ 读取 `AgentLoop::subscribe_serial()` 返回的
+   `std::sync::mpsc::Receiver<Vec<u8>>`，把每个分帧用 lossy UTF-8 转成字符串后
+   emit `serial:chunk`，并累加到 `get_serial_buffer()` 的返回值中。
 
-**串口来源（MVP 降级，已报告）**：`agent` crate 的 `AgentLoop` 内部私有持有 VM，
-host 无法访问其 `serial_output()`，而按红线本轮不允许扩展 agent。
-因此 `serial:chunk` 目前**从审计里 `read_serial` 工具的结果派生**
-（`serial_full_text`），用 `SerialDiff` 做增量去重。数据是真实的串口内容，
-但更新时机是"模型调用 `read_serial` 时"，而非连续流。
+串口**不再**从审计里 `read_serial` 的工具结果派生（旧的 `serial_full_text` /
+`SerialDiff` 已删除）。数据由 sandbox 的串口读取线程经 `VMConfig.serial_observer`
+实时扇出给所有订阅者；`read_serial` 工具语义不变（仍返回 VM 缓冲全量）。sandbox 侧
+对 observer panic 做了 `catch_unwind`，并写审计事件 `sandbox.serial.observer_panic`。
 
-v0.2：给 agent 增加最小增量 API（让 host 持有 VM 槽），改为直接轮询
-`sandbox::RiscVVirtualMachine::serial_output()`；sandbox 侧则改为主动回调。
-届时 `AppState.vm` 字段会真正启用（当前保留未用）。
+订阅**只收到订阅之后**的数据（无历史回放）；需要全量请调用 `read_serial` 工具。
+
+后续（v0.2）：让 `AppState.vm` 槽真正启用、订阅跨 run 常驻。
 
 ## 手工验证
 

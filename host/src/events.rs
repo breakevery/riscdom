@@ -11,7 +11,8 @@ pub const EV_AGENT_TOOL_CALL: &str = "agent:tool_call";
 pub const EV_AGENT_TOOL_RESULT: &str = "agent:tool_result";
 /// The run finished (emitted directly by `run_agent`).
 pub const EV_AGENT_FINAL: &str = "agent:final";
-/// New serial output (incremental).
+/// New serial output (incremental), pushed by the sandbox via the agent's
+/// serial observer (`AgentLoop::subscribe_serial`).
 pub const EV_SERIAL_CHUNK: &str = "serial:chunk";
 /// VM lifecycle change (start/stop/snapshot).
 pub const EV_VM_STATE: &str = "vm:state";

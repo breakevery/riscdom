@@ -14,9 +14,9 @@ use agent::{AgentConfig, AgentLoop, AgentOutcome};
 use audit::{AuditSink, AuditStore, ChainStatus, SqliteAuditSink, StoredEvent};
 use sandbox::vm::RiscVVirtualMachine;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -290,6 +290,10 @@ pub struct AppState {
     pub keyring: Arc<dyn KeyringBackend>,
     /// Whether the current key has been persisted to the keyring.
     persisted: Mutex<bool>,
+    /// Live serial receiver for the current run (sandbox pushes via the agent).
+    pub serial_receiver: Arc<Mutex<Option<Receiver<Vec<u8>>>>>,
+    /// Accumulated serial text from the push stream (for `get_serial_buffer`).
+    pub serial_accum: Arc<Mutex<String>>,
 }
 
 impl AppState {
@@ -362,6 +366,8 @@ impl AppState {
             llm_override: Mutex::new(None),
             keyring,
             persisted: Mutex::new(false),
+            serial_receiver: Arc::new(Mutex::new(None)),
+            serial_accum: Arc::new(Mutex::new(String::new())),
         }
     }
 
@@ -813,16 +819,12 @@ impl AppState {
 
     // ----- Serial -----------------------------------------------------------
 
-    /// The accumulated serial text observed so far (MVP: derived from the
-    /// agent's `read_serial` tool results in the audit log).
+    /// The accumulated serial text pushed by the sandbox so far.
     pub fn serial_buffer(&self) -> String {
-        match self.audit.lock() {
-            Ok(store) => store
-                .all()
-                .map(|e| serial_full_text(&e))
-                .unwrap_or_default(),
-            Err(_) => String::new(),
-        }
+        self.serial_accum
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default()
     }
 
     /// Write the current serial buffer into the workspace. Returns bytes written.
@@ -860,12 +862,17 @@ impl AppState {
             system_prompt,
         )?;
 
-        // Bridge: poll the audit log, emit derived host events + serial chunks.
+        // Serial subscription: the sandbox pushes bytes via the agent's observer.
+        if let Ok(mut slot) = self.serial_receiver.lock() {
+            *slot = Some(agent.subscribe_serial());
+        }
+
+        // Bridge: poll the audit log for agent:* / vm:state host events.
         let stop = Arc::new(AtomicBool::new(false));
         let stop_bridge = Arc::clone(&stop);
         let audit = Arc::clone(&self.audit);
         let bridge_emitter = Arc::clone(&emitter);
-        let handle = std::thread::spawn(move || {
+        let bridge = std::thread::spawn(move || {
             let mut bridge = AuditBridge::new(audit, bridge_emitter);
             while !stop_bridge.load(Ordering::Relaxed) {
                 bridge.tick();
@@ -874,10 +881,52 @@ impl AppState {
             bridge.tick(); // final flush
         });
 
+        // Forwarder: sandbox push -> `serial:chunk` (+ accumulate for queries).
+        let stop_serial = Arc::clone(&stop);
+        let receiver_slot = Arc::clone(&self.serial_receiver);
+        let accum = Arc::clone(&self.serial_accum);
+        let serial_emitter = Arc::clone(&emitter);
+        let serial_thread = std::thread::spawn(move || {
+            let rx = match receiver_slot.lock() {
+                Ok(mut slot) => slot.take(),
+                Err(_) => None,
+            };
+            let Some(rx) = rx else { return };
+
+            let forward = |bytes: &[u8]| {
+                let text = append_serial_chunk(&accum, bytes);
+                serial_emitter.emit(EV_SERIAL_CHUNK, serde_json::json!({ "chunk": text }));
+            };
+
+            while !stop_serial.load(Ordering::Relaxed) {
+                match rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(bytes) => forward(&bytes),
+                    Err(RecvTimeoutError::Timeout) => continue,
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
+            }
+
+            // Grace drain: capture any tail output still in flight.
+            let mut idle = 0;
+            while idle < 10 {
+                match rx.try_recv() {
+                    Ok(bytes) => {
+                        forward(&bytes);
+                        idle = 0;
+                    }
+                    Err(_) => {
+                        idle += 1;
+                        std::thread::sleep(Duration::from_millis(30));
+                    }
+                }
+            }
+        });
+
         let outcome = agent.run(user_input);
 
         stop.store(true, Ordering::Relaxed);
-        let _ = handle.join();
+        let _ = bridge.join();
+        let _ = serial_thread.join();
 
         let outcome = outcome?;
         let view = AgentOutcomeView::from(outcome);
@@ -903,7 +952,6 @@ struct AuditBridge {
     audit: Arc<Mutex<AuditStore>>,
     emitter: Arc<dyn EventSink>,
     last_id: i64,
-    serial: SerialDiff,
 }
 
 impl AuditBridge {
@@ -912,7 +960,6 @@ impl AuditBridge {
             audit,
             emitter,
             last_id: 0,
-            serial: SerialDiff::new(),
         }
     }
 
@@ -965,76 +1012,17 @@ impl AuditBridge {
             new_max = new_max.max(e.id);
         }
         self.last_id = new_max;
-
-        let full = serial_full_text(&events);
-        if let Some(chunk) = self.serial.next_chunk(&full) {
-            self.emitter
-                .emit(EV_SERIAL_CHUNK, serde_json::json!({ "chunk": chunk }));
-        }
     }
 }
 
-/// Emits only the part of `full` that has not been emitted before.
-pub struct SerialDiff {
-    seen: usize,
-}
-
-impl SerialDiff {
-    pub fn new() -> Self {
-        Self { seen: 0 }
+/// Append a serial chunk to the accumulated text (lossy UTF-8) and return the
+/// text that was appended.
+pub fn append_serial_chunk(accum: &Mutex<String>, bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes).to_string();
+    if let Ok(mut guard) = accum.lock() {
+        guard.push_str(&text);
     }
-
-    /// Returns the new tail, or `None` when there is nothing new.
-    pub fn next_chunk(&mut self, full: &str) -> Option<String> {
-        if full.len() <= self.seen {
-            return None;
-        }
-        // `full.len()` is always a char boundary, and `seen` was set to a
-        // previous `len()`, so this slice is always valid UTF-8.
-        let chunk = full[self.seen..].to_string();
-        self.seen = full.len();
-        Some(chunk)
-    }
-}
-
-impl Default for SerialDiff {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// MVP serial source: concatenate the agent's `read_serial` tool results, in
-/// order, from the audit log.
-pub fn serial_full_text(events: &[StoredEvent]) -> String {
-    let mut names: HashMap<String, String> = HashMap::new();
-    for e in events {
-        if e.event.action == "agent.tool.call" {
-            if let (Some(id), Some(name)) = (
-                e.event.detail.get("id").and_then(|v| v.as_str()),
-                e.event.detail.get("name").and_then(|v| v.as_str()),
-            ) {
-                names.insert(id.to_string(), name.to_string());
-            }
-        }
-    }
-
-    let mut out = String::new();
-    for e in events {
-        if e.event.action != "agent.tool.result" {
-            continue;
-        }
-        let call_id = e.event.detail.get("call_id").and_then(|v| v.as_str());
-        let is_read = call_id
-            .and_then(|id| names.get(id))
-            .map(|n| n == "read_serial")
-            .unwrap_or(false);
-        if is_read {
-            if let Some(text) = e.event.detail.get("result").and_then(|v| v.as_str()) {
-                out.push_str(text);
-            }
-        }
-    }
-    out
+    text
 }
 
 /// Fetch `/v1/models` and return up to 20 model ids (silent on any failure).

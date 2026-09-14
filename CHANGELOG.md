@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **串口来源改为 sandbox 主动推送**：`sandbox` 的串口读取线程经 `VMConfig.serial_observer`
+  实时扇出分帧 → `agent::AgentLoop::subscribe_serial()`（`std::sync::mpsc`）→
+  host 转发为 `serial:chunk` 并累加到 `get_serial_buffer()`。**不再**从审计里
+  `read_serial` 的工具结果派生（旧的 `serial_full_text` / `SerialDiff` 已删除）。
+  `read_serial` 工具语义不变；observer panic 被 `catch_unwind` 拦截并记审计事件
+  `sandbox.serial.observer_panic`。
+
 ### Added
 
 - CI workflows（`.github/workflows/ci.yml`）：secret scanning（gitleaks，全历史）、
@@ -85,8 +94,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **快照是降级方案**：`save_snapshot` / `load_snapshot` 保存/读取启动参数并重启，
   **不是**真实 VM 内存+设备状态（v0.2 换 `savevm`/`loadvm`）。
-- **串口来源**：host 的 `serial:chunk` 从审计里 `read_serial` 工具结果派生，
-  非连续流（`agent` 尚未暴露串口访问接口）。
 - **仅 Windows + TCP**：QMP/串口走 TCP；Unix socket、macOS/Linux 未实现。
 - **无流式输出**：LLM 响应整块返回。
 - **无会话持久化**：每轮 `run_agent` 为独立上下文。

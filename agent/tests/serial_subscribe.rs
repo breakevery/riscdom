@@ -3,7 +3,7 @@
 mod common;
 
 use agent::llm::MockLlm;
-use agent::message::{ChatResponse, ChatMessage, Choice, FunctionCall, ToolCall};
+use agent::message::{ChatMessage, ChatResponse, Choice, FunctionCall, ToolCall};
 use agent::policy::WorkspacePolicy;
 use agent::prompt::build_system_prompt;
 use agent::{AgentLoop, AgentOutcome};

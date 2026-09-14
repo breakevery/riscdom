@@ -143,8 +143,8 @@ Key 只存在后端内存：**不写** localStorage / sessionStorage / 磁盘 / 
   绝不使用 `localStorage` / 明文文件 / `.env`。
 - **快照**：`save_snapshot` / `load_snapshot` 是"存参数 + 重启"，**不是**真实
   VM 状态（v0.2 换 QEMU `savevm`/`loadvm`）。
-- **串口来源**：host 的串口事件从审计里 `read_serial` 工具结果派生，不是连续流
-  （需给 agent 增加串口访问接口后改为直接轮询，见 `host/README.md`）。
+- **串口来源**：由 sandbox 串口读取线程**主动推送**（`subscribe_serial` → `serial:chunk`），
+  不再是审计派生；订阅只收到订阅之后的数据（见 `host/README.md`）。
 - **平台**：仅 Windows + TCP；Unix socket / macOS / Linux 未实现。
 - **无流式输出**：LLM 响应为整块返回。
 - **无会话持久化**：每轮 `run_agent` 是独立上下文。

@@ -1,61 +1,34 @@
-//! Stage 6a — serial increment logic (no duplicate, no loss).
+//! Stage 15c — serial text accumulation from the push stream.
 
-use audit::{AuditEvent, AuditStore, StoredEvent};
-use host::state::{serial_full_text, SerialDiff};
+use host::state::append_serial_chunk;
+use std::sync::Mutex;
 
-fn tool_call(store: &mut AuditStore, id: &str, name: &str) -> StoredEvent {
-    store
-        .append(AuditEvent {
-            timestamp_ms: 1,
-            actor: "agent".into(),
-            action: "agent.tool.call".into(),
-            detail: serde_json::json!({ "id": id, "name": name }),
-        })
-        .unwrap()
-}
-
-fn tool_result(store: &mut AuditStore, call_id: &str, result: &str) -> StoredEvent {
-    store
-        .append(AuditEvent {
-            timestamp_ms: 2,
-            actor: "agent".into(),
-            action: "agent.tool.result".into(),
-            detail: serde_json::json!({ "call_id": call_id, "ok": true, "result": result }),
-        })
-        .unwrap()
+#[test]
+fn appends_valid_utf8_and_returns_the_chunk() {
+    let accum = Mutex::new(String::new());
+    let first = append_serial_chunk(&accum, b"HELLO ");
+    let second = append_serial_chunk(&accum, b"RISCV\n");
+    assert_eq!(first, "HELLO ");
+    assert_eq!(second, "RISCV\n");
+    assert_eq!(*accum.lock().unwrap(), "HELLO RISCV\n");
 }
 
 #[test]
-fn diff_emits_exact_increments_without_dup_or_loss() {
-    let mut diff = SerialDiff::new();
-    assert_eq!(diff.next_chunk(""), None);
-    assert_eq!(diff.next_chunk("HEL"), Some("HEL".to_string()));
-    assert_eq!(diff.next_chunk("HEL"), None, "no new data -> no chunk");
-    assert_eq!(diff.next_chunk("HELLO"), Some("LO".to_string()));
-    assert_eq!(diff.next_chunk("HELLO RISCV"), Some(" RISCV".to_string()));
-
-    // Nothing lost: concatenating all chunks reproduces the full text.
-    let mut diff = SerialDiff::new();
-    let mut collected = String::new();
-    for snapshot in ["", "H", "HE", "HEL", "HELLO", "HELLO R", "HELLO RISCV"] {
-        if let Some(c) = diff.next_chunk(snapshot) {
-            collected.push_str(&c);
-        }
-    }
-    assert_eq!(collected, "HELLO RISCV");
+fn invalid_utf8_is_converted_lossily() {
+    let accum = Mutex::new(String::new());
+    let text = append_serial_chunk(&accum, &[0x41, 0xFF, 0x42]);
+    assert!(text.starts_with('A'), "{text:?}");
+    assert!(text.ends_with('B'), "{text:?}");
+    assert!(
+        text.contains('\u{FFFD}'),
+        "expected a replacement char: {text:?}"
+    );
+    assert_eq!(*accum.lock().unwrap(), text);
 }
 
 #[test]
-fn full_text_only_includes_read_serial_results() {
-    let mut store = AuditStore::in_memory().unwrap();
-    tool_call(&mut store, "t1", "write_source");
-    tool_result(&mut store, "t1", "wrote 10 bytes");
-    tool_call(&mut store, "t2", "read_serial");
-    tool_result(&mut store, "t2", "HELLO RISCV\n");
-    tool_call(&mut store, "t3", "compile");
-    tool_result(&mut store, "t3", "compiled ok");
-
-    let events = store.all().unwrap();
-    let text = serial_full_text(&events);
-    assert_eq!(text, "HELLO RISCV\n");
+fn empty_chunk_is_a_no_op() {
+    let accum = Mutex::new(String::new());
+    assert_eq!(append_serial_chunk(&accum, b""), "");
+    assert_eq!(*accum.lock().unwrap(), "");
 }

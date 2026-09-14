@@ -182,9 +182,10 @@ impl RiscVVirtualMachine {
                             if let Some(obs) = observer.as_ref() {
                                 let f: &dyn Fn(&[u8]) = obs.as_ref();
                                 let data = chunk[..n].to_vec();
-                                let outcome = std::panic::catch_unwind(
-                                    std::panic::AssertUnwindSafe(|| f(&data)),
-                                );
+                                let outcome =
+                                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                        f(&data)
+                                    }));
                                 if outcome.is_err() {
                                     if let Ok(mut sink) = audit.lock() {
                                         sink.record(AuditEvent::new(

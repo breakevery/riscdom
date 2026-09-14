@@ -13,8 +13,9 @@ use std::time::Duration;
 
 fn sink() -> (Arc<Mutex<dyn AuditSink>>, Arc<Mutex<AuditStore>>) {
     let shared = Arc::new(Mutex::new(AuditStore::in_memory().expect("store")));
-    let s: Arc<Mutex<dyn AuditSink>> =
-        Arc::new(Mutex::new(SqliteAuditSink::from_shared(Arc::clone(&shared))));
+    let s: Arc<Mutex<dyn AuditSink>> = Arc::new(Mutex::new(SqliteAuditSink::from_shared(
+        Arc::clone(&shared),
+    )));
     (s, shared)
 }
 
