@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- CI workflows（`.github/workflows/ci.yml`）：secret scanning（gitleaks，全历史）、
+  Rust 检查（`fmt --check` / `clippy -D warnings` / `check` / `audit` 单测，仅可移植 crate）、
+  前端构建（`npm ci` + `npm run build`）。
+- 本地预检脚本：`scripts/preflight.ps1`（Windows）与 `scripts/preflight.sh`（Unix）。
+- `SECURITY.md`、`.env.example`，并完善 `.gitignore`（`.env*` / `*.db` / `*.jsonl` 等）。
+
+### Security
+
+- 依赖审计（2026-09-14）：`cargo audit` 扫描 470 个 crate，**0 个漏洞**；7 条信息性警告
+  （6 个 unmaintained：`proc-macro-error`、`unic-char-property` / `unic-char-range` /
+  `unic-common` / `unic-ucd-ident` / `unic-ucd-version`；1 个 unsound：`glib 0.18.5`，
+  仍 Linux/GTK 传递依赖，Windows 不构建）。`npm audit --omit=dev`：**0 个漏洞**。
+- README 新增“安全声明”；v0.2 路线图新增 **f 条**（公开前安全清单）。
+- 未自行升级任何依赖（存在警告均未处理，待人工决策）。
+
 ### Planned (v0.2) — 多模型接入与密钥安全
 
 - **LLM 客户端重构**：`DeepSeekClient` → `OpenAiCompatClient`（`base_url` / `api_key` /

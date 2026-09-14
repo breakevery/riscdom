@@ -64,6 +64,8 @@ RiscDom（中文名 **智芯城**）是一个桌面应用：AI 在 QEMU RISC-V �
 - 如需完全离线运行，可使用 Ollama / LM Studio 等本地模型，**无需任何 key**。
 - 发现安全问题请通过 GitHub Security Advisory 私下报告，不要在 issue 中贴 key 或漏洞细节。
 
+> 提交前请先运行本地预检：`scripts/preflight.ps1`（Windows）或 `scripts/preflight.sh`（Unix）。
+
 ## 快速开始
 
 ```powershell
