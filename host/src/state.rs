@@ -3,6 +3,7 @@
 use crate::error::HostError;
 use crate::events::{EventSink, EV_AGENT_FINAL, EV_AGENT_ITERATION, EV_AGENT_TOOL_CALL,
                     EV_AGENT_TOOL_RESULT, EV_SERIAL_CHUNK, EV_VM_STATE};
+use crate::keyring::{InMemoryKeyring, KeyringBackend, OsKeyring};
 use agent::llm::{DeepSeekClient, LlmClient};
 use agent::message::{ChatRequest, ChatResponse};
 use agent::policy::WorkspacePolicy;
@@ -265,6 +266,8 @@ pub struct AppState {
     pub compiler: agent::CompilerConfig,
     /// Test seam: an injected LLM client (bypasses HTTP).
     pub llm_override: Mutex<Option<Arc<dyn LlmClient>>>,
+    /// OS keyring backend (or an in-memory one in tests).
+    pub keyring: Arc<dyn KeyringBackend>,
 }
 
 impl AppState {
@@ -275,18 +278,28 @@ impl AppState {
         let db_dir = root.join(".riscdom");
         std::fs::create_dir_all(&db_dir)?;
         let store = AuditStore::open(&db_dir.join("audit.db"))?;
-        Ok(Self::from_store(root, store))
+        Ok(Self::from_store(root, store, Arc::new(OsKeyring::new())))
     }
 
-    /// Build state with a private in-memory audit DB (tests).
+    /// Build state with a private in-memory audit DB and keyring (tests).
     pub fn in_memory(workspace_root: impl Into<PathBuf>) -> Result<Self, HostError> {
         let root = workspace_root.into();
         std::fs::create_dir_all(&root)?;
         let store = AuditStore::in_memory()?;
-        Ok(Self::from_store(root, store))
+        Ok(Self::from_store(
+            root,
+            store,
+            Arc::new(InMemoryKeyring::new()),
+        ))
     }
 
-    fn from_store(root: PathBuf, store: AuditStore) -> Self {
+    /// Override the keyring backend.
+    pub fn with_keyring(mut self, keyring: Arc<dyn KeyringBackend>) -> Self {
+        self.keyring = keyring;
+        self
+    }
+
+    fn from_store(root: PathBuf, store: AuditStore, keyring: Arc<dyn KeyringBackend>) -> Self {
         let shared = Arc::new(Mutex::new(store));
         let sink: Arc<Mutex<dyn AuditSink>> =
             Arc::new(Mutex::new(SqliteAuditSink::from_shared(Arc::clone(&shared))));
@@ -298,6 +311,7 @@ impl AppState {
             workspace_root: root,
             compiler: agent::CompilerConfig::from_env(),
             llm_override: Mutex::new(None),
+            keyring,
         }
     }
 

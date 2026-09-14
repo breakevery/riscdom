@@ -12,6 +12,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["sync"] }
 thiserror = "1"
+keyring = "3"
 # Reused for the local-model probe (same version/features as `agent`, so the
 # dependency graph is unchanged).
 reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
