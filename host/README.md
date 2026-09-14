@@ -51,6 +51,24 @@ from the preset when they are empty; `provider_id = "custom"` requires both. The
 presets: `deepseek` (default) / `openai` / `ollama` (local, no key) / `lmstudio` (local, no
 key) / `custom`. See `agent/README.md`.
 
+## Toolchain (stages 24b/24c)
+
+`probe_toolchain()` returns `{ found, path, source, diagnostics }`, where `source` is
+`EnvVar` / `KnownPath` / `Path` / `Manual`. `set_toolchain_path(path)` validates the file with
+`--version` before storing it, `clear_toolchain_path()` returns to auto-discovery, and
+`run_agent` refuses early with a `toolchain_missing` error (followed by the diagnostics) when no
+usable compiler exists. Audit events: `host.toolchain.set` / `host.toolchain.clear`.
+
+Manual steps (Windows):
+
+1. Open the app and go to **Settings → Toolchain**. A red banner means nothing was found.
+2. Expand **diagnostics** to see every path that was tried.
+3. Click **set path** and paste the full path to `riscv64-unknown-elf-gcc.exe`; the row must
+   switch to a green dot with the `Manual` badge.
+4. Send a chat message — it should compile and boot instead of refusing with
+   `toolchain_missing`.
+5. Click **clear manual path** — the source badge goes back to `KnownPath` / `Path`.
+
 ## OS keyring
 
 Keys are persisted in the OS credential store (Windows Credential Manager / macOS Keychain /

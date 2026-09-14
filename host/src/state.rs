@@ -57,10 +57,10 @@ fn toolchain_runs(path: &Path) -> Result<String, HostError> {
             })
         }
         Ok(out) => Err(HostError::Other(format!(
-            "`--version` exited with {}",
+            "not runnable: `--version` exited with {}",
             out.status
         ))),
-        Err(e) => Err(HostError::Other(e.to_string())),
+        Err(e) => Err(HostError::Other(format!("not runnable: {e}"))),
     }
 }
 

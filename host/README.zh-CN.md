@@ -50,6 +50,23 @@
 `provider_id = "custom"` 时两者必填。5 个内置预设：`deepseek`（默认）/ `openai` /
 `ollama`（本地，无需 key）/ `lmstudio`（本地，无需 key）/ `custom`。详见 `agent/README.md`。
 
+## 工具链（阶段 24b/24c）
+
+`probe_toolchain()` 返回 `{ found, path, source, diagnostics }`，`source` 为
+`EnvVar` / `KnownPath` / `Path` / `Manual`。`set_toolchain_path(path)` 会先用 `--version` 校验该文件
+再保存；`clear_toolchain_path()` 回到自动探测；无可用编译器时 `run_agent` 直接以
+`toolchain_missing` 错误拒绝（随后附上探测详情）。审计事件：`host.toolchain.set` /
+`host.toolchain.clear`。
+
+手工步骤（Windows）：
+
+1. 打开应用 → **设置 → 工具链**。出现红色横幅说明未找到。
+2. 展开 **探测详情**，查看尝试过的每个路径。
+3. 点 **手动指定**，粘贴 `riscv64-unknown-elf-gcc.exe` 的完整路径；该行应变为绿点 +
+   `Manual` 徽标。
+4. 在对话框发一条消息：应能编译并启动，而不再报 `toolchain_missing`。
+5. 点 **清除手动路径** → source 徽标回到 `KnownPath` / `Path`。
+
 ## 系统钥匙串（keyring）
 
 密钥持久化在 OS 凭据库（Windows Credential Manager / macOS Keychain /
