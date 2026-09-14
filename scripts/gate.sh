@@ -26,6 +26,9 @@ cargo check -p audit -p sandbox -p agent || fail "cargo check"
 echo "==> cargo test"
 cargo test || fail "cargo test"
 
+echo "==> cargo check (ui/src-tauri)"
+cargo check --manifest-path ui/src-tauri/Cargo.toml || fail "cargo check ui/src-tauri"
+
 echo "==> npm run build (ui)"
 (cd ui && npm run build) || fail "npm run build"
 

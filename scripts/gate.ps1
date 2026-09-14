@@ -30,6 +30,10 @@ Write-Host "==> cargo test"
 cargo test
 if ($LASTEXITCODE -ne 0) { Fail "cargo test" }
 
+Write-Host "==> cargo check (ui/src-tauri)"
+cargo check --manifest-path ui/src-tauri/Cargo.toml
+if ($LASTEXITCODE -ne 0) { Fail "cargo check ui/src-tauri" }
+
 Write-Host "==> npm run build (ui)"
 Push-Location ui
 npm run build
