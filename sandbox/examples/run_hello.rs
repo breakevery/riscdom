@@ -95,6 +95,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         serial: SerialEndpoint::tcp("127.0.0.1", serial_port),
         snapshot_dir: work.join("snapshots"),
         serial_observer: None,
+        incoming_snapshot: None,
+        incoming_relay_addr: None,
     };
 
     println!("kernel : {}", kernel.display());

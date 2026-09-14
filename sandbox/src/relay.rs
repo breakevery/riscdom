@@ -17,6 +17,8 @@ use std::fs::File;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Default wait for the peer to connect / finish.
@@ -24,6 +26,62 @@ pub const DEFAULT_RELAY_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// How long to sleep between accept attempts.
 const ACCEPT_POLL: Duration = Duration::from_millis(20);
+
+/// A free loopback port (bound briefly, then released for the peer to take).
+pub fn free_local_port() -> Result<u16, SandboxError> {
+    let listener =
+        TcpListener::bind("127.0.0.1:0").map_err(|e| SandboxError::Relay(e.to_string()))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| SandboxError::Relay(e.to_string()))?
+        .port();
+    drop(listener);
+    Ok(port)
+}
+
+/// Stream a file into a **listening** peer (client mode).
+///
+/// QEMU's `-incoming tcp:host:port` *listens*, so restoring means connecting to
+/// it and pushing the snapshot bytes (the mirror image of [`MigrationRelay`]).
+pub fn send_file_to(addr: SocketAddr, path: &Path, timeout: Duration) -> Result<u64, SandboxError> {
+    let mut file = File::open(path).map_err(|e| SandboxError::Io(e.to_string()))?;
+
+    let deadline = Instant::now() + timeout;
+    let mut stream = loop {
+        match TcpStream::connect_timeout(&addr, Duration::from_millis(500)) {
+            Ok(stream) => break stream,
+            Err(e) => {
+                if Instant::now() >= deadline {
+                    return Err(SandboxError::RelayTimeout(format!(
+                        "connecting to the incoming peer at {addr}: {e}"
+                    )));
+                }
+                std::thread::sleep(ACCEPT_POLL);
+            }
+        }
+    };
+    stream
+        .set_write_timeout(Some(timeout))
+        .map_err(|e| SandboxError::Relay(e.to_string()))?;
+
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut total = 0u64;
+    loop {
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| SandboxError::Io(e.to_string()))?;
+        if n == 0 {
+            break;
+        }
+        stream
+            .write_all(&buf[..n])
+            .map_err(|e| SandboxError::Relay(e.to_string()))?;
+        total += n as u64;
+    }
+    let _ = stream.flush();
+    let _ = stream.shutdown(Shutdown::Write);
+    Ok(total)
+}
 
 /// A one-shot TCP relay bound to a loopback port.
 pub struct MigrationRelay {
@@ -59,19 +117,43 @@ impl MigrationRelay {
 
     /// Accept the peer's stream, then write everything it sends into `path`.
     ///
-    /// Returns the number of bytes written.
+    /// Runs until the peer closes the connection. Returns the number of bytes
+    /// written.
     pub fn receive_to_file(self, path: &Path) -> Result<u64, SandboxError> {
+        self.receive_inner(path, None)
+    }
+
+    /// Like [`Self::receive_to_file`], but also stops as soon as `stop` is set.
+    ///
+    /// QEMU does not always close the migration socket once the transfer has
+    /// finished, so the caller sets `stop` when QMP reports `completed`.
+    pub fn receive_to_file_until(
+        self,
+        path: &Path,
+        stop: Arc<AtomicBool>,
+    ) -> Result<u64, SandboxError> {
+        self.receive_inner(path, Some(stop))
+    }
+
+    fn receive_inner(
+        self,
+        path: &Path,
+        stop: Option<Arc<AtomicBool>>,
+    ) -> Result<u64, SandboxError> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| SandboxError::Io(e.to_string()))?;
         }
         let mut stream = self.accept()?;
+        // Short polls so `stop` is honoured promptly.
+        let poll = Duration::from_millis(200).min(self.timeout);
         stream
-            .set_read_timeout(Some(self.timeout))
+            .set_read_timeout(Some(poll))
             .map_err(|e| SandboxError::Relay(e.to_string()))?;
 
         let mut file = File::create(path).map_err(|e| SandboxError::Io(e.to_string()))?;
         let mut buf = vec![0u8; 64 * 1024];
         let mut total = 0u64;
+        let deadline = Instant::now() + self.timeout;
         loop {
             match stream.read(&mut buf) {
                 Ok(0) => break,
@@ -83,9 +165,16 @@ impl MigrationRelay {
                 Err(ref e)
                     if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut =>
                 {
-                    return Err(SandboxError::RelayTimeout(format!(
-                        "receiving migration stream (got {total} bytes)"
-                    )))
+                    if let Some(stop) = &stop {
+                        if stop.load(Ordering::Relaxed) {
+                            break;
+                        }
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(SandboxError::RelayTimeout(format!(
+                            "receiving migration stream (got {total} bytes)"
+                        )));
+                    }
                 }
                 Err(e) => return Err(SandboxError::Relay(e.to_string())),
             }

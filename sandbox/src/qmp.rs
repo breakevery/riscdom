@@ -14,8 +14,8 @@
 use crate::error::SandboxError;
 use crate::platform::QmpEndpoint;
 use std::io::{BufRead, BufReader, Write};
-use std::net::TcpStream;
-use std::time::Duration;
+use std::net::{SocketAddr, TcpStream};
+use std::time::{Duration, Instant};
 
 /// How long to wait for a QMP reply.
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
@@ -88,6 +88,60 @@ impl QmpClient {
     pub fn cont(&mut self) -> Result<(), SandboxError> {
         self.execute("cont")?;
         Ok(())
+    }
+
+    /// The guest run state (`running` / `paused` / `inmigrate` / ...).
+    pub fn query_status(&mut self) -> Result<String, SandboxError> {
+        let reply = self.execute("query-status")?;
+        Ok(reply
+            .get("return")
+            .and_then(|r| r.get("status"))
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown")
+            .to_string())
+    }
+
+    /// Migrate the VM to a TCP peer, waiting until the transfer finishes.
+    ///
+    /// The peer is normally a local [`crate::relay::MigrationRelay`], which
+    /// turns the stream into a file (the `file:` transport is unavailable on
+    /// Windows -- see `sandbox/docs/snapshot-experiment.md`).
+    pub fn migrate_to_tcp(
+        &mut self,
+        addr: SocketAddr,
+        timeout: Duration,
+    ) -> Result<(), SandboxError> {
+        let uri = format!("tcp:{}:{}", addr.ip(), addr.port());
+        self.execute_with_args("migrate", serde_json::json!({ "uri": uri }))?;
+
+        let deadline = Instant::now() + timeout;
+        loop {
+            let reply = self.execute("query-migrate")?;
+            let status = reply
+                .get("return")
+                .and_then(|r| r.get("status"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            match status.as_str() {
+                "completed" => return Ok(()),
+                "failed" | "cancelled" => {
+                    let desc = reply
+                        .get("return")
+                        .and_then(|r| r.get("error-desc"))
+                        .and_then(|d| d.as_str())
+                        .unwrap_or("unknown");
+                    return Err(SandboxError::Qmp(format!("migration {status}: {desc}")));
+                }
+                _ => {}
+            }
+            if Instant::now() >= deadline {
+                return Err(SandboxError::RelayTimeout(format!(
+                    "migration did not finish (last status: {status})"
+                )));
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
     }
 
     /// Ask QEMU to quit. The connection usually closes; replies are optional.

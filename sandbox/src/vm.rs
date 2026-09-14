@@ -16,7 +16,7 @@ use audit::{AuditEvent, AuditSink};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -34,6 +34,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long to wait for QEMU to exit after a QMP `quit` before force-killing.
 const QUIT_GRACE: Duration = Duration::from_secs(2);
+
+/// How long to wait for a migration (save) or an incoming restore to finish.
+const MIGRATE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A serial observer callback: receives newly-read UART bytes as they arrive.
 pub type SerialObserver = Arc<dyn Fn(&[u8]) + Send + Sync>;
@@ -57,6 +60,15 @@ pub struct VMConfig {
     /// Not serialised (it is a callback, not data) and defaults to `None`.
     #[serde(skip)]
     pub serial_observer: Option<SerialObserver>,
+    /// When set, the VM is started with `-incoming tcp:` and this migration
+    /// stream file is fed to it through a local relay (see
+    /// [`RiscVVirtualMachine::resume_from_snapshot_real`]).
+    #[serde(default)]
+    pub incoming_snapshot: Option<PathBuf>,
+    /// The relay address chosen by [`RiscVVirtualMachine::start`] for
+    /// `-incoming` (informational).
+    #[serde(default)]
+    pub incoming_relay_addr: Option<std::net::SocketAddr>,
 }
 
 impl std::fmt::Debug for VMConfig {
@@ -71,6 +83,8 @@ impl std::fmt::Debug for VMConfig {
                 "serial_observer",
                 &self.serial_observer.as_ref().map(|_| "<observer>"),
             )
+            .field("incoming_snapshot", &self.incoming_snapshot)
+            .field("incoming_relay_addr", &self.incoming_relay_addr)
             .finish()
     }
 }
@@ -90,6 +104,8 @@ pub struct RiscVVirtualMachine {
     serial_buf: Arc<Mutex<Vec<u8>>>,
     /// Serial reader thread.
     reader: Option<JoinHandle<()>>,
+    /// Thread feeding a snapshot into QEMU's `-incoming` connection.
+    snapshot_sender: Option<JoinHandle<Result<u64, SandboxError>>>,
 }
 
 impl RiscVVirtualMachine {
@@ -110,6 +126,7 @@ impl RiscVVirtualMachine {
             serial_write: None,
             serial_buf: Arc::new(Mutex::new(Vec::new())),
             reader: None,
+            snapshot_sender: None,
         })
     }
 
@@ -130,6 +147,17 @@ impl RiscVVirtualMachine {
     pub fn start(&mut self) -> Result<(), SandboxError> {
         if self.child.is_some() {
             return Err(SandboxError::AlreadyRunning);
+        }
+
+        // Incoming migration: QEMU *listens* on `-incoming tcp:<addr>`, and a
+        // thread of ours connects and pushes the snapshot into it.
+        if let Some(snapshot) = self.config.incoming_snapshot.clone() {
+            let port = crate::relay::free_local_port()?;
+            let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+            self.config.incoming_relay_addr = Some(addr);
+            self.snapshot_sender = Some(std::thread::spawn(move || {
+                crate::relay::send_file_to(addr, &snapshot, crate::relay::DEFAULT_RELAY_TIMEOUT)
+            }));
         }
 
         let args = self.qemu_args();
@@ -206,6 +234,11 @@ impl RiscVVirtualMachine {
         // 2. QMP: connect, consume greeting, negotiate capabilities.
         self.qmp = Some(QmpClient::connect(&self.config.qmp, CONNECT_TIMEOUT)?);
 
+        // 3. With `-incoming`, wait until the restored guest is actually running.
+        if self.config.incoming_snapshot.is_some() {
+            self.wait_for_running(MIGRATE_TIMEOUT)?;
+        }
+
         self.emit(
             "vm.start",
             serde_json::json!({
@@ -251,6 +284,9 @@ impl RiscVVirtualMachine {
         self.qmp = None;
         self.serial_write = None;
         if let Some(handle) = self.reader.take() {
+            let _ = handle.join();
+        }
+        if let Some(handle) = self.snapshot_sender.take() {
             let _ = handle.join();
         }
 
@@ -370,6 +406,109 @@ impl RiscVVirtualMachine {
         Ok(())
     }
 
+    /// Save a **real** VM state snapshot (QMP `migrate` over a local TCP relay).
+    ///
+    /// The stream is written to `<snapshot_dir>/<name>.mig`. Existing snapshots
+    /// are **not** overwritten: an error is returned instead, so a snapshot is
+    /// never silently replaced.
+    ///
+    /// On Windows the `file:` migration transport is unavailable, which is why
+    /// the stream goes through [`crate::relay::MigrationRelay`].
+    pub fn save_snapshot_real(&mut self, name: &str) -> Result<(), SandboxError> {
+        std::fs::create_dir_all(&self.config.snapshot_dir)
+            .map_err(|e| SandboxError::Snapshot(e.to_string()))?;
+        let path = self.config.snapshot_dir.join(format!("{name}.mig"));
+        if path.exists() {
+            return Err(SandboxError::Snapshot(format!(
+                "snapshot already exists: {} (refusing to overwrite)",
+                path.display()
+            )));
+        }
+
+        let relay = crate::relay::MigrationRelay::bind_local()?;
+        let addr = relay.addr();
+
+        // Receive in a thread first: QEMU only connects once `migrate` is sent.
+        // QEMU may leave the socket open after finishing, so the receiver stops
+        // as soon as the migration is reported complete.
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop_rx = Arc::clone(&stop);
+        let path_for_thread = path.clone();
+        let receiver =
+            std::thread::spawn(move || relay.receive_to_file_until(&path_for_thread, stop_rx));
+
+        let migrate_result = match self.qmp.as_mut() {
+            Some(qmp) => qmp.migrate_to_tcp(addr, MIGRATE_TIMEOUT),
+            None => Err(SandboxError::NotRunning),
+        };
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let received = receiver
+            .join()
+            .map_err(|_| SandboxError::Relay("relay thread panicked".into()))?;
+
+        migrate_result?;
+        let bytes = received?;
+
+        self.emit(
+            "sandbox.snapshot.save.real",
+            serde_json::json!({
+                "name": name,
+                "bytes": bytes,
+                "mode": "tcp-relay",
+            }),
+        );
+        Ok(())
+    }
+
+    /// Start a VM restored from a **real** snapshot taken by
+    /// [`Self::save_snapshot_real`].
+    ///
+    /// The boot command line and the QEMU parameters must match the ones used
+    /// when the snapshot was taken; QEMU itself rejects mismatched state.
+    pub fn resume_from_snapshot_real(
+        config: VMConfig,
+        snapshot_path: &Path,
+        audit: Arc<Mutex<dyn AuditSink>>,
+    ) -> Result<Self, SandboxError> {
+        if !snapshot_path.exists() {
+            return Err(SandboxError::Snapshot(format!(
+                "snapshot not found: {}",
+                snapshot_path.display()
+            )));
+        }
+        let mut config = config;
+        config.incoming_snapshot = Some(snapshot_path.to_path_buf());
+        let mut vm = Self::new(config, audit)?;
+        vm.start()?;
+        Ok(vm)
+    }
+
+    /// Wait until the guest reports `running` (used after `-incoming`).
+    fn wait_for_running(&mut self, timeout: Duration) -> Result<(), SandboxError> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let status = match self.qmp.as_mut() {
+                Some(qmp) => qmp.query_status()?,
+                None => return Err(SandboxError::NotRunning),
+            };
+            match status.as_str() {
+                "running" => return Ok(()),
+                "shutdown" | "internal-error" => {
+                    return Err(SandboxError::Relay(format!(
+                        "guest ended up in state '{status}' while restoring"
+                    )))
+                }
+                _ => {}
+            }
+            if Instant::now() >= deadline {
+                return Err(SandboxError::RelayTimeout(format!(
+                    "waiting for restored guest to run (last status: {status})"
+                )));
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
     fn snapshot_path(&self, name: &str) -> PathBuf {
         self.config.snapshot_dir.join(format!("{name}.json"))
     }
@@ -383,7 +522,7 @@ impl RiscVVirtualMachine {
 
     /// Build the QEMU command-line arguments (excluding argv[0]).
     fn qemu_args(&self) -> Vec<String> {
-        vec![
+        let mut args = vec![
             "-machine".into(),
             "virt".into(),
             "-cpu".into(),
@@ -400,7 +539,15 @@ impl RiscVVirtualMachine {
             self.config.qmp.to_qemu_arg(),
             "-serial".into(),
             self.config.serial.to_qemu_arg(),
-        ]
+        ];
+
+        // Restoring: QEMU pulls the migration stream from our relay.
+        if let Some(addr) = self.config.incoming_relay_addr {
+            args.push("-incoming".into());
+            args.push(format!("tcp:{}:{}", addr.ip(), addr.port()));
+        }
+
+        args
     }
 }
 

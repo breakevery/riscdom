@@ -36,6 +36,8 @@ fn stage3a_lifecycle_serial_and_audit() {
         serial: SerialEndpoint::tcp("127.0.0.1", serial_port),
         snapshot_dir,
         serial_observer: None,
+        incoming_snapshot: None,
+        incoming_relay_addr: None,
     };
 
     let mut vm = RiscVVirtualMachine::new(config, audit).expect("construct vm");

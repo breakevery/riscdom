@@ -28,6 +28,8 @@ fn config(elf: PathBuf, observer: Option<SerialObserver>) -> VMConfig {
         serial: SerialEndpoint::tcp("127.0.0.1", serial_port),
         snapshot_dir: std::env::temp_dir().join("riscdom-observer-snapshots"),
         serial_observer: observer,
+        incoming_snapshot: None,
+        incoming_relay_addr: None,
     }
 }
 

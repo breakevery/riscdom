@@ -32,6 +32,8 @@ fn stage3b_snapshot_save_and_load() {
         serial: SerialEndpoint::tcp("127.0.0.1", serial_port),
         snapshot_dir: snapshot_dir.clone(),
         serial_observer: None,
+        incoming_snapshot: None,
+        incoming_relay_addr: None,
     };
 
     let mut vm = RiscVVirtualMachine::new(config, audit).expect("construct vm");

@@ -104,3 +104,32 @@ fn relay_address_is_loopback() {
     assert!(relay.addr().ip().is_loopback());
     assert_ne!(relay.addr().port(), 0);
 }
+
+#[test]
+fn free_local_port_is_usable() {
+    let port = sandbox::relay::free_local_port().expect("port");
+    assert_ne!(port, 0);
+}
+
+#[test]
+fn send_file_to_pushes_into_a_listening_peer() {
+    let data = sample(256 * 1024);
+    let path = unique_path("push.bin");
+    std::fs::write(&path, &data).expect("write source");
+
+    // The peer listens (this is what QEMU's `-incoming tcp:` does).
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind peer");
+    let addr = listener.local_addr().unwrap();
+    let receiver = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        let mut got = Vec::new();
+        stream.read_to_end(&mut got).expect("read");
+        got
+    });
+
+    let sent = sandbox::relay::send_file_to(addr, &path, Duration::from_secs(5)).expect("send");
+    let got = receiver.join().expect("join");
+
+    assert_eq!(sent, data.len() as u64);
+    assert_eq!(got, data);
+}
