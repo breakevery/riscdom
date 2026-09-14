@@ -47,16 +47,46 @@ pub struct AgentLoop {
     serial_observers: Arc<Mutex<Vec<Sender<Vec<u8>>>>>,
     /// Live stream subscribers (one `Sender` per `subscribe_stream` call).
     stream_observers: Arc<Mutex<Vec<Sender<StreamEvent>>>>,
+    /// When set, tools operate on this externally-owned VM slot instead of the
+    /// loop's own `vm` (lets the host own the VM across runs).
+    external_vm: Option<Arc<Mutex<Option<RiscVVirtualMachine>>>>,
 }
 
 impl AgentLoop {
-    /// Build a loop. `system_prompt` becomes the first message.
+    /// Build a loop that owns its VM (backwards-compatible behaviour).
     pub fn new(
         llm: Box<dyn LlmClient>,
         config: AgentConfig,
         policy: WorkspacePolicy,
         audit: Arc<Mutex<dyn AuditSink>>,
         system_prompt: String,
+    ) -> Result<Self, AgentError> {
+        Self::build(llm, config, policy, audit, system_prompt, None)
+    }
+
+    /// Build a loop that operates on an **externally-owned** VM slot.
+    ///
+    /// The slot outlives the loop, so a VM started during a run stays alive
+    /// afterwards (host-owned lifecycle). `system_prompt` is a sixth parameter
+    /// on purpose: without it the constitution could not be injected.
+    pub fn with_vm(
+        llm: Box<dyn LlmClient>,
+        config: AgentConfig,
+        policy: WorkspacePolicy,
+        audit: Arc<Mutex<dyn AuditSink>>,
+        vm: Arc<Mutex<Option<RiscVVirtualMachine>>>,
+        system_prompt: String,
+    ) -> Result<Self, AgentError> {
+        Self::build(llm, config, policy, audit, system_prompt, Some(vm))
+    }
+
+    fn build(
+        llm: Box<dyn LlmClient>,
+        config: AgentConfig,
+        policy: WorkspacePolicy,
+        audit: Arc<Mutex<dyn AuditSink>>,
+        system_prompt: String,
+        external_vm: Option<Arc<Mutex<Option<RiscVVirtualMachine>>>>,
     ) -> Result<Self, AgentError> {
         Ok(Self {
             llm,
@@ -68,7 +98,19 @@ impl AgentLoop {
             compiler: CompilerConfig::from_env(),
             serial_observers: Arc::new(Mutex::new(Vec::new())),
             stream_observers: Arc::new(Mutex::new(Vec::new())),
+            external_vm,
         })
+    }
+
+    /// Hand out a handle to the serial subscriber list so it can outlive this
+    /// loop (host keeps it and re-attaches it to later runs).
+    pub fn detach_serial(&mut self) -> Arc<Mutex<Vec<Sender<Vec<u8>>>>> {
+        Arc::clone(&self.serial_observers)
+    }
+
+    /// Use an externally-owned subscriber list (shared across runs).
+    pub fn attach_serial(&mut self, senders: Arc<Mutex<Vec<Sender<Vec<u8>>>>>) {
+        self.serial_observers = senders;
     }
 
     /// Append restored messages to the conversation.
@@ -229,7 +271,23 @@ impl AgentLoop {
             }
 
             for call in &tool_calls {
-                let text = {
+                let text = if let Some(slot) = self.external_vm.clone() {
+                    // Host-owned VM: operate directly on the shared slot.
+                    let mut guard = slot
+                        .lock()
+                        .map_err(|_| AgentError::Other("vm slot poisoned".into()))?;
+                    let mut ctx = ToolContext {
+                        policy: &self.policy,
+                        audit: Arc::clone(&self.audit),
+                        vm: &mut guard,
+                        compiler: &self.compiler,
+                        serial_observers: Arc::clone(&self.serial_observers),
+                    };
+                    match execute_tool(&call.function.name, &call.function.arguments, &mut ctx) {
+                        Ok(result) => result,
+                        Err(e) => format!("error: {e}"),
+                    }
+                } else {
                     let mut ctx = ToolContext {
                         policy: &self.policy,
                         audit: Arc::clone(&self.audit),
