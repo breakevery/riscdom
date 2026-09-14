@@ -36,6 +36,25 @@ pub async fn vm_is_running(state: State<'_, AppState>) -> Result<bool, String> {
     Ok(state.vm_is_running())
 }
 
+/// Save a real (tcp-relay) snapshot of the host-owned VM. Returns bytes written.
+#[tauri::command]
+pub async fn save_snapshot_real(state: State<'_, AppState>, name: String) -> Result<u64, String> {
+    state
+        .save_snapshot_real(&name)
+        .map_err(|e| e.user_message())
+}
+
+/// Restore the VM from a real snapshot (stops the current VM first).
+#[tauri::command]
+pub async fn resume_from_snapshot_real(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<(), String> {
+    state
+        .resume_from_snapshot_real(&name)
+        .map_err(|e| e.user_message())
+}
+
 /// Recent sessions, newest first.
 #[tauri::command]
 pub async fn list_sessions(

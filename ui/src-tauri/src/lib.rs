@@ -51,6 +51,8 @@ pub fn run() {
             host::commands::delete_snapshot,
             host::commands::stop_current_vm,
             host::commands::vm_is_running,
+            host::commands::save_snapshot_real,
+            host::commands::resume_from_snapshot_real,
             host::commands::run_agent,
             host::commands::get_workspace_files,
             host::commands::read_workspace_file,

@@ -30,6 +30,8 @@
 | `get_serial_buffer()` | `string` |
 | `stop_current_vm()` | `()`（停止并清空 host 持有的 VM；空槽为 no-op） |
 | `vm_is_running()` | `bool`（host 是否持有常驻 VM） |
+| `save_snapshot_real(name)` | `u64`（真实快照字节数；无 VM → `Err("no running vm")`） |
+| `resume_from_snapshot_real(name)` | `()`（先停当前 VM，再以 `-incoming` 恢复） |
 | `export_audit_jsonl(path)` | `usize`（写入工作区内） |
 
 ## 事件（host → 前端）
@@ -73,10 +75,14 @@ e. 不勾选记住 → 保存后状态为“仅本次会话”；重启后需重
 - **真实快照（`.mig`）**：由 sandbox 通过 QMP `migrate` + 本地 TCP 中继落盘（见
   `sandbox/docs/snapshot-experiment.md`）；因 Windows 上 `migrate` → `file:` 不可用。
 - **重启式降级（`.json`）**：旧方案，保留兼容。
-- host 命令：`list_snapshots` / `delete_snapshot`（扫描 `<workspace>/.riscdom/snapshots`，
-  审计事件 `host.snapshot.delete`）。
-- **限制**：host 目前不持有常驻 VM（VM 只在单次 run 内由 `AgentLoop` 持有），因此
-  UI 只能列出/删除快照；“保存当前状态 / 恢复”留待启用 `AppState.vm` 槽后的后续阶段。
+- host 命令：`list_snapshots` / `delete_snapshot` / `save_snapshot_real` /
+  `resume_from_snapshot_real`（扫描 `<workspace>/.riscdom/snapshots`；审计事件
+  `host.snapshot.delete` / `host.snapshot.save` / `host.snapshot.resume`）。
+- 保存：从 `AppState::vm_slot` 取 host 持有的 VM，调 sandbox `save_snapshot_real`；
+  快照名只允许 `[A-Za-z0-9_-]{1,64}`（防目录穿越），同名快照**拒绝覆盖**。
+- 恢复：先 `stop_current_vm()`，再用 `-incoming tcp:` + 本地中继喂流；恢复出的 VM
+  留在槽里，供后续 run 继续使用。`-kernel` 取工作区内**最新的 `*.elf`**（迁移流会覆盖
+  内存，内核仅用于让 QEMU 正常起机）；工作区没有 ELF 时明确报错。
 
 ## 会话持久化
 

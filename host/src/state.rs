@@ -13,7 +13,8 @@ use agent::policy::WorkspacePolicy;
 use agent::presets::{builtin_presets, find_preset, ProviderPreset, DEFAULT_PRESET_ID};
 use agent::{AgentConfig, AgentLoop, AgentOutcome};
 use audit::{AuditSink, AuditStore, ChainStatus, SqliteAuditSink, StoredEvent};
-use sandbox::vm::RiscVVirtualMachine;
+use sandbox::platform::{QmpEndpoint, SerialEndpoint};
+use sandbox::vm::{RiscVVirtualMachine, VMConfig};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,6 +27,9 @@ const CONSTITUTION: &str = include_str!("../../AGENTS.md");
 
 /// Poll interval for the audit/serial bridge.
 pub const POLL_INTERVAL: Duration = Duration::from_millis(200);
+
+/// Guest RAM used by the agent's `start_vm` tool (kept in sync there).
+const VM_MEMORY_MB: u32 = 128;
 
 /// LLM configuration (in memory only — never persisted).
 #[derive(Clone)]
@@ -522,6 +526,112 @@ impl AppState {
             serde_json::json!({ "name": name, "removed": removed }),
         );
         Ok(removed)
+    }
+
+    // ----- Real snapshots (tcp relay, stage 20c) ----------------------------
+
+    /// Reject names that could escape the snapshot directory.
+    fn validate_snapshot_name(name: &str) -> Result<(), HostError> {
+        let ok = !name.is_empty()
+            && name.len() <= 64
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if ok {
+            Ok(())
+        } else {
+            Err(HostError::Other(format!("invalid snapshot name: {name}")))
+        }
+    }
+
+    /// Kernel ELF for a live restore: the newest `*.elf` in the workspace.
+    fn resume_kernel(&self) -> Result<PathBuf, HostError> {
+        let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+        for entry in std::fs::read_dir(&self.workspace_root)? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|e| e.to_str()) != Some("elf") {
+                continue;
+            }
+            let Ok(modified) = entry.metadata().and_then(|m| m.modified()) else {
+                continue;
+            };
+            if best.as_ref().map(|(t, _)| modified > *t).unwrap_or(true) {
+                best = Some((modified, path));
+            }
+        }
+        best.map(|(_, p)| p).ok_or_else(|| {
+            HostError::Other("no compiled ELF in the workspace; compile one first".into())
+        })
+    }
+
+    /// Save a **real** (tcp-relay) snapshot of the host-owned VM.
+    ///
+    /// Returns the snapshot size in bytes. Errors when no VM is running.
+    pub fn save_snapshot_real(&self, name: &str) -> Result<u64, HostError> {
+        Self::validate_snapshot_name(name)?;
+        {
+            let mut slot = self
+                .vm_slot
+                .lock()
+                .map_err(|_| HostError::Other("vm slot poisoned".into()))?;
+            let vm = slot
+                .as_mut()
+                .ok_or_else(|| HostError::Other("no running vm".into()))?;
+            vm.save_snapshot_real(name)
+                .map_err(|e| HostError::Other(e.to_string()))?;
+        }
+        let bytes = std::fs::metadata(self.snapshot_dir().join(format!("{name}.mig")))
+            .map(|m| m.len())
+            .unwrap_or(0);
+        self.emit_host(
+            "host.snapshot.save",
+            serde_json::json!({ "name": name, "bytes": bytes, "mode": "tcp-relay" }),
+        );
+        Ok(bytes)
+    }
+
+    /// Restore the host-owned VM from a real snapshot (`-incoming` + relay).
+    ///
+    /// The current VM (if any) is stopped first; the restored VM stays in the
+    /// slot so the next run keeps using it.
+    pub fn resume_from_snapshot_real(&self, name: &str) -> Result<(), HostError> {
+        Self::validate_snapshot_name(name)?;
+        let path = self.snapshot_dir().join(format!("{name}.mig"));
+        if !path.is_file() {
+            return Err(HostError::Other(format!("snapshot not found: {name}")));
+        }
+        let config = VMConfig {
+            kernel: self.resume_kernel()?,
+            memory_mb: VM_MEMORY_MB,
+            qmp: QmpEndpoint::tcp(
+                "127.0.0.1",
+                sandbox::relay::free_local_port().map_err(|e| HostError::Other(e.to_string()))?,
+            ),
+            serial: SerialEndpoint::tcp(
+                "127.0.0.1",
+                sandbox::relay::free_local_port().map_err(|e| HostError::Other(e.to_string()))?,
+            ),
+            snapshot_dir: self.snapshot_dir(),
+            serial_observer: Some(agent::tools::serial_observer_for(Arc::clone(
+                &self.serial_senders,
+            ))),
+            incoming_snapshot: Some(path.clone()),
+            incoming_relay_addr: None,
+        };
+        self.stop_current_vm()?;
+        let vm =
+            RiscVVirtualMachine::resume_from_snapshot_real(config, &path, Arc::clone(&self.sink))
+                .map_err(|e| HostError::Other(e.to_string()))?;
+        *self
+            .vm_slot
+            .lock()
+            .map_err(|_| HostError::Other("vm slot poisoned".into()))? = Some(vm);
+        self.emit_host(
+            "host.snapshot.resume",
+            serde_json::json!({ "name": name, "mode": "tcp-relay" }),
+        );
+        Ok(())
     }
 
     // ----- Sessions ---------------------------------------------------------
