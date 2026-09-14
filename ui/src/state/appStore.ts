@@ -35,6 +35,9 @@ export interface AppStore {
   // serial / vm (consumed by the canvas in stage 6c)
   serial: string;
   vmState: string;
+  // live LLM stream (stage 16c)
+  streaming: string;
+  streamingActive: boolean;
   // errors
   lastError: string | null;
 }
@@ -57,6 +60,9 @@ export function useAppStore(): AppStore {
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
   const [serial, setSerial] = useState("");
   const [vmState, setVmState] = useState("idle");
+  // Live assistant text from `agent:stream:*`; replaced by the final content.
+  const [streaming, setStreaming] = useState("");
+  const [streamingActive, setStreamingActive] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
   const push = useCallback((item: Omit<ChatItem, "id">) => {
@@ -132,9 +138,20 @@ export function useAppStore(): AppStore {
               ? `Reached iteration limit. ${d.content ?? ""}`
               : `Failed: ${d.reason ?? "unknown"}`;
         push({ role: "assistant", text });
+        // The final content supersedes anything streamed incrementally.
+        setStreaming("");
+        setStreamingActive(false);
         setBusy(false);
         void refreshAudit();
         void refreshWorkspace();
+      }),
+      api.onAgentStreamDelta((text) => {
+        if (!text) return;
+        setStreaming((prev) => prev + text);
+        setStreamingActive(true);
+      }),
+      api.onAgentStreamDone(() => {
+        setStreamingActive(false);
       }),
       api.onHostEvent("serial:chunk", (p) => {
         const d = p as { chunk?: string };
@@ -189,6 +206,8 @@ export function useAppStore(): AppStore {
     refreshWorkspace,
     serial,
     vmState,
+    streaming,
+    streamingActive,
     lastError,
   };
 }

@@ -14,6 +14,10 @@ pub const EV_AGENT_FINAL: &str = "agent:final";
 /// New serial output (incremental), pushed by the sandbox via the agent's
 /// serial observer (`AgentLoop::subscribe_serial`).
 pub const EV_SERIAL_CHUNK: &str = "serial:chunk";
+/// Incremental assistant text from the LLM stream (`AgentLoop::subscribe_stream`).
+pub const EV_AGENT_STREAM_DELTA: &str = "agent:stream:delta";
+/// The LLM stream finished.
+pub const EV_AGENT_STREAM_DONE: &str = "agent:stream:done";
 /// VM lifecycle change (start/stop/snapshot).
 pub const EV_VM_STATE: &str = "vm:state";
 

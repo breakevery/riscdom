@@ -2,12 +2,12 @@
 
 use crate::error::HostError;
 use crate::events::{
-    EventSink, EV_AGENT_FINAL, EV_AGENT_ITERATION, EV_AGENT_TOOL_CALL, EV_AGENT_TOOL_RESULT,
-    EV_SERIAL_CHUNK, EV_VM_STATE,
+    EventSink, EV_AGENT_FINAL, EV_AGENT_ITERATION, EV_AGENT_STREAM_DELTA, EV_AGENT_STREAM_DONE,
+    EV_AGENT_TOOL_CALL, EV_AGENT_TOOL_RESULT, EV_SERIAL_CHUNK, EV_VM_STATE,
 };
 use crate::keyring::{user_for_provider, InMemoryKeyring, KeyringBackend, OsKeyring, SERVICE};
 use agent::llm::{DeepSeekClient, LlmClient};
-use agent::message::{ChatRequest, ChatResponse};
+use agent::message::{ChatRequest, ChatResponse, StreamEvent};
 use agent::policy::WorkspacePolicy;
 use agent::presets::{builtin_presets, find_preset, ProviderPreset, DEFAULT_PRESET_ID};
 use agent::{AgentConfig, AgentLoop, AgentOutcome};
@@ -294,6 +294,8 @@ pub struct AppState {
     pub serial_receiver: Arc<Mutex<Option<Receiver<Vec<u8>>>>>,
     /// Accumulated serial text from the push stream (for `get_serial_buffer`).
     pub serial_accum: Arc<Mutex<String>>,
+    /// Live LLM stream receiver for the current run.
+    pub stream_receiver: Arc<Mutex<Option<Receiver<StreamEvent>>>>,
 }
 
 impl AppState {
@@ -368,6 +370,7 @@ impl AppState {
             persisted: Mutex::new(false),
             serial_receiver: Arc::new(Mutex::new(None)),
             serial_accum: Arc::new(Mutex::new(String::new())),
+            stream_receiver: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -866,6 +869,10 @@ impl AppState {
         if let Ok(mut slot) = self.serial_receiver.lock() {
             *slot = Some(agent.subscribe_serial());
         }
+        // Stream subscription: forwarded as `agent:stream:delta` / `:done`.
+        if let Ok(mut slot) = self.stream_receiver.lock() {
+            *slot = Some(agent.subscribe_stream());
+        }
 
         // Bridge: poll the audit log for agent:* / vm:state host events.
         let stop = Arc::new(AtomicBool::new(false));
@@ -922,11 +929,58 @@ impl AppState {
             }
         });
 
+        // Forwarder: LLM stream -> `agent:stream:delta` / `agent:stream:done`.
+        let stop_stream = Arc::clone(&stop);
+        let stream_slot = Arc::clone(&self.stream_receiver);
+        let stream_emitter = Arc::clone(&emitter);
+        let stream_thread = std::thread::spawn(move || {
+            let rx = match stream_slot.lock() {
+                Ok(mut slot) => slot.take(),
+                Err(_) => None,
+            };
+            let Some(rx) = rx else { return };
+
+            let forward = |event: StreamEvent| match event {
+                StreamEvent::Delta(text) => {
+                    stream_emitter.emit(EV_AGENT_STREAM_DELTA, serde_json::json!({ "text": text }));
+                }
+                // Tool calls are surfaced by the `agent:tool_call` event.
+                StreamEvent::ToolCallDelta { .. } => {}
+                StreamEvent::Done => {
+                    stream_emitter.emit(EV_AGENT_STREAM_DONE, serde_json::json!({}));
+                }
+            };
+
+            while !stop_stream.load(Ordering::Relaxed) {
+                match rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(event) => forward(event),
+                    Err(RecvTimeoutError::Timeout) => continue,
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
+            }
+
+            // Grace drain: capture any tail events still in flight.
+            let mut idle = 0;
+            while idle < 10 {
+                match rx.try_recv() {
+                    Ok(event) => {
+                        forward(event);
+                        idle = 0;
+                    }
+                    Err(_) => {
+                        idle += 1;
+                        std::thread::sleep(Duration::from_millis(30));
+                    }
+                }
+            }
+        });
+
         let outcome = agent.run(user_input);
 
         stop.store(true, Ordering::Relaxed);
         let _ = bridge.join();
         let _ = serial_thread.join();
+        let _ = stream_thread.join();
 
         let outcome = outcome?;
         let view = AgentOutcomeView::from(outcome);
@@ -944,6 +998,16 @@ struct ArcLlm(Arc<dyn LlmClient>);
 impl LlmClient for ArcLlm {
     fn chat(&self, req: ChatRequest) -> Result<ChatResponse, agent::AgentError> {
         self.0.chat(req)
+    }
+
+    // Must forward streaming too, otherwise the default (single-delta)
+    // implementation would be used instead of the wrapped client's.
+    fn chat_stream(
+        &self,
+        req: ChatRequest,
+        on_event: &mut dyn FnMut(StreamEvent),
+    ) -> Result<ChatResponse, agent::AgentError> {
+        self.0.chat_stream(req, on_event)
     }
 }
 

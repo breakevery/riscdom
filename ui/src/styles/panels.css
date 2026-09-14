@@ -6,6 +6,20 @@
   font-size: 12px;
 }
 
+/* Live streaming assistant text: append-only, with a caret while active. */
+.msg.streaming::after {
+  content: "▌";
+  margin-left: 2px;
+  opacity: 0.6;
+  animation: caret 1s steps(1) infinite;
+}
+
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+
 .banner {
   display: flex;
   align-items: center;

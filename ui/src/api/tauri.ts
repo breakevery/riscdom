@@ -131,6 +131,16 @@ export const exportSerialLog = (path: string) =>
 export const exportAuditJsonl = (path: string) =>
   invoke<number>("export_audit_jsonl", { path });
 
+/** Incremental assistant text from the LLM stream (`agent:stream:delta`). */
+export const onAgentStreamDelta = (cb: (text: string) => void) =>
+  onHostEvent("agent:stream:delta", (p) =>
+    cb((p as { text?: string }).text ?? ""),
+  );
+
+/** The LLM stream finished (`agent:stream:done`). */
+export const onAgentStreamDone = (cb: () => void) =>
+  onHostEvent("agent:stream:done", () => cb());
+
 /** Subscribe to a host event. Returns an unlisten function. */
 export const onHostEvent = (
   event: string,

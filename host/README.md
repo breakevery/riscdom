@@ -33,6 +33,7 @@
 ## 事件（host → 前端）
 
 - `agent:iteration` / `agent:tool_call` / `agent:tool_result` / `agent:final`
+- `agent:stream:delta` / `agent:stream:done`（LLM 流式增量，见下）
 - `serial:chunk`
 - `vm:state`
 
@@ -74,13 +75,17 @@ e. 不勾选记住 → 保存后状态为“仅本次会话”；重启后需重
 
 ## 事件桥接与串口（当前实现）
 
-`run_agent` 期间 host 起两个后台线程：
+`run_agent` 期间 host 起三个后台线程：
 
 1. **AuditBridge**（200ms 轮询审计）→ 只负责 `agent:iteration` / `agent:tool_call` /
    `agent:tool_result`，以及 `vm.start` / `vm.stop` / `vm.snapshot.save` → `vm:state`。
 2. **串口转发器**（sandbox 主动推送）→ 读取 `AgentLoop::subscribe_serial()` 返回的
    `std::sync::mpsc::Receiver<Vec<u8>>`，把每个分帧用 lossy UTF-8 转成字符串后
    emit `serial:chunk`，并累加到 `get_serial_buffer()` 的返回值中。
+3. **流式转发器**（LLM 流式）→ 读取 `AgentLoop::subscribe_stream()` 的
+   `Receiver<StreamEvent>`：`Delta` → `agent:stream:delta { text }`，`Done` →
+   `agent:stream:done`；`ToolCallDelta` **不转发**（工具调用仍由 `agent:tool_call` 处理）。
+   UI 用 `agent:final` 的最终 content **覆盖**流式内容，避免字节差异导致不一致。
 
 串口**不再**从审计里 `read_serial` 的工具结果派生（旧的 `serial_full_text` /
 `SerialDiff` 已删除）。数据由 sandbox 的串口读取线程经 `VMConfig.serial_observer`

@@ -58,7 +58,18 @@ export default function ChatPanel({ store }: { store: AppStore }) {
           ),
         )}
 
-        {store.busy ? <div className="msg assistant muted">思考中…</div> : null}
+        {store.busy && !store.streaming ? (
+          <div className="msg assistant muted">思考中…</div>
+        ) : null}
+
+        {/* Live streamed assistant text; replaced by the final content. */}
+        {store.streaming ? (
+          <div
+            className={`msg assistant${store.streamingActive ? " streaming" : ""}`}
+          >
+            {store.streaming}
+          </div>
+        ) : null}
       </div>
 
       <div className="chat-input">
