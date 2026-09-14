@@ -83,10 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### GitHub Release
 
-仓库保持**私有**。v0.1.0 以 **draft** 形式创建（未发布），附件为上面两个安装包：
-
-- 草稿：https://github.com/breakevery/riscdom/releases/tag/untagged-58f649f39cb279793575
-- 发布后：https://github.com/breakevery/riscdom/releases/tag/v0.1.0
+仓库保持**私有**。GitHub Release 未发布；安装包仅本地保留。（早先创建的 draft 已删除，tag `v0.1.0` 保留。）
 
 ### Verification
 
