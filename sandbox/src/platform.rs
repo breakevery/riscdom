@@ -11,6 +11,7 @@
 //!   Windows, so only the TCP path is exercised by the test suite.
 
 use serde::{Deserialize, Serialize};
+use std::net::TcpStream;
 use std::path::PathBuf;
 
 /// QMP (QEMU Machine Protocol) endpoint.
@@ -96,6 +97,30 @@ impl SerialEndpoint {
             }
             SerialEndpoint::File { path } => format!("file:{}", path.display()),
         }
+    }
+}
+
+/// Connect a TCP stream, retrying until `timeout` elapses.
+///
+/// Shared by the serial attach and the QMP client so both speak to QEMU the
+/// same way and the retry logic lives in a single place.
+pub(crate) fn connect_with_retry(
+    addr: &str,
+    timeout: std::time::Duration,
+) -> Result<TcpStream, crate::error::SandboxError> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match TcpStream::connect(addr) {
+            Ok(stream) => return Ok(stream),
+            Err(e) => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(crate::error::SandboxError::Timeout(format!(
+                        "connecting to {addr}: {e}"
+                    )));
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
 
