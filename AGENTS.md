@@ -1,37 +1,47 @@
-# 智芯城 RiscDom — AGENTS.md
+[中文](AGENTS.zh-CN.md) | English
 
-## 项目身份
-中文名：智芯城
-英文名：RiscDom
-定位：桌面应用。AI 在 RISC-V 虚拟沙箱中拥有虚拟内核级权限，可写 C/汇编、操控虚拟硬件。
-全过程可审计、可回滚。人类保留根权限。边缘能力插件化。
+# RiscDom — AGENTS.md
 
-## 核心口号
-自由在边界内，审计在 AI 外，根权限在人类。
+## Project identity
 
-## 项目宪法
-1. 宿主监控层不可被 AI 修改。
-2. 审计日志在 AI 之外，append-only，不可关闭。
-3. 能力默认拒绝，插件声明权限。
-4. 人类永远有暂停、回滚、断网、终止权。
-5. AI 民主是实验变量，不是 MVP 必做。
-6. MVP 阶段 AI 在沙箱内只能生成 C 和 RISC-V 汇编。
-7. AI 接入先用 API keys。
+Chinese name: 智芯城
+English name: RiscDom
+What it is: a desktop application. The AI holds virtual kernel-level privilege inside a
+RISC-V virtual sandbox, where it can write C/assembly and drive virtual hardware. The whole
+process is auditable and rollback-able. Humans keep root privilege. Edge capabilities are
+plugins.
 
-## 开发纪律
-- 每个动作写入审计事件。
-- 只改指定目录，不越界。
-- 输出测试和 diff。
-- 宁可慢，确保每一步可验证、可回滚。
+## Motto
 
-## 语言限制
-MVP 沙箱内 AI 只能生成：C11（-ffreestanding -nostdlib -march=rv64gc -mabi=lp64d）
-RISC-V RV64GC 汇编。
-禁止：C++、Rust、Zig、Python。
+Freedom inside boundaries, audit outside the AI, root privilege with humans.
 
-## 红线
-- 绝不窃取私人数据。
-- 未经询问，不执行破坏性命令。
-- 变更配置前先检查现有状态，默认保留/合并现有内容。
-- 优先使用 trash 而非 rm。
-- 如有疑问，先询问。
+## Project constitution
+
+1. The host monitoring layer must not be modifiable by the AI.
+2. The audit log lives outside the AI: append-only, cannot be disabled.
+3. Capabilities are denied by default; plugins declare their permissions.
+4. Humans always keep the right to pause, roll back, disconnect and terminate.
+5. AI democracy is an experiment variable, not an MVP requirement.
+6. During MVP the AI inside the sandbox may only generate C and RISC-V assembly.
+7. AI access starts with API keys.
+
+## Development discipline
+
+- Every action writes an audit event.
+- Touch only the given directories; do not cross boundaries.
+- Show tests and diffs.
+- Prefer slow over wrong: every step must be verifiable and rollback-able.
+
+## Language limits
+
+During MVP the AI inside the sandbox may only generate: C11
+(`-ffreestanding -nostdlib -march=rv64gc -mabi=lp64d`) and RISC-V RV64GC assembly.
+Forbidden: C++, Rust, Zig, Python.
+
+## Red lines
+
+- Never exfiltrate private data.
+- Never run destructive commands without asking.
+- Before changing configuration, inspect the current state; preserve/merge by default.
+- Prefer trash over rm.
+- When in doubt, ask first.

@@ -1,3 +1,5 @@
+[中文](CHANGELOG.zh-CN.md) | English
+
 # Changelog
 
 All notable changes to this project are documented in this file.
@@ -9,86 +11,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **VM 生命周期归 host**：VM 从 `AgentLoop` 解绑到 `AppState::vm_slot`，run 结束后 VM 仍
-  留在槽内，下一次 run 复用同一台 guest（`AgentLoop::with_vm` 注入；无注入时行为不变）。
-  串口转发器改为**长驻**（应用启动时创建），订阅**跨 run 连续**。
-- **串口来源改为 sandbox 主动推送**：`sandbox` 的串口读取线程经 `VMConfig.serial_observer`
-  实时扇出分帧 → `agent::AgentLoop::subscribe_serial()`（`std::sync::mpsc`）→
-  host 转发为 `serial:chunk` 并累加到 `get_serial_buffer()`。**不再**从审计里
-  `read_serial` 的工具结果派生（旧的 `serial_full_text` / `SerialDiff` 已删除）。
-  `read_serial` 工具语义不变；observer panic 被 `catch_unwind` 拦截并记审计事件
-  `sandbox.serial.observer_panic`。
+- **VM lifecycle moved to host**: the VM is decoupled from `AgentLoop` into
+  `AppState::vm_slot`, so it survives the run and the next run reuses the same guest
+  (`AgentLoop::with_vm` injection; behaviour is unchanged when nothing is injected). The
+  serial forwarder is now **long-lived** (created at app startup) and subscriptions continue
+  **across runs**.
+- **Serial source is now a sandbox push**: the sandbox serial reader thread fans out frames
+  through `VMConfig.serial_observer` in real time → `agent::AgentLoop::subscribe_serial()`
+  (`std::sync::mpsc`) → host forwards them as `serial:chunk` and accumulates them for
+  `get_serial_buffer()`. No longer derived from the audit log's `read_serial` tool results
+  (the old `serial_full_text` / `SerialDiff` are gone). The `read_serial` tool semantics are
+  unchanged; observer panics are caught with `catch_unwind` and audited as
+  `sandbox.serial.observer_panic`.
 
 ### Added
 
-- **真实快照保存 / 恢复**：host `save_snapshot_real` / `resume_from_snapshot_real`
-  （审计 `host.snapshot.save` / `host.snapshot.resume`），UI 提供“保存当前状态”与每项
-  “恢复”按钮（二次确认）。
-- **`real_api` 断言审计链完整性**（阶段 21）：真实 API 测试的审计后端由 in-memory 改为
-  **文件 SQLite**，run 结束后用独立句柄 `audit::verify_chain` 断言
-  `ChainStatus::Intact { length > 0 }`，并断言 `agent.llm.request` / `agent.tool.call` /
-  `agent.tool.result` 各 >= 1；临时库用 `Drop` 守卫清理（含失败路径）。
-- **快照面板**（列表 / 删除；真实快照标注“真实”、重启式标注“重启式”），host 命令
-  `list_snapshots` / `delete_snapshot`（审计 `host.snapshot.delete`）。
-- **会话持久化**（列表 / 打开 / 重命名 / 删除 / 清空）：host `SessionStore`（SQLite，复用
-  `rusqlite`）+ 7 个 Tauri 命令；会话自动保存到应用数据目录，重启后可恢复；恢复只注入
-  历史消息（不重放工具调用），**不持久化** API key / system prompt / 审计事件。
-- **流式 LLM 响应（agent + host + UI 全链路）**：`LlmClient::chat_stream`（默认退化到
-  `chat`）+ `OpenAiCompatClient` 的 SSE 实现 + `sse` 解析模块；`AgentLoop::subscribe_stream`；
-  host `agent:stream:delta` / `agent:stream:done`；UI 逐字追加渲染（最终 content 覆盖）。
-  审计只记 `agent.llm.stream.start` / `.end`，不逐 chunk 记。
-- CI workflows（`.github/workflows/ci.yml`）：secret scanning（gitleaks，全历史）、
-  Rust 检查（`fmt --check` / `clippy -D warnings` / `check` / `audit` 单测，仅可移植 crate）、
-  前端构建（`npm ci` + `npm run build`）。
-- 本地预检脚本：`scripts/preflight.ps1`（Windows）与 `scripts/preflight.sh`（Unix）。
-- `SECURITY.md`、`.env.example`，并完善 `.gitignore`（`.env*` / `*.db` / `*.jsonl` 等）。
+- **Real snapshot save / restore**: host `save_snapshot_real` / `resume_from_snapshot_real`
+  (audit `host.snapshot.save` / `host.snapshot.resume`), plus a "save current state" button
+  and a per-entry "restore" button in the UI (with confirmation).
+- **`real_api` asserts audit-chain integrity** (stage 21): the real-API test's audit backend
+  moved from in-memory to **file SQLite**, and after the run an independent handle uses
+  `audit::verify_chain` to require `ChainStatus::Intact { length > 0 }` plus at least one
+  `agent.llm.request` / `agent.tool.call` / `agent.tool.result` event; the temp DB is cleaned
+  up by a `Drop` guard (including on failure).
+- **Snapshot panel** (list / delete; real snapshots labelled "real", reboot fallbacks
+  labelled "reboot"), host commands `list_snapshots` / `delete_snapshot`
+  (audit `host.snapshot.delete`).
+- **Session persistence** (list / open / rename / delete / clear): host `SessionStore`
+  (SQLite, reusing `rusqlite`) + 7 Tauri commands; sessions are saved automatically under the
+  app data directory and survive restarts; restoring injects history messages only (tool
+  calls are not replayed) and **never persists** API keys / the system prompt / audit events.
+- **Streaming LLM responses (agent + host + UI)**: `LlmClient::chat_stream` (degrades to
+  `chat` by default) + the SSE implementation in `OpenAiCompatClient` + the `sse` parser;
+  `AgentLoop::subscribe_stream`; host `agent:stream:delta` / `agent:stream:done`; the UI
+  appends token by token (the final content supersedes it). Audit records only
+  `agent.llm.stream.start` / `.end`, not every chunk.
+- CI workflows (`.github/workflows/ci.yml`): secret scanning (gitleaks, full history), Rust
+  checks (`fmt --check` / `clippy -D warnings` / `check` / `audit` unit tests, portable
+  crates only) and the frontend build (`npm ci` + `npm run build`).
+- Local preflight scripts: `scripts/preflight.ps1` (Windows) and `scripts/preflight.sh` (Unix).
+- `SECURITY.md`, `.env.example`, and a fuller `.gitignore` (`.env*` / `*.db` / `*.jsonl`, …).
 
 ### Security
 
-- 依赖审计（2026-09-14）：`cargo audit` 扫描 470 个 crate，**0 个漏洞**；7 条信息性警告
-  （6 个 unmaintained：`proc-macro-error`、`unic-char-property` / `unic-char-range` /
-  `unic-common` / `unic-ucd-ident` / `unic-ucd-version`；1 个 unsound：`glib 0.18.5`，
-  仍 Linux/GTK 传递依赖，Windows 不构建）。`npm audit --omit=dev`：**0 个漏洞**。
-- README 新增“安全声明”；v0.2 路线图新增 **f 条**（公开前安全清单）。
-- 未自行升级任何依赖（存在警告均未处理，待人工决策）。
+- Dependency audit (2026-09-14): `cargo audit` scanned 470 crates — **0 vulnerabilities**;
+  7 informational warnings (6 unmaintained: `proc-macro-error`, `unic-char-property` /
+  `unic-char-range` / `unic-common` / `unic-ucd-ident` / `unic-ucd-version`; 1 unsound:
+  `glib 0.18.5`, still a Linux/GTK transitive dependency, not built on Windows).
+  `npm audit --omit=dev`: **0 vulnerabilities**.
+- The README gained a "security statement"; the v0.2 roadmap gained item **f**
+  (pre-launch security checklist).
+- No dependency was upgraded by us (warnings left untouched pending a human decision).
 
 ### Notes
 
-- **真实快照：已用方案 A′（TCP 迁移 + 本地文件中继）实现。** 阶段 18a 实测 `migrate` → `file:`
-  在 Windows + QEMU 11.1.0 不可用，但 `migrate` → `tcp:` 成功；19b 用本地 TCP 中继把迁移流
-  落盘为 `<name>.mig`，恢复时由中继反向喂给 `-incoming tcp:` 的 QEMU。
-  详见 `sandbox/docs/snapshot-experiment.md`。
-  残留限制：旧的重启式降级（`.json`）仍保留兼容；恢复用的 `-kernel` 取工作区内最新的
-  `*.elf`（迁移流会覆盖内存，内核仅用于让 QEMU 起机）。
+- **Real snapshots are implemented with plan A′ (TCP migration + a local file relay).**
+  Stage 18a showed `migrate` → `file:` is unusable on Windows + QEMU 11.1.0, while
+  `migrate` → `tcp:` works; 19b uses a local TCP relay to persist the migration stream as
+  `<name>.mig` and, on restore, feeds it back to a QEMU started with `-incoming tcp:`.
+  See `sandbox/docs/snapshot-experiment.md`.
+  Residual limits: the old reboot fallback (`.json`) is still supported; restore takes
+  `-kernel` from the newest `*.elf` in the workspace (the migration stream overwrites memory;
+  the kernel only lets QEMU boot).
 
-### Planned (v0.2) — 多模型接入与密钥安全
+### Planned (v0.2) — multi-model access and key security
 
-- **LLM 客户端重构**：`DeepSeekClient` → `OpenAiCompatClient`（`base_url` / `api_key` /
-  `model` 全部用户可配；保持 OpenAI 兼容协议，DeepSeek 降为默认预设之一）
-- **内置服务商预设**：DeepSeek（默认）/ OpenAI / Ollama（本地，无需 key）/
-  LM Studio（本地）/ 自定义；UI 服务商下拉自动填 `base_url` / `model`
-- **本地离线模型支持**：Ollama / LM Studio 复用同一客户端；离线模式 = QEMU +
-  RISC-V GCC + 审计 + 沙箱 + 本地 LLM，全程无网络
-- **无 key 降级体验**：无 key 不崩溃，UI 引导配置；自动探测 `localhost:11434`
-  提示使用本地 Ollama；新用户首次启动不能直接报错
-- **API key 持久化：OS keyring**（Windows Credential Manager / macOS Keychain /
-  Linux Secret Service，Rust `keyring` crate）；绝不使用 `localStorage` / 明文文件 /
-  `.env`；“仅内存”降级为 fallback
-- **公开前安全清单**：`.env.example` 只放占位符；`.gitignore` 覆盖 `.env` / `*.db` /
-  `*.jsonl`；CI 加 secret scanning（gitleaks 或 GitHub 原生）；README 声明不提供 API key
+- **LLM client refactor**: `DeepSeekClient` → `OpenAiCompatClient` (`base_url` / `api_key` /
+  `model` fully user-configurable; keep the OpenAI-compatible protocol and demote DeepSeek to
+  one default preset)
+- **Built-in provider presets**: DeepSeek (default) / OpenAI / Ollama (local, no key) /
+  LM Studio (local) / custom; the UI provider dropdown fills `base_url` / `model`
+- **Local offline model support**: Ollama / LM Studio reuse the same client; offline mode =
+  QEMU + RISC-V GCC + audit + sandbox + local LLM, with no network at all
+- **Key-less degradation**: no key never crashes; the UI guides configuration; probe
+  `localhost:11434` and offer local Ollama; a new user's first launch must not just error
+- **API key persistence: OS keyring** (Windows Credential Manager / macOS Keychain /
+  Linux Secret Service, via the Rust `keyring` crate); never `localStorage` / plain files /
+  `.env`; "memory only" becomes the fallback
+- **Pre-launch security checklist**: `.env.example` holds placeholders only; `.gitignore`
+  covers `.env` / `*.db` / `*.jsonl`; CI runs secret scanning (gitleaks or GitHub native);
+  the README states that no API key is provided
 
-### Planned (v0.2) — 其他
+### Planned (v0.2) — other
 
-- 给 `AgentLoop` 暴露最小串口访问接口（当前 host 从审计派生，依赖脆弱）
-- QEMU 真实快照 `savevm` / `loadvm`（已由方案 A′ 满足；待办：启用 `AppState.vm` 槽，
-  让 UI 可保存/恢复）
-- host 串口轮询改为 sandbox 主动回调
-- gdbstub 接入（调试）
-- Unix socket（macOS / Linux）与 virtio 设备
-- 审计日志分片与远程备份
-- **公开前完成中英双语文档**：README / CHANGELOG / PROJECT_CONSTITUTION / AGENTS /
-  Release notes 双语；英文为主文档（GitHub 默认展示），中文为 `*.zh-CN.md`；顶部加
-  语言切换链接；LICENSE 无需翻译
+- Expose a minimal serial access interface on `AgentLoop` (the host currently derives it from
+  the audit log, which is brittle)
+- Real QEMU snapshots with `savevm` / `loadvm` (already satisfied by plan A′; remaining work:
+  the `AppState.vm` slot so the UI can save/restore)
+- Host serial polling moved to sandbox push callbacks
+- gdbstub integration (debugging)
+- Unix sockets (macOS / Linux) and virtio devices
+- Audit log sharding and remote backup
+- **Bilingual (English/Chinese) docs before going public**: README / CHANGELOG /
+  PROJECT_CONSTITUTION / AGENTS / release notes in both languages; English is the main
+  document (GitHub default), Chinese lives in `*.zh-CN.md`; language switcher at the top;
+  LICENSE is not translated
 
 ## [0.1.0] - 2026-09-14
 
@@ -96,56 +113,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **sandbox**：QEMU RISC-V `virt` 裸机沙箱。进程生命周期、平台端点抽象
-  （QMP / 串口 → QEMU 参数）、最小 QMP 客户端（greeting / `qmp_capabilities` /
-  `stop` / `cont` / `quit`）、串口捕获与增量缓冲、快照/回滚（MVP 降级）、
-  所有对外操作写入审计。
-- **audit**：append-only SQLite + SHA-256 hash chain。`BEFORE UPDATE` /
-  `BEFORE DELETE` 触发器硬保证不可改写；无 UPDATE/DELETE API、无关闭开关；
-  查询/过滤/JSONL 导出；`audit-verify` CLI（exit 0/1/2，可定位首个断裂事件）。
-- **agent**：LLM 循环与工具。DeepSeek 客户端 + MockLlm；能力策略
-  `WorkspacePolicy`（默认拒绝、防穿越、扩展名白名单）；工具集
-  `write_source` / `compile` / `start_vm` / `read_serial` / `stop_vm` /
-  `list_workspace`；freestanding RISC-V 编译器封装（注入 crt0 + 链接脚本）；
-  系统提示词；上下文裁剪与迭代上限；全链路审计事件。
-- **host**：Tauri 后端。10 个 command（审计状态/列表、LLM 配置、运行 agent、
-  工作区、串口、导出）；事件 `agent:iteration` / `agent:tool_call` /
-  `agent:tool_result` / `agent:final` / `serial:chunk` / `vm:state`。
-- **ui**：React + TypeScript + Vite 三栏桌面界面（对话框 / 设置 / 串口画布），
-  xterm.js 串口画布，可拖拽分栏，无第三方分栏库。
-- 项目文档：`AGENTS.md`（宪法）、`PROJECT_CONSTITUTION.md`（完整宪法 + 架构 +
-  审计事件类型）、`ENVIRONMENT.md`（工具链与平台限制）、各 crate README、根 README。
+- **sandbox**: a QEMU RISC-V `virt` bare-metal sandbox. Process lifecycle, platform endpoint
+  abstraction (QMP / serial → QEMU arguments), a minimal QMP client (greeting /
+  `qmp_capabilities` / `stop` / `cont` / `quit`), serial capture with incremental buffering,
+  snapshot/rollback (MVP fallback), and auditing of every outbound operation.
+- **audit**: append-only SQLite + SHA-256 hash chain. `BEFORE UPDATE` / `BEFORE DELETE`
+  triggers make rewrites impossible; no UPDATE/DELETE API and no off switch; querying /
+  filtering / JSONL export; an `audit-verify` CLI (exit 0/1/2, locating the first broken
+  event).
+- **agent**: the agent loop and tools. DeepSeek client + `MockLlm`; the capability policy
+  `WorkspacePolicy` (deny by default, traversal guard, extension allowlist); the tool set
+  `write_source` / `compile` / `start_vm` / `read_serial` / `stop_vm` / `list_workspace`;
+  a freestanding RISC-V compiler wrapper (injects crt0 + linker script); the system prompt;
+  context trimming and an iteration cap; audit events across the whole chain.
+- **host**: the Tauri backend. 10 commands (audit status/list, LLM config, run agent,
+  workspace, serial, export); events `agent:iteration` / `agent:tool_call` /
+  `agent:tool_result` / `agent:final` / `serial:chunk` / `vm:state`.
+- **ui**: a React + TypeScript + Vite three-pane desktop UI (chat / settings / serial
+  canvas), an xterm.js serial canvas and draggable splitters with no third-party splitter
+  library.
+- Project docs: `AGENTS.md` (the constitution), `PROJECT_CONSTITUTION.md` (full constitution
+  + architecture + audit event types), `ENVIRONMENT.md` (toolchain and platform limits),
+  per-crate READMEs and the root README.
 
-### Known limitations (MVP 降级项)
+### Known limitations (MVP fallbacks)
 
-- **快照是降级方案**：`save_snapshot` / `load_snapshot` 保存/读取启动参数并重启，
-  **不是**真实 VM 内存+设备状态（v0.2 换 `savevm`/`loadvm`）。
-- **仅 Windows + TCP**：QMP/串口走 TCP；Unix socket、macOS/Linux 未实现。
-- **无流式输出**：LLM 响应整块返回。
-- **无会话持久化**：每轮 `run_agent` 为独立上下文。
-- **编译器注入 crt0**：AI 只需写 `int main(void)`；入口 `_start` 与栈由编译器注入
-  （原因见 `agent/README.md` 与 `ENVIRONMENT.md`）。
-- **API key 仅内存**：不落盘、不进审计；关闭应用即失效。
+- **Snapshots are a fallback**: `save_snapshot` / `load_snapshot` store and reload launch
+  parameters and reboot — they are **not** real VM memory/device state (v0.2 moves to
+  `savevm`/`loadvm`).
+- **Windows + TCP only**: QMP/serial go over TCP; Unix sockets and macOS/Linux are not
+  implemented.
+- **No streaming**: LLM responses arrive as one block.
+- **No session persistence**: every `run_agent` is an isolated context.
+- **The compiler injects crt0**: the AI only writes `int main(void)`; the `_start` entry and
+  the stack are injected by the compiler (rationale in `agent/README.md` and
+  `ENVIRONMENT.md`).
+- **API key in memory only**: never on disk, never in the audit log; gone when the app closes.
 
 ### Build artifacts (Windows x64)
 
-由 `npm run tauri build` 生成（构建输出，位于 `target/`，不入库）：
+Produced by `npm run tauri build` (build output under `target/`, not committed):
 
-- `ui/src-tauri/target/release/bundle/msi/RiscDom_0.1.0_x64_en-US.msi` （约 5.16 MB）
-- `ui/src-tauri/target/release/bundle/nsis/RiscDom_0.1.0_x64-setup.exe` （约 3.65 MB）
+- `ui/src-tauri/target/release/bundle/msi/RiscDom_0.1.0_x64_en-US.msi` (about 5.16 MB)
+- `ui/src-tauri/target/release/bundle/nsis/RiscDom_0.1.0_x64-setup.exe` (about 3.65 MB)
 
 ### GitHub Release
 
-仓库保持**私有**。GitHub Release 未发布；安装包仅本地保留。（早先创建的 draft 已删除，tag `v0.1.0` 保留。）
+The repository stays **private**. No GitHub Release has been published; installers are kept
+locally only. (An earlier draft was deleted; the `v0.1.0` tag remains.)
 
 ### Verification
 
-- 全 workspace `cargo test` 通过（sandbox/audit/agent/host + doc tests）。
-- `npm run build`（tsc + vite build）通过。
-- `cargo check --manifest-path ui/src-tauri/Cargo.toml` 通过。
-- mock LLM 端到端：`cargo test -p host -- --ignored --nocapture` →
-  `agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
-- 真实 DeepSeek API 端到端：**已执行通过**（2026-09-14，`iterations = 6`，串口捕获 `HELLO RISCV`；结果见 `host/README.md`）。
+- The whole workspace passes `cargo test` (sandbox/audit/agent/host + doc tests).
+- `npm run build` (tsc + vite build) passes.
+- `cargo check --manifest-path ui/src-tauri/Cargo.toml` passes.
+- Mock-LLM end-to-end: `cargo test -p host -- --ignored --nocapture` → `agent:final` arrives,
+  `serial:chunk` contains `HELLO RISCV`, `verify_chain` is Intact.
+- Real DeepSeek API end-to-end: **executed and passing** (2026-09-14, `iterations = 6`,
+  serial captured `HELLO RISCV`; see `host/README.md`).
 
 [Unreleased]: https://github.com/breakevery/riscdom/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/breakevery/riscdom/releases/tag/v0.1.0

@@ -1,165 +1,177 @@
-# 智芯城 RiscDom
+[中文](README.zh-CN.md) | English
 
-> 让 AI 在 RISC-V 虚拟沙箱里当家作主，但人类永远握着根权限。
+# RiscDom
 
-RiscDom（中文名 **智芯城**）是一个桌面应用：AI 在 QEMU RISC-V 裸机沙箱中拥有
-**虚拟内核级权限**，可以写 C / RISC-V 汇编、编译、运行、读串口并迭代。
-全过程**可审计、可回滚**；人类保留根权限；边缘能力插件化。
+> Let the AI take charge inside a RISC-V virtual sandbox — while humans keep root privilege.
 
-## 核心口号
+RiscDom is a desktop application: inside a QEMU RISC-V bare-metal sandbox the AI holds
+**virtual kernel-level privilege**. It can write C / RISC-V assembly, compile, run, read the
+serial console and iterate. Everything is **auditable and rollback-able**; humans keep root
+privilege; edge capabilities are plugins.
 
-**自由在边界内，审计在 AI 外，根权限在人类。**
+## Motto
 
-## 宪法摘要
+**Freedom inside boundaries, audit outside the AI, root privilege with humans.**
 
-1. 宿主监控层不可被 AI 修改。
-2. 审计日志在 AI 之外，append-only，不可关闭。
-3. 能力默认拒绝，插件声明权限。
-4. 人类永远有暂停、回滚、断网、终止权。
-5. AI 民主是实验变量，不是 MVP 必做。
-6. MVP 阶段 AI 在沙箱内只能生成 C 和 RISC-V 汇编。
-7. AI 接入先用 API keys。
+## Constitution (summary)
 
-完整版见 [PROJECT_CONSTITUTION.md](PROJECT_CONSTITUTION.md)。
+1. The host monitoring layer must not be modifiable by the AI.
+2. The audit log lives outside the AI: append-only, cannot be disabled.
+3. Capabilities are denied by default; plugins declare their permissions.
+4. Humans always keep the right to pause, roll back, disconnect and terminate.
+5. AI democracy is an experiment variable, not an MVP requirement.
+6. During MVP the AI inside the sandbox may only generate C and RISC-V assembly.
+7. AI access starts with API keys.
 
-## 架构
+Full text: [PROJECT_CONSTITUTION.md](PROJECT_CONSTITUTION.md).
+
+## Architecture
 
 ```text
                 ┌────────────────────────────────────┐
-                │  人类 / Human（根权限持有者）          │
+                │  Human (root privilege holder)      │
                 └──────────────────┬─────────────────┘
                                    │ Tauri commands / events
                 ┌──────────────────▼─────────────────┐
-                │  host（Rust + Tauri）前端唯一入口     │
+                │  host (Rust + Tauri) sole frontend  │
+                │  entry point                        │
                 └───┬──────────────┬──────────────┬──┘
                     │              │              │
         ┌───────────▼──┐  ┌────────▼───────┐  ┌───▼──────────┐
         │ agent        │  │ sandbox        │  │ audit        │
-        │ LLM 循环      │  │ QEMU RISC-V    │  │ append-only  │
-        │ 工具 / 策略    │  │ 串口 / QMP     │  │ hash chain   │
+        │ agent loop   │  │ QEMU RISC-V    │  │ append-only  │
+        │ tools/policy │  │ serial / QMP   │  │ hash chain   │
         └──────────────┘  └────────────────┘  └──────────────┘
                     ▲              ▲
-                    └──── ui (React) ────┘   前端不直接接触 Rust crate
+                    └──── ui (React) ────┘   the frontend never touches Rust crates
 ```
 
-依赖方向（单向，无环）：`ui/src-tauri → host → {agent, sandbox, audit}`，
-且 `agent → sandbox → audit`。
+Dependency direction (one-way, acyclic): `ui/src-tauri → host → {agent, sandbox, audit}`,
+and `agent → sandbox → audit`.
 
-## 环境要求
+## Requirements
 
-- Windows 10/11（MVP 仅在 Windows 验证；QMP/串口走 TCP）
-- QEMU（`qemu-system-riscv64`，实测 11.1.0）
-- RISC-V 裸机 GCC（`riscv64-unknown-elf-gcc`，实测 xPack 15.2.0）
-- Rust / cargo（实测 1.98.1）+ MSVC 工具链（Tauri 需要）
-- Node / npm（实测 24.11.1 / 11.16.0）
+- Windows 10/11 (MVP is verified on Windows only; QMP/serial use TCP)
+- QEMU (`qemu-system-riscv64`, verified with 11.1.0)
+- RISC-V bare-metal GCC (`riscv64-unknown-elf-gcc`, verified with xPack 15.2.0)
+- Rust / cargo (verified with 1.98.1) + MSVC toolchain (required by Tauri)
+- Node / npm (verified with 24.11.1 / 11.16.0)
 
-细节与路径见 [ENVIRONMENT.md](ENVIRONMENT.md)。
+Details and paths: [ENVIRONMENT.md](ENVIRONMENT.md).
 
-## 安全声明
+## Security statement
 
-- 本项目**不提供、不代管、不内置**任何 API Key。所有模型访问均由用户自带（BYOK）。
-- API Key 仅保存在本机（默认写入系统钥匙串），**不经过本项目任何服务器**。
-- 本项目**不会**将用户代码、串口输出、审计日志上传到任何远端。
-- 审计日志（SQLite + hash chain）仅存在于本地，用于审计与回滚。
-- 如需完全离线运行，可使用 Ollama / LM Studio 等本地模型，**无需任何 key**。
-- 发现安全问题请通过 GitHub Security Advisory 私下报告，不要在 issue 中贴 key 或漏洞细节。
+- This project **does not provide, host or embed** any API key. All model access is
+  bring-your-own-key (BYOK).
+- API keys stay on your machine (written to the OS keyring by default) and **never pass
+  through any server of this project**.
+- This project **never** uploads your code, serial output or audit log anywhere.
+- The audit log (SQLite + hash chain) is local only; it exists for auditing and rollback.
+- For fully offline operation use a local model such as Ollama / LM Studio — **no key needed**.
+- Report security issues privately via GitHub Security Advisory; never paste keys or exploit
+  details into an issue.
 
-> 提交前请先运行本地预检：`scripts/preflight.ps1`（Windows）或 `scripts/preflight.sh`（Unix）。
+> Run the local preflight before committing: `scripts/preflight.ps1` (Windows) or
+> `scripts/preflight.sh` (Unix).
 
-## 快速开始
+## Quick start
 
 ```powershell
-# 1. 前端依赖
+# 1. frontend dependencies
 cd ui
 npm install
 
-# 2. 启动桌面应用（会编译 Rust 后端）
+# 2. launch the desktop app (compiles the Rust backend)
 npm run tauri dev
 ```
 
-在设置栏填入 DeepSeek API Key（仅会话内存），然后在对话框输入例如：
+Enter your DeepSeek API key in the settings panel (session memory only), then ask for example:
 
-> 写一个 RISC-V 裸机 Hello World，编译、运行并把串口输出读回来
+> Write a RISC-V bare-metal Hello World, compile it, run it and read the serial output back
 
-## 目录结构
+## Layout
 
 ```text
 riscdom/
-├── AGENTS.md                 # 核心宪法（每轮注入）
-├── PROJECT_CONSTITUTION.md   # 完整宪法 + 架构 + 审计事件类型
-├── ENVIRONMENT.md            # 本机工具链与平台限制
-├── CHANGELOG.md              # 版本记录
+├── AGENTS.md                 # core constitution (injected every turn)
+├── PROJECT_CONSTITUTION.md   # full constitution + architecture + audit event types
+├── ENVIRONMENT.md            # local toolchain and platform limits
+├── CHANGELOG.md              # version history
 ├── LICENSE                   # Apache-2.0
-├── Cargo.toml                # Rust workspace（host/sandbox/audit/agent）
-├── sandbox/                  # QEMU RISC-V 沙箱（进程/QMP/串口/快照）
-├── audit/                    # append-only SQLite + hash chain（含 audit-verify）
-├── agent/                    # LLM 循环、工具、能力策略、编译器封装
-├── host/                     # Tauri 后端：commands / events / state
-└── ui/                       # React 前端（Tauri shell + 三栏界面）
-    ├── src/                  # 布局 / 面板 / API / 状态
-    └── src-tauri/            # Tauri shell（注册 host commands）
+├── Cargo.toml                # Rust workspace (host/sandbox/audit/agent)
+├── sandbox/                  # QEMU RISC-V sandbox (process/QMP/serial/snapshot)
+├── audit/                    # append-only SQLite + hash chain (includes audit-verify)
+├── agent/                    # agent loop, tools, capability policy, compiler wrapper
+├── host/                     # Tauri backend: commands / events / state
+└── ui/                       # React frontend (Tauri shell + three-pane UI)
+    ├── src/                  # layout / panels / API / state
+    └── src-tauri/            # Tauri shell (registers host commands)
 ```
 
-## 测试
+## Tests
 
 ```powershell
-# 全 workspace（Rust）
+# whole workspace (Rust)
 cargo test
 
-# 单个 crate
-cargo test -p sandbox     # QEMU 生命周期 + 串口捕获 + 快照降级
-cargo test -p audit       # append-only + hash chain + 查询 + CLI
-cargo test -p agent       # LLM 客户端 + 工具 + 策略 + 编译器 + Agent 循环
-cargo test -p host        # Tauri 后端命令 + 串口增量
+# a single crate
+cargo test -p sandbox     # QEMU lifecycle + serial capture + snapshot fallback
+cargo test -p audit       # append-only + hash chain + queries + CLI
+cargo test -p agent       # LLM client + tools + policy + compiler + agent loop
+cargo test -p host        # Tauri backend commands + serial deltas
 
-# 需要真实 QEMU/工具链的端到端（mock LLM）
+# end-to-end that needs real QEMU/toolchain (mock LLM)
 cargo test -p host -- --ignored --nocapture
 
-# 前端构建
+# frontend build
 cd ui && npm run build
 ```
 
-## 设置 API Key
+## Setting the API key
 
 ```powershell
-$env:DEEPSEEK_API_KEY = "sk-..."   # 仅当前终端会话
-cargo test -p agent -- --ignored --nocapture   # 真实模型端到端
+$env:DEEPSEEK_API_KEY = "sk-..."   # current terminal session only
+cargo test -p agent -- --ignored --nocapture   # real-model end-to-end
 ```
 
-或在应用**设置栏**填写并"保存到本次会话"。
+Or fill it in the app's **settings panel** and "save for this session".
 
-Key 只存在后端内存：**不写** localStorage / sessionStorage / 磁盘 / 审计 / 日志，
-状态回显也不含 key。关闭应用即失效。
+The key lives in backend memory only: **not** written to localStorage / sessionStorage /
+disk / audit / logs, and status read-outs never contain it. Closing the app invalidates it.
 
-## 已知限制（MVP 降级项）
+## Known limitations (MVP fallbacks)
 
-> 完整路线图见 [PROJECT_CONSTITUTION.md §10](PROJECT_CONSTITUTION.md)。
+> Full roadmap: [PROJECT_CONSTITUTION.md §10](PROJECT_CONSTITUTION.md).
 
-- **仅支持 DeepSeek**（v0.1）：LLM 客户端目前只对接 DeepSeek。v0.2 将重构为通用
-  `OpenAiCompatClient`，内置 OpenAI / Ollama（本地）/ LM Studio（本地）预设，
-  支持无 key 的本地模型。
-- **API key 仅内存**（v0.1）：不落盘、不进审计，关闭应用即失效。v0.2 改用 OS keyring
-  （Windows Credential Manager / macOS Keychain / Linux Secret Service），
-  绝不使用 `localStorage` / 明文文件 / `.env`。
-- **快照**：`save_snapshot` / `load_snapshot` 是"存参数 + 重启"，**不是**真实
-  VM 状态（v0.2 换 QEMU `savevm`/`loadvm`）。
-- **串口来源**：由 sandbox 串口读取线程**主动推送**（`subscribe_serial` → `serial:chunk`），
-  不再是审计派生；订阅只收到订阅之后的数据（见 `host/README.md`）。
-- **平台**：仅 Windows + TCP；Unix socket / macOS / Linux 未实现。
-- **无流式输出**：LLM 响应为整块返回。
-- **无会话持久化**：每轮 `run_agent` 是独立上下文。
-- **编译器注入 crt0**：AI 只需写 `int main(void)`（原因见 `agent/README.md`）。
+- **DeepSeek only** (v0.1): the LLM client talks to DeepSeek only. v0.2 refactors it into a
+  generic `OpenAiCompatClient` with built-in OpenAI / Ollama (local) / LM Studio (local)
+  presets, including key-less local models.
+- **API key in memory only** (v0.1): never on disk, never in the audit log; gone when the app
+  closes. v0.2 moves to the OS keyring (Windows Credential Manager / macOS Keychain /
+  Linux Secret Service) and never uses `localStorage` / plain files / `.env`.
+- **Snapshots**: the reboot fallback (`save_snapshot` / `load_snapshot`) is kept for
+  compatibility; real snapshots use TCP migration + a local file relay
+  ([`sandbox/docs/snapshot-experiment.md`](sandbox/docs/snapshot-experiment.md)).
+- **Serial source**: pushed by the sandbox's serial reader thread
+  (`subscribe_serial` → `serial:chunk`), no longer derived from the audit log; subscribers
+  only receive what arrives after they subscribe (see `host/README.md`).
+- **Platform**: Windows + TCP only; Unix sockets / macOS / Linux are not implemented.
+- **No streaming**: (superseded — streaming LLM output is implemented; see CHANGELOG).
+- **Sessions**: conversations are persisted (list / open / rename / delete); a restored
+  session replays history messages only, never tool calls.
+- **Compiler injects crt0**: the AI only writes `int main(void)` (see `agent/README.md`).
 
-## 许可证
+## License
 
-[Apache License 2.0](LICENSE)。
+[Apache License 2.0](LICENSE).
 
-- 本仓库代码采用 Apache-2.0 许可证。
-- 使用本项目时请遵守你所用模型服务商的条款。
+- The code in this repository is licensed under Apache-2.0.
+- When using this project, follow the terms of your model provider.
 
-## 更多
+## More
 
-- [PROJECT_CONSTITUTION.md](PROJECT_CONSTITUTION.md) — 完整宪法、架构分层、审计事件类型
-- [ENVIRONMENT.md](ENVIRONMENT.md) — 工具链与平台限制
-- [CHANGELOG.md](CHANGELOG.md) — 版本历史
-- 各 crate 的 README：`sandbox/` `audit/` `agent/` `host/` `ui/`
+- [PROJECT_CONSTITUTION.md](PROJECT_CONSTITUTION.md) — full constitution, architecture
+  layers, audit event types
+- [ENVIRONMENT.md](ENVIRONMENT.md) — toolchain and platform limits
+- [CHANGELOG.md](CHANGELOG.md) — version history
+- Per-crate READMEs: `sandbox/` `audit/` `agent/` `host/` `ui/`
