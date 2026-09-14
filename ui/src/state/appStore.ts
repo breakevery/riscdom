@@ -49,6 +49,7 @@ export function useAppStore(): AppStore {
     provider_id: "deepseek",
     base_url: "",
     model: "",
+    persisted: false,
   });
   const [auditStatus, setAuditStatus] = useState<api.AuditStatus | null>(null);
   const [auditEvents, setAuditEvents] = useState<api.AuditEvent[]>([]);

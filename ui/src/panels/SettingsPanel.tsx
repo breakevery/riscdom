@@ -9,6 +9,25 @@ const BANNER_TEXT: Record<string, string> = {
   invalid_config: "配置无效，请检查服务商与 Model。",
 };
 
+// Only a non-sensitive UI preference is kept in localStorage.
+const REMEMBER_KEY = "riscdom.rememberKey";
+
+function readRemember(): boolean {
+  try {
+    return localStorage.getItem(REMEMBER_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function writeRemember(value: boolean): void {
+  try {
+    localStorage.setItem(REMEMBER_KEY, value ? "true" : "false");
+  } catch {
+    /* ignore */
+  }
+}
+
 function splitCode(message: string): { code: string; text: string } {
   const i = message.indexOf("|");
   if (i < 0) return { code: message, text: message };
@@ -23,11 +42,13 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
   const [presets, setPresets] = useState<api.ProviderPreset[]>([]);
   const [note, setNote] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<{ code: string; text: string } | null>(null);
+  const [remember, setRemember] = useState<boolean>(readRemember);
 
   const [readiness, setReadiness] = useState<api.LlmReadiness | null>(null);
   const [probing, setProbing] = useState(false);
   const [probeNote, setProbeNote] = useState<string | null>(null);
   const [suggestion, setSuggestion] = useState<api.LocalProviderInfo | null>(null);
+  const [storedPrompt, setStoredPrompt] = useState<string | null>(null);
 
   const refreshReadiness = useCallback(async () => {
     try {
@@ -37,38 +58,86 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
     }
   }, []);
 
+  const refreshStatus = store.refreshLlmStatus;
+
   useEffect(() => {
     api
       .getProviderPresets()
       .then(setPresets)
       .catch(() => setNote("加载服务商失败"));
-    void refreshReadiness();
-  }, [refreshReadiness]);
+
+    void (async () => {
+      await refreshReadiness();
+      // Startup restore: if nothing is configured in memory but a key exists in
+      // the OS keyring, load it silently.
+      try {
+        const status = await api.getLlmConfigStatus();
+        if (!status.configured) {
+          const pid = status.provider_id || "deepseek";
+          if (await api.hasStoredKey(pid)) {
+            await api.loadStoredKey(pid);
+            setProviderId(pid);
+            await refreshStatus();
+            await refreshReadiness();
+            setNote("已从系统钥匙串恢复 Key");
+          }
+        } else {
+          setProviderId(status.provider_id);
+        }
+      } catch {
+        /* silent */
+      }
+    })();
+  }, [refreshReadiness, refreshStatus]);
 
   const selected = presets.find((p) => p.id === providerId);
   const isCustom = providerId === "custom";
   const keyNotNeeded = selected ? !selected.requires_key : false;
 
+  const presetName = (id: string) =>
+    presets.find((p) => p.id === id)?.display_name ?? id;
+
   const onProviderChange = (id: string) => {
     setProviderId(id);
+    setStoredPrompt(null);
     const preset = presets.find((p) => p.id === id);
     if (preset && preset.id !== "custom") {
       setBaseUrl(preset.base_url);
       setModel(preset.default_model);
+    }
+    void (async () => {
+      try {
+        if (await api.hasStoredKey(id)) setStoredPrompt(id);
+      } catch {
+        /* silent */
+      }
+    })();
+  };
+
+  const loadStored = async (id: string) => {
+    try {
+      await api.loadStoredKey(id);
+      setStoredPrompt(null);
+      setNote("已从系统钥匙串加载 Key");
+      await refreshStatus();
+      await refreshReadiness();
+    } catch (e) {
+      setNote(String(e));
     }
   };
 
   const save = async () => {
     setFieldError(null);
     try {
-      await api.setLlmConfig(apiKey, baseUrl, model, providerId);
+      await api.setLlmConfig(apiKey, baseUrl, model, providerId, remember);
       setApiKey(""); // never keep the key in component memory
-      setNote("已保存到本次会话（仅内存）");
-      await store.refreshLlmStatus();
+      setNote(
+        remember ? "已保存到本次会话并写入系统钥匙串" : "已保存到本次会话（仅内存）",
+      );
+      await refreshStatus();
       await refreshReadiness();
     } catch (e) {
-      const parsed = splitCode(String(e));
-      setFieldError(parsed);
+      setFieldError(splitCode(String(e)));
       setNote(null);
     }
   };
@@ -76,9 +145,9 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
   const clear = async () => {
     try {
       await api.clearLlmConfig();
-      setNote("已清除");
+      setNote("已清除（含系统钥匙串条目）");
       setFieldError(null);
-      await store.refreshLlmStatus();
+      await refreshStatus();
       await refreshReadiness();
     } catch (e) {
       setNote(String(e));
@@ -111,9 +180,9 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
     setModel(localModel);
     setSuggestion(null);
     try {
-      await api.setLlmConfig("", provider.base_url, localModel, provider.id);
+      await api.setLlmConfig("", provider.base_url, localModel, provider.id, false);
       setNote("已切换到本地模型");
-      await store.refreshLlmStatus();
+      await refreshStatus();
       await refreshReadiness();
     } catch (e) {
       setFieldError(splitCode(String(e)));
@@ -121,9 +190,7 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
   };
 
   const chain = store.auditStatus?.chain;
-  const providerName =
-    presets.find((p) => p.id === store.llmStatus.provider_id)?.display_name ??
-    store.llmStatus.provider_id;
+  const providerName = presetName(store.llmStatus.provider_id);
   const bannerReason = readiness && !readiness.ready ? readiness.reason ?? "" : null;
 
   return (
@@ -136,6 +203,18 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
             <span>{BANNER_TEXT[bannerReason] ?? "模型未就绪，请检查配置。"}</span>
             <button className="ghost tiny" disabled={probing} onClick={() => void detectLocal()}>
               {probing ? "检测中…" : "检测本地模型"}
+            </button>
+          </div>
+        ) : null}
+
+        {storedPrompt ? (
+          <div className="banner info">
+            <span>检测到已保存的 {presetName(storedPrompt)} Key，是否加载？</span>
+            <button className="ghost tiny" onClick={() => void loadStored(storedPrompt)}>
+              加载
+            </button>
+            <button className="ghost tiny" onClick={() => setStoredPrompt(null)}>
+              忽略
             </button>
           </div>
         ) : null}
@@ -181,6 +260,20 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
           />
         </label>
         {keyNotNeeded ? <div className="muted small">本地模型无需 key</div> : null}
+
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => {
+              setRemember(e.target.checked);
+              writeRemember(e.target.checked);
+            }}
+          />
+          <span>保存到系统钥匙串（推荐）</span>
+        </label>
+        <div className="muted small">未勾选时，API Key 仅保存在本次会话。</div>
+
         {fieldError?.code === "missing_api_key" ? (
           <div className="field-error">{fieldError.text}</div>
         ) : null}
@@ -220,7 +313,9 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
         <div className="status-line">
           <span className={`dot ${store.llmStatus.configured ? "ok" : "off"}`} />
           {store.llmStatus.configured
-            ? `已配置 · ${providerName} · ${store.llmStatus.base_url} · ${store.llmStatus.model}`
+            ? `已配置 · ${providerName} · ${
+                store.llmStatus.persisted ? "已保存到系统钥匙串" : "仅本次会话"
+              }`
             : "未配置（API key 不会落盘）"}
         </div>
 

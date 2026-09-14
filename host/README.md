@@ -18,10 +18,12 @@
 | --- | --- |
 | `get_audit_status()` | `{ count, chain }` |
 | `list_audit_events(limit, actor?, action_prefix?)` | `StoredEventView[]`（倒序） |
-| `set_llm_config(api_key, base_url, model, provider_id?)` | `()`（`provider_id` 缺省为 `deepseek`；预设且 base_url/model 为空时自动填充；`custom` 必填两者） |
+| `set_llm_config(api_key, base_url, model, provider_id?, remember?)` | `()`（`provider_id` 缺省 `deepseek`；预设且 base_url/model 为空时自动填充；`custom` 必填两者；`remember` 缺省 `true` → 写入系统钥匙串） |
 | `clear_llm_config()` | `()` |
-| `get_llm_config_status()` | `{ configured, provider_id, base_url, model }`（**不含 key**） |
+| `get_llm_config_status()` | `{ configured, provider_id, base_url, model, persisted }`（**不含 key**） |
 | `get_provider_presets()` | `ProviderPresetView[]`（5 个内置预设，纯数据） |
+| `has_stored_key(provider_id)` | `bool`（钥匙串是否有该服务商的条目，**不返回 key**） |
+| `load_stored_key(provider_id)` | `()`（从钥匙串读 key 写入内存；无条目返回 `Err("no_stored_key")`） |
 | `run_agent(user_input)` | `AgentOutcomeView` |
 | `get_workspace_files()` | `string[]` |
 | `read_workspace_file(path)` | `string`（经策略检查） |
@@ -40,6 +42,28 @@
 `set_llm_config` 接受 `provider_id`，当传入的是预设且 `base_url` / `model` 为空时用预设值填充；
 `provider_id = "custom"` 时两者必填。5 个内置预设：`deepseek`（默认）/ `openai` /
 `ollama`（本地，无需 key）/ `lmstudio`（本地，无需 key）/ `custom`。详见 `agent/README.md`。
+
+## 系统钥匙串（keyring）
+
+密钥持久化在 OS 凭据库（Windows Credential Manager / macOS Keychain /
+Linux Secret Service），服务名 `com.breakevery.riscdom`，账号名 `llm-api-key:<provider_id>`。
+
+- 仅 **host** 依赖 `keyring` crate；`agent` 不依赖。
+- 写入失败 **静默降级**：记 `host.keyring.save_failed`，返回成功但 `persisted = false`，
+  不 panic、不阻塞启动。
+- 相关审计事件（detail 只记 `provider_id`，**绝不记 key**）：
+  `host.keyring.save` / `host.keyring.save_failed` / `host.keyring.delete` / `host.keyring.load`。
+- `clear_llm_config` 只删当前 provider 的条目，不会动其它 provider。
+- `DEEPSEEK_API_KEY` 环境变量在启动时被采纳到**内存**（开发便利），**不会**写入钥匙串。
+
+### 手工验证步骤（13c）
+
+a. 首次启动、无配置 → 横幅显示 `no_config`。
+b. 填 DeepSeek key + 勾选“保存到系统钥匙串” → 保存 → 状态显示
+   “已配置 · DeepSeek · 已保存到系统钥匙串”。
+c. 关闭应用重启 → 状态自动恢复为“已配置”（从钥匙串读取）。
+d. 清除配置 → 重启 → 状态为未配置（钥匙串条目已删）。
+e. 不勾选记住 → 保存后状态为“仅本次会话”；重启后需重填。
 
 ## 安全
 

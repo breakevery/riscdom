@@ -34,6 +34,19 @@
   font-size: 12px;
   margin: -6px 0 8px;
 }
+
+.check-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.check-row input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
 .chat-log {
   flex: 1 1 auto;
   overflow-y: auto;

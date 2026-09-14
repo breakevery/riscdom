@@ -21,6 +21,7 @@ export interface LlmStatus {
   provider_id: string;
   base_url: string;
   model: string;
+  persisted: boolean;
 }
 
 /** A selectable LLM provider preset (pure data from the host). */
@@ -68,7 +69,16 @@ export const setLlmConfig = (
   baseUrl: string,
   model: string,
   providerId: string,
-) => invoke<void>("set_llm_config", { apiKey, baseUrl, model, providerId });
+  remember: boolean,
+) => invoke<void>("set_llm_config", { apiKey, baseUrl, model, providerId, remember });
+
+/** Does a key for `providerId` exist in the OS keyring? (never returns the key) */
+export const hasStoredKey = (providerId: string) =>
+  invoke<boolean>("has_stored_key", { providerId });
+
+/** Load a stored key from the OS keyring into host memory. */
+export const loadStoredKey = (providerId: string) =>
+  invoke<void>("load_stored_key", { providerId });
 
 /** Whether the LLM is ready, and why not. */
 export interface LlmReadiness {

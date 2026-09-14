@@ -282,7 +282,9 @@ impl AppState {
         let db_dir = root.join(".riscdom");
         std::fs::create_dir_all(&db_dir)?;
         let store = AuditStore::open(&db_dir.join("audit.db"))?;
-        Ok(Self::from_store(root, store, Arc::new(OsKeyring::new())))
+        let state = Self::from_store(root, store, Arc::new(OsKeyring::new()));
+        state.init_from_env();
+        Ok(state)
     }
 
     /// Build state with a private in-memory audit DB and keyring (tests).
@@ -295,6 +297,31 @@ impl AppState {
             store,
             Arc::new(InMemoryKeyring::new()),
         ))
+    }
+
+    /// Dev convenience: adopt `DEEPSEEK_API_KEY` into **memory only**.
+    ///
+    /// Never writes the keyring (so a user's environment variable is never
+    /// persisted by surprise) and never marks the config as `persisted`.
+    fn init_from_env(&self) {
+        let api_key = match std::env::var("DEEPSEEK_API_KEY") {
+            Ok(v) if !v.trim().is_empty() => v,
+            _ => return,
+        };
+        let base_url = std::env::var("DEEPSEEK_BASE_URL")
+            .unwrap_or_else(|_| "https://api.deepseek.com".to_string());
+        let model =
+            std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
+
+        let input = LlmConfigInput {
+            provider_id: DEFAULT_PRESET_ID.to_string(),
+            api_key,
+            base_url,
+            model,
+        };
+        if readiness_of(&input).ready {
+            self.set_llm_config(input);
+        }
     }
 
     /// Override the keyring backend.
