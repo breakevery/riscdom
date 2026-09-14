@@ -143,6 +143,22 @@ channel（sender 内部保存），返回 receiver。启动 VM 时会把 `VMConf
 - 网络/JSON 错误返回 `Err`，不 panic。
 - 真实 API 流式测试：`cargo test -p agent --test stream_real -- --ignored --nocapture`。
 
+### 订阅（`AgentLoop`）
+
+`AgentLoop::subscribe_stream() -> std::sync::mpsc::Receiver<StreamEvent>`：每次调用新建一个
+channel（sender 内部保存），`run` 中把同一个 `StreamEvent` 扇出给所有订阅者；
+receiver 关闭后自动剔除。
+
+### 审计事件
+
+| action | detail |
+| --- | --- |
+| `agent.llm.stream.start` | `{ model, base_url_host }` |
+| `agent.llm.stream.end` | `{ chunks, duration_ms, has_tool_calls }` |
+| `agent.llm.request` / `agent.llm.response` | 保持不变（response 仍记完整响应） |
+
+**不**逐 chunk 记审计事件。
+
 ## v0.2 TODO
 
 - `OpenAiCompatClient` + 本地模型支持：`DeepSeekClient` 重构为通用 OpenAI 兼容客户端，

@@ -1,11 +1,11 @@
 //! The agent loop: drive an LLM through tool calls until it answers.
 
-use crate::audit_hook::{record_llm_request, record_llm_response};
+use crate::audit_hook::{host_of, record_llm_request, record_llm_response};
 use crate::compiler::CompilerConfig;
 use crate::config::AgentConfig;
 use crate::error::AgentError;
 use crate::llm::LlmClient;
-use crate::message::{ChatMessage, ChatRequest};
+use crate::message::{ChatMessage, ChatRequest, StreamEvent};
 use crate::policy::WorkspacePolicy;
 use crate::tools::{execute_tool, tools_json, ToolContext};
 use audit::{AuditEvent, AuditSink};
@@ -45,6 +45,8 @@ pub struct AgentLoop {
     compiler: CompilerConfig,
     /// Live serial subscribers (one `Sender` per `subscribe_serial` call).
     serial_observers: Arc<Mutex<Vec<Sender<Vec<u8>>>>>,
+    /// Live stream subscribers (one `Sender` per `subscribe_stream` call).
+    stream_observers: Arc<Mutex<Vec<Sender<StreamEvent>>>>,
 }
 
 impl AgentLoop {
@@ -65,7 +67,20 @@ impl AgentLoop {
             vm: None,
             compiler: CompilerConfig::from_env(),
             serial_observers: Arc::new(Mutex::new(Vec::new())),
+            stream_observers: Arc::new(Mutex::new(Vec::new())),
         })
+    }
+
+    /// Subscribe to live LLM stream events.
+    ///
+    /// Each call returns a fresh channel carrying [`StreamEvent`]s for runs
+    /// started afterwards. Closed receivers are dropped automatically.
+    pub fn subscribe_stream(&self) -> Receiver<StreamEvent> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        if let Ok(mut list) = self.stream_observers.lock() {
+            list.push(tx);
+        }
+        rx
     }
 
     /// Subscribe to live serial output.
@@ -130,7 +145,29 @@ impl AgentLoop {
             );
 
             iterations += 1;
-            let response = match self.llm.chat(request) {
+
+            // Fan stream events out to live subscribers (never per-chunk audit).
+            let mut chunks = 0usize;
+            let observers = Arc::clone(&self.stream_observers);
+            let mut on_event = |event: StreamEvent| {
+                match &event {
+                    StreamEvent::Delta(_) | StreamEvent::ToolCallDelta { .. } => chunks += 1,
+                    StreamEvent::Done => {}
+                }
+                if let Ok(mut list) = observers.lock() {
+                    list.retain(|tx| tx.send(event.clone()).is_ok());
+                }
+            };
+
+            self.emit(
+                "agent.llm.stream.start",
+                serde_json::json!({
+                    "model": self.config.model,
+                    "base_url_host": host_of(&self.config.base_url),
+                }),
+            );
+            let started = std::time::Instant::now();
+            let response = match self.llm.chat_stream(request, &mut on_event) {
                 Ok(r) => r,
                 Err(e) => {
                     return Ok(AgentOutcome::Failed {
@@ -139,6 +176,15 @@ impl AgentLoop {
                     })
                 }
             };
+            drop(on_event);
+            self.emit(
+                "agent.llm.stream.end",
+                serde_json::json!({
+                    "chunks": chunks,
+                    "duration_ms": started.elapsed().as_millis() as u64,
+                    "has_tool_calls": response.tool_calls().is_some(),
+                }),
+            );
             record_llm_response(&self.audit, &response);
 
             let message = match response.first_message() {

@@ -66,7 +66,7 @@ pub fn record_llm_request(
 
 /// Extract just the host from a base URL. Drops any scheme, path, port-less
 /// userinfo and port — so credentials embedded in a URL never reach the log.
-fn host_of(url: &str) -> String {
+pub fn host_of(url: &str) -> String {
     let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
     let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
     authority
