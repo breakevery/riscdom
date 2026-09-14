@@ -3,7 +3,9 @@
 use crate::error::AuditError;
 use crate::event::{AuditEvent, StoredEvent};
 use crate::hash::{compute_hash, GENESIS_PREV_HASH};
+use rusqlite::types::Value;
 use rusqlite::{params, Connection};
+use std::io::Write;
 use std::path::Path;
 
 /// Schema + append-only triggers.
@@ -34,6 +36,22 @@ BEGIN
 END;
 "#;
 
+const SELECT_COLUMNS: &str =
+    "id, timestamp_ms, actor, action, detail_json, prev_hash, hash";
+
+/// Filter for [`AuditStore::list`]. All fields are optional (ANDed together).
+#[derive(Debug, Clone, Default)]
+pub struct EventFilter {
+    /// Exact actor match, e.g. `"sandbox"`.
+    pub actor: Option<String>,
+    /// Action prefix match, e.g. `"vm."`.
+    pub action_prefix: Option<String>,
+    /// Inclusive lower bound on `timestamp_ms`.
+    pub from_ms: Option<i64>,
+    /// Inclusive upper bound on `timestamp_ms`.
+    pub to_ms: Option<i64>,
+}
+
 /// A raw row straight from SQLite (keeps `detail_json` verbatim so the hash can
 /// be recomputed byte-for-byte during verification).
 #[derive(Debug, Clone)]
@@ -60,6 +78,18 @@ impl RawRow {
             },
             prev_hash: self.prev_hash,
             hash: self.hash,
+        })
+    }
+
+    fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawRow> {
+        Ok(RawRow {
+            id: row.get(0)?,
+            timestamp_ms: row.get(1)?,
+            actor: row.get(2)?,
+            action: row.get(3)?,
+            detail_json: row.get(4)?,
+            prev_hash: row.get(5)?,
+            hash: row.get(6)?,
         })
     }
 }
@@ -142,23 +172,85 @@ impl AuditStore {
         Ok(n as usize)
     }
 
+    /// Fetch a single event by id.
+    pub fn get(&self, id: i64) -> Result<Option<StoredEvent>, AuditError> {
+        let sql = format!("SELECT {SELECT_COLUMNS} FROM audit_events WHERE id = ?1");
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query([id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(RawRow::from_row(row)?.into_stored()?)),
+            None => Ok(None),
+        }
+    }
+
+    /// List events (oldest first) matching `filter`, capped at `limit`.
+    pub fn list(&self, filter: EventFilter, limit: usize) -> Result<Vec<StoredEvent>, AuditError> {
+        let mut sql = format!("SELECT {SELECT_COLUMNS} FROM audit_events");
+        let mut clauses: Vec<&str> = Vec::new();
+        let mut args: Vec<Value> = Vec::new();
+
+        if let Some(actor) = &filter.actor {
+            clauses.push("actor = ?");
+            args.push(Value::Text(actor.clone()));
+        }
+        if let Some(prefix) = &filter.action_prefix {
+            // True prefix match (no LIKE wildcard surprises).
+            clauses.push("substr(action, 1, ?) = ?");
+            args.push(Value::Integer(prefix.chars().count() as i64));
+            args.push(Value::Text(prefix.clone()));
+        }
+        if let Some(from) = filter.from_ms {
+            clauses.push("timestamp_ms >= ?");
+            args.push(Value::Integer(from));
+        }
+        if let Some(to) = filter.to_ms {
+            clauses.push("timestamp_ms <= ?");
+            args.push(Value::Integer(to));
+        }
+        if !clauses.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&clauses.join(" AND "));
+        }
+        sql.push_str(" ORDER BY id ASC LIMIT ?");
+        args.push(Value::Integer(limit as i64));
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(args), RawRow::from_row)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?.into_stored()?);
+        }
+        Ok(out)
+    }
+
+    /// Write every event, in id order, as JSONL.
+    ///
+    /// Each line carries `id` / `timestamp_ms` / `actor` / `action` / `detail`
+    /// (compatible with `sandbox`'s original file sink) plus `prev_hash` /
+    /// `hash` so an external tool can verify the chain independently.
+    pub fn export_jsonl(&self, path: &Path) -> Result<usize, AuditError> {
+        let events = self.all()?;
+        let mut file = std::fs::File::create(path)?;
+        for e in &events {
+            let line = serde_json::json!({
+                "id": e.id,
+                "timestamp_ms": e.event.timestamp_ms,
+                "actor": e.event.actor,
+                "action": e.event.action,
+                "detail": e.event.detail,
+                "prev_hash": e.prev_hash,
+                "hash": e.hash,
+            });
+            writeln!(file, "{}", serde_json::to_string(&line)?)?;
+        }
+        Ok(events.len())
+    }
+
     /// All rows in chain order (raw form, `pub(crate)` for verification).
     pub(crate) fn scan(&self) -> Result<Vec<RawRow>, AuditError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, timestamp_ms, actor, action, detail_json, prev_hash, hash \
-             FROM audit_events ORDER BY id ASC",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(RawRow {
-                id: row.get(0)?,
-                timestamp_ms: row.get(1)?,
-                actor: row.get(2)?,
-                action: row.get(3)?,
-                detail_json: row.get(4)?,
-                prev_hash: row.get(5)?,
-                hash: row.get(6)?,
-            })
-        })?;
+        let sql = format!("SELECT {SELECT_COLUMNS} FROM audit_events ORDER BY id ASC");
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([], RawRow::from_row)?;
         let mut out = Vec::new();
         for r in rows {
             out.push(r?);

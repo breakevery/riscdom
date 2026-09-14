@@ -21,4 +21,4 @@ pub use error::AuditError;
 pub use event::{AuditEvent, StoredEvent};
 pub use hash::{compute_hash, verify_chain, ChainStatus, GENESIS_PREV_HASH};
 pub use sink::{AuditSink, SqliteAuditSink};
-pub use store::AuditStore;
+pub use store::{AuditStore, EventFilter};
