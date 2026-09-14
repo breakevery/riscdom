@@ -149,7 +149,7 @@ h. **[DONE: A′]** QEMU 真实快照：以 **TCP 迁移 + 本地文件中继**�
    残留限制：恢复用的 `-kernel` 取工作区内最新的 `*.elf`；不做多 VM 并行（v0.3 评估）。
 i. 流式 LLM 响应
 j. 会话持久化
-k. `real_api` 测试补 `verify_chain` 断言（当前只断言串口输出）
+k. **[DONE]** `real_api` 测试补 `verify_chain` 断言（阶段 21：文件 SQLite + 独立句柄验证链完整）
 l. host 串口轮询改为 sandbox 主动回调
 
 - gdbstub 接入（调试）

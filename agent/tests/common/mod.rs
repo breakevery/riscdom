@@ -3,8 +3,8 @@
 
 use agent::config::AgentConfig;
 use agent::message::{ChatMessage, ChatResponse, Choice, FunctionCall, ToolCall};
-use audit::{AuditSink, AuditStore, SqliteAuditSink};
-use std::path::PathBuf;
+use audit::{AuditSink, AuditStore, ChainStatus, SqliteAuditSink};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -29,6 +29,56 @@ pub fn sink() -> (Arc<Mutex<dyn AuditSink>>, Arc<Mutex<AuditStore>>) {
         Arc::clone(&shared),
     )));
     (s, shared)
+}
+
+/// A unique temp `.db` path for a file-backed audit log.
+pub fn unique_db_path(tag: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "riscdom-audit-{tag}-{}-{nanos}.db",
+        std::process::id()
+    ))
+}
+
+/// A **file-backed** audit sink (path, sink, shared store).
+///
+/// Unlike [`sink`], the log can be reopened from a fresh handle after the run,
+/// which is what lets us verify the hash chain independently.
+pub fn file_sink(tag: &str) -> (PathBuf, Arc<Mutex<dyn AuditSink>>, Arc<Mutex<AuditStore>>) {
+    let path = unique_db_path(tag);
+    let shared = Arc::new(Mutex::new(
+        AuditStore::open(&path).expect("open audit store"),
+    ));
+    let s: Arc<Mutex<dyn AuditSink>> = Arc::new(Mutex::new(SqliteAuditSink::from_shared(
+        Arc::clone(&shared),
+    )));
+    (path, s, shared)
+}
+
+/// Reopen `db_path` in a fresh handle, verify the whole chain and require the
+/// events a real run must produce. Used by `real_api`.
+pub fn assert_chain_intact(db_path: &Path) -> ChainStatus {
+    let store = AuditStore::open(db_path).expect("reopen audit db");
+    let status = audit::verify_chain(&store).expect("verify_chain");
+    let length = match status {
+        ChainStatus::Intact { length } => length,
+        ChainStatus::Broken {
+            ref at_id,
+            ref reason,
+        } => {
+            panic!("audit chain broken at {at_id}: {reason}")
+        }
+    };
+    assert!(length > 0, "expected at least one audit event");
+    for action in ["agent.llm.request", "agent.tool.call", "agent.tool.result"] {
+        let n = count_action(&store, action);
+        assert!(n >= 1, "expected >=1 `{action}` event, found {n}");
+    }
+    println!("audit chain intact: {length} events");
+    status
 }
 
 /// Test configuration (a clearly fake key, never used against the network).

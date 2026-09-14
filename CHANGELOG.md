@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **真实快照保存 / 恢复**：host `save_snapshot_real` / `resume_from_snapshot_real`
   （审计 `host.snapshot.save` / `host.snapshot.resume`），UI 提供“保存当前状态”与每项
   “恢复”按钮（二次确认）。
+- **`real_api` 断言审计链完整性**（阶段 21）：真实 API 测试的审计后端由 in-memory 改为
+  **文件 SQLite**，run 结束后用独立句柄 `audit::verify_chain` 断言
+  `ChainStatus::Intact { length > 0 }`，并断言 `agent.llm.request` / `agent.tool.call` /
+  `agent.tool.result` 各 >= 1；临时库用 `Drop` 守卫清理（含失败路径）。
 - **快照面板**（列表 / 删除；真实快照标注“真实”、重启式标注“重启式”），host 命令
   `list_snapshots` / `delete_snapshot`（审计 `host.snapshot.delete`）。
 - **会话持久化**（列表 / 打开 / 重命名 / 删除 / 清空）：host `SessionStore`（SQLite，复用
@@ -78,7 +82,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 给 `AgentLoop` 暴露最小串口访问接口（当前 host 从审计派生，依赖脆弱）
 - QEMU 真实快照 `savevm` / `loadvm`（已由方案 A′ 满足；待办：启用 `AppState.vm` 槽，
   让 UI 可保存/恢复）
-- `real_api` 测试补 `verify_chain` 断言（当前只断言串口输出）
 - host 串口轮询改为 sandbox 主动回调
 - gdbstub 接入（调试）
 - Unix socket（macOS / Linux）与 virtio 设备

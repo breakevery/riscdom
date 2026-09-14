@@ -76,6 +76,11 @@ $env:DEEPSEEK_API_KEY = "sk-..."
 cargo test -p agent -- --ignored --nocapture
 ```
 
+该测试的审计后端是**文件 SQLite**（`%TEMP%\riscdom-audit-real-*.db`）：run 结束后用**新的
+句柄**重开同一个库，`audit::verify_chain` 必须返回 `ChainStatus::Intact`（且 `length > 0`），
+并要求 `agent.llm.request` / `agent.tool.call` / `agent.tool.result` 各至少 1 条。临时库用
+`Drop` 守卫清理（失败/panic 时同样删除）。
+
 ## 工具清单
 
 | 工具 | 说明 |
@@ -165,4 +170,4 @@ receiver 关闭后自动剔除。
   内置 DeepSeek（默认）/ OpenAI / Ollama（本地）/ LM Studio（本地）预设，支持无 key 的本地模型
 - gdbstub 接入（调试）
 - 多轮会话持久化（跨轮上下文）
-- `real_api` 测试补 `verify_chain` 断言（当前只断言串口输出）
+- ~~`real_api` 补 `verify_chain` 断言~~（已完成，阶段 21：文件 SQLite + 独立句柄验证链完整）
