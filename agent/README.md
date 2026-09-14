@@ -9,7 +9,7 @@
 
 - `config` — `AgentConfig`（从环境变量读取；`Debug` 对 API key 打码）
 - `message` — `ChatMessage` / `ChatRequest` / `ChatResponse` / `ToolCall`（DeepSeek 兼容）
-- `llm` — `LlmClient` trait + `DeepSeekClient`（HTTP）+ `MockLlm`（测试脚本）
+- `llm` — `LlmClient` trait + `OpenAiCompatClient`（OpenAI 兼容 HTTP 客户端；`DeepSeekClient` 为向后兼容别名）+ `MockLlm`（测试脚本）
 - `audit_hook` — 统一的审计写入辅助
 - `policy` — `WorkspacePolicy`（能力策略，默认拒绝）
 - `compiler` — `compile_freestanding`（C → 裸机 ELF，注入 crt0）
@@ -18,6 +18,13 @@
 - `agent` — `AgentLoop` / `AgentOutcome`
 
 ## 配置
+
+LLM 客户端为 **OpenAI 兼容协议**（`OpenAiCompatClient`）：只要 `base_url` / `model`
+指向任何兼容服务商即可（DeepSeek 为默认预设）。`api_key` 对本地地址（localhost /
+127.0.0.1）可为空，对云端地址必填。
+
+> v0.2 OPENAI 兼容重构已完成（本阶段）；服务商预设下拉、本地模型（Ollama / LM Studio）
+> 与无 key 降级体验见 [PROJECT_CONSTITUTION.md §10](../PROJECT_CONSTITUTION.md)。
 
 | 环境变量 | 必需 | 默认 |
 | --- | --- | --- |

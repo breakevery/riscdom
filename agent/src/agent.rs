@@ -96,7 +96,7 @@ impl AgentLoop {
                 temperature: Some(0.0),
                 stream: None,
             };
-            record_llm_request(&self.audit, &request, &self.config.model);
+            record_llm_request(&self.audit, &request, &self.config.model, &self.config.base_url);
 
             iterations += 1;
             let response = match self.llm.chat(request) {

@@ -58,6 +58,44 @@ impl AgentConfig {
         format!("{}/chat/completions", self.base_url.trim_end_matches('/'))
     }
 
+    /// A preset template for DeepSeek (the default provider).
+    ///
+    /// `api_key` is empty; callers must fill it in (or call [`Self::validate`] to
+    /// discover that it is required).
+    pub fn deepseek_default() -> Self {
+        Self {
+            api_key: String::new(),
+            base_url: "https://api.deepseek.com".to_string(),
+            model: "deepseek-chat".to_string(),
+            max_iterations: 10,
+            request_timeout_secs: 120,
+        }
+    }
+
+    /// Validate the configuration.
+    ///
+    /// - `base_url` must start with `http://` or `https://`
+    /// - `model` must be non-empty
+    /// - local endpoints (localhost / 127.0.0.1 / ::1) may omit `api_key`
+    /// - non-local endpoints require a non-empty `api_key`
+    pub fn validate(&self) -> Result<(), AgentError> {
+        let base = self.base_url.trim();
+        if !(base.starts_with("http://") || base.starts_with("https://")) {
+            return Err(AgentError::Config(format!(
+                "base_url must start with http:// or https:// (got {base:?})"
+            )));
+        }
+        if self.model.trim().is_empty() {
+            return Err(AgentError::Config("model must not be empty".into()));
+        }
+        if !is_local_url(base) && self.api_key.trim().is_empty() {
+            return Err(AgentError::Config(
+                "api_key is required for non-local base_url".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// A masked form of the API key: first 4 + `****` + last 4.
     pub fn masked_key(&self) -> String {
         mask_key(&self.api_key)
@@ -73,6 +111,16 @@ pub fn mask_key(key: &str) -> String {
     let head: String = chars[..4].iter().collect();
     let tail: String = chars[chars.len() - 4..].iter().collect();
     format!("{head}****{tail}")
+}
+
+/// Is `url` a localhost endpoint (no API key required)?
+fn is_local_url(url: &str) -> bool {
+    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let hostport = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
+    let host = hostport.rsplit_once(':').map(|(h, _)| h).unwrap_or(hostport);
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    matches!(host, "localhost" | "127.0.0.1" | "::1" | "0.0.0.0")
 }
 
 impl fmt::Debug for AgentConfig {

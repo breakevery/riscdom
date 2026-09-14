@@ -43,18 +43,37 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-/// Record an outgoing LLM request. Stores a hash + sizes, never the raw body.
-pub fn record_llm_request(sink: &Arc<Mutex<dyn AuditSink>>, req: &ChatRequest, model: &str) {
+/// Record an outgoing LLM request. Stores a hash + sizes, never the raw body,
+/// and only the **host** of the base URL (never the full URL, never a key).
+pub fn record_llm_request(
+    sink: &Arc<Mutex<dyn AuditSink>>,
+    req: &ChatRequest,
+    model: &str,
+    base_url: &str,
+) {
     emit(
         sink,
         "agent.llm.request",
         serde_json::json!({
             "model": model,
+            "base_url_host": host_of(base_url),
             "messages": req.messages.len(),
             "tools": req.tools.as_ref().map(|t| t.len()).unwrap_or(0),
             "request_hash": short_hash(&serde_json::to_string(req).unwrap_or_default()),
         }),
     );
+}
+
+/// Extract just the host from a base URL. Drops any scheme, path, port-less
+/// userinfo and port — so credentials embedded in a URL never reach the log.
+fn host_of(url: &str) -> String {
+    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    authority
+        .rsplit_once('@')
+        .map(|(_, h)| h)
+        .unwrap_or(authority)
+        .to_string()
 }
 
 /// Record an LLM response (token usage + shape, not the key).
@@ -146,7 +165,7 @@ mod tests {
             temperature: Some(0.0),
             stream: None,
         };
-        record_llm_request(&sink, &req, "deepseek-chat");
+        record_llm_request(&sink, &req, "deepseek-chat", "https://api.deepseek.com");
 
         let resp = ChatResponse {
             id: Some("r1".into()),

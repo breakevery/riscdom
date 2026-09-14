@@ -26,7 +26,7 @@ pub use agent::{AgentLoop, AgentOutcome};
 pub use compiler::{compile_freestanding, CompileOutput, CompilerConfig};
 pub use config::AgentConfig;
 pub use error::AgentError;
-pub use llm::{DeepSeekClient, LlmClient, MockLlm};
+pub use llm::{DeepSeekClient, LlmClient, MockLlm, OpenAiCompatClient};
 pub use message::{
     ChatMessage, ChatRequest, ChatResponse, Choice, FunctionCall, ToolCall, Usage,
 };

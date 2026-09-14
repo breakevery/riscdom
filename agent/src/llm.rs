@@ -1,4 +1,4 @@
-//! LLM clients: the trait plus a DeepSeek HTTP client and a scripted mock.
+//! LLM clients: the trait, an OpenAI-compatible HTTP client, and a scripted mock.
 
 use crate::config::AgentConfig;
 use crate::error::AgentError;
@@ -12,13 +12,20 @@ pub trait LlmClient: Send + Sync {
     fn chat(&self, req: ChatRequest) -> Result<ChatResponse, AgentError>;
 }
 
-/// DeepSeek chat-completions client (blocking).
-pub struct DeepSeekClient {
+/// OpenAI-compatible chat-completions client (blocking).
+///
+/// Speaks the OpenAI `/chat/completions` protocol and therefore works with any
+/// compatible provider (DeepSeek, OpenAI, Ollama, LM Studio, ...). The provider
+/// is selected purely by `base_url` / `model`; there is **no** provider-specific
+/// logic here.
+///
+/// `DeepSeekClient` is kept as a back-compat alias.
+pub struct OpenAiCompatClient {
     config: AgentConfig,
     http: reqwest::blocking::Client,
 }
 
-impl DeepSeekClient {
+impl OpenAiCompatClient {
     /// Build a client from configuration.
     pub fn new(config: AgentConfig) -> Result<Self, AgentError> {
         let http = reqwest::blocking::Client::builder()
@@ -34,7 +41,7 @@ impl DeepSeekClient {
     }
 }
 
-impl LlmClient for DeepSeekClient {
+impl LlmClient for OpenAiCompatClient {
     fn chat(&self, req: ChatRequest) -> Result<ChatResponse, AgentError> {
         let response = self
             .http
@@ -66,6 +73,9 @@ impl LlmClient for DeepSeekClient {
         })
     }
 }
+
+/// Back-compat alias for the v0.1 name.
+pub type DeepSeekClient = OpenAiCompatClient;
 
 /// A scripted LLM for tests: returns queued responses in order.
 pub struct MockLlm {

@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         temperature: Some(0.0),
         stream: None,
     };
-    record_llm_request(&sink, &req, "deepseek-chat");
+    record_llm_request(&sink, &req, "deepseek-chat", "https://api.deepseek.com");
 
     let resp = ChatResponse {
         id: Some("resp-1".into()),
