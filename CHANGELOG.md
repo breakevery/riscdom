@@ -40,6 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README 新增“安全声明”；v0.2 路线图新增 **f 条**（公开前安全清单）。
 - 未自行升级任何依赖（存在警告均未处理，待人工决策）。
 
+### Notes
+
+- **真实快照受阻，保留重启式降级**：阶段 18a 实测表明 QMP `migrate` → `file:` 在 Windows +
+  QEMU 11.1.0 不可用（`Failed to set FD nonblocking`），`exec:` 变体同样不可用；对照组
+  `migrate` → `tcp:` 成功，说明迁移引擎可用、失败仅限 file/exec 通道。
+  按约定不硬上路径 B，快照仍为重启式；v0.3 评估方案 A′（TCP + host 侧文件中继）。
+  完整记录：`sandbox/docs/snapshot-experiment.md`。
+
 ### Planned (v0.2) — 多模型接入与密钥安全
 
 - **LLM 客户端重构**：`DeepSeekClient` → `OpenAiCompatClient`（`base_url` / `api_key` /

@@ -48,6 +48,19 @@
 
 也就是说，MVP 的“回滚”等于“用相同参数重启”。设备状态与内存不会被保存。
 
+### 真实快照：[BLOCKED]（阶段 18a 实测）
+
+已尝试用 QMP `migrate` 到文件（路径 A），**在当前环境不可用**：
+
+- `migrate` → `file:<path>`：`Failed to set FD nonblocking: Input/output error`（快照 0 字节）
+- `exec:` 变体：`Failed to execute helper program`（Windows 无 `cat`；QEMU 不做 PATH 解析）
+- `file:/<path>` 形式：`Could not create ... Invalid argument`
+- 对照组：`migrate` → `tcp:` **成功**（495,403 字节，目的端 `status: running`）
+  → 迁移引擎可用，**失败仅限 Windows 的 file/exec 传输通道**
+
+完整实验记录见 [`docs/snapshot-experiment.md`](docs/snapshot-experiment.md)。
+按约定不硬上路径 B（virtio-blk + qcow2），**保留重启式降级**。
+
 ## 测试
 
 ```text
@@ -76,7 +89,9 @@ cargo run -p audit --bin audit-verify -- <path-to-db>
 
 ## v0.2 TODO
 
-- QEMU `savevm` / `loadvm` 真实快照（替换 MVP 重启式降级方案）
+- **真实快照 [BLOCKED]**：路径 A（`migrate` → file）在 Windows + QEMU 11.1.0 不可用；
+  v0.3 评估**方案 A′**（迁移改走 TCP + host 侧文件中继，不新增依赖、不改 `-kernel` 启动路径）
+  或方案 B（virtio-blk + qcow2 + `savevm`/`loadvm`，需重做启动链）
 - Unix socket 支持（macOS / Linux，`QmpEndpoint::UnixSocket`）
 - virtio 设备（块设备 / 网络）
-- sandbox 主动回调串口（替代 host 轮询）
+- ~~sandbox 主动回调串口~~ ✅ 已完成（阶段 15a）
