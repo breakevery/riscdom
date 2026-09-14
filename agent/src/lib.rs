@@ -21,6 +21,7 @@ pub mod message;
 pub mod policy;
 pub mod presets;
 pub mod prompt;
+pub mod sse;
 pub mod tools;
 
 pub use agent::{AgentLoop, AgentOutcome};
@@ -28,7 +29,9 @@ pub use compiler::{compile_freestanding, CompileOutput, CompilerConfig};
 pub use config::AgentConfig;
 pub use error::AgentError;
 pub use llm::{DeepSeekClient, LlmClient, MockLlm, OpenAiCompatClient};
-pub use message::{ChatMessage, ChatRequest, ChatResponse, Choice, FunctionCall, ToolCall, Usage};
+pub use message::{
+    ChatMessage, ChatRequest, ChatResponse, Choice, FunctionCall, StreamEvent, ToolCall, Usage,
+};
 pub use policy::WorkspacePolicy;
 pub use presets::{builtin_presets, find_preset, ProviderPreset, DEFAULT_PRESET_ID};
 pub use prompt::build_system_prompt;

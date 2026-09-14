@@ -99,6 +99,22 @@ impl ChatResponse {
     }
 }
 
+/// A streamed LLM event.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StreamEvent {
+    /// Incremental assistant text.
+    Delta(String),
+    /// Incremental tool-call fragment (buffered by the caller until complete).
+    ToolCallDelta {
+        index: usize,
+        id: Option<String>,
+        name: Option<String>,
+        args_delta: String,
+    },
+    /// The stream finished.
+    Done,
+}
+
 /// One completion choice.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Choice {

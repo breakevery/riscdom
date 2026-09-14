@@ -9,7 +9,7 @@
 
 - `config` — `AgentConfig`（从环境变量读取；`Debug` 对 API key 打码）
 - `message` — `ChatMessage` / `ChatRequest` / `ChatResponse` / `ToolCall`（DeepSeek 兼容）
-- `llm` — `LlmClient` trait + `OpenAiCompatClient`（OpenAI 兼容 HTTP 客户端；`DeepSeekClient` 为向后兼容别名）+ `MockLlm`（测试脚本）
+- `llm` — `LlmClient` trait（`chat` + `chat_stream`）+ `OpenAiCompatClient`（OpenAI 兼容 HTTP 客户端；`DeepSeekClient` 为向后兼容别名）+ `MockLlm`（测试脚本）
 - `audit_hook` — 统一的审计写入辅助
 - `policy` — `WorkspacePolicy`（能力策略，默认拒绝）
 - `compiler` — `compile_freestanding`（C → 裸机 ELF，注入 crt0）
@@ -127,9 +127,24 @@ channel（sender 内部保存），返回 receiver。启动 VM 时会把 `VMConf
 - receiver 关闭后，下一次事件会自动把对应 sender 从列表移除（不会 panic）。
 - 无 tokio 依赖（纯 `std::sync::mpsc`）。
 
+## 流式响应
+
+`LlmClient::chat_stream(req, on_event) -> ChatResponse`：`on_event` 收到 `StreamEvent`：
+
+- `Delta(String)` — 增量文本
+- `ToolCallDelta { index, id, name, args_delta }` — **工具调用分片**（不逐字显示，按 `index` 缓冲到完整后再处理）
+- `Done` — 流结束
+
+- 默认实现**退化到 `chat`**（整段 content 作为单个 `Delta`），因此任何 `LlmClient` 都可用；
+  `OpenAiCompatClient` 覆盖为真实 SSE（`stream: true` + `data:` 逐行解析），
+  `MockLlm` 按 8 字符切片以便测试。
+- SSE 解析在 [`sse`] 模块（`parse_sse_line` / `SseAccumulator`），已覆盖空行、注释、
+  `data:` 有无空格、多行 data 拼接、`[DONE]`。
+- 网络/JSON 错误返回 `Err`，不 panic。
+- 真实 API 流式测试：`cargo test -p agent --test stream_real -- --ignored --nocapture`。
+
 ## v0.2 TODO
 
-- 流式 LLM 响应（SSE 逐字）
 - `OpenAiCompatClient` + 本地模型支持：`DeepSeekClient` 重构为通用 OpenAI 兼容客户端，
   内置 DeepSeek（默认）/ OpenAI / Ollama（本地）/ LM Studio（本地）预设，支持无 key 的本地模型
 - gdbstub 接入（调试）
