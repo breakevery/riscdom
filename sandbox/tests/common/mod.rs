@@ -8,13 +8,29 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 /// Two distinct free TCP ports, held open until both are read.
+///
+/// A process-wide guard keeps ports unique across parallel tests in the same
+/// binary: bind-then-drop can otherwise hand the same port to two threads.
 pub fn two_free_ports() -> (u16, u16) {
-    let a = TcpListener::bind("127.0.0.1:0").expect("bind port a");
-    let b = TcpListener::bind("127.0.0.1:0").expect("bind port b");
-    (
-        a.local_addr().unwrap().port(),
-        b.local_addr().unwrap().port(),
-    )
+    use std::sync::Mutex;
+    static USED: Mutex<Vec<u16>> = Mutex::new(Vec::new());
+
+    loop {
+        let a = TcpListener::bind("127.0.0.1:0").expect("bind port a");
+        let b = TcpListener::bind("127.0.0.1:0").expect("bind port b");
+        let pa = a.local_addr().unwrap().port();
+        let pb = b.local_addr().unwrap().port();
+        if pa == pb {
+            continue;
+        }
+        let mut used = USED.lock().expect("port guard");
+        if used.contains(&pa) || used.contains(&pb) {
+            continue;
+        }
+        used.push(pa);
+        used.push(pb);
+        return (pa, pb);
+    }
 }
 
 /// Locate the RISC-V cross compiler.
