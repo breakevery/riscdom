@@ -60,6 +60,26 @@ v0.2：给 agent 增加最小增量 API（让 host 持有 VM 槽），改为直�
 `sandbox::RiscVVirtualMachine::serial_output()`；sandbox 侧则改为主动回调。
 届时 `AppState.vm` 字段会真正启用（当前保留未用）。
 
+## 手工验证
+
+真实 API 全链路（需 key）在 v0.1 发布前**未执行**（构建环境无 `DEEPSEEK_API_KEY`）。
+请按以下步骤人工验证：
+
+1. `cd ui && npm run tauri dev` 启动桌面窗口。
+2. 设置栏填入 Key / Base URL / Model → “保存到本次会话”（状态点变绿，**不回显 key**）。
+3. 对话框输入“写一个 RISC-V 裸机 Hello World”并发送。
+4. 预期：左侧按 Agent 过程逐条追加（工具调用为可折叠块）→ 最终回答；
+   右侧画布出现 `HELLO RISCV`；中栏审计事件数增加。
+5. 关闭窗口后重启 → 设置栏 `configured == false`（确认 key 未持久化）。
+
+自动化的等价验证（mock LLM，无需 key）：
+
+```text
+cargo test -p host -- --ignored --nocapture
+```
+
+断言：`agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
+
 ## 测试
 
 ```text
