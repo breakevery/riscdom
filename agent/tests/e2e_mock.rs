@@ -59,6 +59,19 @@ fn e2e_mock_full_cycle() {
 
     // Serial output captured by read_serial.
     let serial = common::tool_result_text(&store);
+    println!("--- captured serial output ---\n{}", serial.trim_end());
+    println!("--- audit actions ---");
+    for action in [
+        "agent.user.input",
+        "agent.llm.request",
+        "agent.llm.response",
+        "agent.tool.call",
+        "agent.tool.result",
+        "agent.compile.start",
+        "agent.compile.result",
+    ] {
+        println!("  {:<22} x{}", action, count_action(&store, action));
+    }
     assert!(
         serial.contains("HELLO RISCV"),
         "serial output not captured: {serial:?}"
@@ -72,6 +85,7 @@ fn e2e_mock_full_cycle() {
 
     // Chain intact.
     let status = verify_chain(&store).expect("verify");
+    println!("--- verify_chain ---\n  {status:?}");
     assert!(
         matches!(status, ChainStatus::Intact { .. }),
         "chain broken: {status:?}"
