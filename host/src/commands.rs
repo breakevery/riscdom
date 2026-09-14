@@ -58,10 +58,29 @@ pub async fn set_llm_config(
     base_url: String,
     model: String,
     provider_id: Option<String>,
+    remember: Option<bool>,
 ) -> Result<(), String> {
     state
-        .set_llm_config_with(provider_id, api_key, base_url, model)
+        .set_llm_config_with(provider_id, api_key, base_url, model, remember)
         .map_err(|e| e.user_message())
+}
+
+/// Does a key for `provider_id` exist in the OS keyring? (never returns the key)
+#[tauri::command]
+pub async fn has_stored_key(
+    state: State<'_, AppState>,
+    provider_id: String,
+) -> Result<bool, String> {
+    Ok(state.has_stored_key(&provider_id))
+}
+
+/// Load a stored key from the keyring into memory (startup restore).
+#[tauri::command]
+pub async fn load_stored_key(
+    state: State<'_, AppState>,
+    provider_id: String,
+) -> Result<(), String> {
+    state.load_stored_key(&provider_id)
 }
 
 /// Forget LLM config.

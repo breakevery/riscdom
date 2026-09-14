@@ -3,7 +3,7 @@
 use crate::error::HostError;
 use crate::events::{EventSink, EV_AGENT_FINAL, EV_AGENT_ITERATION, EV_AGENT_TOOL_CALL,
                     EV_AGENT_TOOL_RESULT, EV_SERIAL_CHUNK, EV_VM_STATE};
-use crate::keyring::{InMemoryKeyring, KeyringBackend, OsKeyring};
+use crate::keyring::{user_for_provider, InMemoryKeyring, KeyringBackend, OsKeyring, SERVICE};
 use agent::llm::{DeepSeekClient, LlmClient};
 use agent::message::{ChatRequest, ChatResponse};
 use agent::policy::WorkspacePolicy;
@@ -51,6 +51,8 @@ pub struct LlmConfigStatus {
     pub provider_id: String,
     pub base_url: String,
     pub model: String,
+    /// Whether the current key is stored in the OS keyring.
+    pub persisted: bool,
 }
 
 /// A provider preset, shaped for the frontend.
@@ -268,6 +270,8 @@ pub struct AppState {
     pub llm_override: Mutex<Option<Arc<dyn LlmClient>>>,
     /// OS keyring backend (or an in-memory one in tests).
     pub keyring: Arc<dyn KeyringBackend>,
+    /// Whether the current key has been persisted to the keyring.
+    persisted: Mutex<bool>,
 }
 
 impl AppState {
@@ -312,6 +316,7 @@ impl AppState {
             compiler: agent::CompilerConfig::from_env(),
             llm_override: Mutex::new(None),
             keyring,
+            persisted: Mutex::new(false),
         }
     }
 
@@ -326,12 +331,16 @@ impl AppState {
     }
 
     /// Store LLM config, filling base_url / model from a preset when omitted.
+    ///
+    /// `remember` (default `true`) also persists the key in the OS keyring;
+    /// failures degrade silently to in-memory-only.
     pub fn set_llm_config_with(
         &self,
         provider_id: Option<String>,
         api_key: String,
         base_url: String,
         model: String,
+        remember: Option<bool>,
     ) -> Result<(), HostError> {
         let pid = provider_id
             .filter(|s| !s.trim().is_empty())
@@ -374,8 +383,111 @@ impl AppState {
             return Err(HostError::Other(readiness_error(&readiness)));
         }
 
+        let provider_id = input.provider_id.clone();
+        let key = input.api_key.clone();
+        let remember = remember.unwrap_or(true);
+
+        let persisted = if remember {
+            self.keyring_save(&provider_id, &key)
+        } else {
+            // Never leave a stale entry behind when the user opts out.
+            let _ = self.keyring_delete(&provider_id);
+            false
+        };
+
         self.set_llm_config(input);
+        if let Ok(mut p) = self.persisted.lock() {
+            *p = persisted;
+        }
         Ok(())
+    }
+
+    /// Does the keyring hold a key for `provider_id`?
+    pub fn has_stored_key(&self, provider_id: &str) -> bool {
+        matches!(
+            self.keyring.get(SERVICE, &user_for_provider(provider_id)),
+            Ok(Some(_))
+        )
+    }
+
+    /// Load a stored key from the keyring into memory (startup restore).
+    pub fn load_stored_key(&self, provider_id: &str) -> Result<(), String> {
+        let key = match self.keyring.get(SERVICE, &user_for_provider(provider_id)) {
+            Ok(Some(key)) => key,
+            Ok(None) => return Err("no_stored_key".to_string()),
+            Err(e) => return Err(e),
+        };
+
+        let existing = self.llm_config.lock().ok().and_then(|g| g.as_ref().cloned());
+        let input = match existing {
+            Some(current) if current.provider_id == provider_id => LlmConfigInput {
+                api_key: key,
+                ..current
+            },
+            _ => {
+                let preset = find_preset(provider_id)
+                    .ok_or_else(|| "unknown_provider".to_string())?;
+                LlmConfigInput {
+                    provider_id: preset.id.clone(),
+                    api_key: key,
+                    base_url: preset.base_url,
+                    model: preset.default_model,
+                }
+            }
+        };
+
+        let readiness = readiness_of(&input);
+        if !readiness.ready {
+            return Err(readiness.reason.unwrap_or_else(|| "invalid_config".into()));
+        }
+
+        self.set_llm_config(input);
+        if let Ok(mut p) = self.persisted.lock() {
+            *p = true;
+        }
+        self.emit_host(
+            "host.keyring.load",
+            serde_json::json!({ "provider_id": provider_id }),
+        );
+        Ok(())
+    }
+
+    fn keyring_save(&self, provider_id: &str, api_key: &str) -> bool {
+        if api_key.trim().is_empty() {
+            return false;
+        }
+        match self
+            .keyring
+            .set(SERVICE, &user_for_provider(provider_id), api_key)
+        {
+            Ok(()) => {
+                self.emit_host(
+                    "host.keyring.save",
+                    serde_json::json!({ "provider_id": provider_id }),
+                );
+                true
+            }
+            Err(_) => {
+                self.emit_host(
+                    "host.keyring.save_failed",
+                    serde_json::json!({ "provider_id": provider_id }),
+                );
+                false
+            }
+        }
+    }
+
+    fn keyring_delete(&self, provider_id: &str) -> Result<(), String> {
+        let result = self
+            .keyring
+            .delete(SERVICE, &user_for_provider(provider_id));
+        if result.is_ok() {
+            self.emit_host(
+                "host.keyring.delete",
+                serde_json::json!({ "provider_id": provider_id }),
+            );
+        }
+        result
     }
 
     /// Store LLM config in memory (replaces any previous value).
@@ -385,20 +497,34 @@ impl AppState {
         }
     }
 
-    /// Forget LLM config.
+    /// Forget LLM config: clears memory **and** the keyring entry for the
+    /// currently configured provider (other providers are left untouched).
     pub fn clear_llm_config(&self) {
+        let provider = self
+            .llm_config
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().map(|c| c.provider_id.clone()));
         if let Ok(mut g) = self.llm_config.lock() {
             *g = None;
+        }
+        if let Some(provider_id) = provider {
+            let _ = self.keyring_delete(&provider_id);
+        }
+        if let Ok(mut p) = self.persisted.lock() {
+            *p = false;
         }
     }
 
     /// Status for the UI (never returns the key).
     pub fn llm_config_status(&self) -> LlmConfigStatus {
+        let persisted = self.persisted.lock().map(|g| *g).unwrap_or(false);
         let unconfigured = || LlmConfigStatus {
             configured: false,
             provider_id: DEFAULT_PRESET_ID.to_string(),
             base_url: String::new(),
             model: String::new(),
+            persisted: false,
         };
         match self.llm_config.lock() {
             Ok(g) => match g.as_ref() {
@@ -407,6 +533,7 @@ impl AppState {
                     provider_id: c.provider_id.clone(),
                     base_url: c.base_url.clone(),
                     model: c.model.clone(),
+                    persisted,
                 },
                 None => unconfigured(),
             },

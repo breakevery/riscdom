@@ -28,6 +28,8 @@ pub fn run() {
             host::commands::get_llm_config_status,
             host::commands::get_llm_readiness,
             host::commands::probe_local_llm,
+            host::commands::has_stored_key,
+            host::commands::load_stored_key,
             host::commands::run_agent,
             host::commands::get_workspace_files,
             host::commands::read_workspace_file,
