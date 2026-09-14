@@ -101,6 +101,8 @@ cargo test -p agent -- --ignored --nocapture
 ## 循环与上下文
 
 - 每轮：`llm.chat` → 若有 `tool_calls` 则逐个执行并回填 `tool` 消息，否则返回 `Final`。
+- **入口即校验**：`run()` 第一件事是 `config.validate()`；不通过直接返回
+  `AgentOutcome::Failed { iterations: 0 }`，不会发出任何 LLM 请求。
 - 上限 `max_iterations`（默认 10），达到后返回 `MaxIterations`，绝不无限循环。
 - 上下文裁剪：超过 40 条消息时保留 system + 最近 30 条，并插入 truncation 标记。
 - 单条消息（用户输入 / 工具结果）上限 8 KB。

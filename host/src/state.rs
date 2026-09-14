@@ -493,7 +493,12 @@ impl AppState {
 
     fn agent_config(&self) -> AgentConfig {
         let default = AgentConfig::deepseek_default();
-        let (api_key, base_url, model, provider_id) = match self.llm_config.lock() {
+        let using_override = self
+            .llm_override
+            .lock()
+            .map(|g| g.is_some())
+            .unwrap_or(false);
+        let (mut api_key, base_url, model, provider_id) = match self.llm_config.lock() {
             Ok(g) => match g.as_ref() {
                 Some(c) => (
                     c.api_key.clone(),
@@ -515,6 +520,11 @@ impl AppState {
                 default.provider_id.clone(),
             ),
         };
+        // Test seam only: an injected client never hits the network, so satisfy
+        // the agent's config gate with a placeholder when no key is configured.
+        if using_override && api_key.trim().is_empty() {
+            api_key = "override-test-client".to_string();
+        }
         AgentConfig {
             api_key,
             base_url,

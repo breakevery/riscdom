@@ -77,6 +77,15 @@ impl AgentLoop {
 
     /// Run one user turn to completion.
     pub fn run(&mut self, user_input: &str) -> Result<AgentOutcome, AgentError> {
+        // Readiness gate: refuse to start when the configuration is unusable.
+        // Fails before any LLM call, with iterations = 0.
+        if let Err(e) = self.config.validate() {
+            return Ok(AgentOutcome::Failed {
+                reason: e.to_string(),
+                iterations: 0,
+            });
+        }
+
         let user = truncate(user_input, MAX_MESSAGE_BYTES);
         self.emit(
             "agent.user.input",
