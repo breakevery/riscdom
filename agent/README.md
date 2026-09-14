@@ -91,9 +91,9 @@ cargo test -p agent -- --ignored --nocapture
 原因：本环境下 `medlow` 模型在 `0x80000000` 会截断重定位；且 `-bios none` 下 QEMU
 从 `0x80000000` 起跳，入口必须位于镜像最前。详见 `sandbox/README.md` 与 `ENVIRONMENT.md`。
 
-## v0.2 待办
+## v0.2 TODO
 
-- 流式响应（SSE）
-- 多轮会话持久化
+- 给 `AgentLoop` 暴露最小串口访问接口（当前 host 从审计派生串口内容，依赖脆弱）
+- 流式 LLM 响应（SSE 逐字）
 - gdbstub 接入（调试）
-- 更多工具（快照回滚、反汇编查看）
+- 多轮会话持久化（跨轮上下文）

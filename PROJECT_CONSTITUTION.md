@@ -87,3 +87,26 @@ UPDATE / DELETE API、无关闭审计的开关。`sandbox` 通过 `audit::AuditS
 - 变更配置前先检查现有状态，默认保留/合并现有内容。
 - 优先使用 trash 而非 rm。
 - 如有疑问，先询问。
+
+## 9. v0.1 完成情况
+
+- [DONE] 宿主监控层（`host`）不可被 AI 修改；前端只能经 Tauri command 访问。
+- [DONE] 审计日志在 AI 之外、append-only、不可关闭（`audit`：SQLite 触发器 + hash chain + `audit-verify`）。
+- [DONE] 能力默认拒绝（`agent::WorkspacePolicy`，防穿越 + 扩展名白名单）。
+- [DONE] 人类可暂停/回滚/终止（VMP 生命周期可控；快照为 MVP 降级方案）。
+- [DONE] AI 接入使用 API keys（`DEEPSEEK_API_KEY`，仅内存，不落盘/不进审计）。
+- [DONE] 沙箱内 AI 只生成 C11 与 RV64GC 汇编（`agent::tools` 白名单 + 编译器参数）。
+- [DONE] 所有动作写入审计（sandbox / agent / host 均产生事件）。
+- [PARTIAL] MVP 快照为“重启式”降级方案，非真实 VM 状态。
+- [PARTIAL] 串口事件由 host 从审计派生（agent 尚未暴露串口接口）。
+
+## 10. v0.2 路线图
+
+- 给 `AgentLoop` 暴露最小串口访问接口；sandbox 串口改为主动回调。
+- QEMU `savevm` / `loadvm` 真实快照。
+- 流式 LLM 响应（SSE）。
+- 多轮会话持久化。
+- gdbstub 接入（调试）。
+- Unix socket（macOS / Linux）与 virtio 设备。
+- API key 用系统钥匙串持久化（替代仅会话内存）。
+- 审计日志分片与远程备份。

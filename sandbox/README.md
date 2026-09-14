@@ -74,9 +74,9 @@ cargo run -p sandbox --example run_hello
 cargo run -p audit --bin audit-verify -- <path-to-db>
 ```
 
-## v0.2 待办
+## v0.2 TODO
 
-- 用 QEMU `savevm` / `loadvm` 替换 MVP 快照降级方案（真实内存 + 设备状态）
-- 接入 `gdbstub`（TCP）做调试
+- QEMU `savevm` / `loadvm` 真实快照（替换 MVP 重启式降级方案）
+- Unix socket 支持（macOS / Linux，`QmpEndpoint::UnixSocket`）
 - virtio 设备（块设备 / 网络）
-- Unix socket 端点实现（`QmpEndpoint::UnixSocket`）
+- sandbox 主动回调串口（替代 host 轮询）
