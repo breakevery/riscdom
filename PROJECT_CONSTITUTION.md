@@ -102,11 +102,53 @@ UPDATE / DELETE API、无关闭审计的开关。`sandbox` 通过 `audit::AuditS
 
 ## 10. v0.2 路线图
 
-- 给 `AgentLoop` 暴露最小串口访问接口；sandbox 串口改为主动回调。
-- QEMU `savevm` / `loadvm` 真实快照。
-- 流式 LLM 响应（SSE）。
-- 多轮会话持久化。
-- gdbstub 接入（调试）。
-- Unix socket（macOS / Linux）与 virtio 设备。
-- API key 用系统钥匙串持久化（替代仅会话内存）。
-- 审计日志分片与远程备份。
+### v0.2 新增 — 多模型接入与密钥安全
+
+a. **LLM 客户端重构：`DeepSeekClient` → `OpenAiCompatClient`**
+   - `base_url` / `api_key` / `model` 全部用户可配
+   - 保持 OpenAI 兼容协议，DeepSeek 降级为默认预设之一
+   - 理由：DeepSeek 兼容 OpenAI 协议，改造成本低，收益是解锁所有兼容服务商
+
+b. **内置服务商预设**
+   - DeepSeek（默认）：`https://api.deepseek.com`，`deepseek-chat`
+   - OpenAI：`https://api.openai.com/v1`，`gpt-4o-mini`
+   - Ollama（本地）：`http://localhost:11434/v1`，`qwen2.5-coder`，无需 key
+   - LM Studio（本地）：`http://localhost:1234/v1`，用户指定
+   - 自定义：用户填 `base_url` 与 `model`
+   - UI：服务商下拉，选预设自动填 `base_url` / `model`
+
+c. **本地离线模型支持**
+   - Ollama / LM Studio 兼容 OpenAI 协议，复用同一客户端
+   - 离线模式 = QEMU + RISC-V GCC + 审计 + 沙箱 + 本地 LLM，全程无网络
+   - 对隐私敏感、教育、断网场景有价值
+
+d. **无 key 降级体验**
+   - 无 key 时不崩溃，UI 显示“请配置模型”引导
+   - 自动探测 `localhost:11434`，发现 Ollama 提示“检测到本地模型，是否使用？”
+   - 公开后新用户第一次启动不能直接报错
+
+e. **API key 持久化：OS keyring**
+   - Windows Credential Manager / macOS Keychain / Linux Secret Service
+   - Rust 侧用 `keyring` crate
+   - 绝不用 `localStorage` / 明文文件 / `.env`
+   - 当前“仅内存”方案降级为 fallback（keyring 不可用时）
+
+f. **公开前安全清单**
+   - `.env.example` 只放占位符
+   - `.gitignore` 覆盖 `.env` / `*.db` / `*.jsonl`
+   - CI 加 secret scanning（gitleaks 或 GitHub 原生）
+   - README 明确写“本项目不提供 API key，请自备”
+   - 审计日志 LLM 请求只记 hash 和 token 数（已做）
+
+### v0.2 其他
+
+g. 给 `AgentLoop` 暴露最小串口访问接口（当前 host 从审计派生，依赖脆弱）
+h. QEMU 真实快照 `savevm` / `loadvm`（替代重启式降级）
+i. 流式 LLM 响应
+j. 会话持久化
+k. `real_api` 测试补 `verify_chain` 断言（当前只断言串口输出）
+l. host 串口轮询改为 sandbox 主动回调
+
+- gdbstub 接入（调试）
+- Unix socket（macOS / Linux）与 virtio 设备
+- 审计日志分片与远程备份

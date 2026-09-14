@@ -122,6 +122,14 @@ Key 只存在后端内存：**不写** localStorage / sessionStorage / 磁盘 / 
 
 ## 已知限制（MVP 降级项）
 
+> 完整路线图见 [PROJECT_CONSTITUTION.md §10](PROJECT_CONSTITUTION.md)。
+
+- **仅支持 DeepSeek**（v0.1）：LLM 客户端目前只对接 DeepSeek。v0.2 将重构为通用
+  `OpenAiCompatClient`，内置 OpenAI / Ollama（本地）/ LM Studio（本地）预设，
+  支持无 key 的本地模型。
+- **API key 仅内存**（v0.1）：不落盘、不进审计，关闭应用即失效。v0.2 改用 OS keyring
+  （Windows Credential Manager / macOS Keychain / Linux Secret Service），
+  绝不使用 `localStorage` / 明文文件 / `.env`。
 - **快照**：`save_snapshot` / `load_snapshot` 是"存参数 + 重启"，**不是**真实
   VM 状态（v0.2 换 QEMU `savevm`/`loadvm`）。
 - **串口来源**：host 的串口事件从审计里 `read_serial` 工具结果派生，不是连续流

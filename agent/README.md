@@ -95,5 +95,8 @@ cargo test -p agent -- --ignored --nocapture
 
 - 给 `AgentLoop` 暴露最小串口访问接口（当前 host 从审计派生串口内容，依赖脆弱）
 - 流式 LLM 响应（SSE 逐字）
+- `OpenAiCompatClient` + 本地模型支持：`DeepSeekClient` 重构为通用 OpenAI 兼容客户端，
+  内置 DeepSeek（默认）/ OpenAI / Ollama（本地）/ LM Studio（本地）预设，支持无 key 的本地模型
 - gdbstub 接入（调试）
 - 多轮会话持久化（跨轮上下文）
+- `real_api` 测试补 `verify_chain` 断言（当前只断言串口输出）
