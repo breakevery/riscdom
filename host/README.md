@@ -99,6 +99,17 @@ AgentOutcome: Final，iterations = 6
    右侧画布出现 `HELLO RISCV`；中栏审计事件数增加。
 5. 关闭窗口后重启 → 设置栏 `configured == false`（确认 key 未持久化）。
 
+### 无 key / 本地模型降级（12b）
+
+1. 清空配置（设置栏“清除”）→ 设置面板顶部出现黄色横幅，`reason = no_config`。
+2. 选 DeepSeek 但不填 Key 保存 → API Key 字段下方提示 `missing_api_key`（保存被拒，不写入）。
+3. 选 Ollama（本地）保存 → `ready = true`，横幅消失（本地模型无需 key）。
+4. 若本机有 Ollama / LM Studio 在跑，点横幅右侧“检测本地模型”应识别出服务商与模型数；
+   点“使用”自动切换预设并保存。
+5. 未就绪时在对话框发送消息 → 消息流插入一条系统提示（不调用 run_agent）。
+
+前置接口：`get_llm_readiness()`、`probe_local_llm()`。探测超时每项 1.5s，失败静默。
+
 自动化的等价验证（mock LLM，无需 key）：
 
 ```text

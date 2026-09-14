@@ -70,6 +70,33 @@ export const setLlmConfig = (
   providerId: string,
 ) => invoke<void>("set_llm_config", { apiKey, baseUrl, model, providerId });
 
+/** Whether the LLM is ready, and why not. */
+export interface LlmReadiness {
+  ready: boolean;
+  reason: string | null;
+  suggestion: string | null;
+}
+
+/** A locally-detected OpenAI-compatible provider. */
+export interface LocalProviderInfo {
+  id: string;
+  display_name: string;
+  base_url: string;
+  models: string[];
+}
+
+export interface LocalProbeResult {
+  found: boolean;
+  providers: LocalProviderInfo[];
+  probed: string[];
+}
+
+export const getLlmReadiness = () =>
+  invoke<LlmReadiness>("get_llm_readiness");
+
+export const probeLocalLlm = () =>
+  invoke<LocalProbeResult>("probe_local_llm");
+
 export const getProviderPresets = () =>
   invoke<ProviderPreset[]>("get_provider_presets");
 

@@ -1,6 +1,19 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import * as api from "../api/tauri";
 import type { AppStore } from "../state/appStore";
+
+const BANNER_TEXT: Record<string, string> = {
+  no_config: "尚未配置模型。选择服务商并填写 API Key，或使用本地模型。",
+  missing_api_key: "缺少 API Key。请填写，或切换到本地模型预设。",
+  invalid_base_url: "Base URL 无效，请检查。",
+  invalid_config: "配置无效，请检查服务商与 Model。",
+};
+
+function splitCode(message: string): { code: string; text: string } {
+  const i = message.indexOf("|");
+  if (i < 0) return { code: message, text: message };
+  return { code: message.slice(0, i), text: message.slice(i + 1) };
+}
 
 export default function SettingsPanel({ store }: { store: AppStore }) {
   const [apiKey, setApiKey] = useState("");
@@ -9,13 +22,28 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
   const [providerId, setProviderId] = useState("deepseek");
   const [presets, setPresets] = useState<api.ProviderPreset[]>([]);
   const [note, setNote] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<{ code: string; text: string } | null>(null);
+
+  const [readiness, setReadiness] = useState<api.LlmReadiness | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [probeNote, setProbeNote] = useState<string | null>(null);
+  const [suggestion, setSuggestion] = useState<api.LocalProviderInfo | null>(null);
+
+  const refreshReadiness = useCallback(async () => {
+    try {
+      setReadiness(await api.getLlmReadiness());
+    } catch {
+      setReadiness(null);
+    }
+  }, []);
 
   useEffect(() => {
     api
       .getProviderPresets()
       .then(setPresets)
-      .catch((e) => setNote(`加载服务商失败：${String(e)}`));
-  }, []);
+      .catch(() => setNote("加载服务商失败"));
+    void refreshReadiness();
+  }, [refreshReadiness]);
 
   const selected = presets.find((p) => p.id === providerId);
   const isCustom = providerId === "custom";
@@ -24,7 +52,6 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
   const onProviderChange = (id: string) => {
     setProviderId(id);
     const preset = presets.find((p) => p.id === id);
-    // "custom" keeps whatever the user already typed.
     if (preset && preset.id !== "custom") {
       setBaseUrl(preset.base_url);
       setModel(preset.default_model);
@@ -32,13 +59,17 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
   };
 
   const save = async () => {
+    setFieldError(null);
     try {
       await api.setLlmConfig(apiKey, baseUrl, model, providerId);
       setApiKey(""); // never keep the key in component memory
       setNote("已保存到本次会话（仅内存）");
       await store.refreshLlmStatus();
+      await refreshReadiness();
     } catch (e) {
-      setNote(`保存失败：${String(e)}`);
+      const parsed = splitCode(String(e));
+      setFieldError(parsed);
+      setNote(null);
     }
   };
 
@@ -46,9 +77,46 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
     try {
       await api.clearLlmConfig();
       setNote("已清除");
+      setFieldError(null);
       await store.refreshLlmStatus();
+      await refreshReadiness();
     } catch (e) {
       setNote(String(e));
+    }
+  };
+
+  const detectLocal = async () => {
+    setProbing(true);
+    setProbeNote(null);
+    setSuggestion(null);
+    try {
+      const result = await api.probeLocalLlm();
+      if (result.found && result.providers.length > 0) {
+        setSuggestion(result.providers[0]);
+      } else {
+        setProbeNote("未检测到本地模型");
+      }
+    } catch {
+      setProbeNote("未检测到本地模型");
+    } finally {
+      setProbing(false);
+    }
+  };
+
+  const useLocal = async (provider: api.LocalProviderInfo) => {
+    const preset = presets.find((p) => p.id === provider.id);
+    const localModel = provider.models[0] ?? preset?.default_model ?? "";
+    setProviderId(provider.id);
+    setBaseUrl(provider.base_url);
+    setModel(localModel);
+    setSuggestion(null);
+    try {
+      await api.setLlmConfig("", provider.base_url, localModel, provider.id);
+      setNote("已切换到本地模型");
+      await store.refreshLlmStatus();
+      await refreshReadiness();
+    } catch (e) {
+      setFieldError(splitCode(String(e)));
     }
   };
 
@@ -56,12 +124,38 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
   const providerName =
     presets.find((p) => p.id === store.llmStatus.provider_id)?.display_name ??
     store.llmStatus.provider_id;
+  const bannerReason = readiness && !readiness.ready ? readiness.reason ?? "" : null;
 
   return (
     <section className="panel">
       <header className="panel-head">设置</header>
 
       <div className="settings-body">
+        {bannerReason !== null ? (
+          <div className="banner warn">
+            <span>{BANNER_TEXT[bannerReason] ?? "模型未就绪，请检查配置。"}</span>
+            <button className="ghost tiny" disabled={probing} onClick={() => void detectLocal()}>
+              {probing ? "检测中…" : "检测本地模型"}
+            </button>
+          </div>
+        ) : null}
+
+        {suggestion ? (
+          <div className="banner info">
+            <span>
+              检测到本地模型 {suggestion.display_name}（{suggestion.base_url}，
+              {suggestion.models.length} 个模型）。是否使用？
+            </span>
+            <button className="ghost tiny" onClick={() => void useLocal(suggestion)}>
+              使用
+            </button>
+            <button className="ghost tiny" onClick={() => setSuggestion(null)}>
+              忽略
+            </button>
+          </div>
+        ) : null}
+        {probeNote ? <div className="muted small">{probeNote}</div> : null}
+
         <h3>LLM 配置</h3>
 
         <label>
@@ -86,8 +180,9 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
             onChange={(e) => setApiKey(e.target.value)}
           />
         </label>
-        {keyNotNeeded ? (
-          <div className="muted small">本地模型无需 key</div>
+        {keyNotNeeded ? <div className="muted small">本地模型无需 key</div> : null}
+        {fieldError?.code === "missing_api_key" ? (
+          <div className="field-error">{fieldError.text}</div>
         ) : null}
 
         <label>
@@ -98,6 +193,10 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
             onChange={(e) => setBaseUrl(e.target.value)}
           />
         </label>
+        {fieldError?.code === "invalid_base_url" ? (
+          <div className="field-error">{fieldError.text}</div>
+        ) : null}
+
         <label>
           Model
           <input
@@ -106,6 +205,10 @@ export default function SettingsPanel({ store }: { store: AppStore }) {
             onChange={(e) => setModel(e.target.value)}
           />
         </label>
+        {fieldError?.code === "invalid_config" ? (
+          <div className="field-error">{fieldError.text}</div>
+        ) : null}
+
         <div className="row">
           <button onClick={() => void save()}>保存到本次会话</button>
           <button className="ghost" onClick={() => void clear()}>

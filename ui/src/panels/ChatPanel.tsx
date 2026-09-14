@@ -1,4 +1,5 @@
 import { useState } from "react";
+import * as api from "../api/tauri";
 import type { AppStore } from "../state/appStore";
 
 export default function ChatPanel({ store }: { store: AppStore }) {
@@ -9,6 +10,20 @@ export default function ChatPanel({ store }: { store: AppStore }) {
     if (!canSend) return;
     const text = input;
     setInput("");
+
+    // No-key fallback: check readiness before calling the backend.
+    try {
+      const readiness = await api.getLlmReadiness();
+      if (!readiness.ready) {
+        store.pushSystem(
+          readiness.suggestion ?? "模型未就绪，请在设置中配置服务商与 API Key。",
+        );
+        return;
+      }
+    } catch {
+      // If readiness cannot be queried, fall through and let run_agent report.
+    }
+
     await store.send(text);
   };
 

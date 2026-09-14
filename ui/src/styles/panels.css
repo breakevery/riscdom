@@ -1,4 +1,39 @@
 /* Chat panel */
+.msg.system {
+  background: #1f2d3d;
+  border: 1px solid #2d4257;
+  color: #a9c7e8;
+  font-size: 12px;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.banner.warn {
+  background: #3a2f10;
+  border: 1px solid #6b531d;
+  color: #f0d48a;
+}
+
+.banner.info {
+  background: #10314a;
+  border: 1px solid #1f6feb66;
+  color: #a9d3ff;
+}
+
+.field-error {
+  color: var(--bad);
+  font-size: 12px;
+  margin: -6px 0 8px;
+}
 .chat-log {
   flex: 1 1 auto;
   overflow-y: auto;

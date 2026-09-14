@@ -21,6 +21,7 @@ export interface AppStore {
   messages: ChatItem[];
   busy: boolean;
   send: (input: string) => Promise<void>;
+  pushSystem: (text: string) => void;
   // settings
   llmStatus: api.LlmStatus;
   refreshLlmStatus: () => Promise<void>;
@@ -175,6 +176,7 @@ export function useAppStore(): AppStore {
     messages,
     busy,
     send,
+    pushSystem: (text: string) => push({ role: "system", text }),
     llmStatus,
     refreshLlmStatus: refresh,
     auditStatus,
