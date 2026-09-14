@@ -131,6 +131,51 @@ export const exportSerialLog = (path: string) =>
 export const exportAuditJsonl = (path: string) =>
   invoke<number>("export_audit_jsonl", { path });
 
+/** A persisted session summary. */
+export interface SessionMeta {
+  id: string;
+  title: string;
+  created_at_ms: number;
+  updated_at_ms: number;
+  message_count: number;
+}
+
+/** One persisted message. */
+export interface SessionMessage {
+  id: number;
+  session_id: string;
+  role: string;
+  content: string;
+  tool_call_json: string | null;
+  tool_call_id: string | null;
+  created_at_ms: number;
+}
+
+export interface SessionDetail {
+  meta: SessionMeta;
+  messages: SessionMessage[];
+}
+
+export const listSessions = (limit: number) =>
+  invoke<SessionMeta[]>("list_sessions", { limit });
+
+export const createSession = (title: string) =>
+  invoke<string>("create_session", { title });
+
+export const openSession = (sessionId: string) =>
+  invoke<SessionDetail>("open_session", { sessionId });
+
+export const renameSession = (sessionId: string, title: string) =>
+  invoke<void>("rename_session", { sessionId, title });
+
+export const deleteSession = (sessionId: string) =>
+  invoke<void>("delete_session", { sessionId });
+
+export const clearAllSessions = () => invoke<void>("clear_all_sessions");
+
+export const getCurrentSessionId = () =>
+  invoke<string | null>("get_current_session_id");
+
 /** Incremental assistant text from the LLM stream (`agent:stream:delta`). */
 export const onAgentStreamDelta = (cb: (text: string) => void) =>
   onHostEvent("agent:stream:delta", (p) =>

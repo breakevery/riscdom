@@ -65,9 +65,19 @@ cargo test -p agent -- --ignored --nocapture
 npm run tauri dev   # 或直接手动操作界面
 ```
 
+## 会话持久化
+
+对话会自动保存，重启后可在 ChatPanel 顶部“会话”面板里打开 / 重命名 / 删除。
+
+- 存储位置：**应用数据目录**下的 `sessions.db`（SQLite），不在仓库、不在 AI 工作区。
+- 可用环境变量 `RISCDOM_SESSION_DB_PATH` 覆盖路径。
+- 清除：在会话面板逐条删除，或调用 `clear_all_sessions`（UI 二次确认）。
+- **不会**持久化：API Key、system prompt 原文、流式中间状态、审计事件。
+- 恢复会话只把历史消息注入 `AgentLoop`，**不重放**工具调用。
+
 ## v0.2 待办
 
 - keyring 持久化（系统钥匙串，替代仅会话内）
 - 流式输出（SSE 逐字）
-- 消息历史持久化（多轮上下文）
+- 会话：搜索 / 标签 / 导入导出 / 加密（均属 v0.2 后续）
 - 串口改为 sandbox 主动回调（去掉 host 轮询）

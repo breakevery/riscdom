@@ -38,11 +38,63 @@ export interface AppStore {
   // live LLM stream (stage 16c)
   streaming: string;
   streamingActive: boolean;
+  // sessions (stage 17c)
+  sessions: api.SessionMeta[];
+  currentSessionId: string | null;
+  refreshSessions: () => Promise<void>;
+  openSession: (id: string) => Promise<void>;
+  newSession: () => Promise<void>;
+  renameSession: (id: string, title: string) => Promise<void>;
+  deleteSession: (id: string) => Promise<void>;
   // errors
   lastError: string | null;
 }
 
 let nextId = 1;
+
+/** Map a persisted message back into a chat item (system rows are dropped). */
+function historyItem(row: api.SessionMessage, id: number): ChatItem | null {
+  if (row.role === "system") return null;
+  if (row.role === "tool") {
+    return {
+      id,
+      role: "tool",
+      text: "tool",
+      toolName: "tool",
+      toolArgs: "",
+      toolResult: row.content,
+      ok: true,
+    };
+  }
+  if (row.role === "assistant" && row.tool_call_json) {
+    let name = "tool";
+    let args = "";
+    try {
+      const calls = JSON.parse(row.tool_call_json) as Array<{
+        function?: { name?: string; arguments?: string };
+      }>;
+      name = calls[0]?.function?.name ?? name;
+      args = calls[0]?.function?.arguments ?? args;
+    } catch {
+      /* ignore malformed history */
+    }
+    return { id, role: "tool", text: name, toolName: name, toolArgs: args };
+  }
+  return {
+    id,
+    role: row.role === "assistant" ? "assistant" : "user",
+    text: row.content,
+  };
+}
+
+/** Short relative time for the session list. */
+export function relTime(ms: number): string {
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return `${Math.floor(diff / 86_400_000)}d ago`;
+}
 
 export function useAppStore(): AppStore {
   const [messages, setMessages] = useState<ChatItem[]>([]);
@@ -63,6 +115,8 @@ export function useAppStore(): AppStore {
   // Live assistant text from `agent:stream:*`; replaced by the final content.
   const [streaming, setStreaming] = useState("");
   const [streamingActive, setStreamingActive] = useState(false);
+  const [sessions, setSessions] = useState<api.SessionMeta[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
 
   const push = useCallback((item: Omit<ChatItem, "id">) => {
@@ -95,6 +149,87 @@ export function useAppStore(): AppStore {
       setLastError(String(e));
     }
   }, [auditActorFilter]);
+
+  // ---- sessions (declared before the event subscription that uses them) ----
+
+  const refreshSessions = useCallback(async () => {
+    try {
+      setSessions(await api.listSessions(50));
+      setCurrentSessionId(await api.getCurrentSessionId());
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
+  const restoreMessages = useCallback((rows: api.SessionMessage[]) => {
+    const items: ChatItem[] = [];
+    for (const row of rows) {
+      const item = historyItem(row, nextId++);
+      if (item) items.push(item);
+    }
+    setMessages(items);
+  }, []);
+
+  const openSession = useCallback(
+    async (id: string) => {
+      try {
+        const detail = await api.openSession(id);
+        restoreMessages(detail.messages);
+        setCurrentSessionId(detail.meta.id);
+        setStreaming("");
+        setStreamingActive(false);
+        await refreshSessions();
+      } catch (e) {
+        setLastError(String(e));
+      }
+    },
+    [restoreMessages, refreshSessions],
+  );
+
+  const newSession = useCallback(async () => {
+    try {
+      const id = await api.createSession("新会话");
+      setMessages([]);
+      setStreaming("");
+      setStreamingActive(false);
+      setCurrentSessionId(id);
+      await refreshSessions();
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, [refreshSessions]);
+
+  const renameSession = useCallback(
+    async (id: string, title: string) => {
+      try {
+        await api.renameSession(id, title);
+        await refreshSessions();
+      } catch (e) {
+        setLastError(String(e));
+      }
+    },
+    [refreshSessions],
+  );
+
+  const deleteSession = useCallback(
+    async (id: string) => {
+      try {
+        await api.deleteSession(id);
+        if (currentSessionId === id) {
+          setMessages([]);
+          setCurrentSessionId(null);
+        }
+        await refreshSessions();
+      } catch (e) {
+        setLastError(String(e));
+      }
+    },
+    [currentSessionId, refreshSessions],
+  );
+
+  useEffect(() => {
+    void refreshSessions();
+  }, [refreshSessions]);
 
   // Host events → chat stream / serial / vm state.
   useEffect(() => {
@@ -144,6 +279,7 @@ export function useAppStore(): AppStore {
         setBusy(false);
         void refreshAudit();
         void refreshWorkspace();
+        void refreshSessions();
       }),
       api.onAgentStreamDelta((text) => {
         if (!text) return;
@@ -208,6 +344,13 @@ export function useAppStore(): AppStore {
     vmState,
     streaming,
     streamingActive,
+    sessions,
+    currentSessionId,
+    refreshSessions,
+    openSession,
+    newSession,
+    renameSession,
+    deleteSession,
     lastError,
   };
 }

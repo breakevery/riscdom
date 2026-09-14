@@ -1,9 +1,10 @@
 import { useState } from "react";
 import * as api from "../api/tauri";
-import type { AppStore } from "../state/appStore";
+import { relTime, type AppStore } from "../state/appStore";
 
 export default function ChatPanel({ store }: { store: AppStore }) {
   const [input, setInput] = useState("");
+  const [showSessions, setShowSessions] = useState(false);
   const canSend = !store.busy && input.trim().length > 0;
 
   const submit = async () => {
@@ -29,7 +30,67 @@ export default function ChatPanel({ store }: { store: AppStore }) {
 
   return (
     <section className="panel">
-      <header className="panel-head">对话框</header>
+      <header className="panel-head chat-head">
+        <span>对话框</span>
+        <button className="ghost tiny" onClick={() => setShowSessions((v) => !v)}>
+          会话 ({store.sessions.length})
+        </button>
+      </header>
+
+      {showSessions ? (
+        <div className="session-list">
+          <div className="row">
+            <button className="ghost tiny" onClick={() => void store.newSession()}>
+              新建会话
+            </button>
+            <button className="ghost tiny" onClick={() => void store.refreshSessions()}>
+              刷新
+            </button>
+          </div>
+          {store.sessions.length === 0 ? (
+            <div className="muted small">（暂无会话）</div>
+          ) : null}
+          <ul>
+            {store.sessions.map((s) => (
+              <li key={s.id} className={s.id === store.currentSessionId ? "active" : ""}>
+                <button
+                  className="link"
+                  title={s.id}
+                  onClick={() => {
+                    void store.openSession(s.id);
+                    setShowSessions(false);
+                  }}
+                >
+                  {s.title}
+                </button>
+                <span className="muted small">
+                  {relTime(s.updated_at_ms)} · {s.message_count}
+                </span>
+                <span className="spacer" />
+                <button
+                  className="ghost tiny"
+                  onClick={() => {
+                    const next = window.prompt("重命名会话", s.title);
+                    if (next && next.trim()) void store.renameSession(s.id, next.trim());
+                  }}
+                >
+                  改名
+                </button>
+                <button
+                  className="ghost tiny"
+                  onClick={() => {
+                    if (window.confirm(`删除会话“${s.title}”？此操作不可撤销。`)) {
+                      void store.deleteSession(s.id);
+                    }
+                  }}
+                >
+                  删除
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="chat-log">
         {store.messages.length === 0 ? (

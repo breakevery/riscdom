@@ -1,4 +1,57 @@
 /* Chat panel */
+.chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.session-list {
+  flex: 0 0 auto;
+  max-height: 40%;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+  background: var(--panel-2);
+  font-size: 12px;
+}
+
+.session-list ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.session-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid #1b2029;
+}
+
+.session-list li.active .link {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.session-list .link {
+  background: none;
+  border: 0;
+  color: var(--fg);
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  text-align: left;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-list .spacer {
+  flex: 1 1 auto;
+}
 .msg.system {
   background: #1f2d3d;
   border: 1px solid #2d4257;

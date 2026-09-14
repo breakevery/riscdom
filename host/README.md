@@ -66,6 +66,20 @@ c. 关闭应用重启 → 状态自动恢复为“已配置”（从钥匙串读
 d. 清除配置 → 重启 → 状态为未配置（钥匙串条目已删）。
 e. 不勾选记住 → 保存后状态为“仅本次会话”；重启后需重填。
 
+## 会话持久化
+
+对话保存在**应用数据目录**的 `sessions.db`（SQLite，复用 `rusqlite`，不新增依赖）：
+
+- 位置：`app_data_dir/sessions.db`（由 `ui/src-tauri` 在 setup 里注册）；可用
+  `RISCDOM_SESSION_DB_PATH` 覆盖；非 Tauri 上下文回退到 `<temp>/riscdom/sessions.db`。
+- 命令：`list_sessions` / `create_session` / `open_session` / `rename_session` /
+  `delete_session` / `clear_all_sessions` / `get_current_session_id`。
+- 审计事件：`host.session.create` / `.open` / `.rename` / `.delete`（**不记**消息内容）。
+- **绝不持久化**：API Key、system prompt 原文、流式中间状态、审计事件；删除会话时
+  消息级联删除。
+- 恢复：`open_session` 返回历史消息；`run_agent` 在启动新 `AgentLoop` 前用
+  `push_history` 注入它们（不重放工具调用）。
+
 ## 安全
 
 - **API key 只在内存**（`AppState::llm_config`）。不落盘、不进审计、不进日志、

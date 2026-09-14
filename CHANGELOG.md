@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **会话持久化**（列表 / 打开 / 重命名 / 删除 / 清空）：host `SessionStore`（SQLite，复用
+  `rusqlite`）+ 7 个 Tauri 命令；会话自动保存到应用数据目录，重启后可恢复；恢复只注入
+  历史消息（不重放工具调用），**不持久化** API key / system prompt / 审计事件。
 - **流式 LLM 响应（agent + host + UI 全链路）**：`LlmClient::chat_stream`（默认退化到
   `chat`）+ `OpenAiCompatClient` 的 SSE 实现 + `sse` 解析模块；`AgentLoop::subscribe_stream`；
   host `agent:stream:delta` / `agent:stream:done`；UI 逐字追加渲染（最终 content 覆盖）。
@@ -57,7 +60,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 给 `AgentLoop` 暴露最小串口访问接口（当前 host 从审计派生，依赖脆弱）
 - QEMU 真实快照 `savevm` / `loadvm`（替代重启式降级）
-- 会话持久化
 - `real_api` 测试补 `verify_chain` 断言（当前只断言串口输出）
 - host 串口轮询改为 sandbox 主动回调
 - gdbstub 接入（调试）
