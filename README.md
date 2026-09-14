@@ -55,6 +55,15 @@ RiscDom（中文名 **智芯城**）是一个桌面应用：AI 在 QEMU RISC-V �
 
 细节与路径见 [ENVIRONMENT.md](ENVIRONMENT.md)。
 
+## 安全声明
+
+- 本项目**不提供、不代管、不内置**任何 API Key。所有模型访问均由用户自带（BYOK）。
+- API Key 仅保存在本机（默认写入系统钥匙串），**不经过本项目任何服务器**。
+- 本项目**不会**将用户代码、串口输出、审计日志上传到任何远端。
+- 审计日志（SQLite + hash chain）仅存在于本地，用于审计与回滚。
+- 如需完全离线运行，可使用 Ollama / LM Studio 等本地模型，**无需任何 key**。
+- 发现安全问题请通过 GitHub Security Advisory 私下报告，不要在 issue 中贴 key 或漏洞细节。
+
 ## 快速开始
 
 ```powershell
@@ -142,6 +151,9 @@ Key 只存在后端内存：**不写** localStorage / sessionStorage / 磁盘 / 
 ## 许可证
 
 [Apache License 2.0](LICENSE)。
+
+- 本仓库代码采用 Apache-2.0 许可证。
+- 使用本项目时请遵守你所用模型服务商的条款。
 
 ## 更多
 

@@ -1,8 +1,21 @@
-# Rust
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Audit database & logs
+*.db
+*.db-journal
+*.sqlite
+*.jsonl
+
+# Rust build output
 /target
 **/target
 
 # Node / Vite
+node_modules/
+dist/
 /ui/node_modules
 /ui/dist
 
@@ -10,5 +23,9 @@
 /ui/src-tauri/gen/schemas
 
 # OS
-Thumbs.db
 .DS_Store
+Thumbs.db
+
+# Temporary files
+.cowork-temp/
+*.log
