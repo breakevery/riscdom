@@ -12,14 +12,20 @@
 //! - 绝不绕过 `sandbox` crate 直接起 QEMU。
 
 pub mod audit_hook;
+pub mod compiler;
 pub mod config;
 pub mod error;
 pub mod llm;
 pub mod message;
+pub mod policy;
+pub mod tools;
 
+pub use compiler::{compile_freestanding, CompileOutput, CompilerConfig};
 pub use config::AgentConfig;
 pub use error::AgentError;
 pub use llm::{DeepSeekClient, LlmClient, MockLlm};
 pub use message::{
     ChatMessage, ChatRequest, ChatResponse, Choice, FunctionCall, ToolCall, Usage,
 };
+pub use policy::WorkspacePolicy;
+pub use tools::{execute_tool, tool_specs, tools_json, ToolContext, ToolSpec};

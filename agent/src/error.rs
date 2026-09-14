@@ -23,6 +23,15 @@ pub enum AgentError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("policy denied: {0}")]
+    PolicyDenied(String),
+
+    #[error("tool error: {0}")]
+    Tool(String),
+
+    #[error("sandbox error: {0}")]
+    Sandbox(#[from] sandbox::SandboxError),
+
     #[error("{0}")]
     Other(String),
 }
