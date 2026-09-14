@@ -35,6 +35,7 @@ fn stage3a_lifecycle_serial_and_audit() {
         qmp: QmpEndpoint::tcp("127.0.0.1", qmp_port),
         serial: SerialEndpoint::tcp("127.0.0.1", serial_port),
         snapshot_dir,
+        serial_observer: None,
     };
 
     let mut vm = RiscVVirtualMachine::new(config, audit).expect("construct vm");

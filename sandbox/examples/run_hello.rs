@@ -94,6 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         qmp: QmpEndpoint::tcp("127.0.0.1", qmp_port),
         serial: SerialEndpoint::tcp("127.0.0.1", serial_port),
         snapshot_dir: work.join("snapshots"),
+        serial_observer: None,
     };
 
     println!("kernel : {}", kernel.display());

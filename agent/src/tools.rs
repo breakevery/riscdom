@@ -284,6 +284,7 @@ fn tool_start_vm(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<Stri
         qmp: QmpEndpoint::tcp("127.0.0.1", qmp_port),
         serial: SerialEndpoint::tcp("127.0.0.1", serial_port),
         snapshot_dir,
+        serial_observer: None,
     };
     let mut vm = RiscVVirtualMachine::new(config, Arc::clone(&ctx.audit))?;
     vm.start()?;

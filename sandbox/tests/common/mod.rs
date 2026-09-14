@@ -38,11 +38,17 @@ pub fn riscv_gcc() -> PathBuf {
 
 /// Compile the fixture guest into a bare-metal ELF under the target tmp dir.
 pub fn build_guest_elf() -> PathBuf {
+    build_guest("hello.c")
+}
+
+/// Compile a named fixture (e.g. `hello.c`, `hello_split.c`) into an ELF.
+pub fn build_guest(fixture: &str) -> PathBuf {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let fixtures = manifest.join("tests").join("fixtures");
     let out_dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("guest");
     std::fs::create_dir_all(&out_dir).expect("create guest dir");
-    let elf = out_dir.join("hello.elf");
+    let stem = fixture.trim_end_matches(".c");
+    let elf = out_dir.join(format!("{stem}.elf"));
 
     let status = Command::new(riscv_gcc())
         .args([
@@ -57,7 +63,7 @@ pub fn build_guest_elf() -> PathBuf {
         .arg(fixtures.join("link.ld"))
         .arg("-o")
         .arg(&elf)
-        .arg(fixtures.join("hello.c"))
+        .arg(fixtures.join(fixture))
         .status()
         .expect("failed to run riscv64-unknown-elf-gcc");
     assert!(status.success(), "riscv gcc failed to build guest ELF");

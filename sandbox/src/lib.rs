@@ -22,6 +22,7 @@
 //!     qmp: QmpEndpoint::tcp("127.0.0.1", 4444),
 //!     serial: SerialEndpoint::tcp("127.0.0.1", 5555),
 //!     snapshot_dir: "snapshots".into(),
+//!     serial_observer: None,
 //! };
 //! let mut vm = RiscVVirtualMachine::new(config, audit)?;
 //! vm.start()?;

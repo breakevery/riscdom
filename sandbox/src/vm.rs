@@ -35,8 +35,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long to wait for QEMU to exit after a QMP `quit` before force-killing.
 const QUIT_GRACE: Duration = Duration::from_secs(2);
 
+/// A serial observer callback: receives newly-read UART bytes as they arrive.
+pub type SerialObserver = Arc<dyn Fn(&[u8]) + Send + Sync>;
+
 /// Virtual machine configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct VMConfig {
     /// Path to the RISC-V bare-metal ELF to boot.
     pub kernel: PathBuf,
@@ -49,6 +52,27 @@ pub struct VMConfig {
     /// Directory used to persist snapshots (see the fallback in
     /// [`RiscVVirtualMachine::save_snapshot`]).
     pub snapshot_dir: PathBuf,
+    /// Optional observer called with each chunk of serial output.
+    ///
+    /// Not serialised (it is a callback, not data) and defaults to `None`.
+    #[serde(skip)]
+    pub serial_observer: Option<SerialObserver>,
+}
+
+impl std::fmt::Debug for VMConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VMConfig")
+            .field("kernel", &self.kernel)
+            .field("memory_mb", &self.memory_mb)
+            .field("qmp", &self.qmp)
+            .field("serial", &self.serial)
+            .field("snapshot_dir", &self.snapshot_dir)
+            .field(
+                "serial_observer",
+                &self.serial_observer.as_ref().map(|_| "<observer>"),
+            )
+            .finish()
+    }
 }
 
 /// A running (or startable) RISC-V virtual machine.
@@ -134,6 +158,7 @@ impl RiscVVirtualMachine {
 
             let buf = Arc::clone(&self.serial_buf);
             let audit = Arc::clone(&self.audit);
+            let observer = self.config.serial_observer.clone();
             let mut read_stream = stream;
             self.reader = Some(std::thread::spawn(move || {
                 let mut chunk = [0u8; 1024];
@@ -141,6 +166,7 @@ impl RiscVVirtualMachine {
                     match read_stream.read(&mut chunk) {
                         Ok(0) => break,
                         Ok(n) => {
+                            // 1. always buffer first (unchanged behaviour)
                             if let Ok(mut guard) = buf.lock() {
                                 guard.extend_from_slice(&chunk[..n]);
                             }
@@ -150,6 +176,24 @@ impl RiscVVirtualMachine {
                                     "serial.read",
                                     serde_json::json!({ "bytes": n }),
                                 ));
+                            }
+                            // 2. then notify the observer (never blocks the
+                            //    reader; a panic is caught and audited).
+                            if let Some(obs) = observer.as_ref() {
+                                let f: &dyn Fn(&[u8]) = obs.as_ref();
+                                let data = chunk[..n].to_vec();
+                                let outcome = std::panic::catch_unwind(
+                                    std::panic::AssertUnwindSafe(|| f(&data)),
+                                );
+                                if outcome.is_err() {
+                                    if let Ok(mut sink) = audit.lock() {
+                                        sink.record(AuditEvent::new(
+                                            AUDIT_ACTOR,
+                                            "sandbox.serial.observer_panic",
+                                            serde_json::json!({ "bytes": n }),
+                                        ));
+                                    }
+                                }
                             }
                         }
                         Err(_) => break,
