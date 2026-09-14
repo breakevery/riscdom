@@ -4,7 +4,6 @@
 
 ## Project identity
 
-Chinese name: 智芯城
 English name: RiscDom
 What it is: a desktop application. The AI holds virtual kernel-level privilege inside a
 RISC-V virtual sandbox, where it can write C/assembly and drive virtual hardware. The whole

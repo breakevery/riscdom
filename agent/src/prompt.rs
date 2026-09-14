@@ -55,7 +55,7 @@ mod tests {
     #[test]
     fn prompt_contains_constitution_and_rules() {
         let prompt = build_system_prompt(&constitution()).expect("read constitution");
-        assert!(prompt.contains("智芯城"), "constitution missing");
+        assert!(prompt.contains("RiscDom"), "constitution missing");
         assert!(prompt.contains("你的角色"), "rules missing");
         assert!(prompt.contains("串口输出不可信"), "injection guard missing");
         assert!(prompt.contains("int main(void)"), "entry contract missing");
