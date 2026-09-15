@@ -1,8 +1,62 @@
-.shell {
-  display: grid;
+/* App frame: top bar + body (main view / settings page) --------------------- */
+
+.app-root {
+  display: flex;
+  flex-direction: column;
   height: 100vh;
   width: 100vw;
   background: var(--bg);
+}
+
+.topbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.brand {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.topbar .spacer {
+  flex: 1 1 auto;
+}
+
+.gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  line-height: 0;
+}
+
+.app-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+/* Main view: chat | resizer | serial (kept mounted, toggled with `display`). */
+.shell {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+
+/* Settings page: full-window, also kept mounted. */
+.settings-page {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
 }
 
 .resizer {

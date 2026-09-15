@@ -318,6 +318,33 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
+/* Settings tabs (v0.3 #2) -------------------------------------------------- */
+
+.settings-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.settings-tabs .tab-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.settings-tabs .tab-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06121f;
+  font-weight: 600;
+}
+
 .canvas-placeholder {
   flex: 1 1 auto;
   display: flex;

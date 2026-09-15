@@ -87,6 +87,8 @@ npm install
 npm run tauri dev
 ```
 
+主界面为**聊天 + 串口双栏**（两栏始终同时可见）；设置通过右上角齿轮进入（`Esc` 返回）。
+
 在设置栏填入 DeepSeek API Key（仅会话内存），然后在对话框输入例如：
 
 > 写一个 RISC-V 裸机 Hello World，编译、运行并把串口输出读回来

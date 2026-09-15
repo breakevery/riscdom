@@ -4,21 +4,33 @@
 
 The RiscDom desktop frontend (Tauri 2 + React + TypeScript + Vite).
 
-## Three-pane layout
+## Layout
 
-- **Left · chat** (`panels/ChatPanel.tsx`): the message list (user / assistant / tool) plus
-  the input box at the bottom. Tool calls render as collapsible blocks (tool name +
-  arguments + result). While a run is in flight the input box is disabled and shows
-  "thinking…".
-- **Middle · settings** (`panels/SettingsPanel.tsx`): LLM configuration, workspace, audit
-  status and recent events.
-- **Right · serial canvas** (`panels/CanvasPanel.tsx`): an xterm.js terminal that shows
-  guest serial output live, with a VM status bar, a clear button and serial-log export on
-  top. Serial output **accumulates across runs** (it is never cleared automatically; use
-  "clear" when you want a blank terminal).
+**Main view** — two panes, side by side, both always visible (the core experience):
 
-The three panes use CSS Grid with two draggable splitters (`layout/AppShell.tsx`, no
-third-party splitter library).
+- **Left · chat** (`panels/ChatPanel.tsx`): the message list (user / assistant / tool) plus the
+  input box at the bottom. Tool calls render as collapsible blocks (tool name + arguments +
+  result). While a run is in flight the input box is disabled and shows "thinking…".
+- **Right · serial canvas** (`panels/CanvasPanel.tsx`): an xterm.js terminal that shows guest
+  serial output live, with a VM status bar, a clear button and serial-log export on top. Serial
+  output **accumulates across runs** (it is never cleared automatically; use "clear" when you want
+  a blank terminal).
+- One draggable splitter sits between them (`layout/AppShell.tsx`, no third-party splitter
+  library). The chat width is remembered in `localStorage` as `riscdom.layout.chatWidth` (an
+  integer number of pixels, never anything sensitive).
+
+**Settings page** — opens from the gear button in the top bar (top right); `Esc` or “← 返回”
+returns to the main view. It fills the window and is split into tabs
+(`src/settings/SettingsTabs.tsx`):
+
+- **Model** — provider preset, base URL, model, API key, “save to the OS keyring”, readiness banner
+- **Toolchain** — RISC-V GCC status, re-probe, set the path by hand, search diagnostics
+- **Snapshot** — snapshot list (save / restore / delete) plus the workspace file list
+- **Audit** — event count, hash-chain status, actor filter and the recent event list
+- **Plugin** — placeholder for the capability-plugin system (v0.4+)
+
+Both views stay mounted and are toggled with CSS, so switching pages never loses chat messages,
+the terminal buffer or scroll position.
 
 ## Auto-scroll
 

@@ -91,6 +91,9 @@ npm install
 npm run tauri dev
 ```
 
+The main view is a two-pane chat + serial layout, both panes always visible; settings open from
+the gear button in the top-right corner (`Esc` returns).
+
 Enter your DeepSeek API key in the settings panel (session memory only), then ask for example:
 
 > Write a RISC-V bare-metal Hello World, compile it, run it and read the serial output back

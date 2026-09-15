@@ -4,15 +4,27 @@
 
 智芯城（RiscDom）的桌面前端（Tauri 2 + React + TypeScript + Vite）。
 
-## 三栏布局
+## 界面结构
 
-- **左 · 对话框**（`panels/ChatPanel.tsx`）：消息列表（user / assistant / tool），
-  底部输入框。工具调用显示为可折叠块（工具名 + 参数 + 结果）。运行中输入框禁用并显示"思考中…"。
-- **中 · 设置**（`panels/SettingsPanel.tsx`）：LLM 配置、工作区、审计状态与最近事件。
+**主视图** —— 左右两栏，**始终同时可见**（核心体验）：
+
+- **左 · 对话框**（`panels/ChatPanel.tsx`）：消息列表（user / assistant / tool）+ 底部输入框；
+  工具调用为可折叠块（工具名 + 参数 + 结果）；运行中输入框禁用并显示“思考中…”。
 - **右 · 串口画布**（`panels/CanvasPanel.tsx`）：xterm.js 终端，实时显示 guest 串口输出；
-  顶部有 VM 状态条 + 清屏 + 导出串口日志。串口输出**跨 run 累积**（不自动清屏，需清空请点“清屏”）。
+  顶部有 VM 状态条 + 清屏 + 导出串口日志。串口输出**跨 run 累积**（不自动清屏）。
+- 两栏之间一条可拖拽分隔条（`layout/AppShell.tsx`，无第三方分栏库）；聊天宽度记忆在
+  `localStorage` 的 `riscdom.layout.chatWidth`（整数像素，不含任何敏感信息）。
 
-三栏用 CSS Grid，中间两条可拖拽的分隔条（`layout/AppShell.tsx`，无第三方分栏库）。
+**设置页** —— 由顶栏右侧齿轮按钮进入，`Esc` 或“← 返回”回到主视图；全屏，内部分 tab
+（`src/settings/SettingsTabs.tsx`）：
+
+- **模型** —— 服务商预设 / Base URL / Model / API Key、“保存到系统钥匙串”、就绪状态横幅
+- **工具链** —— RISC-V GCC 状态、重新探测、手动指定路径、探测详情
+- **快照** —— 快照列表（保存 / 恢复 / 删除）+ 工作区文件列表
+- **审计** —— 事件数、hash chain 状态、按 actor 过滤、最近事件列表
+- **插件** —— 能力插件系统占位（v0.4+）
+
+两个视图都**保持挂载**、仅用 CSS 切换显示，所以切页不会丢消息、终端缓冲或滚动位置。
 
 ## 自动滚动
 
