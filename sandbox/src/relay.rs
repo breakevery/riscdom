@@ -28,6 +28,12 @@ pub const DEFAULT_RELAY_TIMEOUT: Duration = Duration::from_secs(60);
 const ACCEPT_POLL: Duration = Duration::from_millis(20);
 
 /// A free loopback port (bound briefly, then released for the peer to take).
+///
+/// **Known race:** between the release here and the peer's `bind`, another
+/// process may take the port (TOCTOU). Callers that hand the port to QEMU must
+/// therefore retry with a fresh port when the peer fails to bind — see
+/// [`crate::vm::RiscVVirtualMachine::resume_from_snapshot_real`], which retries
+/// up to three times and audits `sandbox.snapshot.resume.retry`.
 pub fn free_local_port() -> Result<u16, SandboxError> {
     let listener =
         TcpListener::bind("127.0.0.1:0").map_err(|e| SandboxError::Relay(e.to_string()))?;

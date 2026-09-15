@@ -490,9 +490,38 @@ impl RiscVVirtualMachine {
         }
         let mut config = config;
         config.incoming_snapshot = Some(snapshot_path.to_path_buf());
-        let mut vm = Self::new(config, audit)?;
-        vm.start()?;
-        Ok(vm)
+
+        // `-incoming tcp:` makes **QEMU** listen on a port we picked and released
+        // (see `relay::free_local_port`), so another process can steal it in that
+        // window; QEMU then fails to bind, or the QMP connection is reset
+        // (Windows 10054). Retry with a fresh port instead of failing the restore.
+        const RESUME_ATTEMPTS: usize = 3;
+        let mut reasons: Vec<String> = Vec::new();
+        for attempt in 1..=RESUME_ATTEMPTS {
+            let started = Self::new(config.clone(), Arc::clone(&audit))
+                .and_then(|mut vm| vm.start().map(|()| vm));
+            match started {
+                Ok(vm) => return Ok(vm),
+                Err(e) => {
+                    let reason = e.to_string();
+                    if let Ok(mut sink) = audit.lock() {
+                        sink.record(AuditEvent::new(
+                            AUDIT_ACTOR,
+                            "sandbox.snapshot.resume.retry",
+                            serde_json::json!({ "attempt": attempt, "reason": reason }),
+                        ));
+                    }
+                    reasons.push(format!("attempt {attempt}: {reason}"));
+                    if attempt < RESUME_ATTEMPTS {
+                        std::thread::sleep(Duration::from_millis(200));
+                    }
+                }
+            }
+        }
+        Err(SandboxError::Relay(format!(
+            "failed to resume from snapshot after {RESUME_ATTEMPTS} attempts: {}",
+            reasons.join("; ")
+        )))
     }
 
     /// Wait until the guest reports `running` (used after `-incoming`).
