@@ -352,8 +352,16 @@ fn tool_read_serial(ctx: &mut ToolContext) -> Result<String, AgentError> {
     let deadline = Instant::now() + SERIAL_READ_WAIT;
     loop {
         let out = vm.serial_output();
-        if !out.is_empty() || Instant::now() >= deadline {
+        if !out.is_empty() {
             return Ok(String::from_utf8_lossy(&out).to_string());
+        }
+        if Instant::now() >= deadline {
+            // An empty buffer usually means the guest is still booting. Say so
+            // instead of handing the model an empty string it cannot interpret
+            // (and never make it look like a command: this is data).
+            return Ok("No serial output yet: the guest may still be booting. \
+                 You can call read_serial again in a moment."
+                .to_string());
         }
         std::thread::sleep(Duration::from_millis(20));
     }
