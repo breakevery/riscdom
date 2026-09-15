@@ -118,7 +118,9 @@ pub fn tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "start_vm".into(),
-            description: "Boot a compiled ELF in the QEMU RISC-V sandbox.".into(),
+            description: "Start the QEMU VM. If a VM is already running, this returns \
+                          'already running' and does not start a second one."
+                .into(),
             parameters: obj(
                 serde_json::json!({ "elf_path": {"type": "string"} }),
                 vec!["elf_path"],
@@ -131,7 +133,11 @@ pub fn tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "stop_vm".into(),
-            description: "Stop the running sandbox VM.".into(),
+            description: "Stop the running QEMU VM. Only call this when the user explicitly \
+                          asks to stop the VM (e.g. 'stop the VM', 'shut down the sandbox'). \
+                          After a task finishes, do NOT call stop_vm — the VM is a cross-run \
+                          resource and is expected to stay running until the user stops it."
+                .into(),
             parameters: obj(serde_json::json!({}), vec![]),
         },
         ToolSpec {
@@ -284,7 +290,9 @@ fn emit_compile(ctx: &ToolContext, action: &str, detail: serde_json::Value) {
 fn tool_start_vm(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<String, AgentError> {
     if ctx.vm.is_some() {
         return Err(AgentError::Tool(
-            "a VM is already running; call stop_vm first".into(),
+            "a VM is already running; reuse it (compile and read_serial) instead of starting \
+             another one; call stop_vm only if the user asks to stop the VM"
+                .into(),
         ));
     }
     let elf_rel = arg_str(args, "elf_path")?;
