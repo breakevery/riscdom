@@ -1,6 +1,10 @@
 [中文](RELEASE_NOTES.zh-CN.md) | English
 
-# RiscDom v0.2.1
+# RiscDom v0.2.2
+
+**v0.2.2 fixes a Windows key-persistence bug:** API keys are now really written to Credential
+Manager. Until now the store was a silent no-op — the app reported “saved to the keyring” while
+nothing was written, so every restart asked for the key again.
 
 **An AI-native RISC-V sandbox for the desktop:** inside a QEMU RISC-V bare-metal sandbox the AI
 holds virtual kernel-level privilege — it writes C / RISC-V assembly, compiles, runs, reads the

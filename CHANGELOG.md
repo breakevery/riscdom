@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-15
+
+### Fixed
+
+- **The Windows keyring was a silent no-op**: the `keyring` crate ships **no** default backend,
+  so a bare `keyring = "3"` compiled to an empty implementation — `set` reported success while
+  nothing reached Credential Manager, and every restart lost the key. `host` now opts into
+  `windows-native` (and `apple-native` / `linux-native-sync-persistent` on the other platforms),
+  so API keys really persist and are read back at startup.
+
 ## [0.2.1] - 2026-09-15
 
 ### Added
@@ -194,7 +204,8 @@ locally only. (An earlier draft was deleted; the `v0.1.0` tag remains.)
 - Real DeepSeek API end-to-end: **executed and passing** (2026-09-14, `iterations = 6`,
   serial captured `HELLO RISCV`; see `host/README.md`).
 
-[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/breakevery/riscdom/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/breakevery/riscdom/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/breakevery/riscdom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/breakevery/riscdom/releases/tag/v0.1.0

@@ -4,5 +4,5 @@ members = ["host", "sandbox", "audit", "agent"]
 exclude = ["ui"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"

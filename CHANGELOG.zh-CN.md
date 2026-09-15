@@ -9,6 +9,15 @@
 
 ## [未发布]
 
+## [0.2.2] - 2026-09-15
+
+### 修复
+
+- **Windows 钥匙串此前是"静默空操作"**：`keyring` crate **没有**默认后端，所以裸写
+  `keyring = "3"` 会编译成一个空实现——`set` 返回成功，但什么都没写进凭据管理器，重启即丢 key。
+  现在 `host` 在 Windows 上启用 `windows-native`（macOS/Linux 分别启用
+  `apple-native` / `linux-native-sync-persistent`），API key 真正持久化，并在启动时读回。
+
 ## [0.2.1] - 2026-09-15
 
 ### 新增
@@ -169,7 +178,8 @@
   `agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
 - 真实 DeepSeek API 端到端：**已执行通过**（2026-09-14，`iterations = 6`，串口捕获 `HELLO RISCV`；结果见 `host/README.md`）。
 
-[未发布]: https://github.com/breakevery/riscdom/compare/v0.2.1...HEAD
+[未发布]: https://github.com/breakevery/riscdom/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/breakevery/riscdom/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/breakevery/riscdom/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/breakevery/riscdom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/breakevery/riscdom/releases/tag/v0.1.0
