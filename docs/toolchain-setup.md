@@ -7,7 +7,25 @@ sandbox can boot nothing: the app will tell you so and point here.
 
 You need a `riscv64-unknown-elf-gcc` (or the xPack equivalent `riscv-none-elf-gcc`).
 
-## 1. Install a toolchain
+## 0. One-click download (recommended)
+
+Open **Settings → Toolchain** and press **one-click download**. RiscDom then:
+
+1. downloads the official xPack RISC-V GCC for your platform (~200 MB) from the GitHub release;
+2. verifies its **SHA-256** against the checksum published next to the archive (mandatory — there
+   is no skip-verification option);
+3. extracts it under the app data directory (`<app data>/toolchain/<version>/`) and adopts it as
+   the active toolchain, remembering it across restarts.
+
+While it runs you get a progress bar, a state line (`downloading` / `verifying` / `extracting`)
+and a **cancel** button; cancelling removes the partial download and leaves nothing behind. If
+something fails, the error is shown with a **retry** button. Nothing is downloaded until you press
+the button.
+
+Prefer to install it yourself (or need a mirror / a different version)? Steps 1–3 below still
+apply — RiscDom auto-detects what you installed.
+
+## 1. Install a toolchain manually
 
 **Windows (recommended: xPack)**
 

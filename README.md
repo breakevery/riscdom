@@ -55,11 +55,14 @@ and `agent → sandbox → audit`.
 
 - Windows 10/11 (MVP is verified on Windows only; QMP/serial use TCP)
 - QEMU (`qemu-system-riscv64`, verified with 11.1.0)
-- **A RISC-V bare-metal GCC is required to compile anything** — install the xPack
-  [riscv-none-elf-gcc](https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases)
-  (verified with 15.2.0) or an equivalent `riscv64-unknown-elf-gcc`. RiscDom auto-detects it
-  (`RISCDOM_RISCV_GCC` / `RISCV_GCC`, well-known install paths, then `PATH`); otherwise set the
-  path in **Settings → Toolchain**. Per-platform steps: [docs/toolchain-setup.md](docs/toolchain-setup.md).
+- **A RISC-V bare-metal GCC is required to compile anything** — and RiscDom can fetch it for
+  you: **Settings → Toolchain → one-click download** pulls the official xPack build for your
+  platform (~200 MB), checks its SHA-256 and installs it under the app data directory. You can
+  also install one yourself (xPack
+  [riscv-none-elf-gcc](https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases),
+  verified with 15.2.0, or an equivalent `riscv64-unknown-elf-gcc`): RiscDom auto-detects it
+  (`RISCDOM_RISCV_GCC` / `RISCV_GCC`, well-known install paths, then `PATH`) and you can point it
+  at a path in the same tab. Per-platform steps: [docs/toolchain-setup.md](docs/toolchain-setup.md).
 - Rust / cargo (verified with 1.98.1) + MSVC toolchain (required by Tauri)
 - Node / npm (verified with 24.11.1 / 11.16.0)
 

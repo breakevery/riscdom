@@ -56,6 +56,14 @@ export interface AppStore {
   refreshToolchain: () => Promise<void>;
   setToolchain: (path: string) => Promise<void>;
   clearToolchain: () => Promise<void>;
+  // one-click toolchain download (v0.3 #3)
+  toolchainDownload: {
+    in_progress: boolean;
+    event: api.ToolchainDownloadEvent | null;
+    progress: { downloaded: number; total: number | null } | null;
+  };
+  startToolchainDownload: () => Promise<void>;
+  cancelToolchainDownload: () => Promise<void>;
   refreshSessions: () => Promise<void>;
   openSession: (id: string) => Promise<void>;
   newSession: () => Promise<void>;
@@ -135,6 +143,11 @@ export function useAppStore(): AppStore {
   const [snapshots, setSnapshots] = useState<api.SnapshotMeta[]>([]);
   const [vmIsRunning, setVmIsRunning] = useState(false);
   const [toolchain, setToolchain] = useState<api.ToolchainView | null>(null);
+  const [toolchainDownload, setToolchainDownload] = useState<{
+    in_progress: boolean;
+    event: api.ToolchainDownloadEvent | null;
+    progress: { downloaded: number; total: number | null } | null;
+  }>({ in_progress: false, event: null, progress: null });
   const [lastError, setLastError] = useState<string | null>(null);
 
   const push = useCallback((item: Omit<ChatItem, "id">) => {
@@ -341,6 +354,43 @@ export function useAppStore(): AppStore {
     void refreshToolchain();
   }, [refreshToolchain]);
 
+  // Sync the download state once (a download may already be running).
+  useEffect(() => {
+    void (async () => {
+      try {
+        const status = await api.toolchainDownloadStatus();
+        setToolchainDownload((prev) => ({
+          ...prev,
+          in_progress: status.in_progress,
+          event: status.last_event ?? prev.event,
+        }));
+      } catch {
+        /* ignore: the panel still works via events */
+      }
+    })();
+  }, []);
+
+  const startToolchainDownload = useCallback(async () => {
+    try {
+      await api.startToolchainDownload();
+      setToolchainDownload({
+        in_progress: true,
+        event: { kind: "started", total_bytes: null },
+        progress: null,
+      });
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
+  const cancelToolchainDownload = useCallback(async () => {
+    try {
+      await api.cancelToolchainDownload();
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
   // Host events → chat stream / serial / vm state.
   useEffect(() => {
     const offs: Array<() => void> = [];
@@ -410,6 +460,23 @@ export function useAppStore(): AppStore {
         setVmState(d.state ?? "unknown");
         void refreshVmState();
       }),
+      api.onToolchainDownload((event) => {
+        setToolchainDownload((prev) => ({
+          in_progress:
+            event.kind !== "done" &&
+            event.kind !== "failed" &&
+            event.kind !== "cancelled",
+          event,
+          progress:
+            event.kind === "progress"
+              ? { downloaded: event.downloaded, total: event.total }
+              : event.kind === "started"
+                ? null
+                : prev.progress,
+        }));
+        // A finished download becomes the active toolchain.
+        if (event.kind === "done") void refreshToolchain();
+      }),
     );
     return () => offs.forEach((f) => f());
   }, [push, refreshAudit, refreshWorkspace]);
@@ -471,6 +538,9 @@ export function useAppStore(): AppStore {
     refreshToolchain,
     setToolchain: setToolchainPath,
     clearToolchain,
+    toolchainDownload,
+    startToolchainDownload,
+    cancelToolchainDownload,
     refreshSessions,
     openSession,
     newSession,

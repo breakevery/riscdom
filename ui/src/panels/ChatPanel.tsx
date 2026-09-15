@@ -108,10 +108,25 @@ export default function ChatPanel({ store }: { store: AppStore }) {
         </button>
       </header>
 
-      {store.toolchainMissing ? (
+      {store.toolchainMissing || store.toolchainDownload.in_progress ? (
         <div className="banner warn">
-          未找到 RISC-V GCC：现在无法编译。请到「设置 → 工具链」点“重新探测”或“手动指定”填入
-          riscv64-unknown-elf-gcc.exe 的完整路径（详见 docs/toolchain-setup.md）。
+          {store.toolchainDownload.in_progress ? (
+            <span>
+              正在下载工具链…
+              {store.toolchainDownload.progress
+                ? ` ${Math.min(
+                    100,
+                    Math.round(
+                      (store.toolchainDownload.progress.downloaded /
+                        (store.toolchainDownload.progress.total ?? 1)) *
+                        100,
+                    ),
+                  )}%`
+                : ""}
+            </span>
+          ) : (
+            <span>未找到 RISC-V GCC，现在无法编译：请在「设置 → 工具链」中一键下载。</span>
+          )}
         </div>
       ) : null}
 

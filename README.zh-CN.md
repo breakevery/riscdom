@@ -57,11 +57,13 @@ RiscDom（中文名 **智芯城**）是一个桌面应用：AI 在 QEMU RISC-V �
 - Rust / cargo（实测 1.98.1）+ MSVC 工具链（Tauri 需要）
 - Node / npm（实测 24.11.1 / 11.16.0）
 
-**必须安装 RISC-V 裸机 GCC 才能编译任何东西**：推荐 xPack
+**必须安装 RISC-V 裸机 GCC 才能编译任何东西**——而且 RiscDom **可以帮你下载**：
+**设置 → 工具链 → 一键下载**会拉取对应平台的官方 xPack 构建（约 200 MB），校验 SHA-256 后
+安装到应用数据目录。你也可以自行安装（xPack
 [riscv-none-elf-gcc](https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases)，
-或等价的 `riscv64-unknown-elf-gcc`。RiscDom 会自动探测（`RISCDOM_RISCV_GCC` / `RISCV_GCC` →
-常见安装路径 → `PATH`）；未命中时可在 **设置 → 工具链** 手动指定。三平台步骤见
-[docs/toolchain-setup.md](docs/toolchain-setup.md)。
+实测 15.2.0，或等价的 `riscv64-unknown-elf-gcc`）：RiscDom 会自动探测
+（`RISCDOM_RISCV_GCC` / `RISCV_GCC` → 常见安装路径 → `PATH`），也可在同一 tab 手动指定路径。
+三平台步骤见 [docs/toolchain-setup.md](docs/toolchain-setup.md)。
 
 细节与路径见 [ENVIRONMENT.md](ENVIRONMENT.md)。
 

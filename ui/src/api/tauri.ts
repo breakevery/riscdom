@@ -156,6 +156,36 @@ export const resumeFromSnapshotReal = (name: string) =>
 /** Is the host currently holding a (cross-run) VM? */
 export const vmIsRunning = () => invoke<boolean>("vm_is_running");
 
+/** One-click toolchain download (mirrors the host `DownloadEvent`). */
+export type ToolchainDownloadEvent =
+  | { kind: "started"; total_bytes: number | null }
+  | { kind: "progress"; downloaded: number; total: number | null }
+  | { kind: "verifying" }
+  | { kind: "extracting" }
+  | { kind: "done"; install_path: string }
+  | { kind: "failed"; reason: string }
+  | { kind: "cancelled" };
+
+export interface ToolchainDownloadStatus {
+  in_progress: boolean;
+  last_event: ToolchainDownloadEvent | null;
+}
+
+/** Start downloading and installing the RISC-V toolchain. */
+export const startToolchainDownload = () => invoke<void>("start_toolchain_download");
+
+/** Ask an in-flight toolchain download to stop. */
+export const cancelToolchainDownload = () => invoke<void>("cancel_toolchain_download");
+
+/** Whether a download is running, plus the last event seen. */
+export const toolchainDownloadStatus = () =>
+  invoke<ToolchainDownloadStatus>("toolchain_download_status");
+
+/** Subscribe to `toolchain:download` progress events. */
+export const onToolchainDownload = (
+  onEvent: (event: ToolchainDownloadEvent) => void,
+) => onHostEvent("toolchain:download", (p) => onEvent(p as ToolchainDownloadEvent));
+
 /** RISC-V GCC toolchain status. */
 export interface ToolchainView {
   found: boolean;

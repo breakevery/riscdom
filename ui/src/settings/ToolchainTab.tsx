@@ -1,17 +1,62 @@
 import type { AppStore } from "../state/appStore";
 
+/** Human-readable state line for the download area. */
+function statusText(store: AppStore): string {
+  const dl = store.toolchainDownload;
+  switch (dl.event?.kind) {
+    case "started":
+      return "开始下载…";
+    case "progress": {
+      const { downloaded, total } = dl.progress ?? { downloaded: 0, total: null };
+      const mb = (n: number) => (n / 1024 / 1024).toFixed(1);
+      return total
+        ? `正在下载 ${Math.min(100, Math.round((downloaded / total) * 100))}%（${mb(downloaded)} MB / ${mb(total)} MB）`
+        : `正在下载 ${mb(downloaded)} MB…`;
+    }
+    case "verifying":
+      return "校验 SHA-256…";
+    case "extracting":
+      return "解压中…";
+    case "done":
+      return "完成";
+    case "cancelled":
+      return "已取消";
+    case "failed":
+      return "下载失败";
+    default:
+      return "空闲";
+  }
+}
+
 /**
- * RISC-V toolchain status. The toolchain is resolved by the host (stages
- * 24a–24c); this tab shows what was found and lets the user override the path.
+ * RISC-V toolchain status plus the one-click download (v0.3 #3).
+ *
+ * The toolchain itself is resolved by the host (stages 24a–24c); the download is
+ * explicit — nothing is fetched until the button is pressed.
  */
 export default function ToolchainTab({ store }: { store: AppStore }) {
+  const dl = store.toolchainDownload;
+  const busy = dl.in_progress;
+  const kind = dl.event?.kind ?? null;
+  const percent =
+    dl.progress && dl.progress.total
+      ? Math.min(100, Math.round((dl.progress.downloaded / dl.progress.total) * 100))
+      : null;
+
+  const startDownload = () => {
+    if (busy) return;
+    const ok = window.confirm(
+      "将下载约 200 MB 的 xPack RISC-V GCC 并解压到应用数据目录，是否继续？",
+    );
+    if (ok) void store.startToolchainDownload();
+  };
+
   return (
     <>
       {store.toolchain && !store.toolchain.found ? (
         <div className="banner warn">
-          未找到 RISC-V GCC。请安装 xPack RISC-V GCC（
-          https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases
-          ），或点“手动指定”填入 riscv64-unknown-elf-gcc.exe 的完整路径。
+          未找到 RISC-V GCC。可点下方“一键下载”自动安装，或手动安装后指定路径（见
+          docs/toolchain-setup.md）。
         </div>
       ) : null}
 
@@ -53,10 +98,46 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
         <pre className="muted small">{store.toolchain?.diagnostics ?? ""}</pre>
       </details>
 
-      {/* Reserved for a future one-click toolchain download (v0.3+). */}
-      <div className="muted small">
-        一键下载安装工具链：规划中（当前请按 docs/toolchain-setup.md 手动安装后重新探测）。
+      <h3>一键下载</h3>
+      <div className="row">
+        <button disabled={busy} onClick={startDownload}>
+          {busy ? "下载中…" : "一键下载 RISC-V GCC"}
+        </button>
+        {busy ? (
+          <button className="ghost" onClick={() => void store.cancelToolchainDownload()}>
+            取消
+          </button>
+        ) : null}
       </div>
+
+      {busy ? (
+        <>
+          <div className="progress">
+            <div
+              className="progress-fill"
+              style={{ width: percent === null ? "30%" : `${percent}%` }}
+            />
+          </div>
+          <div className="muted small">{statusText(store)}</div>
+        </>
+      ) : null}
+
+      {!busy && kind === "done" && dl.event?.kind === "done" ? (
+        <div className="muted small">已安装到 {dl.event.install_path}</div>
+      ) : null}
+      {!busy && kind === "cancelled" ? <div className="muted small">已取消下载</div> : null}
+      {!busy && kind === "failed" ? (
+        <>
+          <div className="field-error">
+            {dl.event?.kind === "failed" ? dl.event.reason : "下载失败"}
+          </div>
+          <div className="row">
+            <button className="ghost" onClick={startDownload}>
+              重试
+            </button>
+          </div>
+        </>
+      ) : null}
     </>
   );
 }
