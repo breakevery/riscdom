@@ -103,6 +103,20 @@ e. 不勾选记住 → 保存后状态为“仅本次会话”；重启后需重
   留在槽里，供后续 run 继续使用。`-kernel` 取工作区内**最新的 `*.elf`**（迁移流会覆盖
   内存，内核仅用于让 QEMU 正常起机）；工作区没有 ELF 时明确报错。
 
+### 在 Windows 上验证（凭据管理器）
+
+自 v0.2.2 起，Windows 构建启用 keyring 的 `windows-native` 后端，key 会真正写入凭据管理器。
+keyring 的 OS 条目名是 `<user>.<service>`，即 `llm-api-key:deepseek.com.breakevery.riscdom`；
+而 `cmdkey /list:<filter>` **只从名字开头匹配**，所以要么用完整名字，要么列出全部再过滤：
+
+```text
+cmdkey /list:llm-api-key:deepseek.com.breakevery.riscdom
+cmdkey /list | findstr breakevery
+```
+
+`cargo test -p host --test keyring_os -- --ignored --nocapture` 会用一次性的
+`com.breakevery.riscdom.test` 条目真实演练一遍，并自行清理。
+
 ## 会话持久化
 
 对话保存在**应用数据目录**的 `sessions.db`（SQLite，复用 `rusqlite`，不新增依赖）：

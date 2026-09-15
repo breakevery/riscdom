@@ -111,6 +111,21 @@ e. Leave "remember" unticked → after saving the status is "this session only";
   `*.elf`** in the workspace (the migration stream overwrites memory; the kernel only lets
   QEMU boot). A workspace with no ELF is an explicit error.
 
+### Verifying on Windows (Credential Manager)
+
+Since v0.2.2 the Windows build opts into keyring's `windows-native` backend, so keys really
+land in Credential Manager. keyring stores the OS entry as `<user>.<service>`, i.e.
+`llm-api-key:deepseek.com.breakevery.riscdom`; `cmdkey /list:<filter>` only matches from the
+start of that name, so use the full name or list everything and filter:
+
+```text
+cmdkey /list:llm-api-key:deepseek.com.breakevery.riscdom
+cmdkey /list | findstr breakevery
+```
+
+`cargo test -p host --test keyring_os -- --ignored --nocapture` exercises the real store with a
+throwaway `com.breakevery.riscdom.test` entry and cleans up after itself.
+
 ## Session persistence
 
 Conversations are stored in `sessions.db` (SQLite, reusing `rusqlite`, no new dependency) in

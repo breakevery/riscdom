@@ -14,7 +14,18 @@ tokio = { version = "1", features = ["sync"] }
 thiserror = "1"
 # Reused for session persistence (same version/features as `audit`).
 rusqlite = { version = "0.32", features = ["bundled"] }
-keyring = "3"
 # Reused for the local-model probe (same version/features as `agent`, so the
 # dependency graph is unchanged).
 reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
+
+# API-key persistence. The `keyring` crate ships **no** default backend, so a
+# bare `keyring = "3"` compiles to a silent no-op (writes appear to succeed and
+# nothing is stored). Each platform opts into its native store explicitly.
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native-sync-persistent"] }
