@@ -38,6 +38,7 @@ fn stage3a_lifecycle_serial_and_audit() {
         serial_observer: None,
         incoming_snapshot: None,
         incoming_relay_addr: None,
+        qemu_exe: None,
     };
 
     let mut vm = RiscVVirtualMachine::new(config, audit).expect("construct vm");

@@ -318,6 +318,7 @@ fn tool_start_vm(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<Stri
             serial_observer: Some(serial_observer_for(Arc::clone(&ctx.serial_observers))),
             incoming_snapshot: None,
             incoming_relay_addr: None,
+            qemu_exe: None,
         };
         let mut vm = RiscVVirtualMachine::new(config, Arc::clone(&ctx.audit))?;
         match vm.start() {

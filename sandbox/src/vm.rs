@@ -69,6 +69,10 @@ pub struct VMConfig {
     /// `-incoming` (informational).
     #[serde(default)]
     pub incoming_relay_addr: Option<std::net::SocketAddr>,
+    /// Explicit QEMU executable (v0.3 #5a). `None` → auto-discovery
+    /// ([`crate::qemu_discover::discover`]).
+    #[serde(default)]
+    pub qemu_exe: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for VMConfig {
@@ -85,6 +89,7 @@ impl std::fmt::Debug for VMConfig {
             )
             .field("incoming_snapshot", &self.incoming_snapshot)
             .field("incoming_relay_addr", &self.incoming_relay_addr)
+            .field("qemu_exe", &self.qemu_exe)
             .finish()
     }
 }
@@ -117,10 +122,17 @@ impl RiscVVirtualMachine {
                 config.kernel.display()
             )));
         }
+        let qemu_bin = config.qemu_exe.clone().unwrap_or_else(resolve_qemu_binary);
+        if !qemu_bin.is_file() {
+            // Actionable: the diagnostics list every location that was tried.
+            return Err(SandboxError::QemuNotFound {
+                diagnostics: crate::qemu_discover::diagnostics(),
+            });
+        }
         Ok(Self {
             config,
             audit,
-            qemu_bin: resolve_qemu_binary(),
+            qemu_bin,
             child: None,
             qmp: None,
             serial_write: None,
@@ -569,38 +581,14 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Locate the `qemu-system-riscv64` binary.
+/// Locate the `qemu-system-riscv64` binary (v0.3 #5a).
 ///
-/// Order: `RISCDOM_QEMU` env var → common install paths → PATH.
+/// Order: `RISCDOM_QEMU` → `QEMU_SYSTEM_RISCV64` → well-known install locations
+/// → `PATH`. Falls back to the bare executable name so `start()` can report the
+/// full diagnostics when nothing exists.
 fn resolve_qemu_binary() -> PathBuf {
-    if let Ok(p) = std::env::var("RISCDOM_QEMU") {
-        if !p.is_empty() {
-            return PathBuf::from(p);
-        }
+    match crate::qemu_discover::discover() {
+        Ok(location) => location.exe,
+        Err(_) => PathBuf::from(crate::qemu_discover::exe_name()),
     }
-    let exe = if cfg!(windows) {
-        "qemu-system-riscv64.exe"
-    } else {
-        "qemu-system-riscv64"
-    };
-    for candidate in platform_qemu_candidates(exe) {
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-    PathBuf::from(exe)
-}
-
-fn platform_qemu_candidates(exe: &str) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if cfg!(windows) {
-        if let Ok(pf) = std::env::var("ProgramFiles") {
-            out.push(PathBuf::from(pf).join("qemu").join(exe));
-        }
-        out.push(PathBuf::from(r"C:\Program Files\qemu").join(exe));
-    } else {
-        out.push(PathBuf::from("/usr/bin").join(exe));
-        out.push(PathBuf::from("/usr/local/bin").join(exe));
-    }
-    out
 }

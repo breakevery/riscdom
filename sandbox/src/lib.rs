@@ -25,6 +25,7 @@
 //!     serial_observer: None,
 //!     incoming_snapshot: None,
 //!     incoming_relay_addr: None,
+//!     qemu_exe: None,
 //! };
 //! let mut vm = RiscVVirtualMachine::new(config, audit)?;
 //! vm.start()?;
@@ -42,11 +43,13 @@
 
 pub mod error;
 pub mod platform;
+pub mod qemu_discover;
 pub mod qmp;
 pub mod relay;
 pub mod vm;
 
 pub use error::SandboxError;
 pub use platform::{QmpEndpoint, SerialEndpoint};
+pub use qemu_discover::{discover as discover_qemu, QemuDiscoverError, QemuLocation, QemuSource};
 pub use qmp::QmpClient;
 pub use vm::{RiscVVirtualMachine, VMConfig};

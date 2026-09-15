@@ -29,6 +29,8 @@ pub enum SandboxError {
     RelayTimeout(String),
     /// Feature not supported on this platform / in MVP.
     Unsupported(String),
+    /// QEMU could not be located; `diagnostics` lists everything that was tried.
+    QemuNotFound { diagnostics: String },
 }
 
 impl fmt::Display for SandboxError {
@@ -46,6 +48,9 @@ impl fmt::Display for SandboxError {
             SandboxError::Relay(m) => write!(f, "relay error: {m}"),
             SandboxError::RelayTimeout(m) => write!(f, "relay timeout: {m}"),
             SandboxError::Unsupported(m) => write!(f, "unsupported: {m}"),
+            SandboxError::QemuNotFound { diagnostics } => {
+                write!(f, "{diagnostics}")
+            }
         }
     }
 }

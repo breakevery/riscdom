@@ -30,6 +30,7 @@ fn config(elf: PathBuf, observer: Option<SerialObserver>) -> VMConfig {
         serial_observer: observer,
         incoming_snapshot: None,
         incoming_relay_addr: None,
+        qemu_exe: None,
     }
 }
 

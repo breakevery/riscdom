@@ -708,6 +708,7 @@ impl AppState {
             ))),
             incoming_snapshot: Some(path.clone()),
             incoming_relay_addr: None,
+            qemu_exe: None,
         };
         self.stop_current_vm()?;
         let vm =

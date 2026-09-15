@@ -97,6 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         serial_observer: None,
         incoming_snapshot: None,
         incoming_relay_addr: None,
+        qemu_exe: None,
     };
 
     println!("kernel : {}", kernel.display());

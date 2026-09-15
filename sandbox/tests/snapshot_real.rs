@@ -45,6 +45,7 @@ fn config(elf: PathBuf, snapshot_dir: PathBuf, tag: &str) -> VMConfig {
         serial_observer: None,
         incoming_snapshot: None,
         incoming_relay_addr: None,
+        qemu_exe: None,
     }
 }
 

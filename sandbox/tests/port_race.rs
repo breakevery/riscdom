@@ -53,6 +53,7 @@ fn boot_one(tag: usize, elf: &Path, round: usize, failures: &Mutex<Vec<String>>)
         serial_observer: None,
         incoming_snapshot: None,
         incoming_relay_addr: None,
+        qemu_exe: None,
     };
 
     let mut vm = match RiscVVirtualMachine::new(config, audit) {
