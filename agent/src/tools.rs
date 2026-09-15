@@ -301,22 +301,42 @@ fn tool_start_vm(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<Stri
         .check_read(Path::new(elf_rel))
         .map_err(|e| deny(ctx, "start_vm", elf_rel, e))?;
 
-    let (qmp_port, serial_port) = two_free_ports()?;
-    let snapshot_dir = ctx.policy.root.join(".riscdom").join("snapshots");
-    let config = VMConfig {
-        kernel: elf,
-        memory_mb: VM_MEMORY_MB,
-        qmp: QmpEndpoint::tcp("127.0.0.1", qmp_port),
-        serial: SerialEndpoint::tcp("127.0.0.1", serial_port),
-        snapshot_dir,
-        serial_observer: Some(serial_observer_for(Arc::clone(&ctx.serial_observers))),
-        incoming_snapshot: None,
-        incoming_relay_addr: None,
-    };
-    let mut vm = RiscVVirtualMachine::new(config, Arc::clone(&ctx.audit))?;
-    vm.start()?;
-    *ctx.vm = Some(vm);
-    Ok(format!("VM started (qmp={qmp_port}, serial={serial_port})"))
+    // Ports are picked, released, and only then bound by QEMU: another process
+    // can steal one in that window, which surfaces as a failed boot (a known
+    // TOCTOU). Retry with fresh ports instead of failing the run.
+    const START_ATTEMPTS: usize = 3;
+    let mut last_error = String::from("unknown error");
+    for attempt in 1..=START_ATTEMPTS {
+        let (qmp_port, serial_port) = two_free_ports()?;
+        let snapshot_dir = ctx.policy.root.join(".riscdom").join("snapshots");
+        let config = VMConfig {
+            kernel: elf.clone(),
+            memory_mb: VM_MEMORY_MB,
+            qmp: QmpEndpoint::tcp("127.0.0.1", qmp_port),
+            serial: SerialEndpoint::tcp("127.0.0.1", serial_port),
+            snapshot_dir,
+            serial_observer: Some(serial_observer_for(Arc::clone(&ctx.serial_observers))),
+            incoming_snapshot: None,
+            incoming_relay_addr: None,
+        };
+        let mut vm = RiscVVirtualMachine::new(config, Arc::clone(&ctx.audit))?;
+        match vm.start() {
+            Ok(()) => {
+                *ctx.vm = Some(vm);
+                if attempt > 1 {
+                    eprintln!("start_vm: succeeded on attempt {attempt} after a port collision");
+                }
+                return Ok(format!("VM started (qmp={qmp_port}, serial={serial_port})"));
+            }
+            Err(e) => {
+                last_error = format!("attempt {attempt}: {e}");
+                std::thread::sleep(Duration::from_millis(150));
+            }
+        }
+    }
+    Err(AgentError::Tool(format!(
+        "failed to start the VM after {START_ATTEMPTS} attempts: {last_error}"
+    )))
 }
 
 fn tool_read_serial(ctx: &mut ToolContext) -> Result<String, AgentError> {
@@ -381,16 +401,43 @@ fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), A
     Ok(())
 }
 
+/// Two distinct free TCP ports.
+///
+/// A process-wide guard keeps them unique across parallel tests **inside one
+/// binary** (bind-then-drop can otherwise hand the same port to two threads).
+/// Cross-process collisions cannot be excluded here — QEMU binds the ports only
+/// after we release them — so [`tool_start_vm`] retries with fresh ports when
+/// QEMU fails to start.
 fn two_free_ports() -> Result<(u16, u16), AgentError> {
-    let a = TcpListener::bind("127.0.0.1:0").map_err(|e| AgentError::Tool(e.to_string()))?;
-    let b = TcpListener::bind("127.0.0.1:0").map_err(|e| AgentError::Tool(e.to_string()))?;
-    Ok((
-        a.local_addr()
+    use std::sync::Mutex;
+    static USED: Mutex<Vec<u16>> = Mutex::new(Vec::new());
+
+    for _ in 0..64 {
+        let a = TcpListener::bind("127.0.0.1:0").map_err(|e| AgentError::Tool(e.to_string()))?;
+        let b = TcpListener::bind("127.0.0.1:0").map_err(|e| AgentError::Tool(e.to_string()))?;
+        let pa = a
+            .local_addr()
             .map_err(|e| AgentError::Tool(e.to_string()))?
-            .port(),
-        b.local_addr()
+            .port();
+        let pb = b
+            .local_addr()
             .map_err(|e| AgentError::Tool(e.to_string()))?
-            .port(),
+            .port();
+        if pa == pb {
+            continue;
+        }
+        let mut used = USED
+            .lock()
+            .map_err(|_| AgentError::Tool("port guard poisoned".into()))?;
+        if used.contains(&pa) || used.contains(&pb) {
+            continue;
+        }
+        used.push(pa);
+        used.push(pb);
+        return Ok((pa, pb));
+    }
+    Err(AgentError::Tool(
+        "could not find two distinct free ports".into(),
     ))
 }
 
