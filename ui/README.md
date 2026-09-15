@@ -20,6 +20,21 @@ The RiscDom desktop frontend (Tauri 2 + React + TypeScript + Vite).
 The three panes use CSS Grid with two draggable splitters (`layout/AppShell.tsx`, no
 third-party splitter library).
 
+## Auto-scroll
+
+The chat log and the serial canvas follow the newest output on their own — no third-party
+scroll library, just `scrollTop` / `scrollHeight` (chat) and xterm's `viewportY` / `baseY`
+(serial).
+
+- While you are at (or within 80 px of) the bottom, new messages, streamed tokens and serial
+  chunks scroll into view automatically; high-frequency stream deltas are coalesced into a
+  single follow per animation frame.
+- Scroll up and following pauses: a floating **new messages ↓** / **jump to latest ↓** button
+  appears instead of yanking the view back. Clicking it returns to the bottom and hides the
+  button.
+- A finished run (`agent:final`), switching sessions, and clearing the serial terminal all jump
+  straight back to the bottom.
+
 ## Running
 
 ```powershell

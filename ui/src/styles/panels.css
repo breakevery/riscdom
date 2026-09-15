@@ -299,6 +299,25 @@
   overflow: hidden;
 }
 
+/* Auto-scroll affordances (v0.3 #1) --------------------------------------- */
+
+/* Wraps a scroll area so the "jump to latest" button can float over it. */
+.scroll-wrap,
+.canvas-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.jump-latest {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
 .canvas-placeholder {
   flex: 1 1 auto;
   display: flex;

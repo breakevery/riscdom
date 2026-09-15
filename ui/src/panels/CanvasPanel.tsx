@@ -17,6 +17,16 @@ export default function CanvasPanel({ store }: { store: AppStore }) {
   const fitRef = useRef<FitAddon | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
+  // ----- auto-scroll (v0.3 #1) --------------------------------------------
+  const stickRef = useRef(true); // following the latest serial output?
+  const [showJump, setShowJump] = useState(false);
+
+  const jumpToLatest = () => {
+    stickRef.current = true;
+    setShowJump(false);
+    termRef.current?.scrollToBottom();
+  };
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -43,14 +53,30 @@ export default function CanvasPanel({ store }: { store: AppStore }) {
     api
       .getSerialBuffer()
       .then((text) => {
-        if (text) term.write(text);
+        if (!text) return;
+        term.write(text);
+        term.scrollToBottom();
       })
       .catch(() => {});
 
-    // Live increments.
+    // Live increments: follow unless the user has scrolled up.
     const off = api.onHostEvent("serial:chunk", (p) => {
       const d = p as { chunk?: string };
-      if (d.chunk) term.write(d.chunk);
+      if (!d.chunk) return;
+      term.write(d.chunk);
+      if (stickRef.current) {
+        term.scrollToBottom();
+      } else {
+        setShowJump(true);
+      }
+    });
+
+    // Detect manual scrolling: `viewportY === baseY` means "at the bottom".
+    const scrollSub = term.onScroll(() => {
+      const buf = term.buffer.active;
+      const atBottom = buf.viewportY >= buf.baseY;
+      stickRef.current = atBottom;
+      if (atBottom) setShowJump(false);
     });
 
     const ro = new ResizeObserver(() => {
@@ -64,6 +90,7 @@ export default function CanvasPanel({ store }: { store: AppStore }) {
 
     return () => {
       off();
+      scrollSub.dispose();
       ro.disconnect();
       term.dispose();
       termRef.current = null;
@@ -72,8 +99,12 @@ export default function CanvasPanel({ store }: { store: AppStore }) {
   }, []);
 
   const clear = () => {
-    termRef.current?.clear();
-    termRef.current?.write("\x1b[2J\x1b[H");
+    const term = termRef.current;
+    if (!term) return;
+    term.clear();
+    term.write("\x1b[2J\x1b[H");
+    stickRef.current = true;
+    setShowJump(false);
   };
 
   const exportLog = async () => {
@@ -102,7 +133,14 @@ export default function CanvasPanel({ store }: { store: AppStore }) {
         </button>
       </header>
       {note ? <div className="muted small canvas-note">{note}</div> : null}
-      <div className="canvas-host" ref={hostRef} />
+      <div className="canvas-wrap">
+        <div className="canvas-host" ref={hostRef} />
+        {showJump ? (
+          <button className="ghost tiny jump-latest" onClick={jumpToLatest}>
+            跳到最新 ↓
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }

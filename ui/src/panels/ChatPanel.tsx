@@ -1,11 +1,82 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as api from "../api/tauri";
 import { relTime, type AppStore } from "../state/appStore";
+
+/** How close to the bottom still counts as "following". */
+const NEAR_BOTTOM_PX = 80;
 
 export default function ChatPanel({ store }: { store: AppStore }) {
   const [input, setInput] = useState("");
   const [showSessions, setShowSessions] = useState(false);
   const canSend = !store.busy && input.trim().length > 0;
+
+  // ----- auto-scroll (v0.3 #1) --------------------------------------------
+  const logRef = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true); // following the latest output?
+  const rafRef = useRef<number | null>(null);
+  const [showJump, setShowJump] = useState(false);
+
+  const isNearBottom = () => {
+    const el = logRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+  };
+
+  const scrollToBottom = () => {
+    const el = logRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+
+  /** Coalesce bursts (streaming deltas) into one follow per frame. */
+  const scheduleFollow = () => {
+    if (rafRef.current !== null) return;
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = null;
+      if (stickRef.current) scrollToBottom();
+      else setShowJump(true);
+    });
+  };
+
+  const onScroll = () => {
+    const near = isNearBottom();
+    stickRef.current = near;
+    if (near) setShowJump(false);
+  };
+
+  const jumpToLatest = () => {
+    stickRef.current = true;
+    setShowJump(false);
+    scrollToBottom();
+  };
+
+  // New messages and streaming text both land here.
+  useEffect(() => {
+    scheduleFollow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.messages, store.streaming]);
+
+  // A finished run always ends at the bottom.
+  useEffect(() => {
+    if (!store.busy) {
+      stickRef.current = true;
+      setShowJump(false);
+      scrollToBottom();
+    }
+  }, [store.busy]);
+
+  // Switching sessions starts at the bottom.
+  useEffect(() => {
+    stickRef.current = true;
+    setShowJump(false);
+    scrollToBottom();
+  }, [store.currentSessionId]);
+
+  useEffect(
+    () => () => {
+      if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current);
+    },
+    [],
+  );
 
   const submit = async () => {
     if (!canSend) return;
@@ -99,44 +170,52 @@ export default function ChatPanel({ store }: { store: AppStore }) {
         </div>
       ) : null}
 
-      <div className="chat-log">
-        {store.messages.length === 0 ? (
-          <div className="muted small">
-            用自然语言描述你想让 AI 在沙箱里做什么，例如：
-            “写一个 RISC-V 裸机 Hello World，编译运行并把串口输出读回来”。
-          </div>
-        ) : null}
-
-        {store.messages.map((m) =>
-          m.role === "tool" ? (
-            <details key={m.id} className="msg tool">
-              <summary>
-                🔧 {m.toolName}
-                {m.ok === undefined ? " (running…)" : m.ok ? " ✓" : " ✗"}
-              </summary>
-              {m.toolArgs ? <pre className="kv">args: {m.toolArgs}</pre> : null}
-              {m.toolResult !== undefined ? (
-                <pre className="kv">{m.toolResult}</pre>
-              ) : null}
-            </details>
-          ) : (
-            <div key={m.id} className={`msg ${m.role}`}>
-              {m.text}
+      <div className="scroll-wrap">
+        <div className="chat-log" ref={logRef} onScroll={onScroll}>
+          {store.messages.length === 0 ? (
+            <div className="muted small">
+              用自然语言描述你想让 AI 在沙箱里做什么，例如：
+              “写一个 RISC-V 裸机 Hello World，编译运行并把串口输出读回来”。
             </div>
-          ),
-        )}
+          ) : null}
 
-        {store.busy && !store.streaming ? (
-          <div className="msg assistant muted">思考中…</div>
-        ) : null}
+          {store.messages.map((m) =>
+            m.role === "tool" ? (
+              <details key={m.id} className="msg tool">
+                <summary>
+                  ?? {m.toolName}
+                  {m.ok === undefined ? " (running…)" : m.ok ? " ?" : " ?"}
+                </summary>
+                {m.toolArgs ? <pre className="kv">args: {m.toolArgs}</pre> : null}
+                {m.toolResult !== undefined ? (
+                  <pre className="kv">{m.toolResult}</pre>
+                ) : null}
+              </details>
+            ) : (
+              <div key={m.id} className={`msg ${m.role}`}>
+                {m.text}
+              </div>
+            ),
+          )}
 
-        {/* Live streamed assistant text; replaced by the final content. */}
-        {store.streaming ? (
-          <div
-            className={`msg assistant${store.streamingActive ? " streaming" : ""}`}
-          >
-            {store.streaming}
-          </div>
+          {store.busy && !store.streaming ? (
+            <div className="msg assistant muted">思考中…</div>
+          ) : null}
+
+          {/* Live streamed assistant text; replaced by the final content. */}
+          {store.streaming ? (
+            <div
+              className={`msg assistant${store.streamingActive ? " streaming" : ""}`}
+            >
+              {store.streaming}
+            </div>
+          ) : null}
+        </div>
+
+        {showJump ? (
+          <button className="ghost tiny jump-latest" onClick={jumpToLatest}>
+            有新消息 ↓
+          </button>
         ) : null}
       </div>
 
