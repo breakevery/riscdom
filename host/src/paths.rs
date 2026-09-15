@@ -20,6 +20,22 @@ pub fn app_data_dir() -> Option<PathBuf> {
     APP_DATA_DIR.get().cloned()
 }
 
+/// Path of the local settings file.
+///
+/// Resolution order:
+/// 1. `RISCDOM_SETTINGS_PATH` (tests / overrides)
+/// 2. the registered app-data directory (`settings.json`)
+/// 3. fallback: `<temp>/riscdom/settings.json`
+pub fn settings_path() -> PathBuf {
+    if let Ok(path) = std::env::var("RISCDOM_SETTINGS_PATH") {
+        if !path.trim().is_empty() {
+            return PathBuf::from(path);
+        }
+    }
+    let base = app_data_dir().unwrap_or_else(|| std::env::temp_dir().join("riscdom"));
+    base.join("settings.json")
+}
+
 /// Path of the sessions database.
 ///
 /// Resolution order:

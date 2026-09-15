@@ -7,6 +7,7 @@ use crate::events::{
 };
 use crate::keyring::{user_for_provider, InMemoryKeyring, KeyringBackend, OsKeyring, SERVICE};
 use crate::session::{SessionMessage, SessionMeta, SessionStore};
+use crate::settings::LocalSettings;
 use agent::llm::{DeepSeekClient, LlmClient};
 use agent::message::{ChatMessage, ChatRequest, ChatResponse, StreamEvent};
 use agent::policy::WorkspacePolicy;
@@ -44,8 +45,9 @@ pub struct ToolchainView {
     pub diagnostics: String,
 }
 
-/// Run `<path> --version`; returns its first output line.
-fn toolchain_runs(path: &Path) -> Result<String, HostError> {
+/// Run `<path> --version`; returns its first output line, or the raw error text
+/// (callers add their own, single, `not runnable:` prefix).
+fn toolchain_runs(path: &Path) -> Result<String, String> {
     match std::process::Command::new(path).arg("--version").output() {
         Ok(out) if out.status.success() => {
             let text = String::from_utf8_lossy(&out.stdout);
@@ -56,11 +58,8 @@ fn toolchain_runs(path: &Path) -> Result<String, HostError> {
                 first
             })
         }
-        Ok(out) => Err(HostError::Other(format!(
-            "not runnable: `--version` exited with {}",
-            out.status
-        ))),
-        Err(e) => Err(HostError::Other(format!("not runnable: {e}"))),
+        Ok(out) => Err(format!("`--version` exited with {}", out.status)),
+        Err(e) => Err(e.to_string()),
     }
 }
 
@@ -321,6 +320,10 @@ pub struct AppState {
     pub vm_slot: Arc<Mutex<Option<RiscVVirtualMachine>>>,
     /// User-chosen RISC-V GCC (`set_toolchain_path`); `None` means auto-discovery.
     pub toolchain_path: Mutex<Option<PathBuf>>,
+    /// Non-secret local settings mirrored to `settings.json`.
+    settings: Mutex<LocalSettings>,
+    /// Where `settings.json` lives.
+    settings_path: PathBuf,
     pub llm_config: Mutex<Option<LlmConfigInput>>,
     pub workspace_root: PathBuf,
     pub compiler: agent::CompilerConfig,
@@ -415,6 +418,7 @@ impl AppState {
                 .map_err(|e| HostError::Other(format!("session store: {e}")))?,
         );
         state.init_from_env();
+        state.load_settings();
         Ok(state)
     }
 
@@ -423,13 +427,17 @@ impl AppState {
         let root = workspace_root.into();
         std::fs::create_dir_all(&root)?;
         let store = AuditStore::in_memory()?;
-        Ok(Self::from_store(
-            root,
+        let mut state = Self::from_store(
+            root.clone(),
             store,
             Arc::new(InMemoryKeyring::new()),
             SessionStore::in_memory()
                 .map_err(|e| HostError::Other(format!("session store: {e}")))?,
-        ))
+        );
+        // Tests stay hermetic: settings live inside the temp workspace.
+        state.settings_path = root.join(".riscdom").join("settings.json");
+        state.load_settings();
+        Ok(state)
     }
 
     /// Dev convenience: adopt `DEEPSEEK_API_KEY` into **memory only**.
@@ -477,6 +485,8 @@ impl AppState {
             sink,
             vm_slot: Arc::new(Mutex::new(None)),
             toolchain_path: Mutex::new(None),
+            settings: Mutex::new(LocalSettings::default()),
+            settings_path: crate::paths::settings_path(),
             llm_config: Mutex::new(None),
             workspace_root: root,
             compiler: agent::CompilerConfig::from_env(),
@@ -712,11 +722,16 @@ impl AppState {
         if !p.is_file() {
             return Err(HostError::Other(format!("not a file: {}", p.display())));
         }
-        let version = toolchain_runs(&p)?;
+        let version =
+            toolchain_runs(&p).map_err(|e| HostError::Other(format!("not runnable: {e}")))?;
         *self
             .toolchain_path
             .lock()
             .map_err(|_| HostError::Other("toolchain lock poisoned".into()))? = Some(p.clone());
+        if let Ok(mut g) = self.settings.lock() {
+            g.toolchain_path = Some(p.display().to_string());
+        }
+        self.save_settings();
         self.emit_host(
             "host.toolchain.set",
             serde_json::json!({ "path": p.display().to_string(), "version": version }),
@@ -730,8 +745,42 @@ impl AppState {
             .toolchain_path
             .lock()
             .map_err(|_| HostError::Other("toolchain lock poisoned".into()))? = None;
+        if let Ok(mut g) = self.settings.lock() {
+            g.toolchain_path = None;
+        }
+        self.save_settings();
         self.emit_host("host.toolchain.clear", serde_json::json!({}));
         Ok(())
+    }
+
+    /// Where the local settings file lives (tests / diagnostics).
+    pub fn settings_path(&self) -> &Path {
+        &self.settings_path
+    }
+
+    /// Read settings from disk and apply them (missing/corrupt → defaults).
+    fn load_settings(&self) {
+        let loaded = LocalSettings::load(&self.settings_path);
+        if let Ok(mut g) = self.settings.lock() {
+            *g = loaded.clone();
+        }
+        if let Ok(mut g) = self.toolchain_path.lock() {
+            *g = loaded.toolchain_path.map(PathBuf::from);
+        }
+    }
+
+    /// Persist settings. Best effort: a failure is audited, never fatal.
+    fn save_settings(&self) {
+        let snapshot = self.settings.lock().map(|g| g.clone()).unwrap_or_default();
+        if let Err(e) = snapshot.save(&self.settings_path) {
+            self.emit_host(
+                "host.settings.save_failed",
+                serde_json::json!({
+                    "error": e,
+                    "path": self.settings_path.display().to_string(),
+                }),
+            );
+        }
     }
 
     /// The session the next run appends to.

@@ -105,6 +105,39 @@ fn manual_path_wins_and_clearing_restores_discovery() {
 }
 
 #[test]
+fn invalid_manual_path_diagnostics_are_not_duplicated() {
+    let state = state("duptext");
+    let bogus = std::env::temp_dir().join("riscdom-not-a-compiler-2.txt");
+    std::fs::write(&bogus, b"nope").expect("write");
+
+    // Diagnosis path (probe): exactly one `not runnable:` prefix.
+    *state.toolchain_path.lock().unwrap() = Some(bogus.clone());
+    let view = state.probe_toolchain();
+    assert!(!view.found);
+    assert!(
+        !view.diagnostics.contains("not runnable: not runnable:"),
+        "{}",
+        view.diagnostics
+    );
+    assert_eq!(
+        view.diagnostics.matches("not runnable:").count(),
+        1,
+        "{}",
+        view.diagnostics
+    );
+
+    // Setter path: same guarantee.
+    *state.toolchain_path.lock().unwrap() = None;
+    let err = state
+        .set_toolchain_path(&bogus.display().to_string())
+        .expect_err("must fail");
+    assert!(
+        !err.to_string().contains("not runnable: not runnable:"),
+        "{err}"
+    );
+}
+
+#[test]
 fn run_agent_refuses_without_a_toolchain() {
     let state = state("missingrun");
     // Test seam: force a broken manual toolchain, then try to run.
