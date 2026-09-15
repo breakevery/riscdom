@@ -9,6 +9,24 @@
 
 ## [未发布]
 
+## [0.2.1] - 2026-09-15
+
+### 新增
+
+- **手动工具链路径可持久化**：在「设置 → 工具链」选定的编译器会写入应用数据目录的
+  `settings.json`（不进仓库、不含任何 key），重启后自动生效。写盘失败记审计
+  `host.settings.save_failed`，**不阻塞**运行。
+
+### 修复
+
+- **RISC-V 工具链的自动探测、友好引导与可配置入口**（阶段 24a–24c）：解析顺序为
+  `RISCDOM_RISCV_GCC` → `RISCV_GCC` → 常见安装路径 → `PATH`，同时接受
+  `riscv64-unknown-elf-gcc` 与 xPack 的 `riscv-none-elf-gcc`。全部未命中时，错误信息会列出
+  搜索过的每个路径、给出下载链接与"如何指路"；`run_agent` 前置以结构化错误
+  `toolchain_missing` 拒绝，UI 显示红色横幅并提供"重新探测 / 手动指定"
+  （见 `docs/toolchain-setup.md`）。
+- **错误文案不再重复**：手动指定的工具链无法运行时，只报一次 `not runnable: …`。
+
 ## [0.2.0] - 2026-09-14
 
 ### 变更
@@ -151,6 +169,7 @@
   `agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
 - 真实 DeepSeek API 端到端：**已执行通过**（2026-09-14，`iterations = 6`，串口捕获 `HELLO RISCV`；结果见 `host/README.md`）。
 
-[未发布]: https://github.com/breakevery/riscdom/compare/v0.2.0...HEAD
+[未发布]: https://github.com/breakevery/riscdom/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/breakevery/riscdom/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/breakevery/riscdom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/breakevery/riscdom/releases/tag/v0.1.0

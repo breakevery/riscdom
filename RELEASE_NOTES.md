@@ -1,6 +1,6 @@
 [中文](RELEASE_NOTES.zh-CN.md) | English
 
-# RiscDom v0.2.0
+# RiscDom v0.2.1
 
 **An AI-native RISC-V sandbox for the desktop:** inside a QEMU RISC-V bare-metal sandbox the AI
 holds virtual kernel-level privilege — it writes C / RISC-V assembly, compiles, runs, reads the
@@ -11,6 +11,11 @@ privilege.
 
 ## Highlights
 
+- **Guided toolchain setup**: RiscDom now finds your RISC-V GCC by itself (`RISCDOM_RISCV_GCC` /
+  `RISCV_GCC` → well-known install locations → `PATH`, accepting both `riscv64-unknown-elf-gcc`
+  and the xPack `riscv-none-elf-gcc` name). If it cannot, it shows exactly where it looked,
+  links the installer, and lets you set the path by hand in *Settings → Toolchain* — and
+  remembers it across restarts.
 - **Bring your own key, any model**: the LLM client is now a generic OpenAI-compatible client
   with built-in presets — DeepSeek (default) / OpenAI / Ollama / LM Studio / custom. Pick a
   provider in the settings pane and the base URL and model fill themselves in.

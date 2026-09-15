@@ -1,6 +1,6 @@
 [English](RELEASE_NOTES.md) | 中文
 
-# 智芯城 RiscDom v0.2.0
+# 智芯城 RiscDom v0.2.1
 
 **面向桌面的 AI 原生 RISC-V 沙箱**：在 QEMU RISC-V 裸机沙箱里，AI 拥有**虚拟内核级权限**——
 它可以写 C / RISC-V 汇编、编译、运行、读串口并迭代。全过程**可审计、可回滚**，人类保留根权限。
@@ -9,6 +9,10 @@
 
 ## 本版亮点
 
+- **工具链引导式配置**：RiscDom 现在能自己找到 RISC-V GCC（`RISCDOM_RISCV_GCC` / `RISCV_GCC`
+  → 常见安装路径 → `PATH`，同时接受 `riscv64-unknown-elf-gcc` 与 xPack 的
+  `riscv-none-elf-gcc`）。找不到时，它会展示搜索过的每个路径、给出安装链接，并允许在
+  **设置 → 工具链** 手动指定——**重启后仍然生效**。
 - **自带密钥，任意兼容模型**：LLM 客户端重构为通用的 OpenAI 兼容客户端，内置 DeepSeek（默认）/
   OpenAI / Ollama / LM Studio / 自定义预设。在设置栏选一个服务商，`base_url` 与 `model`
   会自动填好。

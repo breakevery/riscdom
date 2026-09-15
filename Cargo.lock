@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agent"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "audit",
  "reqwest 0.12.28",
@@ -102,7 +102,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "audit"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "hex",
  "rusqlite",
@@ -1337,7 +1337,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "host"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "agent",
  "audit",
@@ -2895,7 +2895,7 @@ dependencies = [
 
 [[package]]
 name = "sandbox"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "audit",
  "serde",

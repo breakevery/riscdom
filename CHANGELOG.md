@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-15
+
+### Added
+
+- **Manual toolchain path is persisted**: *Settings → Toolchain* writes the chosen compiler to
+  `settings.json` in the app data directory (never into the repo, never a key), so it survives a
+  restart. A failed write is audited as `host.settings.save_failed` and never blocks the run.
+
+### Fixed
+
+- **The RISC-V toolchain is discovered, explained and configurable** (stages 24a–24c):
+  resolution order is `RISCDOM_RISCV_GCC` → `RISCV_GCC` → well-known install locations → `PATH`,
+  accepting both `riscv64-unknown-elf-gcc` and the xPack name `riscv-none-elf-gcc`. When nothing
+  is found, the error lists every path that was searched, links the installer and explains how
+  to point the app at a compiler; `run_agent` refuses early with a structured `toolchain_missing`
+  error and the UI shows a red banner with “probe again” / “set path manually”
+  (see `docs/toolchain-setup.md`).
+- **No more duplicated error prefix**: a manual toolchain that cannot run is reported once
+  (`not runnable: …`) instead of twice.
+
 ## [0.2.0] - 2026-09-14
 
 ### Changed
@@ -174,6 +194,7 @@ locally only. (An earlier draft was deleted; the `v0.1.0` tag remains.)
 - Real DeepSeek API end-to-end: **executed and passing** (2026-09-14, `iterations = 6`,
   serial captured `HELLO RISCV`; see `host/README.md`).
 
-[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/breakevery/riscdom/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/breakevery/riscdom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/breakevery/riscdom/releases/tag/v0.1.0
