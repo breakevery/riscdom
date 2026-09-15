@@ -47,6 +47,9 @@ export interface AppStore {
   deleteSnapshot: (name: string) => Promise<void>;
   // vm lifecycle + real snapshots (stage 20d)
   vmIsRunning: boolean;
+  /** Top-bar VM badge (v0.3 #4c); `vmSeen` stays false until a VM was ever running. */
+  vmStatus: { running: boolean; sinceMs: number | null };
+  vmSeen: boolean;
   refreshVmState: () => Promise<void>;
   saveSnapshot: (name: string) => Promise<void>;
   resumeSnapshot: (name: string) => Promise<void>;
@@ -142,6 +145,11 @@ export function useAppStore(): AppStore {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<api.SnapshotMeta[]>([]);
   const [vmIsRunning, setVmIsRunning] = useState(false);
+  const [vmStatus, setVmStatus] = useState<{ running: boolean; sinceMs: number | null }>({
+    running: false,
+    sinceMs: null,
+  });
+  const [vmSeen, setVmSeen] = useState(false);
   const [toolchain, setToolchain] = useState<api.ToolchainView | null>(null);
   const [toolchainDownload, setToolchainDownload] = useState<{
     in_progress: boolean;
@@ -289,6 +297,9 @@ export function useAppStore(): AppStore {
   const refreshVmState = useCallback(async () => {
     try {
       setVmIsRunning(await api.vmIsRunning());
+      const status = await api.vmStatus();
+      setVmStatus({ running: status.running, sinceMs: status.since_ms });
+      if (status.running) setVmSeen(true);
     } catch (e) {
       setLastError(String(e));
     }
@@ -456,8 +467,12 @@ export function useAppStore(): AppStore {
         setSerial((prev) => prev + (d.chunk ?? ""));
       }),
       api.onHostEvent("vm:state", (p) => {
-        const d = p as { state?: string };
+        const d = p as { state?: string; running?: boolean; since_ms?: number | null };
         setVmState(d.state ?? "unknown");
+        if (typeof d.running === "boolean") {
+          setVmStatus({ running: d.running, sinceMs: d.since_ms ?? null });
+          if (d.running) setVmSeen(true);
+        }
         void refreshVmState();
       }),
       api.onToolchainDownload((event) => {
@@ -530,6 +545,8 @@ export function useAppStore(): AppStore {
     refreshSnapshots,
     deleteSnapshot,
     vmIsRunning,
+    vmStatus,
+    vmSeen,
     refreshVmState,
     saveSnapshot,
     resumeSnapshot,

@@ -51,6 +51,7 @@ pub fn run() {
             host::commands::delete_snapshot,
             host::commands::stop_current_vm,
             host::commands::vm_is_running,
+            host::commands::vm_status,
             host::commands::save_snapshot_real,
             host::commands::resume_from_snapshot_real,
             host::commands::probe_toolchain,

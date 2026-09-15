@@ -33,6 +33,24 @@ pub const POLL_INTERVAL: Duration = Duration::from_millis(200);
 /// Guest RAM used by the agent's `start_vm` tool (kept in sync there).
 const VM_MEMORY_MB: u32 = 128;
 
+/// Epoch milliseconds (VM start bookkeeping).
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// In-flight download bookkeeping (v0.3 #3b).
+/// VM status for the top-bar badge (v0.3 #4c).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VmStatusView {
+    /// Is a VM held by the host right now?
+    pub running: bool,
+    /// When the VM started (epoch ms), while it is running.
+    pub since_ms: Option<i64>,
+}
+
 /// In-flight download bookkeeping (v0.3 #3b).
 #[derive(Debug)]
 pub struct ToolchainDownloadState {
@@ -338,6 +356,9 @@ pub struct AppState {
     /// In-flight toolchain download (v0.3 #3b). `Arc` so the worker thread can
     /// be handed the cancel flag and clear the slot when it finishes.
     pub toolchain_download: Arc<Mutex<Option<ToolchainDownloadState>>>,
+    /// When the host-owned VM started (epoch ms); shared with the audit bridge,
+    /// which learns about VM starts/stops from the sandbox's audit events.
+    vm_started_at_ms: Arc<Mutex<Option<i64>>>,
     /// Last download event seen, kept after the download ends (for polling).
     toolchain_download_last: Mutex<Option<DownloadEvent>>,
     /// Non-secret local settings mirrored to `settings.json`.
@@ -506,6 +527,7 @@ impl AppState {
             vm_slot: Arc::new(Mutex::new(None)),
             toolchain_path: Mutex::new(None),
             toolchain_download: Arc::new(Mutex::new(None)),
+            vm_started_at_ms: Arc::new(Mutex::new(None)),
             toolchain_download_last: Mutex::new(None),
             settings: Mutex::new(LocalSettings::default()),
             settings_path: crate::paths::settings_path(),
@@ -695,6 +717,9 @@ impl AppState {
             .vm_slot
             .lock()
             .map_err(|_| HostError::Other("vm slot poisoned".into()))? = Some(vm);
+        // A restored VM is a "fresh" one for the status badge.
+        self.clear_vm_started();
+        self.mark_vm_started();
         self.emit_host(
             "host.snapshot.resume",
             serde_json::json!({ "name": name, "mode": "tcp-relay" }),
@@ -1627,6 +1652,34 @@ impl AppState {
         self.vm_slot.lock().map(|g| g.is_some()).unwrap_or(false)
     }
 
+    /// VM status for the top-bar badge (v0.3 #4c).
+    pub fn vm_status(&self) -> VmStatusView {
+        let running = self.vm_is_running();
+        let since_ms = self
+            .vm_started_at_ms
+            .lock()
+            .ok()
+            .and_then(|g| *g)
+            .filter(|_| running);
+        VmStatusView { running, since_ms }
+    }
+
+    /// Remember when a VM (re)appeared in the slot.
+    fn mark_vm_started(&self) {
+        if let Ok(mut slot) = self.vm_started_at_ms.lock() {
+            if slot.is_none() {
+                *slot = Some(now_ms());
+            }
+        }
+    }
+
+    /// Forget the VM start time (the slot is empty again).
+    fn clear_vm_started(&self) {
+        if let Ok(mut slot) = self.vm_started_at_ms.lock() {
+            *slot = None;
+        }
+    }
+
     /// Stop the host-owned VM and clear the slot (no-op when empty).
     pub fn stop_current_vm(&self) -> Result<(), HostError> {
         let taken = self
@@ -1637,6 +1690,7 @@ impl AppState {
         if let Some(mut vm) = taken {
             vm.stop().map_err(|e| HostError::Other(e.to_string()))?;
         }
+        self.clear_vm_started();
         Ok(())
     }
 
@@ -1693,9 +1747,10 @@ impl AppState {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_bridge = Arc::clone(&stop);
         let audit = Arc::clone(&self.audit);
+        let vm_started_at = Arc::clone(&self.vm_started_at_ms);
         let bridge_emitter = Arc::clone(&emitter);
         let bridge = std::thread::spawn(move || {
-            let mut bridge = AuditBridge::new(audit, bridge_emitter);
+            let mut bridge = AuditBridge::new(audit, bridge_emitter, Arc::clone(&vm_started_at));
             while !stop_bridge.load(Ordering::Relaxed) {
                 bridge.tick();
                 std::thread::sleep(POLL_INTERVAL);
@@ -1755,6 +1810,14 @@ impl AppState {
         let _ = bridge.join();
         let _ = stream_thread.join();
 
+        // Keep the VM badge in sync with the host-owned slot: a VM that
+        // survived the run keeps its start time, an empty slot clears it.
+        if self.vm_is_running() {
+            self.mark_vm_started();
+        } else {
+            self.clear_vm_started();
+        }
+
         let outcome = outcome?;
 
         // Persist the turn (system messages are skipped inside).
@@ -1792,15 +1855,38 @@ impl LlmClient for ArcLlm {
 struct AuditBridge {
     audit: Arc<Mutex<AuditStore>>,
     emitter: Arc<dyn EventSink>,
+    vm_started_at: Arc<Mutex<Option<i64>>>,
     last_id: i64,
 }
 
 impl AuditBridge {
-    fn new(audit: Arc<Mutex<AuditStore>>, emitter: Arc<dyn EventSink>) -> Self {
+    fn new(
+        audit: Arc<Mutex<AuditStore>>,
+        emitter: Arc<dyn EventSink>,
+        vm_started_at: Arc<Mutex<Option<i64>>>,
+    ) -> Self {
         Self {
             audit,
             emitter,
+            vm_started_at,
             last_id: 0,
+        }
+    }
+
+    /// `vm:state` payload shared by every VM lifecycle event.
+    fn vm_payload(&self, state: &str) -> serde_json::Value {
+        let since = self.vm_started_at.lock().ok().and_then(|g| *g);
+        serde_json::json!({
+            "state": state,
+            "running": since.is_some(),
+            "since_ms": since,
+        })
+    }
+
+    /// Record/clear the VM start time as the sandbox reports it.
+    fn set_vm_started(&self, started: bool) {
+        if let Ok(mut slot) = self.vm_started_at.lock() {
+            *slot = if started { Some(now_ms()) } else { None };
         }
     }
 
@@ -1835,19 +1921,30 @@ impl AuditBridge {
                         "result": e.event.detail.get("result"),
                     }),
                 ),
-                "vm.start" => self
-                    .emitter
-                    .emit(EV_VM_STATE, serde_json::json!({ "state": "running" })),
-                "vm.stop" => self
-                    .emitter
-                    .emit(EV_VM_STATE, serde_json::json!({ "state": "stopped" })),
-                "vm.snapshot.save" => self.emitter.emit(
-                    EV_VM_STATE,
-                    serde_json::json!({
-                        "state": "snapshot",
-                        "name": e.event.detail.get("name"),
-                    }),
-                ),
+                "vm.start" => {
+                    self.set_vm_started(true);
+                    let payload = self.vm_payload("running");
+                    self.emitter.emit(EV_VM_STATE, payload);
+                }
+                "vm.stop" => {
+                    self.set_vm_started(false);
+                    let payload = self.vm_payload("stopped");
+                    self.emitter.emit(EV_VM_STATE, payload);
+                }
+                "vm.snapshot.save" => {
+                    let mut payload = self.vm_payload("snapshot");
+                    if let Some(object) = payload.as_object_mut() {
+                        object.insert(
+                            "name".to_string(),
+                            e.event
+                                .detail
+                                .get("name")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null),
+                        );
+                    }
+                    self.emitter.emit(EV_VM_STATE, payload);
+                }
                 _ => {}
             }
             new_max = new_max.max(e.id);

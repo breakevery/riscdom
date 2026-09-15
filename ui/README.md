@@ -19,6 +19,12 @@ The RiscDom desktop frontend (Tauri 2 + React + TypeScript + Vite).
   library). The chat width is remembered in `localStorage` as `riscdom.layout.chatWidth` (an
   integer number of pixels, never anything sensitive).
 
+**Top bar** — the project name on the left plus a **VM badge** once a VM has been used in this
+session: a green dot with “VM running”, or a grey dot with “VM stopped”. Hovering shows how long
+it has been running. The VM is a cross-run resource (the agent is told not to stop it on its own),
+so the badge is how you can see that it is still alive; the value comes from the host
+(`vm_status`), never from guesswork in the UI. The gear on the right opens the settings page.
+
 **Settings page** — opens from the gear button in the top bar (top right); `Esc` or “← 返回”
 returns to the main view. It fills the window and is split into tabs
 (`src/settings/SettingsTabs.tsx`):

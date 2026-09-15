@@ -156,6 +156,14 @@ export const resumeFromSnapshotReal = (name: string) =>
 /** Is the host currently holding a (cross-run) VM? */
 export const vmIsRunning = () => invoke<boolean>("vm_is_running");
 
+/** VM status for the top-bar badge (v0.3 #4c). */
+export interface VmStatus {
+  running: boolean;
+  since_ms: number | null;
+}
+
+export const vmStatus = () => invoke<VmStatus>("vm_status");
+
 /** One-click toolchain download (mirrors the host `DownloadEvent`). */
 export type ToolchainDownloadEvent =
   | { kind: "started"; total_bytes: number | null }

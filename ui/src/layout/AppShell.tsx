@@ -34,6 +34,16 @@ function writeChatWidth(width: number): void {
   }
 }
 
+/** Human-readable elapsed time for the VM badge tooltip. */
+function elapsedLabel(sinceMs: number | null): string {
+  if (sinceMs === null) return "";
+  const seconds = Math.max(0, Math.round((Date.now() - sinceMs) / 1000));
+  if (seconds < 60) return `运行 ${seconds} 秒`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `运行 ${minutes} 分钟`;
+  return `运行 ${(minutes / 60).toFixed(1)} 小时`;
+}
+
 export default function AppShell() {
   const store = useAppStore();
   const [view, setView] = useState<View>("main");
@@ -85,6 +95,19 @@ export default function AppShell() {
           <>
             <span className="brand">RiscDom</span>
             <span className="spacer" />
+            {store.vmSeen ? (
+              <span
+                className="vm-badge"
+                title={
+                  store.vmStatus.running
+                    ? `VM ${elapsedLabel(store.vmStatus.sinceMs)}（跨 run 保持；仅在你要求时停止）`
+                    : "VM 已停止"
+                }
+              >
+                <span className={`dot ${store.vmStatus.running ? "ok" : "off"}`} />
+                {store.vmStatus.running ? "VM 运行中" : "VM 已停止"}
+              </span>
+            ) : null}
             <button
               className="ghost tiny gear"
               title="设置（Esc 关闭）"

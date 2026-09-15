@@ -8,7 +8,7 @@ use crate::events::TOOLCHAIN_DOWNLOAD;
 use crate::state::{
     AgentOutcomeView, AppState, AuditStatusView, LlmConfigStatus, LlmReadiness, LocalProbeResult,
     ProviderPresetView, SessionDetailView, SnapshotMetaView, StoredEventView,
-    ToolchainDownloadStatus, ToolchainView,
+    ToolchainDownloadStatus, ToolchainView, VmStatusView,
 };
 use crate::SessionMeta;
 use std::sync::Arc;
@@ -81,6 +81,12 @@ pub async fn stop_current_vm(state: State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 pub async fn vm_is_running(state: State<'_, AppState>) -> Result<bool, String> {
     Ok(state.vm_is_running())
+}
+
+/// VM status for the top-bar badge: running + when it started.
+#[tauri::command]
+pub async fn vm_status(state: State<'_, AppState>) -> Result<VmStatusView, String> {
+    Ok(state.vm_status())
 }
 
 /// Where the RISC-V GCC toolchain is (and the full search record).

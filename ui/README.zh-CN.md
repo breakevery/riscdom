@@ -15,6 +15,11 @@
 - 两栏之间一条可拖拽分隔条（`layout/AppShell.tsx`，无第三方分栏库）；聊天宽度记忆在
   `localStorage` 的 `riscdom.layout.chatWidth`（整数像素，不含任何敏感信息）。
 
+**顶栏** —— 左侧项目名；一旦本会话用过 VM，就会出现 **VM 徽标**：绿点“VM 运行中”或
+灰点“VM 已停止”，hover 显示已运行时长。VM 是跨 run 资源（prompt 已要求 AI 不要自行停止），
+徽标就是你确认它仍活着的入口；状态由**后端权威提供**（`vm_status`），前端不凭空推断。
+最右侧的齿轮按钮进入设置页。
+
 **设置页** —— 由顶栏右侧齿轮按钮进入，`Esc` 或“← 返回”回到主视图；全屏，内部分 tab
 （`src/settings/SettingsTabs.tsx`）：
 
