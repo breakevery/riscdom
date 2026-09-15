@@ -36,6 +36,24 @@ pub fn settings_path() -> PathBuf {
     base.join("settings.json")
 }
 
+/// Directory for downloaded toolchains (`<app data>/toolchain`).
+///
+/// Resolution order:
+/// 1. `RISCDOM_TOOLCHAIN_DIR` (tests / overrides)
+/// 2. the registered app-data directory (`toolchain`)
+/// 3. fallback: `<temp>/riscdom/toolchain`
+pub fn toolchain_dir() -> PathBuf {
+    if let Ok(path) = std::env::var("RISCDOM_TOOLCHAIN_DIR") {
+        if !path.trim().is_empty() {
+            return PathBuf::from(path);
+        }
+    }
+    let base = app_data_dir().unwrap_or_else(|| std::env::temp_dir().join("riscdom"));
+    let dir = base.join("toolchain");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
 /// Path of the sessions database.
 ///
 /// Resolution order:

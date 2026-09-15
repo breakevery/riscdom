@@ -18,6 +18,7 @@ pub mod paths;
 pub mod session;
 pub mod settings;
 pub mod state;
+pub mod toolchain_download;
 
 pub use error::HostError;
 pub use events::EventSink;
