@@ -35,6 +35,14 @@ const VM_MEMORY_MB: u32 = 128;
 /// should not be told "no output" when the guest is simply still starting.
 const SERIAL_READ_WAIT: Duration = Duration::from_millis(5000);
 
+/// How long the serial output must stop growing before `read_serial` returns.
+///
+/// QEMU streams the UART in chunks: under load the **first** chunk can be a
+/// single byte (the gate caught a buffer containing just "H" of "HELLO RISCV").
+/// Waiting for a short quiet period after the first bytes yields the whole
+/// banner instead of a truncated one.
+const SERIAL_SETTLE_QUIET: Duration = Duration::from_millis(150);
+
 static CALL_SEQ: AtomicU64 = AtomicU64::new(1);
 
 /// A tool description handed to the model.
@@ -357,9 +365,19 @@ fn tool_read_serial(ctx: &mut ToolContext) -> Result<String, AgentError> {
     // after start_vm). Returns whatever is buffered once it is non-empty or the
     // wait elapses.
     let deadline = Instant::now() + SERIAL_READ_WAIT;
+    let mut seen = 0usize;
+    let mut quiet_since: Option<Instant> = None;
     loop {
         let out = vm.serial_output();
-        if !out.is_empty() {
+        if out.len() > seen {
+            seen = out.len();
+            quiet_since = Some(Instant::now());
+        }
+        if !out.is_empty()
+            && quiet_since
+                .map(|since| since.elapsed() >= SERIAL_SETTLE_QUIET)
+                .unwrap_or(false)
+        {
             return Ok(String::from_utf8_lossy(&out).to_string());
         }
         if Instant::now() >= deadline {
