@@ -8,6 +8,7 @@ use crate::events::{
 use crate::keyring::{user_for_provider, InMemoryKeyring, KeyringBackend, OsKeyring, SERVICE};
 use crate::session::{SessionMessage, SessionMeta, SessionStore};
 use crate::settings::LocalSettings;
+use crate::toolchain_download::DownloadEvent;
 use agent::llm::{DeepSeekClient, LlmClient};
 use agent::message::{ChatMessage, ChatRequest, ChatResponse, StreamEvent};
 use agent::policy::WorkspacePolicy;
@@ -31,6 +32,20 @@ pub const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Guest RAM used by the agent's `start_vm` tool (kept in sync there).
 const VM_MEMORY_MB: u32 = 128;
+
+/// In-flight download bookkeeping (v0.3 #3b).
+#[derive(Debug)]
+pub struct ToolchainDownloadState {
+    pub cancel: Arc<AtomicBool>,
+    pub started_at: std::time::Instant,
+}
+
+/// Download status for the UI / polling clients.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ToolchainDownloadStatus {
+    pub in_progress: bool,
+    pub last_event: Option<DownloadEvent>,
+}
 
 /// Toolchain status shown in the UI (stage 24b).
 #[derive(Debug, Clone, serde::Serialize)]
@@ -320,6 +335,11 @@ pub struct AppState {
     pub vm_slot: Arc<Mutex<Option<RiscVVirtualMachine>>>,
     /// User-chosen RISC-V GCC (`set_toolchain_path`); `None` means auto-discovery.
     pub toolchain_path: Mutex<Option<PathBuf>>,
+    /// In-flight toolchain download (v0.3 #3b). `Arc` so the worker thread can
+    /// be handed the cancel flag and clear the slot when it finishes.
+    pub toolchain_download: Arc<Mutex<Option<ToolchainDownloadState>>>,
+    /// Last download event seen, kept after the download ends (for polling).
+    toolchain_download_last: Mutex<Option<DownloadEvent>>,
     /// Non-secret local settings mirrored to `settings.json`.
     settings: Mutex<LocalSettings>,
     /// Where `settings.json` lives.
@@ -485,6 +505,8 @@ impl AppState {
             sink,
             vm_slot: Arc::new(Mutex::new(None)),
             toolchain_path: Mutex::new(None),
+            toolchain_download: Arc::new(Mutex::new(None)),
+            toolchain_download_last: Mutex::new(None),
             settings: Mutex::new(LocalSettings::default()),
             settings_path: crate::paths::settings_path(),
             llm_config: Mutex::new(None),
@@ -683,6 +705,151 @@ impl AppState {
     // ----- Sessions ---------------------------------------------------------
 
     // ----- Toolchain (stage 24b) --------------------------------------------
+
+    // ----- Toolchain download (v0.3 #3b) ------------------------------------
+
+    /// Claim the download slot. Errors when a download is already running.
+    pub fn begin_toolchain_download(
+        &self,
+        spec: &crate::toolchain_download::DownloadSpec,
+    ) -> Result<Arc<AtomicBool>, HostError> {
+        let mut slot = self
+            .toolchain_download
+            .lock()
+            .map_err(|_| HostError::Other("download lock poisoned".into()))?;
+        if slot.is_some() {
+            return Err(HostError::Other("download already in progress".into()));
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        *slot = Some(ToolchainDownloadState {
+            cancel: Arc::clone(&cancel),
+            started_at: std::time::Instant::now(),
+        });
+        drop(slot);
+        self.emit_host(
+            "host.toolchain.download.start",
+            serde_json::json!({ "version": spec.version }),
+        );
+        Ok(cancel)
+    }
+
+    /// Ask an in-flight download to stop.
+    pub fn cancel_toolchain_download(&self) -> Result<(), HostError> {
+        let slot = self
+            .toolchain_download
+            .lock()
+            .map_err(|_| HostError::Other("download lock poisoned".into()))?;
+        match slot.as_ref() {
+            Some(state) => {
+                state.cancel.store(true, Ordering::Relaxed);
+                Ok(())
+            }
+            None => Err(HostError::Other("no download in progress".into())),
+        }
+    }
+
+    /// Current download status (also valid when idle: the last event is kept).
+    pub fn toolchain_download_status(&self) -> ToolchainDownloadStatus {
+        let in_progress = self
+            .toolchain_download
+            .lock()
+            .map(|slot| slot.is_some())
+            .unwrap_or(false);
+        let last_event = self
+            .toolchain_download_last
+            .lock()
+            .ok()
+            .and_then(|event| event.clone());
+        ToolchainDownloadStatus {
+            in_progress,
+            last_event,
+        }
+    }
+
+    /// Record one download event (progress reporting + polling).
+    pub fn record_download_event(&self, event: DownloadEvent) {
+        if let Ok(mut last) = self.toolchain_download_last.lock() {
+            *last = Some(event);
+        }
+    }
+
+    /// Release the download slot (called when the worker finishes).
+    pub fn finish_toolchain_download(&self) {
+        if let Ok(mut slot) = self.toolchain_download.lock() {
+            *slot = None;
+        }
+    }
+
+    /// Download, verify and install, then adopt the compiler as the active one.
+    ///
+    /// The caller owns the Tauri side (spawning + event emission); tests call
+    /// this directly. `on_event` is invoked for every progress event in addition
+    /// to the internal bookkeeping.
+    pub fn download_toolchain_now(
+        &self,
+        spec: &crate::toolchain_download::DownloadSpec,
+        dest_root: &Path,
+        cancel: Arc<AtomicBool>,
+        on_event: &mut dyn FnMut(DownloadEvent),
+    ) -> Result<PathBuf, HostError> {
+        let mut forward = |event: DownloadEvent| {
+            self.record_download_event(event.clone());
+            on_event(event);
+        };
+        let result =
+            crate::toolchain_download::download_and_install(spec, dest_root, &cancel, &mut forward);
+
+        match result {
+            Ok(compiler) => {
+                let path = compiler.display().to_string();
+                let adopted = self.set_toolchain_path(&path);
+                self.finish_toolchain_download();
+                match adopted {
+                    Ok(()) => {
+                        self.emit_host(
+                            "host.toolchain.download.done",
+                            serde_json::json!({ "version": spec.version, "path": path }),
+                        );
+                        Ok(compiler)
+                    }
+                    Err(e) => {
+                        self.emit_host(
+                            "host.toolchain.download.failed",
+                            serde_json::json!({
+                                "version": spec.version,
+                                "code": "not_runnable",
+                                "error": e.to_string(),
+                            }),
+                        );
+                        Err(e)
+                    }
+                }
+            }
+            Err(e) => {
+                let code = e.code();
+                self.finish_toolchain_download();
+                if matches!(
+                    e,
+                    crate::toolchain_download::ToolchainDownloadError::Cancelled
+                ) {
+                    self.emit_host(
+                        "host.toolchain.download.cancelled",
+                        serde_json::json!({ "version": spec.version }),
+                    );
+                } else {
+                    self.emit_host(
+                        "host.toolchain.download.failed",
+                        serde_json::json!({
+                            "version": spec.version,
+                            "code": code,
+                            "error": e.to_string(),
+                        }),
+                    );
+                }
+                Err(HostError::Other(format!("{code}: {e}")))
+            }
+        }
+    }
 
     /// Effective compiler config: an explicit user path wins over discovery.
     fn toolchain_config(&self) -> agent::CompilerConfig {

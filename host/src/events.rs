@@ -14,6 +14,8 @@ pub const EV_AGENT_FINAL: &str = "agent:final";
 /// New serial output (incremental), pushed by the sandbox via the agent's
 /// serial observer (`AgentLoop::subscribe_serial`).
 pub const EV_SERIAL_CHUNK: &str = "serial:chunk";
+/// One-click toolchain download progress (`DownloadEvent` payload).
+pub const TOOLCHAIN_DOWNLOAD: &str = "toolchain:download";
 /// Incremental assistant text from the LLM stream (`AgentLoop::subscribe_stream`).
 pub const EV_AGENT_STREAM_DELTA: &str = "agent:stream:delta";
 /// The LLM stream finished.

@@ -1,5 +1,7 @@
 //! Stage 24c — toolchain probe / set / clear through the host state.
 
+mod common;
+
 use agent::llm::MockLlm;
 use agent::message::{ChatMessage, ChatResponse, Choice};
 use host::state::AppState;
@@ -135,6 +137,146 @@ fn invalid_manual_path_diagnostics_are_not_duplicated() {
         !err.to_string().contains("not runnable: not runnable:"),
         "{err}"
     );
+}
+
+#[test]
+fn a_second_download_start_is_rejected() {
+    let state = state("dl-busy");
+    let (bytes, hash) = common::toolchain_archive_with_executable();
+    let server = common::MockServer::start(bytes);
+    let spec = common::spec_for(&server, hash, "toolchain-archive");
+
+    let _cancel = state.begin_toolchain_download(&spec).expect("first start");
+    let err = state
+        .begin_toolchain_download(&spec)
+        .expect_err("a second start must be rejected");
+    println!("{err}");
+    assert!(err.to_string().contains("already in progress"), "{err}");
+    assert!(state.toolchain_download_status().in_progress);
+
+    state.finish_toolchain_download();
+    assert!(!state.toolchain_download_status().in_progress);
+}
+
+#[test]
+fn cancelling_a_download_returns_to_idle() {
+    let state = state("dl-cancel");
+    let (bytes, hash) = common::toolchain_archive_with_executable();
+    let server = common::MockServer::start(bytes);
+    let spec = common::spec_for(&server, hash, "toolchain-archive");
+    let install_root = unique_dir("dl-cancel-install");
+
+    let cancel = state.begin_toolchain_download(&spec).expect("start");
+    state.cancel_toolchain_download().expect("cancel");
+    let err = state
+        .download_toolchain_now(&spec, &install_root, cancel, &mut |_| {})
+        .expect_err("a cancelled download must fail");
+    println!("{err}");
+    assert!(err.to_string().contains("cancelled"), "{err}");
+    assert!(
+        !state.toolchain_download_status().in_progress,
+        "the download slot must be released"
+    );
+
+    let actions = download_actions(&state, "host.toolchain.download.");
+    println!("actions: {actions:?}");
+    assert!(
+        actions.contains(&"host.toolchain.download.cancelled".to_string()),
+        "{actions:?}"
+    );
+    assert!(!install_root
+        .join(host::toolchain_download::XPACK_RISCV_GCC_VERSION)
+        .exists());
+}
+
+#[test]
+fn a_mock_download_installs_and_adopts_the_toolchain() {
+    let state = state("dl-flow");
+    let (bytes, hash) = common::toolchain_archive_with_executable();
+    let server = common::MockServer::start(bytes);
+    let spec = common::spec_for(&server, hash, "toolchain-archive");
+    let install_root = unique_dir("dl-flow-install");
+
+    let cancel = state.begin_toolchain_download(&spec).expect("start");
+    let compiler = state
+        .download_toolchain_now(&spec, &install_root, cancel, &mut |_| {})
+        .expect("the mock download must succeed");
+    println!("installed: {}", compiler.display());
+    assert!(compiler.is_file());
+    assert_eq!(server.hits(), 1);
+
+    // The downloaded compiler is now the active toolchain...
+    let view = state.probe_toolchain();
+    assert!(view.found, "{}", view.diagnostics);
+    assert_eq!(view.source, "Manual");
+    assert_eq!(
+        view.path.as_deref(),
+        Some(compiler.display().to_string().as_str())
+    );
+
+    // ... and it was persisted, so a restart keeps it.
+    let settings = std::fs::read_to_string(state.settings_path()).expect("settings.json");
+    println!("settings.json: {settings}");
+    assert!(settings.contains("toolchain_path"), "{settings}");
+    assert!(!state.toolchain_download_status().in_progress);
+
+    // Idempotent: running again must not hit the network.
+    let cancel = state.begin_toolchain_download(&spec).expect("second start");
+    let again = state
+        .download_toolchain_now(&spec, &install_root, cancel, &mut |_| {})
+        .expect("second run");
+    assert_eq!(again, compiler);
+    assert_eq!(server.hits(), 1, "the second run must be a no-op");
+}
+
+#[test]
+fn download_audit_events_are_complete() {
+    let state = state("dl-audit");
+    let (bytes, hash) = common::toolchain_archive_with_executable();
+    let server = common::MockServer::start(bytes);
+    let spec = common::spec_for(&server, hash, "toolchain-archive");
+    let install_root = unique_dir("dl-audit-install");
+
+    let cancel = state.begin_toolchain_download(&spec).expect("start");
+    state
+        .download_toolchain_now(&spec, &install_root, cancel, &mut |_| {})
+        .expect("download ok");
+
+    let actions = download_actions(&state, "host.toolchain.download.");
+    println!("actions: {actions:?}");
+    assert!(
+        actions.contains(&"host.toolchain.download.start".to_string()),
+        "{actions:?}"
+    );
+    assert!(
+        actions.contains(&"host.toolchain.download.done".to_string()),
+        "{actions:?}"
+    );
+
+    // The detail records the version and the final path, and nothing sensitive.
+    let done = state
+        .list_events(200, None, Some("host.toolchain.download.done".to_string()))
+        .expect("events");
+    let detail = done[0].detail.to_string();
+    println!("detail: {detail}");
+    assert!(detail.contains("xpack-riscv-none-elf-gcc"), "{detail}");
+    assert!(
+        !detail.to_lowercase().contains("api_key"),
+        "no secrets in the audit detail: {detail}"
+    );
+}
+
+/// Actions of the audit events whose action starts with `prefix`, oldest first.
+fn download_actions(state: &AppState, prefix: &str) -> Vec<String> {
+    let mut actions: Vec<String> = state
+        .list_events(500, None, Some(prefix.to_string()))
+        .expect("events")
+        .into_iter()
+        .map(|e| e.action)
+        .collect();
+    actions.sort();
+    actions.dedup();
+    actions
 }
 
 #[test]

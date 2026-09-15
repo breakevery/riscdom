@@ -59,6 +59,23 @@ key) / `custom`. See `agent/README.md`.
 `run_agent` refuses early with a `toolchain_missing` error (followed by the diagnostics) when no
 usable compiler exists. Audit events: `host.toolchain.set` / `host.toolchain.clear`.
 
+### One-click download (v0.3 #3)
+
+- `start_toolchain_download()` — fetches the official xPack RISC-V GCC for this platform
+  (SHA-256 pinned), verifies it, extracts it under `<app data>/toolchain/<version>/` and adopts
+  it as the active toolchain (which also records it in `settings.json`). A second call while one
+  is running fails with `download already in progress`; an already-installed version is a no-op
+  (nothing is re-downloaded).
+- `cancel_toolchain_download()` — asks the running download to stop; the temporary archive is
+  removed and the status returns to idle.
+- `toolchain_download_status()` — `{ in_progress, last_event }`.
+- Progress is streamed to the UI as `toolchain:download` events carrying a `DownloadEvent`
+  (`started` / `progress` / `verifying` / `extracting` / `done` / `failed` / `cancelled`).
+- Audit: `host.toolchain.download.start` / `.done` / `.failed` / `.cancelled` (the detail holds
+  the version, plus the final path on success).
+- The checksum is mandatory — there is no skip-verification switch — and archive entries that
+  would escape the install directory are refused (Zip Slip guard).
+
 Manual steps (Windows):
 
 1. Open the app and go to **Settings → Toolchain**. A red banner means nothing was found.

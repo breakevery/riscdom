@@ -4,13 +4,60 @@
 //! [`HostError`] and never contains secrets.
 
 use crate::events::TauriEventSink;
+use crate::events::TOOLCHAIN_DOWNLOAD;
 use crate::state::{
     AgentOutcomeView, AppState, AuditStatusView, LlmConfigStatus, LlmReadiness, LocalProbeResult,
-    ProviderPresetView, SessionDetailView, SnapshotMetaView, StoredEventView, ToolchainView,
+    ProviderPresetView, SessionDetailView, SnapshotMetaView, StoredEventView,
+    ToolchainDownloadStatus, ToolchainView,
 };
 use crate::SessionMeta;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Manager, State};
+
+/// Start the one-click RISC-V GCC download.
+#[tauri::command]
+pub async fn start_toolchain_download(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let spec = crate::toolchain_download::spec_for_current_platform().map_err(|e| e.to_string())?;
+    let cancel = state
+        .begin_toolchain_download(&spec)
+        .map_err(|e| e.user_message())?;
+
+    // The download is blocking (`reqwest::blocking`), so keep it off the async
+    // runtime; the app handle gives the worker access to the managed state.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let emitter: Arc<dyn crate::events::EventSink> = Arc::new(TauriEventSink::new(app.clone()));
+        let mut on_event = |event: crate::toolchain_download::DownloadEvent| {
+            if let Ok(payload) = serde_json::to_value(&event) {
+                emitter.emit(TOOLCHAIN_DOWNLOAD, payload);
+            }
+        };
+        let dest_root = crate::paths::toolchain_dir();
+        if let Err(e) = state.download_toolchain_now(&spec, &dest_root, cancel, &mut on_event) {
+            eprintln!("toolchain download failed: {e}");
+        }
+    });
+    Ok(())
+}
+
+/// Ask an in-flight toolchain download to stop.
+#[tauri::command]
+pub async fn cancel_toolchain_download(state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .cancel_toolchain_download()
+        .map_err(|e| e.user_message())
+}
+
+/// Whether a download is running, plus the last event seen.
+#[tauri::command]
+pub async fn toolchain_download_status(
+    state: State<'_, AppState>,
+) -> Result<ToolchainDownloadStatus, String> {
+    Ok(state.toolchain_download_status())
+}
 
 /// List snapshots on disk (real `.mig` and reboot-fallback `.json`).
 #[tauri::command]

@@ -58,6 +58,20 @@
 `toolchain_missing` 错误拒绝（随后附上探测详情）。审计事件：`host.toolchain.set` /
 `host.toolchain.clear`。
 
+### 一键下载（v0.3 第③步）
+
+- `start_toolchain_download()` —— 下载本平台对应的官方 xPack RISC-V GCC（SHA-256 固定），
+  校验后解压到 `<app data>/toolchain/<version>/`，并把它设为当前工具链（同时写入
+  `settings.json`）。进行中再次调用会返回 `download already in progress`；
+  版本已安装则为**幂等**（不重复下载）。
+- `cancel_toolchain_download()` —— 请求中止正在进行的下载；临时归档会被删除，状态回到 idle。
+- `toolchain_download_status()` —— `{ in_progress, last_event }`。
+- 进度以 `toolchain:download` 事件推给前端，载荷为 `DownloadEvent`
+  （`started` / `progress` / `verifying` / `extracting` / `done` / `failed` / `cancelled`）。
+- 审计：`host.toolchain.download.start` / `.done` / `.failed` / `.cancelled`
+  （detail 记 version，成功时另记最终 path）。
+- **校验和是强制的**——没有跳过校验的开关；会逃出安装目录的归档条目会被拒绝（Zip Slip 防护）。
+
 手工步骤（Windows）：
 
 1. 打开应用 → **设置 → 工具链**。出现红色横幅说明未找到。
