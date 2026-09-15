@@ -8,7 +8,9 @@ be verifiable and rollback-able — contributions follow the same discipline.
 ## Development environment
 
 - Windows 10/11 (the MVP is verified on Windows; QMP/serial go over TCP)
-- QEMU (`qemu-system-riscv64`, verified with 11.1.0)
+- QEMU (`qemu-system-riscv64`, verified with 11.1.0) — installed by you and found by RiscDom
+  (`RISCDOM_QEMU` / `QEMU_SYSTEM_RISCV64` → known paths → `PATH`); `winget install
+  SoftwareFreedomConservancy.QEMU` on Windows. See [docs/qemu-setup.md](docs/qemu-setup.md).
 - RISC-V bare-metal GCC (`riscv64-unknown-elf-gcc`, verified with xPack 15.2.0)
 - Rust / cargo (verified with 1.98.1) + the MSVC toolchain (Tauri needs it)
 - Node / npm (verified with 24.11.1 / 11.16.0)
@@ -74,6 +76,28 @@ about 70 characters, and mention the stage tag when the work belongs to a staged
 history).
 
 ## Documentation
+
+## Debugging flaky tests
+
+Flaky tests cost real time, so diagnose the **layer** before adding any defence.
+
+1. **Get the evidence first.** Capture the failing output verbatim (the assertion message, the
+   buffer, the timestamps). In this project a `read_serial` failure printed only `H` of
+   `HELLO RISCV` — that single byte identified the bug immediately.
+2. **Never assume the first plausible cause.** The same flake was first read as "the wait window
+   is too short" and the window was widened (2 s → 5 s). That change was **useless**: the tool
+   returned as soon as *any* byte arrived, so the window never applied. Fix the layer the
+   evidence points at, not the layer that is convenient.
+3. **Make failures self-explaining.** Returning an empty string made the model (and the log)
+   guess; returning a notice ("guest may still be booting") made the next failure diagnosable.
+   Prefer adding evidence to the failure path over guessing.
+4. **Label defensive fixes as such.** A retry that cannot be triggered on demand (e.g. port
+   TOCTOU under load) is defence, not proof. Say so in the commit and in the report, and keep the
+   pressure test that covers it (`cargo test -p sandbox --test port_race -- --ignored`).
+5. **Escalate deliberately.** If a flake survives two honest attempts at its own layer, switch
+   designs (for port races that would be stdio transport) instead of adding more retries.
+6. **Clean up between runs.** Interrupted test runs leave `target/debug/deps/*.exe` locked, which
+   surfaces as `link.exe 1104`; stop the leftovers before re-running a gate.
 
 Docs are bilingual: the English file is the main document (for example `README.md`) and the
 Chinese translation lives alongside it as `*.zh-CN.md`, with a language switcher on the first

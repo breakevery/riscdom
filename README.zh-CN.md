@@ -52,7 +52,10 @@ RiscDom（中文名 **智芯城**）是一个桌面应用：AI 在 QEMU RISC-V �
 ## 环境要求
 
 - Windows 10/11（MVP 仅在 Windows 验证；QMP/串口走 TCP）
-- QEMU（`qemu-system-riscv64`，实测 11.1.0）
+- QEMU（`qemu-system-riscv64`，实测 11.1.0）—— RiscDom 会**自动找到它**（`RISCDOM_QEMU` /
+  `QEMU_SYSTEM_RISCV64` → 常见安装路径 → `PATH`），也可在 **设置 → 工具链 → QEMU** 手动指定。
+  Windows 安装：`winget install SoftwareFreedomConservancy.QEMU`，或
+  <https://www.qemu.org/download/#windows>。详见 [docs/qemu-setup.md](docs/qemu-setup.md)。
 - RISC-V 裸机 GCC（`riscv64-unknown-elf-gcc`，实测 xPack 15.2.0）
 - Rust / cargo（实测 1.98.1）+ MSVC 工具链（Tauri 需要）
 - Node / npm（实测 24.11.1 / 11.16.0）

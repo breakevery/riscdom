@@ -54,7 +54,11 @@ and `agent → sandbox → audit`.
 ## Requirements
 
 - Windows 10/11 (MVP is verified on Windows only; QMP/serial use TCP)
-- QEMU (`qemu-system-riscv64`, verified with 11.1.0)
+- QEMU (`qemu-system-riscv64`, verified with 11.1.0) — RiscDom **finds it for you**
+  (`RISCDOM_QEMU` / `QEMU_SYSTEM_RISCV64`, well-known install locations, then `PATH`), and you can
+  point it at a copy in **Settings → Toolchain → QEMU**. On Windows:
+  `winget install SoftwareFreedomConservancy.QEMU`, or <https://www.qemu.org/download/#windows>.
+  Details: [docs/qemu-setup.md](docs/qemu-setup.md).
 - **A RISC-V bare-metal GCC is required to compile anything** — and RiscDom can fetch it for
   you: **Settings → Toolchain → one-click download** pulls the official xPack build for your
   platform (~200 MB), checks its SHA-256 and installs it under the app data directory. You can

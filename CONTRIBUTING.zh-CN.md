@@ -8,7 +8,9 @@
 ## 开发环境
 
 - Windows 10/11（MVP 仅在 Windows 验证；QMP / 串口走 TCP）
-- QEMU（`qemu-system-riscv64`，实测 11.1.0）
+- QEMU（`qemu-system-riscv64`，实测 11.1.0）—— 由你安装、由 RiscDom 自动探测
+  （`RISCDOM_QEMU` / `QEMU_SYSTEM_RISCV64` → 常见路径 → `PATH`）；Windows 可用
+  `winget install SoftwareFreedomConservancy.QEMU`。见 [docs/qemu-setup.md](docs/qemu-setup.md)。
 - RISC-V 裸机 GCC（`riscv64-unknown-elf-gcc`，实测 xPack 15.2.0）
 - Rust / cargo（实测 1.98.1）+ MSVC 工具链（Tauri 需要）
 - Node / npm（实测 24.11.1 / 11.16.0）
@@ -68,6 +70,25 @@ gate 非零退出时，包装脚本以 1 退出，**不会产生任何提交**�
 `.gitignore` 已覆盖大部分；CI 另跑 secret scanning（gitleaks，全历史）。
 
 ## 文档规范
+
+## 调试抖动测试（flaky tests）
+
+抖动很耗时，所以**先定位层次，再加防御**。
+
+1. **先拿证据。** 原样保存失败输出（断言消息、缓冲区内容、时间戳）。本项目里一次
+   `read_serial` 失败只打印出 `HELLO RISCV` 的 **`H`** —— 这一个字节就锁定了 bug。
+2. **不要假设第一个看起来合理的成因。** 同一个抖动最初被读成"等待窗口太短"，于是把窗口从
+   2s 加宽到 5s；那次改动**完全无效**：工具一看到任何字节就返回，窗口根本没被用上。
+   要在证据指向的层修，而不是在方便的层修。
+3. **让失败自解释。** 返回空串会逼模型和日志去猜；返回一条提示（"guest 可能仍在启动"）就
+   让下一次失败可以诊断。宁可先给失败路径补证据，也不要凭感觉改参数。
+4. **防御性修复要标注。** 无法按需触发的重试（例如负载下的端口 TOCTOU）是**防御**，不是
+   **证明**。在 commit 和报告里写清楚，并保留覆盖它的压力测试
+   （`cargo test -p sandbox --test port_race -- --ignored`）。
+5. **有意识地升级方案。** 若在同一层两次认真尝试后抖动仍在，就换设计（端口竞争可换 stdio
+   传输），而不是继续叠加重试。
+6. **轮次之间清理干净。** 被中断的测试会占用 `target/debug/deps/*.exe`，表现为
+   `link.exe 1104`；重跑门禁前先清掉残留进程。
 
 文档双语：英文为主文档（如 `README.md`），中文译本同目录 `*.zh-CN.md`，
 首行加语言切换：
