@@ -26,7 +26,14 @@ pub const MAX_TOOL_RESULT: usize = 8 * 1024;
 const VM_MEMORY_MB: u32 = 128;
 
 /// How long `read_serial` waits for the first UART output before returning.
-const SERIAL_READ_WAIT: Duration = Duration::from_millis(2000);
+/// How long `read_serial` waits for the guest's **first** bytes.
+///
+/// The wait returns as soon as anything arrives; this is only the upper bound.
+/// It was raised from 2 s to 5 s after the gate caught `e2e_mock` failing on
+/// `serial.contains("HELLO RISCV")` under parallel load (stage v0.3-5c): a busy
+/// machine can take longer than 2 s to produce the guest banner, and the model
+/// should not be told "no output" when the guest is simply still starting.
+const SERIAL_READ_WAIT: Duration = Duration::from_millis(5000);
 
 static CALL_SEQ: AtomicU64 = AtomicU64::new(1);
 
