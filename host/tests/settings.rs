@@ -31,6 +31,7 @@ fn save_then_load_round_trips() {
     let path = unique_dir("roundtrip").join("nested").join("settings.json");
     let settings = LocalSettings {
         version: SETTINGS_VERSION,
+        qemu_path: None,
         toolchain_path: Some(
             r"C:\tools\riscv64-unknown-elf\bin\riscv64-unknown-elf-gcc.exe".into(),
         ),

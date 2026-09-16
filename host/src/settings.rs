@@ -18,6 +18,9 @@ pub struct LocalSettings {
     /// Manual RISC-V GCC path; `None` means auto-discovery.
     #[serde(default)]
     pub toolchain_path: Option<String>,
+    /// Manual QEMU executable path; `None` means auto-discovery (v0.3 5b-1a).
+    #[serde(default)]
+    pub qemu_path: Option<String>,
 }
 
 impl Default for LocalSettings {
@@ -25,6 +28,7 @@ impl Default for LocalSettings {
         Self {
             version: SETTINGS_VERSION,
             toolchain_path: None,
+            qemu_path: None,
         }
     }
 }
@@ -40,6 +44,7 @@ impl LocalSettings {
             Ok(mut settings) => {
                 settings.version = SETTINGS_VERSION;
                 settings.toolchain_path = settings.toolchain_path.filter(|p| !p.trim().is_empty());
+                settings.qemu_path = settings.qemu_path.filter(|p| !p.trim().is_empty());
                 settings
             }
             Err(_) => Self::default(),

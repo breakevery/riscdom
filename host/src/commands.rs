@@ -5,6 +5,7 @@
 
 use crate::events::TauriEventSink;
 use crate::events::TOOLCHAIN_DOWNLOAD;
+use crate::state::QemuView;
 use crate::state::{
     AgentOutcomeView, AppState, AuditStatusView, LlmConfigStatus, LlmReadiness, LocalProbeResult,
     ProviderPresetView, SessionDetailView, SnapshotMetaView, StoredEventView,
@@ -77,6 +78,29 @@ pub async fn stop_current_vm(state: State<'_, AppState>) -> Result<(), String> {
     state.stop_current_vm().map_err(|e| e.user_message())
 }
 
+/// Where QEMU is (and the full search record).
+#[tauri::command]
+pub async fn probe_qemu(state: State<'_, AppState>) -> Result<QemuView, String> {
+    Ok(state.probe_qemu())
+}
+
+/// Same as `probe_qemu`; the UI reads it on mount.
+#[tauri::command]
+pub async fn get_qemu_status(state: State<'_, AppState>) -> Result<QemuView, String> {
+    Ok(state.probe_qemu())
+}
+
+/// Point the app at a specific QEMU binary (validated with `--version`).
+#[tauri::command]
+pub async fn set_qemu_path(state: State<'_, AppState>, path: String) -> Result<(), String> {
+    state.set_qemu_path(&path).map_err(|e| e.user_message())
+}
+
+/// Forget the manual QEMU path and go back to auto-discovery.
+#[tauri::command]
+pub async fn clear_qemu_path(state: State<'_, AppState>) -> Result<(), String> {
+    state.clear_qemu_path().map_err(|e| e.user_message())
+}
 /// Is a VM currently held by the host (i.e. kept alive across runs)?
 #[tauri::command]
 pub async fn vm_is_running(state: State<'_, AppState>) -> Result<bool, String> {

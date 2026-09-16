@@ -65,6 +65,19 @@ pub struct ToolchainDownloadStatus {
     pub last_event: Option<DownloadEvent>,
 }
 
+/// QEMU status shown in the UI (v0.3 5b-1a).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct QemuView {
+    /// Is a usable `qemu-system-riscv64` available?
+    pub found: bool,
+    /// Resolved path (absent when not found).
+    pub path: Option<String>,
+    /// `EnvVar` / `KnownPath` / `Path` / `Manual`.
+    pub source: String,
+    /// Human-readable search record.
+    pub diagnostics: String,
+}
+
 /// Toolchain status shown in the UI (stage 24b).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ToolchainView {
@@ -353,6 +366,8 @@ pub struct AppState {
     pub vm_slot: Arc<Mutex<Option<RiscVVirtualMachine>>>,
     /// User-chosen RISC-V GCC (`set_toolchain_path`); `None` means auto-discovery.
     pub toolchain_path: Mutex<Option<PathBuf>>,
+    /// User-chosen QEMU (`set_qemu_path`); `None` means auto-discovery.
+    pub qemu_path: Mutex<Option<PathBuf>>,
     /// In-flight toolchain download (v0.3 #3b). `Arc` so the worker thread can
     /// be handed the cancel flag and clear the slot when it finishes.
     pub toolchain_download: Arc<Mutex<Option<ToolchainDownloadState>>>,
@@ -526,6 +541,7 @@ impl AppState {
             sink,
             vm_slot: Arc::new(Mutex::new(None)),
             toolchain_path: Mutex::new(None),
+            qemu_path: Mutex::new(None),
             toolchain_download: Arc::new(Mutex::new(None)),
             vm_started_at_ms: Arc::new(Mutex::new(None)),
             toolchain_download_last: Mutex::new(None),
@@ -947,6 +963,74 @@ impl AppState {
     }
 
     /// Where the local settings file lives (tests / diagnostics).
+    /// Current QEMU status for the UI (v0.3 5b-1a).
+    pub fn probe_qemu(&self) -> QemuView {
+        if let Some(path) = self.qemu_path.lock().ok().and_then(|g| g.clone()) {
+            let runnable = toolchain_runs(&path);
+            return QemuView {
+                found: runnable.is_ok(),
+                path: Some(path.display().to_string()),
+                source: "Manual".to_string(),
+                diagnostics: match &runnable {
+                    Ok(version) => format!("manual path: {}\n{version}", path.display()),
+                    Err(e) => format!("manual path: {} is not runnable: {e}", path.display()),
+                },
+            };
+        }
+        match sandbox::qemu_discover::discover() {
+            Ok(location) => QemuView {
+                found: true,
+                path: Some(location.exe.display().to_string()),
+                source: location.source.as_str().to_string(),
+                diagnostics: sandbox::qemu_discover::diagnostics(),
+            },
+            Err(_) => QemuView {
+                found: false,
+                path: None,
+                source: "Path".to_string(),
+                diagnostics: sandbox::qemu_discover::diagnostics(),
+            },
+        }
+    }
+
+    /// Store a user-chosen QEMU after checking that it runs.
+    pub fn set_qemu_path(&self, path: &str) -> Result<(), HostError> {
+        let p = PathBuf::from(path.trim());
+        if !p.is_file() {
+            return Err(HostError::Other(format!("not a file: {}", p.display())));
+        }
+        let version =
+            toolchain_runs(&p).map_err(|e| HostError::Other(format!("not runnable: {e}")))?;
+        *self
+            .qemu_path
+            .lock()
+            .map_err(|_| HostError::Other("qemu lock poisoned".into()))? = Some(p.clone());
+        if let Ok(mut g) = self.settings.lock() {
+            g.qemu_path = Some(p.display().to_string());
+        }
+        self.save_settings();
+        self.emit_host(
+            "host.qemu.set",
+            serde_json::json!({ "path": p.display().to_string(), "version": version }),
+        );
+        Ok(())
+    }
+
+    /// Drop the manual QEMU path and fall back to auto-discovery.
+    pub fn clear_qemu_path(&self) -> Result<(), HostError> {
+        *self
+            .qemu_path
+            .lock()
+            .map_err(|_| HostError::Other("qemu lock poisoned".into()))? = None;
+        if let Ok(mut g) = self.settings.lock() {
+            g.qemu_path = None;
+        }
+        self.save_settings();
+        self.emit_host("host.qemu.clear", serde_json::json!({}));
+        Ok(())
+    }
+
+    /// Where the local settings file lives (tests / diagnostics).
     pub fn settings_path(&self) -> &Path {
         &self.settings_path
     }
@@ -959,6 +1043,9 @@ impl AppState {
         }
         if let Ok(mut g) = self.toolchain_path.lock() {
             *g = loaded.toolchain_path.map(PathBuf::from);
+        }
+        if let Ok(mut g) = self.qemu_path.lock() {
+            *g = loaded.qemu_path.map(PathBuf::from);
         }
     }
 
@@ -1712,6 +1799,14 @@ impl AppState {
             return Err(HostError::Other(format!(
                 "toolchain_missing\n{}",
                 toolchain.diagnostics
+            )));
+        }
+        // QEMU pre-check: the sandbox cannot boot a guest without it.
+        let qemu = self.probe_qemu();
+        if !qemu.found {
+            return Err(HostError::Other(format!(
+                "qemu_missing\n{}",
+                qemu.diagnostics
             )));
         }
         let llm = self.build_llm()?;
