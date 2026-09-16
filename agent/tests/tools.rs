@@ -52,6 +52,7 @@ fn write_source_writes_file_and_audits_two_events() {
         vm: &mut vm_slot,
         compiler: &compiler,
         serial_observers: Arc::new(Mutex::new(Vec::new())),
+        qemu_exe: &None,
     };
 
     let msg = execute_tool(
@@ -85,6 +86,7 @@ fn compile_fixture_succeeds() {
         vm: &mut vm_slot,
         compiler: &compiler,
         serial_observers: Arc::new(Mutex::new(Vec::new())),
+        qemu_exe: &None,
     };
 
     let src = include_str!("fixtures/hello.c");
@@ -122,6 +124,7 @@ fn policy_denies_traversal_and_bad_extension() {
         vm: &mut vm_slot,
         compiler: &compiler,
         serial_observers: Arc::new(Mutex::new(Vec::new())),
+        qemu_exe: &None,
     };
 
     let traversal = execute_tool(

@@ -45,6 +45,7 @@ fn an_empty_buffer_returns_a_notice_not_an_empty_string() {
         vm: &mut slot,
         compiler: &compiler,
         serial_observers: Arc::new(std::sync::Mutex::new(Vec::new())),
+        qemu_exe: &None,
     };
 
     let started = std::time::Instant::now();

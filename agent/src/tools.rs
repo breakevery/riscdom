@@ -78,6 +78,8 @@ pub struct ToolContext<'a> {
     pub compiler: &'a CompilerConfig,
     /// Live serial subscribers, fanned out to each started VM's observer.
     pub serial_observers: Arc<Mutex<Vec<std::sync::mpsc::Sender<Vec<u8>>>>>,
+    /// Host-injected QEMU executable (v0.3 5b-1b); `None` = discover it.
+    pub qemu_exe: &'a Option<std::path::PathBuf>,
 }
 
 /// Build a serial observer that fans out to every live subscriber.
@@ -333,7 +335,7 @@ fn tool_start_vm(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<Stri
             serial_observer: Some(serial_observer_for(Arc::clone(&ctx.serial_observers))),
             incoming_snapshot: None,
             incoming_relay_addr: None,
-            qemu_exe: None,
+            qemu_exe: ctx.qemu_exe.clone(),
         };
         let mut vm = RiscVVirtualMachine::new(config, Arc::clone(&ctx.audit))?;
         match vm.start() {

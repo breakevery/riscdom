@@ -50,6 +50,8 @@ pub struct AgentLoop {
     /// When set, tools operate on this externally-owned VM slot instead of the
     /// loop's own `vm` (lets the host own the VM across runs).
     external_vm: Option<Arc<Mutex<Option<RiscVVirtualMachine>>>>,
+    /// Host-injected QEMU executable (v0.3 5b-1b); `None` = discover it.
+    qemu_exe: Option<std::path::PathBuf>,
 }
 
 impl AgentLoop {
@@ -99,6 +101,7 @@ impl AgentLoop {
             serial_observers: Arc::new(Mutex::new(Vec::new())),
             stream_observers: Arc::new(Mutex::new(Vec::new())),
             external_vm,
+            qemu_exe: None,
         })
     }
 
@@ -117,6 +120,12 @@ impl AgentLoop {
     /// RISC-V toolchain here; auto-discovery stays the default).
     pub fn set_compiler(&mut self, compiler: CompilerConfig) {
         self.compiler = compiler;
+    }
+
+    /// Replace the QEMU executable (the host injects a manually chosen path
+    /// here; auto-discovery stays the default).
+    pub fn set_qemu_path(&mut self, path: std::path::PathBuf) {
+        self.qemu_exe = Some(path);
     }
 
     /// Append restored messages to the conversation.
@@ -288,6 +297,7 @@ impl AgentLoop {
                         vm: &mut guard,
                         compiler: &self.compiler,
                         serial_observers: Arc::clone(&self.serial_observers),
+                        qemu_exe: &self.qemu_exe,
                     };
                     match execute_tool(&call.function.name, &call.function.arguments, &mut ctx) {
                         Ok(result) => result,
@@ -300,6 +310,7 @@ impl AgentLoop {
                         vm: &mut self.vm,
                         compiler: &self.compiler,
                         serial_observers: Arc::clone(&self.serial_observers),
+                        qemu_exe: &self.qemu_exe,
                     };
                     match execute_tool(&call.function.name, &call.function.arguments, &mut ctx) {
                         Ok(result) => result,
