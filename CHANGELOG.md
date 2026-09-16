@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-16
+
+### Added
+
+- **One-click download of RISC-V GCC (xPack)**: SHA-256 verified, Zip-Slip protected,
+  cancellable.
+- **QEMU discovery and a manual path**: `RISCDOM_QEMU` → known paths → `PATH`, plus a manual
+  path in *Settings*, persisted to `settings.json` and injected into the agent loop.
+- **VM status badge** in the top bar (visible across runs).
+- **Settings page with tabs**: Model / Toolchain / Snapshot / Audit / Plugins.
+
+### Changed
+
+- **Two-pane main view** (chat + serial); settings moved to a separate page (Esc returns).
+- **The system prompt is now entirely in English.**
+- **The AI no longer stops the VM automatically after a task**: the prompt, the `stop_vm`
+  tool description and the VM badge guarantee it three times over.
+
+### Fixed
+
+- **Chat and serial auto-scroll** to the latest output; a user scrolling up is not
+  interrupted and a "jump to latest" button appears.
+- **`read_serial` waits for ~150 ms of silence** before returning, so the first byte is no
+  longer truncated.
+- **Snapshot resume retries the relay port** on QMP 10054 / bind failure (up to 3 attempts).
+- **Test gate stability**: port TOCTOU retry in `start_vm`.
+
+### Notes
+
+- Residual items are tracked in `PROJECT_CONSTITUTION.md` §10 (v0.4).
+
 ## [0.2.2] - 2026-09-15
 
 ### Fixed
@@ -204,7 +235,8 @@ locally only. (An earlier draft was deleted; the `v0.1.0` tag remains.)
 - Real DeepSeek API end-to-end: **executed and passing** (2026-09-14, `iterations = 6`,
   serial captured `HELLO RISCV`; see `host/README.md`).
 
-[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/breakevery/riscdom/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/breakevery/riscdom/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/breakevery/riscdom/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/breakevery/riscdom/compare/v0.1.0...v0.2.0

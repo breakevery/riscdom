@@ -9,6 +9,33 @@
 
 ## [未发布]
 
+## [0.3.0] - 2026-09-16
+
+### 新增
+
+- **一键下载 RISC-V GCC（xPack）**：SHA-256 校验、Zip Slip 防护、可取消。
+- **QEMU 自动探测与手动指定**：`RISCDOM_QEMU` → 常见路径 → `PATH`，并可在「设置」手动指定
+  路径；持久化到 `settings.json`，注入 AgentLoop 真正生效。
+- **顶栏 VM 状态徽标**（跨 run 保持可见）。
+- **设置页 tab 化**：模型 / 工具链 / 快照 / 审计 / 插件。
+
+### 变更
+
+- **主视图改为双栏**（聊天 + 串口）；设置移至独立页面（Esc 返回）。
+- **system prompt 全英文。**
+- **AI 不再在任务结束后自动停止 VM**：prompt、`stop_vm` 工具描述与 VM 状态徽标三重保证。
+
+### 修复
+
+- **聊天与串口自动滚动**到最新输出；用户上翻不被打断，并出现“回到最新”浮按钮。
+- **`read_serial` 返回前等待约 150ms 静默期**，首字节不再被截断。
+- **快照恢复在中继端口失败时重试**（QMP 10054 / 绑定失败，最多 3 次）。
+- **门禁稳定性**：`start_vm` 的端口 TOCTOU 重试。
+
+### 说明
+
+- 残留事项记录于 `PROJECT_CONSTITUTION.md` §10（v0.4）。
+
 ## [0.2.2] - 2026-09-15
 
 ### 修复
@@ -178,7 +205,8 @@
   `agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
 - 真实 DeepSeek API 端到端：**已执行通过**（2026-09-14，`iterations = 6`，串口捕获 `HELLO RISCV`；结果见 `host/README.md`）。
 
-[未发布]: https://github.com/breakevery/riscdom/compare/v0.2.2...HEAD
+[未发布]: https://github.com/breakevery/riscdom/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/breakevery/riscdom/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/breakevery/riscdom/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/breakevery/riscdom/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/breakevery/riscdom/compare/v0.1.0...v0.2.0
