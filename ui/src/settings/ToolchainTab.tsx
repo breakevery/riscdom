@@ -98,6 +98,50 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
         <pre className="muted small">{store.toolchain?.diagnostics ?? ""}</pre>
       </details>
 
+      <h3>QEMU</h3>
+      {store.qemu && !store.qemu.found ? (
+        <div className="banner warn">
+          未找到 QEMU（qemu-system-riscv64）。Windows 可运行
+          winget install SoftwareFreedomConservancy.QEMU，或从 https://www.qemu.org/download/#windows
+          安装；也可点“手动指定”填入完整路径。
+        </div>
+      ) : null}
+      <div className="status-line">
+        <span className={`dot ${store.qemu?.found ? "ok" : "bad"}`} />
+        {store.qemu?.found ? (
+          <>
+            QEMU · <span className="badge">{store.qemu.source}</span>
+          </>
+        ) : (
+          "未找到 QEMU"
+        )}
+        <button className="ghost tiny" onClick={() => void store.refreshQemu()}>
+          重新探测
+        </button>
+        <button
+          className="ghost tiny"
+          onClick={() => {
+            const p = window.prompt(
+              "qemu-system-riscv64.exe 的完整路径",
+              store.qemu?.path ?? "",
+            );
+            if (p) void store.setQemu(p.trim());
+          }}
+        >
+          手动指定
+        </button>
+        {store.qemu?.path ? (
+          <button className="ghost tiny" onClick={() => void store.clearQemu()}>
+            清除手动路径
+          </button>
+        ) : null}
+      </div>
+      <div className="muted small">{store.qemu?.path ?? "（未解析到路径）"}</div>
+      <details>
+        <summary className="muted small">探测详情</summary>
+        <pre className="muted small">{store.qemu?.diagnostics ?? ""}</pre>
+      </details>
+
       <h3>一键下载</h3>
       <div className="row">
         <button disabled={busy} onClick={startDownload}>

@@ -30,7 +30,8 @@ returns to the main view. It fills the window and is split into tabs
 (`src/settings/SettingsTabs.tsx`):
 
 - **Model** — provider preset, base URL, model, API key, “save to the OS keyring”, readiness banner
-- **Toolchain** — RISC-V GCC status, re-probe, set the path by hand, search diagnostics
+- **Toolchain** — two blocks, one per tool: the RISC-V GCC and QEMU statuses (resolved path
+  plus a source badge), re-probe, set the path by hand, and the full search diagnostics
 - **Snapshot** — snapshot list (save / restore / delete) plus the workspace file list
 - **Audit** — event count, hash-chain status, actor filter and the recent event list
 - **Plugin** — placeholder for the capability-plugin system (v0.4+)

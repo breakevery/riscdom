@@ -59,6 +59,11 @@ export interface AppStore {
   refreshToolchain: () => Promise<void>;
   setToolchain: (path: string) => Promise<void>;
   clearToolchain: () => Promise<void>;
+  // QEMU (v0.3 5b-2)
+  qemu: api.QemuView | null;
+  refreshQemu: () => Promise<void>;
+  setQemu: (path: string) => Promise<void>;
+  clearQemu: () => Promise<void>;
   // one-click toolchain download (v0.3 #3)
   toolchainDownload: {
     in_progress: boolean;
@@ -151,6 +156,7 @@ export function useAppStore(): AppStore {
   });
   const [vmSeen, setVmSeen] = useState(false);
   const [toolchain, setToolchain] = useState<api.ToolchainView | null>(null);
+  const [qemu, setQemu] = useState<api.QemuView | null>(null);
   const [toolchainDownload, setToolchainDownload] = useState<{
     in_progress: boolean;
     event: api.ToolchainDownloadEvent | null;
@@ -365,6 +371,39 @@ export function useAppStore(): AppStore {
     void refreshToolchain();
   }, [refreshToolchain]);
 
+  const refreshQemu = useCallback(async () => {
+    try {
+      setQemu(await api.getQemuStatus());
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
+  const setQemuPath = useCallback(
+    async (path: string) => {
+      try {
+        await api.setQemuPath(path);
+        await refreshQemu();
+      } catch (e) {
+        setLastError(String(e));
+      }
+    },
+    [refreshQemu],
+  );
+
+  const clearQemu = useCallback(async () => {
+    try {
+      await api.clearQemuPath();
+      await refreshQemu();
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, [refreshQemu]);
+
+  useEffect(() => {
+    void refreshQemu();
+  }, [refreshQemu]);
+
   // Sync the download state once (a download may already be running).
   useEffect(() => {
     void (async () => {
@@ -555,6 +594,10 @@ export function useAppStore(): AppStore {
     refreshToolchain,
     setToolchain: setToolchainPath,
     clearToolchain,
+    qemu,
+    refreshQemu,
+    setQemu: setQemuPath,
+    clearQemu,
     toolchainDownload,
     startToolchainDownload,
     cancelToolchainDownload,

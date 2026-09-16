@@ -194,6 +194,29 @@ export const onToolchainDownload = (
   onEvent: (event: ToolchainDownloadEvent) => void,
 ) => onHostEvent("toolchain:download", (p) => onEvent(p as ToolchainDownloadEvent));
 
+/** QEMU status (v0.3 5b-2): same shape as the toolchain view. */
+export interface QemuView {
+  found: boolean;
+  path: string | null;
+  /** "EnvVar" | "KnownPath" | "Path" | "Manual" */
+  source: string;
+  /** Full search record (where we looked and what happened). */
+  diagnostics: string;
+}
+
+/** Where QEMU is (and the full search record). */
+export const probeQemu = () => invoke<QemuView>("probe_qemu");
+
+/** Same as `probeQemu`; read on mount. */
+export const getQemuStatus = () => invoke<QemuView>("get_qemu_status");
+
+/** Point the app at a specific QEMU binary (validated with `--version`). */
+export const setQemuPath = (path: string) =>
+  invoke<void>("set_qemu_path", { path });
+
+/** Forget the manual QEMU path and go back to auto-discovery. */
+export const clearQemuPath = () => invoke<void>("clear_qemu_path");
+
 /** RISC-V GCC toolchain status. */
 export interface ToolchainView {
   found: boolean;
