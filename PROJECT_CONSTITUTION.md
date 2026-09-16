@@ -118,7 +118,7 @@ plus a SHA-256 hash chain, with no UPDATE / DELETE API and no switch to turn aud
 - [DONE] Serial events are pushed by the sandbox; serial subscriptions **survive across
   runs** (20b).
 
-## 10. v0.2 roadmap
+## 10. Roadmap
 
 ### v0.2 additions — multi-model access and key security
 
@@ -184,3 +184,41 @@ m. **[DONE]** Bilingual (English/Chinese) docs before going public
    - Language switcher at the top
    - Not word-for-word: the English version is terser, the Chinese version keeps its voice
    - LICENSE is not translated; keep the English legal text
+
+### v0.3 status
+
+- [DONE] **Layout rework**: the main view is a two-pane chat + serial layout, settings live on a
+  separate tabbed page (Model / Toolchain / Snapshot / Audit / Plugins), and Esc returns to the
+  chat.
+- [DONE] **One-click RISC-V GCC download** (xPack): SHA-256 verified, Zip-Slip protected,
+  cancellable and audited.
+- [DONE] **QEMU discovery and a manual path**: `RISCDOM_QEMU` → known paths → `PATH`, plus a
+  manual path in *Settings → Toolchain*, persisted to `settings.json` and injected into the
+  agent loop so it really takes effect.
+- [DONE] **VM status badge** in the top bar, visible across runs.
+- [DONE] **Prompt rework**: the system prompt is entirely in English and the AI no longer stops
+  the VM on its own (prompt + `stop_vm` tool description + VM badge).
+- [DONE] **Auto-scroll**: chat and serial follow the latest output without interrupting a user
+  who scrolled up (a "jump to latest" button appears).
+- [DONE] **`read_serial` silence window**: it waits for ~150 ms of silence, so the first byte is
+  no longer truncated.
+- [DONE] **Snapshot relay port retry**: resume retries the relay port on QMP 10054 / bind failure
+  (up to 3 attempts).
+- [DONE] **Test-gate stability**: port TOCTOU retry in `start_vm`.
+
+### v0.4 roadmap
+
+1. **QEMU stdio (option 3) and a unified relay-port lease**: remove the TCP port dependency for
+   QMP/serial altogether and hand out relay ports through a single lease.
+2. **Stage 5c-3: end-to-end failure-path diagnostics** (optional): richer logs when the e2e run
+   fails.
+3. **`tauri-plugin-dialog`**: a native file picker for toolchain / QEMU paths, replacing the
+   `window.prompt` text input.
+4. **QEMU one-click download or bundling** (with a GPL compliance review).
+5. **QEMU × RISC-V GCC version compatibility check**: refuse or warn on incompatible pairs.
+6. **macOS / Linux support and a multi-OS CI matrix**.
+7. **Multi-VM parallelism**: more than one host-owned guest at a time.
+8. **Incremental snapshots and encryption**.
+9. **Session encryption, export and search**.
+10. **Multi-AI society and a `Governance` trait** (the constitution's experiment variable).
+11. **Theme switching, and bilingual code comments**.
