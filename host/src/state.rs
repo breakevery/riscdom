@@ -1825,6 +1825,12 @@ impl AppState {
         agent.attach_serial(Arc::clone(&self.serial_senders));
         // Host-configured toolchain (falls back to auto-discovery).
         agent.set_compiler(self.toolchain_config());
+        // Host-configured QEMU (falls back to the sandbox's discovery).
+        if let Ok(guard) = self.qemu_path.lock() {
+            if let Some(path) = guard.as_ref() {
+                agent.set_qemu_path(path.clone());
+            }
+        }
 
         // Sessions: restore prior turns, then persist whatever this turn adds.
         let session_id = self.ensure_session(user_input)?;

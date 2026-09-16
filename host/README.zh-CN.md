@@ -74,6 +74,11 @@
 
 手工步骤（Windows）：
 
+**QEMU**：`probe_qemu()` / `get_qemu_status()` / `set_qemu_path()` / `clear_qemu_path()`
+与工具链三件套对称，而手动路径现已**完整接通**：`run_agent` 会把它注入 agent 循环
+（`AgentLoop::set_qemu_path`），沙箱因此启动的正是该可执行文件。设了手动路径就不再回落
+到自动探测；路径不可用时以 `qemu_missing` 提前失败，而不是静默回退。
+
 1. 打开应用 → **设置 → 工具链**。出现红色横幅说明未找到。
 2. 展开 **探测详情**，查看尝试过的每个路径。
 3. 点 **手动指定**，粘贴 `riscv64-unknown-elf-gcc.exe` 的完整路径；该行应变为绿点 +
