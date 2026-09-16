@@ -1,10 +1,10 @@
 [中文](RELEASE_NOTES.zh-CN.md) | English
 
-# RiscDom v0.2.2
+# RiscDom v0.3.0
 
-**v0.2.2 fixes a Windows key-persistence bug:** API keys are now really written to Credential
-Manager. Until now the store was a silent no-op — the app reported “saved to the keyring” while
-nothing was written, so every restart asked for the key again.
+**v0.3.0 is the layout and environment release:** the main view is now a two-pane chat + serial
+layout with settings on a page of their own, and the two prerequisites — QEMU and the RISC-V
+GCC — are handled inside the app instead of from a terminal.
 
 **An AI-native RISC-V sandbox for the desktop:** inside a QEMU RISC-V bare-metal sandbox the AI
 holds virtual kernel-level privilege — it writes C / RISC-V assembly, compiles, runs, reads the
@@ -15,30 +15,22 @@ privilege.
 
 ## Highlights
 
-- **Guided toolchain setup**: RiscDom now finds your RISC-V GCC by itself (`RISCDOM_RISCV_GCC` /
-  `RISCV_GCC` → well-known install locations → `PATH`, accepting both `riscv64-unknown-elf-gcc`
-  and the xPack `riscv-none-elf-gcc` name). If it cannot, it shows exactly where it looked,
-  links the installer, and lets you set the path by hand in *Settings → Toolchain* — and
-  remembers it across restarts.
-- **Bring your own key, any model**: the LLM client is now a generic OpenAI-compatible client
-  with built-in presets — DeepSeek (default) / OpenAI / Ollama / LM Studio / custom. Pick a
-  provider in the settings pane and the base URL and model fill themselves in.
-- **Offline, key-less operation**: point it at a local model (Ollama / LM Studio) and the whole
-  loop — QEMU + RISC-V GCC + audit + sandbox + LLM — runs without a network and without an API
-  key.
-- **OS keyring persistence**: optionally store the key in Windows Credential Manager / macOS
-  Keychain / Linux Secret Service. The key itself is never written to disk, to the audit log,
-  or to the frontend, and the app degrades silently to memory-only when no keyring is
-  available.
-- **Streaming responses**: answers appear token by token instead of in one block.
-- **Session persistence**: conversations are saved locally and survive restarts; reopening one
-  restores the history (tool calls are never replayed).
-- **Real snapshots**: the VM's actual state is saved to `.mig` through QMP migration plus a
-  local TCP relay, and restored from the UI — with a confirmation step.
-- **Serial across runs**: the serial console keeps accumulating between runs, so you can watch
-  a guest that outlives a single turn; the VM is host-owned and reused.
-- **Bilingual documentation**: every document now exists in English (main) and Chinese
-  (`*.zh-CN.md`), kept in sync by an automated check in the local gate.
+- **Two-pane layout**: the main view is now chat and serial side by side, and settings moved to
+  a separate page (Esc returns to the chat).
+- **One-click RISC-V GCC download**: RiscDom fetches the xPack bare-metal GCC for you, verifies
+  it with SHA-256, guards against Zip-Slip on extraction, and can be cancelled mid-download.
+- **QEMU discovery and a manual path**: RiscDom finds `qemu-system-riscv64` by itself
+  (`RISCDOM_QEMU` → well-known install locations → `PATH`), and *Settings → Toolchain* lets you
+  set the path by hand — remembered across restarts and injected into the agent loop, so it
+  really takes effect.
+- **VM status badge**: the top bar always shows whether the VM is running, and it stays visible
+  across runs.
+- **The AI no longer stops the VM on its own**: after a task the guest keeps running — the
+  prompt, the `stop_vm` tool description and the VM badge all guarantee it.
+- **`read_serial` returns the complete output**: it waits for ~150 ms of silence before
+  answering, so the first byte is no longer truncated.
+- **Auto-scroll that follows the output**: chat and serial stick to the latest line, and
+  scrolling up is never interrupted — a "jump to latest" button appears instead.
 
 ## Prerequisites
 
@@ -50,17 +42,29 @@ hand in **Settings → Toolchain**. Install the xPack
 equivalent `riscv64-unknown-elf-gcc`; per-platform steps are in
 [docs/toolchain-setup.md](docs/toolchain-setup.md).
 
+**QEMU (`qemu-system-riscv64`) is required to boot the guest, and it is not bundled or
+downloaded for you.** Install it with
+
+```text
+winget install SoftwareFreedomConservancy.QEMU
+```
+
+or download an installer from <https://www.qemu.org/download/#windows>, or point RiscDom at an
+existing copy with `RISCDOM_QEMU`. The app also discovers well-known install locations and
+`PATH`, and *Settings → Toolchain* accepts a manual path. Details in
+[docs/qemu-setup.md](docs/qemu-setup.md).
+
 ## Known limitations
 
-- **Windows is the primary platform**: QMP and the serial console go over TCP; Unix sockets,
-  macOS and Linux are not implemented yet.
-- **Real snapshots use the TCP relay**: `migrate` → `file:` is unusable with QEMU 11.1.0 on
-  Windows, so a local relay persists the stream. A snapshot name that already exists is
-  refused rather than overwritten, and restoring takes its `-kernel` from the newest `*.elf` in
-  the workspace.
+- **Windows is the primary platform**: macOS and Linux are not verified yet, and QMP and the
+  serial console go over TCP (no Unix sockets).
+- **QEMU is not bundled and not downloaded for you**: unlike the RISC-V GCC, you install QEMU
+  yourself.
+- **No native file picker**: the Tauri dialog plugin is not wired up yet, so pointing RiscDom at
+  your own compiler or QEMU uses a text field.
 - **No incremental or encrypted snapshots**: each snapshot is a full state stream; session
   storage is plain local SQLite.
-- **One VM at a time**: the GUI drives a single host-owned VM.
+- **One VM at a time**: the GUI drives a single host-owned VM — no multi-VM parallelism.
 
 ## Quick start
 
