@@ -78,6 +78,10 @@ usable compiler exists. Audit events: `host.toolchain.set` / `host.toolchain.cle
 
 Manual steps (Windows):
 
+The manual QEMU path is now fully wired: setting it in **Settings → Toolchain → QEMU** takes
+effect on the next run (the agent loop receives it; when unset, the sandbox falls back to
+auto-discovery).
+
 1. Open the app and go to **Settings → Toolchain**. A red banner means nothing was found.
 2. Expand **diagnostics** to see every path that was tried.
 3. Click **set path** and paste the full path to `riscv64-unknown-elf-gcc.exe`; the row must
