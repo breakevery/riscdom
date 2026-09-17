@@ -724,7 +724,10 @@ impl AppState {
             ))),
             incoming_snapshot: Some(path.clone()),
             incoming_relay_addr: None,
-            qemu_exe: None,
+            // Honour the user's manual QEMU here too (v0.3.1 #1): a restore used
+            // to fall back to auto-discovery and could boot with a different
+            // binary than the one configured in *Settings → Toolchain*.
+            qemu_exe: self.manual_qemu_path(),
         };
         self.stop_current_vm()?;
         let vm =
@@ -1735,9 +1738,32 @@ impl AppState {
 
     // ----- VM lifecycle -----------------------------------------------------
 
-    /// Is the host currently holding a VM?
+    /// Is the host currently holding a **live** VM?
+    ///
+    /// `vm_slot` alone is not enough: QEMU can exit on its own (the guest shuts
+    /// down, the process is killed, QEMU crashes) while its handle stays in the
+    /// slot, which kept the badge on "VM 运行中" forever (v0.3.1 #3). The child
+    /// process is checked too, and a dead handle is dropped so the next
+    /// `start_vm` sees an empty slot.
     pub fn vm_is_running(&self) -> bool {
-        self.vm_slot.lock().map(|g| g.is_some()).unwrap_or(false)
+        let (had_vm, alive) = {
+            let mut slot = match self.vm_slot.lock() {
+                Ok(g) => g,
+                Err(_) => return false,
+            };
+            match slot.as_mut() {
+                Some(vm) => (true, vm.is_running()),
+                None => (false, false),
+            }
+        };
+        if had_vm && !alive {
+            // The lock is released before taking the timestamp lock again.
+            if let Ok(mut slot) = self.vm_slot.lock() {
+                *slot = None;
+            }
+            self.clear_vm_started();
+        }
+        alive
     }
 
     /// VM status for the top-bar badge (v0.3 #4c).
@@ -1750,6 +1776,15 @@ impl AppState {
             .and_then(|g| *g)
             .filter(|_| running);
         VmStatusView { running, since_ms }
+    }
+
+    /// The user's manually chosen QEMU, if one is configured (v0.3 #5b).
+    ///
+    /// Every path that builds a `VMConfig` (the agent loop **and** a snapshot
+    /// restore) must go through this, so a manual path always wins over
+    /// auto-discovery.
+    fn manual_qemu_path(&self) -> Option<PathBuf> {
+        self.qemu_path.lock().ok().and_then(|g| g.clone())
     }
 
     /// Remember when a VM (re)appeared in the slot.
@@ -1826,10 +1861,8 @@ impl AppState {
         // Host-configured toolchain (falls back to auto-discovery).
         agent.set_compiler(self.toolchain_config());
         // Host-configured QEMU (falls back to the sandbox's discovery).
-        if let Ok(guard) = self.qemu_path.lock() {
-            if let Some(path) = guard.as_ref() {
-                agent.set_qemu_path(path.clone());
-            }
+        if let Some(path) = self.manual_qemu_path() {
+            agent.set_qemu_path(path);
         }
 
         // Sessions: restore prior turns, then persist whatever this turn adds.

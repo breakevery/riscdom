@@ -383,6 +383,12 @@ fn tool_read_serial(ctx: &mut ToolContext) -> Result<String, AgentError> {
             return Ok(String::from_utf8_lossy(&out).to_string());
         }
         if Instant::now() >= deadline {
+            // The guest never went quiet (a heartbeat line, a busy log, a
+            // program printing in a loop). Anything captured is real output, so
+            // hand it over instead of reporting an empty console (v0.3.1 #2).
+            if !out.is_empty() {
+                return Ok(String::from_utf8_lossy(&out).to_string());
+            }
             // An empty buffer usually means the guest is still booting. Say so
             // instead of handing the model an empty string it cannot interpret
             // (and never make it look like a command: this is data).

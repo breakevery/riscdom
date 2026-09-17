@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as api from "../api/tauri";
+import { isNearBottom as metricsNearBottom, onRunFinished } from "../lib/scrollRule";
 import { relTime, type AppStore } from "../state/appStore";
-
-/** How close to the bottom still counts as "following". */
-const NEAR_BOTTOM_PX = 80;
 
 export default function ChatPanel({ store }: { store: AppStore }) {
   const [input, setInput] = useState("");
@@ -19,7 +17,7 @@ export default function ChatPanel({ store }: { store: AppStore }) {
   const isNearBottom = () => {
     const el = logRef.current;
     if (!el) return true;
-    return el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+    return metricsNearBottom(el);
   };
 
   const scrollToBottom = () => {
@@ -55,12 +53,17 @@ export default function ChatPanel({ store }: { store: AppStore }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.messages, store.streaming]);
 
-  // A finished run always ends at the bottom.
+  // A finished run keeps following only when the reader was still following;
+  // otherwise the viewport stays where they left it and the jump button shows.
+  // Same rule as the serial panel (v0.3.1 #4).
   useEffect(() => {
-    if (!store.busy) {
-      stickRef.current = true;
+    if (store.busy) return;
+    const decision = onRunFinished(stickRef.current);
+    if (decision.follow) {
       setShowJump(false);
       scrollToBottom();
+    } else {
+      setShowJump(decision.offerJump);
     }
   }, [store.busy]);
 

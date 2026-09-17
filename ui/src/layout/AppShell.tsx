@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useAppStore } from "../state/appStore";
+import {
+  RESIZER_W,
+  clampChatWidth,
+  maxChatWidth,
+  serialMinWidth,
+} from "../lib/chatWidth";
 import CanvasPanel from "../panels/CanvasPanel";
 import ChatPanel from "../panels/ChatPanel";
 import SettingsPanel from "../panels/SettingsPanel";
@@ -50,6 +56,30 @@ export default function AppShell() {
   const [chatW, setChatW] = useState<number>(readChatWidth);
   const drag = useRef<{ startX: number; startW: number; width: number } | null>(null);
 
+  // The two columns must fit whatever the window gives us (v0.3.1 #5): the drag
+  // bound is derived from the measured container instead of an absolute
+  // maximum, which used to push the serial column off-screen in a narrow window.
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const [bodyW, setBodyW] = useState(0);
+
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const update = () => setBodyW(el.clientWidth);
+    update();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+    }
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const chatMaxW = maxChatWidth(bodyW, MIN_CHAT_W, MAX_CHAT_W);
+  const chatColW = clampChatWidth(chatW, bodyW, MIN_CHAT_W, MAX_CHAT_W);
+  const serialMin = serialMinWidth(bodyW, chatColW);
+
   // Esc leaves the settings page.
   useEffect(() => {
     if (view !== "settings") return;
@@ -61,7 +91,7 @@ export default function AppShell() {
   }, [view]);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    drag.current = { startX: e.clientX, startW: chatW, width: chatW };
+    drag.current = { startX: e.clientX, startW: chatColW, width: chatColW };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
@@ -69,7 +99,7 @@ export default function AppShell() {
     const d = drag.current;
     if (!d) return;
     const delta = e.clientX - d.startX;
-    const next = Math.max(MIN_CHAT_W, Math.min(MAX_CHAT_W, d.startW + delta));
+    const next = Math.max(MIN_CHAT_W, Math.min(chatMaxW, d.startW + delta));
     d.width = next;
     setChatW(next);
   };
@@ -130,14 +160,15 @@ export default function AppShell() {
         )}
       </header>
 
-      <div className="app-body">
+      <div className="app-body" ref={bodyRef}>
         {/* Both views stay mounted; only visibility changes, so chat/serial
             state (messages, terminal buffer, scroll position) is preserved. */}
         <div
           className="shell"
           style={{
             display: view === "main" ? "grid" : "none",
-            gridTemplateColumns: `${chatW}px 6px minmax(260px, 1fr)`,
+            gridTemplateColumns: `${chatColW}px ${RESIZER_W}px minmax(${serialMin}px, 1fr)`,
+            overflow: "hidden",
           }}
         >
           <ChatPanel store={store} />
