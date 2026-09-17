@@ -1,0 +1,344 @@
+[中文](run-provenance.zh-CN.md) | English
+
+# Run provenance — design proposal (v0.4 batch 1a)
+
+> **Status: proposal only.** This batch changes no code and no audit source. Everything below is
+> grounded in the current implementation; §6 lists the points that need a human decision before
+> implementation starts.
+
+## 0. Goal
+
+Make **one run** a first-class citizen of the audit log: every run gets a unique id, a
+configuration fingerprint and an audit interval. v0.5 ("re-run with a different configuration")
+and v0.6 ("compare two runs automatically") are built on top of it.
+
+The design follows the constitution: the host owns the lifecycle, the audit log lives outside the
+AI and stays append-only, and nothing the AI can reach may forge provenance.
+
+## 1. Data model
+
+### 1.1 Run ID
+
+**Recommended: `run_<uuidv7>` — 32 lowercase hex characters in canonical UUID form, prefixed.**
+
+```text
+run_0192f4c1-8a3d-7c2e-9f10-6b1d4e0a55aa
+```
+
+- UUIDv7 is time-ordered, so ids sort chronologically and are index-friendly.
+- 128 random/time bits make collisions across machines, databases and exports a non-issue.
+- Lowercase hex, no braces: filename-safe, JSON-safe, log-safe, unambiguous when copy-pasted.
+- The `run_` prefix keeps it greppable and distinguishable from session ids and snapshot names.
+
+**Evidence on cost:** `uuid 1.26.1` is *already* in the workspace lock file — it arrives
+transitively via `tauri-utils` / `schemars`, which the `host` crate builds anyway. Making it a
+direct dependency of `audit` (with the `v7` feature, whose `getrandom` is also already in the
+graph) adds a direct edge and a feature flag, not a new third-party crate. Keep the prefix
+hand-written on top of `Uuid::now_v7()`, so the storage layer never depends on a formatting helper.
+
+Alternatives:
+
+| Option | Why not (cost) |
+|---|---|
+| `uuid` v4 (random) | Same dependency cost, but not time-ordered: run listings need an extra sort column, and ids leak no order to a human reading a log. |
+| Home-grown `run_<yyyymmdd-hhmmss-ms>-<counter>-<rand4>` | No dependency, human-readable, sortable — but we own collision and clock-skew handling, and a clock jump backwards produces out-of-order ids. Acceptable fallback if a direct `uuid` edge is unwanted. |
+| Integer `run_seq` (`AUTOINCREMENT`) | Smallest and exactly what the index wants — but not portable: two databases, two exports or two machines cannot be merged, and "re-run" comparisons in v0.5 want to name a run outside its own database. |
+
+### 1.2 Configuration fingerprint
+
+**Recommended: SHA-256 over a canonical JSON document, with an explicit schema tag.**
+
+```text
+fingerprint      = sha256(canonical_json)
+fingerprint_schema = "riscdom.run.fingerprint.v1"
+display form     = first 16 hex characters (the full 64 are stored)
+```
+
+Canonicalisation rules (all cheap, all testable):
+
+1. UTF-8, object keys sorted lexicographically, no insignificant whitespace.
+2. Strings as-is; numbers normalised to integers where they are integers (memory MiB, iteration
+   cap, timeouts in ms).
+3. Windows paths normalised: absolute, lower-cased drive letter, forward slashes as separators.
+4. Volatile values are **excluded** and must never leak in: run id, timestamps, session id,
+   counters, temporary ports, workspace root, machine name.
+5. **Secrets are excluded entirely** — not hashed, not truncated, not "just the last four". The API
+   key is already excluded from everything the audit log stores; a hash of a key would still be a
+   key-derived value in the chain. The fingerprint covers the *provider, base URL and model name*
+   instead.
+
+The v1 field list is in [Appendix A](#appendix-a--fingerprint-fields-v1). Unknown or unreadable
+values are recorded as `"unknown"` rather than omitted, so a fingerprint never silently changes
+meaning — this matters for v0.5, where two fingerprints differing only by an unreadable field must
+not look identical.
+
+**Recommended split:** keep one run-level fingerprint, plus a nested `vm` object that can be
+compared on its own (`fingerprint.vm.*`), so v0.5 can say "only QEMU changed" without diffing the
+whole document. Nested objects cost nothing extra in canonical JSON.
+
+### 1.3 Audit interval
+
+**Recommended: record both ends of the interval in the index row.**
+
+| Field | Meaning |
+|---|---|
+| `start_seq` | `id` of the `run.start` event (the run's first chained event) |
+| `end_seq` | `id` of the `run.end` event; `NULL` while the run is open |
+| `started_at_ms` | `timestamp_ms` of `run.start` |
+| `ended_at_ms` | `timestamp_ms` of `run.end`; `NULL` while open |
+
+`seq` (`audit_events.id`, `INTEGER PRIMARY KEY AUTOINCREMENT`) is the authoritative interval: it is
+gap-free within one database, it is what the hash chain orders by, and it is what
+`audit-verify` walks. Timestamps are for humans, the UI and cross-machine reports; they are
+advisory because the system clock can move.
+
+Interval convention: `start_seq` inclusive, `end_seq` inclusive, and the run owns every event with
+`start_seq <= id <= end_seq` (see §2.2 for why membership is derived rather than stored per row).
+
+## 2. Storage
+
+### 2.1 What the current implementation gives us
+
+```sql
+CREATE TABLE IF NOT EXISTS audit_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp_ms INTEGER NOT NULL,
+    actor        TEXT    NOT NULL,
+    action       TEXT    NOT NULL,
+    detail_json  TEXT    NOT NULL,
+    prev_hash    TEXT    NOT NULL,
+    hash         TEXT    NOT NULL UNIQUE
+);
+```
+
+The chain hash is exactly:
+
+```text
+sha256(prev_hash | "|" | timestamp_ms | "|" | actor | "|" | action | "|" | detail_json)
+```
+
+Consequence, and the single most important constraint in this document: **the hash covers the five
+fields above and nothing else.** A new column on `audit_events` would therefore be *outside* the
+hash — anyone with a SQLite client could edit a `run_id` column and `audit-verify` would still
+report `Intact`. Anything that has to be tamper-evident must live in `detail_json`, or be its own
+event.
+
+### 2.2 Options
+
+| Option | Shape | Cost |
+|---|---|---|
+| **A. Column on `audit_events`** | `ALTER TABLE audit_events ADD COLUMN run_id TEXT` | Fast queries ("events of run X" = one indexed lookup). But the column is unhashed (see §2.1), so provenance becomes forgeable; extending the hash to cover it invalidates every existing row and forces a full chain rebuild. **Rejected.** |
+| **B. Chain markers + derived index** (recommended) | Two new actions (`run.start`, `run.end`) carry `run_id` + fingerprint inside `detail_json`; a separate `runs` table is written alongside as an index | Chain schema and hash semantics untouched; provenance is tamper-evident; the index is rebuildable from the chain. Costs a small migration, a rebuild path, and one extra write per run. |
+| **C. Separate table only** | `runs` table, no chain markers | Cheapest to write, but the run metadata is not in the chain: editing a fingerprint or an interval in `runs` is undetectable by `audit-verify`. Rejected for the same reason as A. |
+
+### 2.3 Recommendation
+
+**Option B.** Concretely:
+
+1. The host appends `run.start` when a run begins and `run.end` when it returns. Both are ordinary
+   audit events, so they are hashed like everything else. `detail_json` of `run.start` carries:
+
+   ```json
+   {
+     "run_id": "run_0192f4c1-8a3d-7c2e-9f10-6b1d4e0a55aa",
+     "fingerprint": "<64 hex>",
+     "fingerprint_schema": "riscdom.run.fingerprint.v1",
+     "session_id": "<host session id>",
+     "parent_run_id": null,
+     "resumed_from_snapshot": null
+   }
+   ```
+
+   `run.end` carries `run_id`, `status` (`ok` / `failed` / `interrupted`) and the reason string.
+
+2. A migration creates the index table (additive, `CREATE TABLE IF NOT EXISTS`):
+
+   ```sql
+   CREATE TABLE IF NOT EXISTS runs (
+       run_id            TEXT PRIMARY KEY,
+       session_id        TEXT,
+       parent_run_id     TEXT,
+       fingerprint       TEXT NOT NULL,
+       fingerprint_schema TEXT NOT NULL,
+       started_at_ms     INTEGER NOT NULL,
+       ended_at_ms       INTEGER,
+       start_seq         INTEGER NOT NULL,
+       end_seq           INTEGER,
+       status            TEXT NOT NULL,
+       fingerprint_json  TEXT NOT NULL
+   );
+   ```
+
+3. The `runs` table is **derived, not authoritative**: it exists for fast listing and UI use, and it
+   can be rebuilt by scanning the chain for `run.start` / `run.end`. Because it is not hash-covered
+   either, the design does not pretend it is tamper-proof — instead the rebuild is the check
+   (§3.3).
+4. Store the canonical JSON that was hashed in `fingerprint_json`. Without it, a fingerprint can be
+   compared but never explained, and v0.6's "what changed between these two runs" degenerates into
+   guesswork.
+5. Membership is **derived from the interval**, not stored per event: `runs` rows carry
+   `[start_seq, end_seq]`, and "which run does event N belong to" is a range lookup. This keeps the
+   event schema frozen (option A's problem) while staying O(1) per lookup with an index on
+   `start_seq`.
+
+Cost summary: one migration, one extra append per run boundary, one rebuild routine, and a
+reading path that must go through the index. In exchange the chain structure, the hash formula, the
+append-only triggers and every existing row stay exactly as they are.
+
+## 3. Backward compatibility
+
+### 3.1 Old records
+
+Old events carry no run markers, so they belong to no run. They are read as **unattributed**, never
+rewritten and never assigned a synthetic run. A `legacy` banner in the UI (later batch) makes that
+explicit instead of pretending history was always instrumented. Reading an old database with new
+code works: the `runs` table is created empty, `run.start` events simply do not exist yet.
+
+### 3.2 Hash chain
+
+**Recommended: never recompute, never rewrite.** The chain is append-only by construction
+(`BEFORE UPDATE` / `BEFORE DELETE` triggers raise `RAISE(ABORT, …)`); new markers are appended after
+the existing events, exactly like any other event. New and old coexist in one chain, in one table,
+with no marker, no version column and no second file.
+
+The alternative — recomputing the chain to inject run ids into historical rows — costs a full
+rewrite, destroys the append-only guarantee that the project is built on, and changes hashes that
+are already quoted in released artifacts. **Rejected, and worth stating in the docs of any future
+scheme.**
+
+### 3.3 `audit-verify`
+
+The chain verdict keeps its exact meaning and its exit codes (`0` intact, `1` broken, `2` usage or
+I/O error), so every existing script and CI step keeps working. Additive changes, both optional and
+off by default:
+
+- `audit-verify <db> --runs` — cross-check the index against the chain: every `runs` row must match
+  a `run.start` event with the same `run_id`, fingerprint and `start_seq`; every `run.end` must
+  match its row; every open run must have no `end_seq`. Findings are reported as a separate section
+  and, when they exist, change the exit code to `1` (the log and its provenance disagree, which is
+  exactly the state an operator must not miss).
+- `--rebuild-index <db>` — regenerate `runs` from the chain (a repair path for a tampered or
+  truncated index). Writes only to `runs`, never to `audit_events`.
+
+Open question for §6: whether `--runs` is part of v0.4 or a later batch.
+
+## 4. Ownership and lifecycle
+
+### 4.1 Who mints the id
+
+**The host, and only the host.** The host monitoring layer owns process lifecycle, the VM slot, the
+session store and the UI channel (constitution §4); it is also the only layer that sees a whole run
+start to finish. The `agent` and `sandbox` crates must not generate ids: they run inside the
+boundary the AI influences, and an id the AI can choose is not provenance. The host passes nothing
+downward: the run id is a host-side attribute recorded in the audit log, not a parameter the agent
+loop can influence.
+
+### 4.2 When a run starts and ends
+
+**One run = one `AppState::run_agent` invocation.** That is the unit v0.5 re-runs with a different
+configuration and the unit v0.6 compares, so the boundaries must match it exactly.
+
+| Moment | Action |
+|---|---|
+| `run_agent` passes its readiness gates (LLM, toolchain, QEMU) | mint id, compute fingerprint, append `run.start`; the returned `seq` is `start_seq` |
+| first agent/LLM/tool event | already inside the interval |
+| `run_agent` returns (success, error, or the model's final answer) | append `run.end`, then update the `runs` row with `end_seq` / `ended_at_ms` / `status` |
+
+A run that never returns (crash, kill, power loss) keeps `end_seq = NULL`; it is **open**, not
+corrupt. On the next start the host may append `host.run.abandoned` (a normal chained event, with
+its own detection timestamp and the abandoned `run_id`) and mark the index row `abandoned`. The
+chain is never given a fabricated `run.end` for a run that never ended.
+
+Relation to the session: a host session (conversation) spans many runs; `session_id` is recorded on
+the run, and the relationship is one-to-many. Relation to the VM: the VM may outlive a run (v0.3
+made it host-owned and reusable), so the run records the VM configuration it actually used in its
+fingerprint and does not claim VM ownership.
+
+### 4.3 Snapshot restore
+
+**Recommended: a new run, linked to the old one.**
+
+`resume_from_snapshot_real` produces a materially different execution: different memory contents,
+a different start point, and — after v0.3.1 — possibly a different QEMU binary. Recording it as a
+continuation of the earlier run would break the "one run = one execution" contract that v0.5/v0.6
+depend on. So a restore opens a new run with:
+
+- `parent_run_id` = the run whose snapshot was resumed (or `NULL` for a snapshot restored after a
+  restart, where the producing run is only known through the snapshot's own metadata),
+- `resumed_from_snapshot` = the snapshot name,
+- status `ok`/`failed` as usual.
+
+The alternative (continue the old run) is rejected because an interval spanning a stop/start pair
+silently contains events from two different VM instances.
+
+## 5. Minimal v0.4 scope
+
+**In scope (batch 1b, once §6 is signed off):**
+
+1. Audit: a `run.start` / `run.end` action pair (names + detail shape) and the additive `runs`
+   migration; no change to `audit_events`, its triggers, or the hash formula.
+2. Fingerprint: the canonicaliser, the v1 field list, and a unit test that pins the exact bytes for
+   a fixed input (so a future change is a deliberate version bump, not an accident).
+3. Host: mint the id, compute the fingerprint, append the markers around `run_agent`, maintain the
+   `runs` row, and handle the open-run case at startup.
+4. Read path: `list_runs` / `get_run` (read-only), plus the index rebuild routine.
+
+**Out of scope, deliberately:**
+
+- Comparing two runs, diffing fingerprints, "what changed" reports — **v0.6**.
+- Re-running with a different configuration, and the golden-path recorder — **v0.5**.
+- Export bundles, run-level archives, remote backup — **v0.6 or later**.
+- Any runs UI beyond the existing audit panels — later batch.
+- Anything that changes `audit_events`, the hash formula, or historical rows — **never planned**.
+- Storing prompts, source files or tool arguments beyond what the audit log already stores; the run
+  row carries hashes and configuration, not content.
+
+## 6. Decisions needed before implementation
+
+1. **Run id scheme.** UUIDv7 (recommended; a direct `uuid` edge plus the `v7` feature, no new
+   third-party crate) versus a dependency-free home-grown time-ordered id. Affects §1.1 only.
+2. **Storage shape.** Accept "chain markers + derived index" (option B) as the structure, including
+   two new audit actions `run.start` / `run.end`. This is the decision that changes the audit
+   crate's public surface.
+3. **Run granularity.** Confirm one run = one `run_agent` call (not one user-turn, not one session).
+4. **Snapshot restore.** Confirm "new run with `parent_run_id`" rather than continuing the
+   producing run.
+5. **"region configuration".** The request mentions a *region* configuration field. The current
+   `LocalSettings` has only `version`, `toolchain_path`, `qemu_path`, and there is no region concept
+   anywhere in the workspace. Please state what it refers to (a planned field, a hosting/region
+   setting, or a typo for "runtime configuration"), so the v1 field list is complete.
+6. **System prompt in the fingerprint.** Should the system prompt be represented by its hash inside
+   the fingerprint (cheap, catches prompt drift, but it changes whenever wording changes), or kept
+   out so fingerprints stay stable across documentation edits. Recommendation: **include its hash
+   in a separate `prompt` object**, not in the main equality path.
+7. **`audit-verify --runs` timing.** Ship the index cross-check in v0.4, or keep v0.4 to emission
+   plus the read path and add the check with the v0.6 comparison work. Recommendation: check in
+   v0.4 — it is the only thing that makes the derived index trustworthy.
+8. **VM fingerprint split.** Confirm the nested `vm` object (so "only QEMU changed" is expressible)
+   and whether the VM configuration belongs in the run fingerprint at all, given the VM can outlive
+   the run.
+
+## Appendix A — fingerprint fields (v1)
+
+| Group | Fields |
+|---|---|
+| `schema` | `fingerprint_schema` (`riscdom.run.fingerprint.v1`), `app_version` |
+| `llm` | `provider_id`, `base_url`, `model` (never the key) |
+| `agent` | `max_iterations`, `request_timeout_secs`, tool set hash (names + descriptions + parameter schemas), compiler `march` / `mabi` / link address / injected-crt0 marker, language allowlist |
+| `vm` | `memory_mb`, machine (`virt`), cpu (`rv64`), QEMU path + reported version, snapshot mode |
+| `toolchain` | resolved GCC path + reported version, discovery source (`EnvVar` / `KnownPath` / `Path` / `Manual`) |
+| `policy` | workspace policy version, extension allowlist, traversal guard marker |
+
+Every field is either read from the resolved configuration (not from the user's unvalidated input)
+or recorded as `"unknown"`. Paths are normalised per §1.2 rule 3.
+
+## Appendix B — new audit actions
+
+| Action | Actor | Detail |
+|---|---|---|
+| `run.start` | `host` | `run_id`, `fingerprint`, `fingerprint_schema`, `session_id`, `parent_run_id`, `resumed_from_snapshot` |
+| `run.end` | `host` | `run_id`, `status`, `reason` |
+| `host.run.abandoned` | `host` | `run_id`, `detected_at_ms` (chain event; the index row becomes `abandoned`) |
+
+`audit-verify` and the JSONL export treat them as ordinary events: no special case, no new field in
+`audit_events`.
