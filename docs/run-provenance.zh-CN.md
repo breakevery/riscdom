@@ -1,9 +1,9 @@
 [English](run-provenance.md) | 中文
 
-# Run 溯源 — 设计提案（v0.4 批次 1a）
+# Run 溯源 — 设计（v0.4 批次 1a）
 
-> **状态：仅提案。** 本批次不改代码、不改 audit 源码。以下内容全部基于当前实现；开工前需要人拍板的
-> 点列在 §6。
+> **状态：已定稿（2026-09-18）。** 以下为已拍板的设计，决议记录见 §6。本批次不改代码、不改 audit
+> 源码——实现属批次 1b。全文基于当前实现。
 
 ## 0. 目标
 
@@ -17,7 +17,7 @@
 
 ### 1.1 Run ID
 
-**推荐：`run_<uuidv7>` —— 规范 UUID 形式的 32 位小写十六进制，加前缀。**
+**定稿：`run_<uuidv7>` —— 规范 UUID 形式的 32 位小写十六进制，加前缀。**
 
 ```text
 run_0192f4c1-8a3d-7c2e-9f10-6b1d4e0a55aa
@@ -33,9 +33,9 @@ run_0192f4c1-8a3d-7c2e-9f10-6b1d4e0a55aa
 同样已在依赖图中）提为 `audit` 的**直接**依赖，只是新增一条 direct edge 与一个 feature 开关，
 **不新增第三方 crate**。前缀手写在 `Uuid::now_v7()` 之上，存储层不依赖任何格式化 helper。
 
-备选：
+被否决的备选（留档）：
 
-| 方案 | 不推荐的原因（代价） |
+| 方案 | 被否决的原因（代价） |
 |---|---|
 | `uuid` v4（随机） | 依赖成本相同，但非时间有序：列出 run 需要额外排序列，人读日志也看不出先后。 |
 | 自研 `run_<yyyymmdd-hhmmss-ms>-<counter>-<rand4>` | 零依赖、可读、可排序 —— 但碰撞与时钟回拨由我们自己扛，时钟回跳会产生乱序 ID。若不想新增 `uuid` 直接依赖，这是可接受的兜底。 |
@@ -43,7 +43,7 @@ run_0192f4c1-8a3d-7c2e-9f10-6b1d4e0a55aa
 
 ### 1.2 配置指纹
 
-**推荐：对规范化 JSON 求 SHA-256，并带显式 schema 标记。**
+**定稿：对规范化 JSON 求 SHA-256，并带显式 schema 标记。**
 
 ```text
 fingerprint        = sha256(canonical_json)
@@ -61,16 +61,22 @@ fingerprint_schema = "riscdom.run.fingerprint.v1"
 5. **密钥整体排除** —— 不做哈希、不截断、不留"后四位"。API key 本来就不进审计日志的任何字段；
    key 的哈希仍然是 key 派生值。指纹覆盖的是**服务商、base URL 与模型名**。
 
+规范化 JSON **本身就是链的一部分**：它随 `run.start` 的 `detail_json` 一同入链（§2.3），所以指纹
+永远不只存在于派生索引里，而索引也永远可以由日志单独重建。
+
 v1 字段清单见 [附录 A](#附录-a--指纹字段v1)。未知或不可读的值记录为 `"unknown"` 而非省略，
 这样指纹的含义不会悄悄变化 —— 这对 v0.5 很重要：两个指纹若仅因某个不可读字段而不同，不能看起来
 一模一样。
 
-**推荐拆分：** 一个 run 级指纹，外加一个嵌套 `vm` 对象以便单独比较（`fingerprint.vm.*`），
+**定稿：** 一个 run 级指纹，外加一个嵌套 `vm` 对象以便单独比较（`fingerprint.vm.*`），
 这样 v0.5 不必 diff 整份文档就能说"只换了 QEMU"。嵌套对象在规范化 JSON 里不增加额外成本。
+
+**定稿：system prompt 独立成一个对象，且只存哈希** —— `prompt.sha256`，绝不落提示词原文。
+这既能捕捉提示词漂移，又不会把提示词（或指向它的路径）放进链里。
 
 ### 1.3 审计区间
 
-**推荐：在索引行里同时记录区间的两端。**
+**定稿：在索引行里同时记录区间的两端。**
 
 | 字段 | 含义 |
 |---|---|
@@ -117,10 +123,10 @@ sha256(prev_hash | "|" | timestamp_ms | "|" | actor | "|" | action | "|" | detai
 | 方案 | 形态 | 代价 |
 |---|---|---|
 | **A. 给 `audit_events` 加列** | `ALTER TABLE audit_events ADD COLUMN run_id TEXT` | 查询快（"某 run 的事件"一次索引查找）。但该列不在哈希内（见 §2.1），溯源因此可伪造；若扩展哈希覆盖它，则所有既有行的哈希失效、必须全链重算。**否决。** |
-| **B. 链上标记 + 派生索引**（推荐） | 新增两个 action（`run.start` / `run.end`），把 `run_id` 与指纹放进 `detail_json`；另建 `runs` 表作为索引 | 链结构与哈希语义零改动；溯源可防篡改；索引可由链重建。代价：一次小迁移、一条重建路径、每个 run 多一次写入。 |
+| **B. 链上标记 + 派生索引**（定稿） | 新增两个 action（`run.start` / `run.end`），把 `run_id` 与指纹放进 `detail_json`；另建 `runs` 表作为索引 | 链结构与哈希语义零改动；溯源可防篡改；索引可由链重建。代价：一次小迁移、一条重建路径、每个 run 多一次写入。 |
 | **C. 只建独立表** | 有 `runs` 表，链上无标记 | 写起来最省，但 run 元数据不在链上：改 `runs` 里的指纹或区间，`audit-verify` 检测不到。与 A 同理否决。 |
 
-### 2.3 推荐方案
+### 2.3 定稿方案
 
 **方案 B。** 具体：
 
@@ -132,17 +138,22 @@ sha256(prev_hash | "|" | timestamp_ms | "|" | actor | "|" | action | "|" | detai
      "run_id": "run_0192f4c1-8a3d-7c2e-9f10-6b1d4e0a55aa",
      "fingerprint": "<64 hex>",
      "fingerprint_schema": "riscdom.run.fingerprint.v1",
+     "fingerprint_json": "<规范化 JSON 原文 —— 即被哈希的那串字节>",
      "session_id": "<host session id>",
      "parent_run_id": null,
      "resumed_from_snapshot": null
    }
    ```
 
+   规范化 JSON 以**字符串**形式携带（而非重新序列化的对象），这样被哈希的那串字节永远可复原，
+   摘要也能仅凭日志重算。
+
    `run.end` 携带 `run_id`、`status`（`ok` / `failed` / `interrupted`）与原因字符串。
 
 2. 一次迁移创建索引表（纯新增，`CREATE TABLE IF NOT EXISTS`）：
 
    ```sql
+   -- 下列每一列都派生自链上事件；不存在只在索引里才有的字段。
    CREATE TABLE IF NOT EXISTS runs (
        run_id            TEXT PRIMARY KEY,
        session_id        TEXT,
@@ -153,20 +164,23 @@ sha256(prev_hash | "|" | timestamp_ms | "|" | actor | "|" | action | "|" | detai
        ended_at_ms       INTEGER,
        start_seq         INTEGER NOT NULL,
        end_seq           INTEGER,
-       status            TEXT NOT NULL,
-       fingerprint_json  TEXT NOT NULL
+       status            TEXT NOT NULL
    );
    ```
 
-3. `runs` 表是**派生的，而非权威**：它存在只为快速列表与 UI，可由扫描链上的 `run.start` /
-   `run.end` 重建。它同样不在哈希内，因此本设计不假装它防篡改 —— 取而代之，**重建即是校验**（§3.3）。
-4. 把被哈希的那份规范化 JSON 存进 `fingerprint_json`。没有它，指纹只能比较、无法解释，v0.6 的
-   "这两次之间改了什么"就会退化成猜。
+3. `runs` 表是**纯派生索引**：它存在只为快速列表与 UI，**每一列**都可由扫描链上的 `run.start` /
+   `run.end` 重建，不存在任何只在索引里才有的信息。它同样不在哈希内，因此本设计不假装它防篡改 ——
+   取而代之，**重建即是校验**（§3.3）：重建结果与库里不一致，本身就是结论。
+4. 规范化 JSON **随链传输**，作为 `run.start` 的 `detail_json` 中的 `fingerprint_json`（即以字符串
+   形式保存的、被哈希的那串字节，避免任何重新序列化改变它）。索引只留摘要。由此：日志是自足的 ——
+   任何 run 的配置都可以**仅凭链**恢复、重算并复验，这既是 v0.6 对比所需，也是 `--rebuild-index`
+   所依赖。
 5. 成员关系**由区间推导**，不逐事件存储：`runs` 行带 `[start_seq, end_seq]`，"事件 N 属于哪个 run"
    是一次范围查找。这让事件表结构保持冻结（即方案 A 的问题），同时在 `start_seq` 建索引后仍是 O(1)。
 
 代价小结：一次迁移、每个 run 边界多一次追加、一条重建例程，以及一条必须走索引的读取路径。换来的
-是链结构、哈希公式、append-only 触发器与所有既有行**一字未动**。
+是链结构、哈希公式、append-only 触发器与所有既有行**一字未动**。索引只提供速度，不提供事实：
+它不持有任何链上没有的信息。
 
 ## 3. 向后兼容
 
@@ -178,7 +192,7 @@ sha256(prev_hash | "|" | timestamp_ms | "|" | actor | "|" | action | "|" | detai
 
 ### 3.2 哈希链
 
-**推荐：永不重算、永不重写。** 链在构造上就是 append-only（`BEFORE UPDATE` / `BEFORE DELETE`
+**定稿：永不重算、永不重写。** 链在构造上就是 append-only（`BEFORE UPDATE` / `BEFORE DELETE`
 触发器抛 `RAISE(ABORT, …)`）；新标记追加在既有事件之后，与任何普通事件无异。新旧在一条链、一张表里
 共存，不需要标记位、不需要版本列、不需要第二个文件。
 
@@ -193,10 +207,9 @@ sha256(prev_hash | "|" | timestamp_ms | "|" | actor | "|" | action | "|" | detai
 - `audit-verify <db> --runs` —— 交叉校验索引与链：每条 `runs` 行都要能对上一条 `run_id`、指纹与
   `start_seq` 相同的 `run.start` 事件；每条 `run.end` 与其行一致；未结束的 run 必须没有 `end_seq`。
   结论单独成节报告；一旦发现问题，退出码变为 `1`（日志与溯源互相矛盾，这正是运维绝不能错过的状态）。
-- `--rebuild-index <db>` —— 由链重建 `runs`（索引被篡改或截断时的修复路径）。只写 `runs`，
-  绝不写 `audit_events`。
-
-需在 §6 决定：`--runs` 是 v0.4 的一部分，还是留给后续批次。
+- `--rebuild-index <db>` —— 仅凭链重建 `runs`（索引被篡改或截断时的修复路径）。**每一列**都会被
+  重建，包括配置原文，因为 `run.start` 的 `detail_json` 里带着规范化 JSON。只写 `runs`，绝不写
+  `audit_events`。
 
 ## 4. 生成时机与归属
 
@@ -228,7 +241,7 @@ VM 可能比 run 长寿（v0.3 起归 host 所有且可复用），因此 run �
 
 ### 4.3 快照恢复
 
-**推荐：新开一次 run，并与旧 run 建立链接。**
+**定稿：新开一次 run，并与旧 run 建立链接。**
 
 `resume_from_snapshot_real` 产出的是实质不同的执行：不同的内存内容、不同的起点，且自 v0.3.1 起还可能
 是**不同的 QEMU 二进制**。把它记成前一次 run 的延续，会破坏 v0.5/v0.6 依赖的"一次 run = 一次执行"
@@ -243,7 +256,7 @@ VM 可能比 run 长寿（v0.3 起归 host 所有且可复用），因此 run �
 
 ## 5. v0.4 最小实现范围
 
-**范围内（§6 拍板后进入批次 1b）：**
+**范围内（§6 已拍板，进入批次 1b）：**
 
 1. audit：新增 `run.start` / `run.end` 这对 action（名称 + detail 形状）与纯新增的 `runs` 迁移；
    `audit_events`、其触发器与哈希公式**零改动**。
@@ -251,6 +264,8 @@ VM 可能比 run 长寿（v0.3 起归 host 所有且可复用），因此 run �
    有意的版本升级，而不是意外）。
 3. host：生成 ID、计算指纹、在 `run_agent` 前后追加标记、维护 `runs` 行、处理启动时的未结束 run。
 4. 读取路径：`list_runs` / `get_run`（只读），以及索引重建例程。
+5. `audit-verify`：`--runs`（索引与链交叉校验）与 `--rebuild-index`（重建索引）—— 均为纯新增，
+   链的判定与 `0` / `1` / `2` 退出码不变。
 
 **明确不做：**
 
@@ -261,23 +276,28 @@ VM 可能比 run 长寿（v0.3 起归 host 所有且可复用），因此 run �
 - 任何改动 `audit_events`、哈希公式或历史行的做法 —— **永不在计划内**。
 - 存储提示词、源文件或超出审计现状的工具参数；run 行只带哈希与配置，不带内容。
 
-## 6. 开工前需要拍板的点
+## 6. 决议（2026-09-18 已拍板）
 
-1. **Run ID 方案。** UUIDv7（推荐；新增 `uuid` 直接依赖 + `v7` feature，不新增第三方 crate）
-   对比零依赖自研时间序 ID。只影响 §1.1。
-2. **存储形态。** 是否接受"链上标记 + 派生索引"（方案 B）这一结构，含新增 `run.start` / `run.end`
-   两个 action。这是会改动 audit crate 公开面的决定。
-3. **run 粒度。** 确认一次 run = 一次 `run_agent` 调用（不是一次用户回合、不是一次会话）。
-4. **快照恢复。** 确认"新开 run + `parent_run_id`"，而非延续产出方 run。
-5. **"region 配置"。** 需求里提到 *region* 配置字段。当前 `LocalSettings` 只有 `version`、
-   `toolchain_path`、`qemu_path`，整个 workspace 里也没有 region 概念。请说明它指什么（计划中的字段、
-   托管区域设置，还是"运行时配置"的笔误），以便 v1 字段清单完整。
-6. **指纹是否含 system prompt。** 用其哈希放进指纹（便宜、能捕捉提示词漂移，但措辞一改指纹就变），
-   还是不纳入以保持指纹在文档改动间稳定。推荐：**放进独立的 `prompt` 对象**，不进入主等值路径。
-7. **`audit-verify --runs` 的时机。** v0.4 就带上索引交叉校验，还是 v0.4 只做埋点 + 读取路径、
-   把校验留到 v0.6 的对比工作。推荐：v0.4 就做 —— 它是派生索引唯一可信的来源。
-8. **VM 指纹拆分。** 确认嵌套 `vm` 对象（以便表达"只换了 QEMU"），以及考虑到 VM 可比 run 长寿，
-   VM 配置是否应进入 run 指纹。
+1. **Run ID 方案：UUIDv7。** `run_<uuidv7>`，见 §1.1 —— 新增 `uuid` 直接依赖 + `v7` feature，
+   不新增第三方 crate。
+2. **存储形态：方案 B。** 链上标记（`run.start` / `run.end`）加派生索引表。`audit` crate 新增两个
+   action 与一张表；`audit_events`、其触发器与哈希公式不变。
+3. **run 粒度：一次 run = 一次 `run_agent` 调用**，不是一次用户回合、也不是一次会话。
+4. **快照恢复：新开 run**，带 `parent_run_id` 与 `resumed_from_snapshot`，绝不延续产出方 run。
+5. **"region 配置"是笔误，实指运行时 / VM 配置。** workspace 里没有 region 概念，也不计划引入；
+   运行时与 VM 设置由嵌套 `vm` 对象与附录 A 的 `agent` 组合覆盖。
+6. **system prompt：独立对象，只存哈希** —— `prompt.sha256`；提示词原文绝不入链。
+7. **`audit-verify --runs` 在 v0.4 带上**，与 `--rebuild-index` 一同交付，派生索引自诞生之日起就可信。
+8. **VM 指纹嵌套 `vm` 对象**，不必 diff 整份文档即可表达"只换了 QEMU"。
+
+### 对初稿的修正 —— 规范化 JSON 入链
+
+初稿把规范化 JSON 只存在索引里（`runs.fingerprint_json`）。定稿改为把它**放进 `run.start` 的
+`detail_json`**，因此它受哈希链保护，同时 `runs` 降级为纯派生索引：
+
+- 链是自足的：任何 run 的配置都可以**仅凭审计日志**恢复、重算并复验，不依赖任何链外的文件；
+- `--rebuild-index` 能**完整**重建索引（含配置原文），因为源头就在链上；
+- 索引不持有任何链上没有的信息，因此对它做手脚可以通过"重建 + 比对"发现。
 
 ## 附录 A — 指纹字段（v1）
 
@@ -289,15 +309,19 @@ VM 可能比 run 长寿（v0.3 起归 host 所有且可复用），因此 run �
 | `vm` | `memory_mb`、machine（`virt`）、cpu（`rv64`）、QEMU 路径 + 报告的版本、快照模式 |
 | `toolchain` | 解析出的 GCC 路径 + 报告的版本、来源（`EnvVar` / `KnownPath` / `Path` / `Manual`） |
 | `policy` | workspace policy 版本、扩展名白名单、防穿越标记 |
+| `prompt` | system prompt 原文的 `sha256`（原文本身永不落库） |
 
 每个字段要么来自**解析后的**配置（而非用户未校验的输入），要么记为 `"unknown"`。路径按 §1.2 第 3 条
 规范化。
+
+本文档就是被规范化并哈希的对象；它的原文随后作为 `run.start` 的 `fingerprint_json` 入链（§2.3），
+因此摘要与它所概括的配置都能仅凭日志复原。
 
 ## 附录 B — 新增审计 action
 
 | Action | Actor | Detail |
 |---|---|---|
-| `run.start` | `host` | `run_id`、`fingerprint`、`fingerprint_schema`、`session_id`、`parent_run_id`、`resumed_from_snapshot` |
+| `run.start` | `host` | `run_id`、`fingerprint`、`fingerprint_schema`、`fingerprint_json`（被哈希的规范化 JSON 原文）、`session_id`、`parent_run_id`、`resumed_from_snapshot` |
 | `run.end` | `host` | `run_id`、`status`、`reason` |
 | `host.run.abandoned` | `host` | `run_id`、`detected_at_ms`（入链事件；索引行转为 `abandoned`） |
 

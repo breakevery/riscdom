@@ -1,10 +1,10 @@
 [中文](run-provenance.zh-CN.md) | English
 
-# Run provenance — design proposal (v0.4 batch 1a)
+# Run provenance — design (v0.4 batch 1a)
 
-> **Status: proposal only.** This batch changes no code and no audit source. Everything below is
-> grounded in the current implementation; §6 lists the points that need a human decision before
-> implementation starts.
+> **Status: signed off (2026-09-18).** These are the agreed decisions; §6 records them. This batch
+> changes no code and no audit source — implementation is batch 1b. Everything below is grounded in
+> the current implementation.
 
 ## 0. Goal
 
@@ -19,7 +19,7 @@ AI and stays append-only, and nothing the AI can reach may forge provenance.
 
 ### 1.1 Run ID
 
-**Recommended: `run_<uuidv7>` — 32 lowercase hex characters in canonical UUID form, prefixed.**
+**Decided: `run_<uuidv7>` — 32 lowercase hex characters in canonical UUID form, prefixed.**
 
 ```text
 run_0192f4c1-8a3d-7c2e-9f10-6b1d4e0a55aa
@@ -36,7 +36,7 @@ direct dependency of `audit` (with the `v7` feature, whose `getrandom` is also a
 graph) adds a direct edge and a feature flag, not a new third-party crate. Keep the prefix
 hand-written on top of `Uuid::now_v7()`, so the storage layer never depends on a formatting helper.
 
-Alternatives:
+Rejected alternatives (kept for the record):
 
 | Option | Why not (cost) |
 |---|---|
@@ -46,7 +46,7 @@ Alternatives:
 
 ### 1.2 Configuration fingerprint
 
-**Recommended: SHA-256 over a canonical JSON document, with an explicit schema tag.**
+**Decided: SHA-256 over a canonical JSON document, with an explicit schema tag.**
 
 ```text
 fingerprint      = sha256(canonical_json)
@@ -67,18 +67,26 @@ Canonicalisation rules (all cheap, all testable):
    key-derived value in the chain. The fingerprint covers the *provider, base URL and model name*
    instead.
 
+The canonical JSON **is part of the chain**: it travels inside `run.start`'s `detail_json` (§2.3), so
+a fingerprint is never explainable only from the derived index — and the index can always be rebuilt
+from the log alone.
+
 The v1 field list is in [Appendix A](#appendix-a--fingerprint-fields-v1). Unknown or unreadable
 values are recorded as `"unknown"` rather than omitted, so a fingerprint never silently changes
 meaning — this matters for v0.5, where two fingerprints differing only by an unreadable field must
 not look identical.
 
-**Recommended split:** keep one run-level fingerprint, plus a nested `vm` object that can be
-compared on its own (`fingerprint.vm.*`), so v0.5 can say "only QEMU changed" without diffing the
-whole document. Nested objects cost nothing extra in canonical JSON.
+**Decided:** keep one run-level fingerprint, plus a nested `vm` object that can be compared on its
+own (`fingerprint.vm.*`), so v0.5 can say "only QEMU changed" without diffing the whole document.
+Nested objects cost nothing extra in canonical JSON.
+
+**Decided: the system prompt appears as its own object and only as a hash** — `prompt.sha256`,
+never the prompt text. That catches prompt drift without putting the prompt (or a path to it) into
+the chain.
 
 ### 1.3 Audit interval
 
-**Recommended: record both ends of the interval in the index row.**
+**Decided: record both ends of the interval in the index row.**
 
 | Field | Meaning |
 |---|---|
@@ -128,10 +136,10 @@ event.
 | Option | Shape | Cost |
 |---|---|---|
 | **A. Column on `audit_events`** | `ALTER TABLE audit_events ADD COLUMN run_id TEXT` | Fast queries ("events of run X" = one indexed lookup). But the column is unhashed (see §2.1), so provenance becomes forgeable; extending the hash to cover it invalidates every existing row and forces a full chain rebuild. **Rejected.** |
-| **B. Chain markers + derived index** (recommended) | Two new actions (`run.start`, `run.end`) carry `run_id` + fingerprint inside `detail_json`; a separate `runs` table is written alongside as an index | Chain schema and hash semantics untouched; provenance is tamper-evident; the index is rebuildable from the chain. Costs a small migration, a rebuild path, and one extra write per run. |
+| **B. Chain markers + derived index** (decided) | Two new actions (`run.start`, `run.end`) carry `run_id` + fingerprint inside `detail_json`; a separate `runs` table is written alongside as an index | Chain schema and hash semantics untouched; provenance is tamper-evident; the index is rebuildable from the chain. Costs a small migration, a rebuild path, and one extra write per run. |
 | **C. Separate table only** | `runs` table, no chain markers | Cheapest to write, but the run metadata is not in the chain: editing a fingerprint or an interval in `runs` is undetectable by `audit-verify`. Rejected for the same reason as A. |
 
-### 2.3 Recommendation
+### 2.3 Decision
 
 **Option B.** Concretely:
 
@@ -143,17 +151,22 @@ event.
      "run_id": "run_0192f4c1-8a3d-7c2e-9f10-6b1d4e0a55aa",
      "fingerprint": "<64 hex>",
      "fingerprint_schema": "riscdom.run.fingerprint.v1",
+     "fingerprint_json": "<canonical JSON text — exactly the bytes that were hashed>",
      "session_id": "<host session id>",
      "parent_run_id": null,
      "resumed_from_snapshot": null
    }
    ```
 
+   The canonical JSON is carried as a **string**, not as a re-serialised object, so the exact bytes
+   that were hashed are always recoverable and the digest can be recomputed from the log alone.
+
    `run.end` carries `run_id`, `status` (`ok` / `failed` / `interrupted`) and the reason string.
 
 2. A migration creates the index table (additive, `CREATE TABLE IF NOT EXISTS`):
 
    ```sql
+   -- Every column below is derived from chain events; nothing here exists only in the index.
    CREATE TABLE IF NOT EXISTS runs (
        run_id            TEXT PRIMARY KEY,
        session_id        TEXT,
@@ -164,18 +177,20 @@ event.
        ended_at_ms       INTEGER,
        start_seq         INTEGER NOT NULL,
        end_seq           INTEGER,
-       status            TEXT NOT NULL,
-       fingerprint_json  TEXT NOT NULL
+       status            TEXT NOT NULL
    );
    ```
 
-3. The `runs` table is **derived, not authoritative**: it exists for fast listing and UI use, and it
-   can be rebuilt by scanning the chain for `run.start` / `run.end`. Because it is not hash-covered
-   either, the design does not pretend it is tamper-proof — instead the rebuild is the check
-   (§3.3).
-4. Store the canonical JSON that was hashed in `fingerprint_json`. Without it, a fingerprint can be
-   compared but never explained, and v0.6's "what changed between these two runs" degenerates into
-   guesswork.
+3. The `runs` table is a **pure derived index**: it exists for fast listing and UI use, every one of
+   its columns is rebuilt by scanning the chain for `run.start` / `run.end`, and nothing exists
+   *only* in the index. It is not hash-covered either, so the design does not pretend it is
+   tamper-proof — the rebuild (§3.3) is the check, and a rebuilt index that differs from the stored
+   one is itself the finding.
+4. The canonical JSON travels **in the chain**, as `fingerprint_json` inside `run.start`'s
+   `detail_json` (the exact bytes that were hashed, kept as a string so no re-serialisation can
+   change them). The index stores only the digest. Consequence: the log is self-sufficient — the
+   configuration of any run can be recovered and re-verified from the chain alone, which is exactly
+   what v0.6's comparison needs and what `--rebuild-index` relies on.
 5. Membership is **derived from the interval**, not stored per event: `runs` rows carry
    `[start_seq, end_seq]`, and "which run does event N belong to" is a range lookup. This keeps the
    event schema frozen (option A's problem) while staying O(1) per lookup with an index on
@@ -183,7 +198,8 @@ event.
 
 Cost summary: one migration, one extra append per run boundary, one rebuild routine, and a
 reading path that must go through the index. In exchange the chain structure, the hash formula, the
-append-only triggers and every existing row stay exactly as they are.
+append-only triggers and every existing row stay exactly as they are. The index adds speed, not
+truth: it holds no fact the chain does not already hold.
 
 ## 3. Backward compatibility
 
@@ -196,7 +212,7 @@ code works: the `runs` table is created empty, `run.start` events simply do not 
 
 ### 3.2 Hash chain
 
-**Recommended: never recompute, never rewrite.** The chain is append-only by construction
+**Decided: never recompute, never rewrite.** The chain is append-only by construction
 (`BEFORE UPDATE` / `BEFORE DELETE` triggers raise `RAISE(ABORT, …)`); new markers are appended after
 the existing events, exactly like any other event. New and old coexist in one chain, in one table,
 with no marker, no version column and no second file.
@@ -217,10 +233,10 @@ off by default:
   match its row; every open run must have no `end_seq`. Findings are reported as a separate section
   and, when they exist, change the exit code to `1` (the log and its provenance disagree, which is
   exactly the state an operator must not miss).
-- `--rebuild-index <db>` — regenerate `runs` from the chain (a repair path for a tampered or
-  truncated index). Writes only to `runs`, never to `audit_events`.
-
-Open question for §6: whether `--runs` is part of v0.4 or a later batch.
+- `--rebuild-index <db>` — regenerate `runs` from the chain alone (a repair path for a tampered or
+  truncated index). Every column is reconstructed, including the configuration text, because
+  `run.start` carries the canonical JSON in `detail_json`. Writes only to `runs`, never to
+  `audit_events`.
 
 ## 4. Ownership and lifecycle
 
@@ -256,7 +272,7 @@ fingerprint and does not claim VM ownership.
 
 ### 4.3 Snapshot restore
 
-**Recommended: a new run, linked to the old one.**
+**Decided: a new run, linked to the old one.**
 
 `resume_from_snapshot_real` produces a materially different execution: different memory contents,
 a different start point, and — after v0.3.1 — possibly a different QEMU binary. Recording it as a
@@ -273,7 +289,7 @@ silently contains events from two different VM instances.
 
 ## 5. Minimal v0.4 scope
 
-**In scope (batch 1b, once §6 is signed off):**
+**In scope (batch 1b — decisions signed off in §6):**
 
 1. Audit: a `run.start` / `run.end` action pair (names + detail shape) and the additive `runs`
    migration; no change to `audit_events`, its triggers, or the hash formula.
@@ -282,6 +298,8 @@ silently contains events from two different VM instances.
 3. Host: mint the id, compute the fingerprint, append the markers around `run_agent`, maintain the
    `runs` row, and handle the open-run case at startup.
 4. Read path: `list_runs` / `get_run` (read-only), plus the index rebuild routine.
+5. `audit-verify`: `--runs` (cross-check the index against the chain) and `--rebuild-index` (rebuild
+   it) — both additive, with the chain verdict and the `0` / `1` / `2` exit codes unchanged.
 
 **Out of scope, deliberately:**
 
@@ -293,30 +311,38 @@ silently contains events from two different VM instances.
 - Storing prompts, source files or tool arguments beyond what the audit log already stores; the run
   row carries hashes and configuration, not content.
 
-## 6. Decisions needed before implementation
+## 6. Decisions (signed off 2026-09-18)
 
-1. **Run id scheme.** UUIDv7 (recommended; a direct `uuid` edge plus the `v7` feature, no new
-   third-party crate) versus a dependency-free home-grown time-ordered id. Affects §1.1 only.
-2. **Storage shape.** Accept "chain markers + derived index" (option B) as the structure, including
-   two new audit actions `run.start` / `run.end`. This is the decision that changes the audit
-   crate's public surface.
-3. **Run granularity.** Confirm one run = one `run_agent` call (not one user-turn, not one session).
-4. **Snapshot restore.** Confirm "new run with `parent_run_id`" rather than continuing the
-   producing run.
-5. **"region configuration".** The request mentions a *region* configuration field. The current
-   `LocalSettings` has only `version`, `toolchain_path`, `qemu_path`, and there is no region concept
-   anywhere in the workspace. Please state what it refers to (a planned field, a hosting/region
-   setting, or a typo for "runtime configuration"), so the v1 field list is complete.
-6. **System prompt in the fingerprint.** Should the system prompt be represented by its hash inside
-   the fingerprint (cheap, catches prompt drift, but it changes whenever wording changes), or kept
-   out so fingerprints stay stable across documentation edits. Recommendation: **include its hash
-   in a separate `prompt` object**, not in the main equality path.
-7. **`audit-verify --runs` timing.** Ship the index cross-check in v0.4, or keep v0.4 to emission
-   plus the read path and add the check with the v0.6 comparison work. Recommendation: check in
-   v0.4 — it is the only thing that makes the derived index trustworthy.
-8. **VM fingerprint split.** Confirm the nested `vm` object (so "only QEMU changed" is expressible)
-   and whether the VM configuration belongs in the run fingerprint at all, given the VM can outlive
-   the run.
+1. **Run id scheme: UUIDv7.** `run_<uuidv7>` as in §1.1 — a direct `uuid` edge plus the `v7`
+   feature, no new third-party crate.
+2. **Storage shape: option B.** Chain markers (`run.start` / `run.end`) plus the derived index
+   table. The `audit` crate gains two actions and one table; `audit_events`, its triggers and the
+   hash formula stay untouched.
+3. **Run granularity: one run = one `run_agent` call**, not one user-turn and not one session.
+4. **Snapshot restore: a new run** with `parent_run_id` and `resumed_from_snapshot`, never a
+   continuation of the producing run.
+5. **"region configuration" was a typo for the runtime / VM configuration.** There is no region
+   concept in the workspace and none is planned; the runtime and VM settings are covered by the
+   nested `vm` object and the `agent` group in Appendix A.
+6. **System prompt: its own object, hash only** — `prompt.sha256`; the prompt text is never stored
+   in the chain.
+7. **`audit-verify --runs` ships in v0.4**, together with `--rebuild-index`, so the derived index is
+   trustworthy from the day it exists.
+8. **VM fingerprint: nested `vm` object**, so "only QEMU changed" is expressible without diffing the
+   whole document.
+
+### Correction to the first draft — the canonical JSON lives in the chain
+
+The first draft stored the canonical JSON only in the index (`runs.fingerprint_json`). The signed-off
+design moves it **into `run.start`'s `detail_json`**, so it is covered by the hash chain, and demotes
+`runs` to a pure derived index:
+
+- the chain is self-sufficient: a run's configuration can be recovered, re-hashed and re-verified
+  from the audit log alone, with no dependency on a file outside the chain;
+- `--rebuild-index` reconstructs the index **completely**, configuration text included, because the
+  source is in the chain;
+- the index holds no fact the chain does not already hold, so tampering with it is detectable by
+  rebuilding and comparing.
 
 ## Appendix A — fingerprint fields (v1)
 
@@ -328,15 +354,20 @@ silently contains events from two different VM instances.
 | `vm` | `memory_mb`, machine (`virt`), cpu (`rv64`), QEMU path + reported version, snapshot mode |
 | `toolchain` | resolved GCC path + reported version, discovery source (`EnvVar` / `KnownPath` / `Path` / `Manual`) |
 | `policy` | workspace policy version, extension allowlist, traversal guard marker |
+| `prompt` | `sha256` of the system prompt text (the text itself is never stored) |
 
 Every field is either read from the resolved configuration (not from the user's unvalidated input)
 or recorded as `"unknown"`. Paths are normalised per §1.2 rule 3.
+
+This document is what gets canonicalised and hashed; its exact text then travels in the chain as
+`run.start`'s `fingerprint_json` (§2.3), so both the digest and the configuration it summarises are
+recoverable from the log.
 
 ## Appendix B — new audit actions
 
 | Action | Actor | Detail |
 |---|---|---|
-| `run.start` | `host` | `run_id`, `fingerprint`, `fingerprint_schema`, `session_id`, `parent_run_id`, `resumed_from_snapshot` |
+| `run.start` | `host` | `run_id`, `fingerprint`, `fingerprint_schema`, `fingerprint_json` (the canonical JSON text that was hashed), `session_id`, `parent_run_id`, `resumed_from_snapshot` |
 | `run.end` | `host` | `run_id`, `status`, `reason` |
 | `host.run.abandoned` | `host` | `run_id`, `detected_at_ms` (chain event; the index row becomes `abandoned`) |
 
