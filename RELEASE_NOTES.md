@@ -1,10 +1,12 @@
 [中文](RELEASE_NOTES.zh-CN.md) | English
 
-# RiscDom v0.3.0
+# RiscDom v0.3.1
 
-**v0.3.0 is the layout and environment release:** the main view is now a two-pane chat + serial
-layout with settings on a page of their own, and the two prerequisites — QEMU and the RISC-V
-GCC — are handled inside the app instead of from a terminal.
+**v0.3.1 is a bug-fix release on top of v0.3.0:** five defects found while accepting v0.3.0 are
+fixed — a snapshot restore that ignored a manually configured QEMU, a VM badge that kept claiming
+"running" after QEMU had exited, a serial read that reported silence while its buffer was full, a
+chat that jumped back to the bottom while you were reading, and a narrow window that pushed the
+serial column off-screen.
 
 **An AI-native RISC-V sandbox for the desktop:** inside a QEMU RISC-V bare-metal sandbox the AI
 holds virtual kernel-level privilege — it writes C / RISC-V assembly, compiles, runs, reads the
@@ -15,22 +17,32 @@ privilege.
 
 ## Highlights
 
-- **Two-pane layout**: the main view is now chat and serial side by side, and settings moved to
-  a separate page (Esc returns to the chat).
-- **One-click RISC-V GCC download**: RiscDom fetches the xPack bare-metal GCC for you, verifies
-  it with SHA-256, guards against Zip-Slip on extraction, and can be cancelled mid-download.
-- **QEMU discovery and a manual path**: RiscDom finds `qemu-system-riscv64` by itself
-  (`RISCDOM_QEMU` → well-known install locations → `PATH`), and *Settings → Toolchain* lets you
-  set the path by hand — remembered across restarts and injected into the agent loop, so it
-  really takes effect.
-- **VM status badge**: the top bar always shows whether the VM is running, and it stays visible
-  across runs.
-- **The AI no longer stops the VM on its own**: after a task the guest keeps running — the
-  prompt, the `stop_vm` tool description and the VM badge all guarantee it.
-- **`read_serial` returns the complete output**: it waits for ~150 ms of silence before
-  answering, so the first byte is no longer truncated.
-- **Auto-scroll that follows the output**: chat and serial stick to the latest line, and
-  scrolling up is never interrupted — a "jump to latest" button appears instead.
+- **A snapshot restore uses your configured QEMU**: the restore built its own VM configuration and
+  silently fell back to auto-discovery, so it could boot with a different binary than the one set in
+  *Settings → Toolchain*. The agent run and the restore now inject the same path.
+- **The VM badge tells the truth**: a QEMU process that has exited (the guest shut down, or QEMU was
+  killed or crashed) left its handle behind, so the top bar kept showing "VM running" forever. The
+  child process is checked too now, and a dead handle is dropped.
+- **`read_serial` hands back what the guest printed**: a guest that keeps printing (a heartbeat line,
+  a busy log) never reaches the quiet window, and the tool used to answer "No serial output yet"
+  while the buffer was full. Only a genuinely empty buffer reports silence now.
+- **Reading history is no longer interrupted**: a finished run forced the chat back to the bottom
+  even if you had scrolled up. It now keeps your position and offers the "jump to latest" button,
+  like the serial panel.
+- **The layout fits any window**: the chat column was clamped against a fixed width, so in a narrow
+  window it pushed the serial column off-screen. The drag bound now follows the window, and the
+  serial column has an adaptive minimum.
+
+## Verification
+
+- `cargo test`: **181 passed / 0 failed / 7 ignored** across 58 test suites. That includes three new
+  regression tests — a snapshot restore must use the configured QEMU path, a guest that powered
+  itself off must not be reported as running, and a continuously printing guest must return its
+  output. The 7 ignored tests are the ones that need a real API key or a real QEMU boot by design.
+- `cargo fmt --check`, `cargo clippy -D warnings`, `cargo check` (portable crates and
+  `ui/src-tauri`), `npm run build` (tsc + vite) and the bilingual documentation check all pass.
+- The two UI probes that guard the scroll and layout fixes run inside the local gate
+  (`scripts/gate.ps1` / `scripts/gate.sh`).
 
 ## Prerequisites
 

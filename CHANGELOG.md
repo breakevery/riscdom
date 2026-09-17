@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   240–900 px range, so a wide chat column pushed the serial column off-screen in a narrow window. The
   drag bound is derived from the measured container and the serial column has an adaptive minimum.
 
+> Note: the v0.3.1 entry in RELEASE_NOTES.md / RELEASE_NOTES.zh-CN.md was added in the commit right
+> after the tag. The tag itself (`b9be911`) already carries this changelog entry and the complete
+> code.
+
 ## [0.3.0] - 2026-09-16
 
 ### Added
