@@ -206,6 +206,25 @@ m. **[DONE]** Bilingual (English/Chinese) docs before going public
   (up to 3 attempts).
 - [DONE] **Test-gate stability**: port TOCTOU retry in `start_vm`.
 
+### v0.3.1 status
+
+- [DONE] **A snapshot restore honours a manually configured QEMU path**: the restore no longer
+  falls back to auto-discovery; the agent run and the restore inject the configured path through
+  one helper.
+- [DONE] **A QEMU process that has exited is no longer reported as running**: `vm_is_running`
+  checks the child process and drops a dead handle (documented as lazy cleanup, not a pure query).
+- [DONE] **`read_serial` returns the captured output when the guest never goes quiet**: only a
+  genuinely empty buffer reports silence.
+- [DONE] **A finished run no longer pulls the chat back to the bottom**: the scroll state is
+  respected and the "jump to latest" button is offered instead.
+- [DONE] **The two-pane layout stays inside the window**: the drag bound is derived from the
+  measured container and the serial column has an adaptive minimum.
+- [DONE] **The UI regression probes run in the gate**: `ui/scripts/probe-ui-scroll.mjs` and
+  `ui/scripts/probe-ui-width.mjs` (dependency-free modules under `ui/src/lib/`); `scripts/gate.sh`
+  and `scripts/gate.ps1` fail when either probe fails.
+- Gate: `cargo test` = **181 passed / 0 failed / 7 ignored** across **58 suites** (v0.3.0 was
+  178 / 0 / 7 across 55 suites; the +3 are the three new regression tests).
+
 ### v0.4 roadmap
 
 1. **QEMU stdio (option 3) and a unified relay-port lease**: remove the TCP port dependency for

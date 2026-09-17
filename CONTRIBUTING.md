@@ -55,6 +55,25 @@ If the gate exits non-zero the wrapper exits 1 and **nothing is committed**.
 about 70 characters, and mention the stage tag when the work belongs to a staged plan
 (for example `docs: stage 22c contributing, coc, bilingual check`). One stage, one commit.
 
+### Keep the message ASCII — the `-m` path is lossy on Windows
+
+**Measured** (2026-09-18, this machine): a message written in Chinese and passed as
+`git commit -m "…"` never reaches the commit object intact. The command line crosses the
+console's ANSI code page, so every non-ASCII character is replaced by `?` (`0x3F`) *before git
+ever sees it*. A probe subject `test: 中文正文测试` was stored as `test: ?????????`, byte for byte
+`74 65 73 74 3a 20 3f 3f 3f 3f 3f 3f 3f 3f 3f`.
+
+Therefore:
+
+- Write `git commit -m "…"` messages in ASCII (English). That is the norm in this repository.
+- When a message must contain non-ASCII text, **do not use `-m`**: write the message to a file as
+  **UTF-8 without BOM** and commit it with `git commit -F <file>`.
+- Check what was actually stored before pushing: `git log -1 --format=%B`, and for the raw bytes
+  `git log -1 --format=%B | Format-Hex`.
+
+Example: commit `363e5ab` (*docs: add v0.3.1 release notes (post-tag)*) states its body in English
+because of exactly this constraint — the Chinese wording would have been stored as `?`.
+
 ## Pull requests
 
 1. Fork the repository (or create a branch if you have write access).

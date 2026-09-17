@@ -180,6 +180,21 @@ m. **[DONE]** 公开前完成中英双语文档
 - [DONE] **快照中继端口重试**：恢复时在中继端口失败（QMP 10054 / 绑定失败）重试，最多 3 次。
 - [DONE] **门禁稳定性**：`start_vm` 的端口 TOCTOU 重试。
 
+### v0.3.1 状态
+
+- [DONE] **快照恢复会写入手动指定的 QEMU 路径**：恢复不再回落到自动探测；agent 运行与恢复共用同一个
+  注入 helper。
+- [DONE] **QEMU 进程已退出时不再报 running**：`vm_is_running` 会检查子进程并丢弃死句柄（已在注释中
+  标明这是 lazy cleanup、不是纯查询）。
+- [DONE] **guest 持续输出时 `read_serial` 返回已捕获数据**：只有缓冲区真的为空才报空。
+- [DONE] **任务结束后不再把聊天拉回底部**：尊重滚动状态，改为显示“回到最新”。
+- [DONE] **双栏布局不再溢出窗口**：拖动上限由实测容器宽度推导，串口列最小宽度自适应。
+- [DONE] **UI 回归探针进入门禁**：`ui/scripts/probe-ui-scroll.mjs` 与
+  `ui/scripts/probe-ui-width.mjs`（依赖-free 模块位于 `ui/src/lib/`）；任一探针失败即令
+  `scripts/gate.sh` / `scripts/gate.ps1` 失败。
+- 门禁实测：`cargo test` = **181 passed / 0 failed / 7 ignored**，共 **58 个测试套件**
+  （v0.3.0 为 178 / 0 / 7、55 套件；+3 即三个新增回归测试）。
+
 ### v0.4 路线图
 
 1. **QEMU stdio（方案 3）与统一的 relay 端口租约**：彻底消除 QMP/串口的 TCP 端口依赖，

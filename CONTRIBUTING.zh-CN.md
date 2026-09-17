@@ -52,6 +52,23 @@ gate 非零退出时，包装脚本以 1 退出，**不会产生任何提交**�
 `build` / `ci` 之一；subject 用祈使语气、约 70 字符以内；属于分步骤计划时带上阶段标记
 （例如 `docs: stage 22c contributing, coc, bilingual check`）。**一个阶段一个提交。**
 
+### 提交信息一律用 ASCII —— Windows 下 `-m` 路径会丢字符
+
+**实测**（2026-09-18，本机）：用中文写、经 `git commit -m "…"` 传递的信息**不可能**完整落库。
+命令行要过一遍控制台的 ANSI 代码页，所有非 ASCII 字符在 **git 拿到之前**就被替换成 `?`
+（`0x3F`）。探针 subject `test: 中文正文测试` 被存成 `test: ?????????`，逐字节为
+`74 65 73 74 3a 20 3f 3f 3f 3f 3f 3f 3f 3f 3f`。
+
+因此：
+
+- `git commit -m "…"` 的信息一律用 ASCII（英文），这也是本仓库的常态。
+- 确需非 ASCII 文本时**不要用 `-m`**：把信息写进文件（**UTF-8 无 BOM**），用
+  `git commit -F <file>` 提交。
+- 推送前先核对落库内容：`git log -1 --format=%B`；要看原始字节就加 `| Format-Hex`。
+
+例：commit `363e5ab`（*docs: add v0.3.1 release notes (post-tag)*）的正文只能用英文，原因正是
+这条约束——中文表述会被存成 `?`。
+
 ## PR 流程
 
 1. Fork 仓库（有写权限则新建分支）。
