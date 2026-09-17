@@ -3,6 +3,7 @@
 use crate::error::AuditError;
 use crate::event::{AuditEvent, StoredEvent};
 use crate::hash::{compute_hash, GENESIS_PREV_HASH};
+use crate::run::{RebuildReport, RunRecord, RunStatus};
 use rusqlite::types::Value;
 use rusqlite::{params, Connection};
 use std::io::Write;
@@ -34,6 +35,24 @@ BEFORE DELETE ON audit_events
 BEGIN
     SELECT RAISE(ABORT, 'audit_events is append-only');
 END;
+
+-- v0.4 batch 1b: the run index. It is NOT part of the hash chain and holds no
+-- fact the chain does not already hold: every column is derived from the
+-- run.start / run.end events (see `crate::run`), and `rebuild_run_index`
+-- reconstructs it from the chain alone. Created here so an existing database
+-- picks it up on the next open; no event is ever rewritten.
+CREATE TABLE IF NOT EXISTS runs (
+    run_id            TEXT PRIMARY KEY,
+    session_id        TEXT,
+    parent_run_id     TEXT,
+    fingerprint       TEXT NOT NULL,
+    fingerprint_schema TEXT NOT NULL,
+    started_at_ms     INTEGER NOT NULL,
+    ended_at_ms       INTEGER,
+    start_seq         INTEGER NOT NULL,
+    end_seq           INTEGER,
+    status            TEXT NOT NULL
+);
 "#;
 
 const SELECT_COLUMNS: &str = "id, timestamp_ms, actor, action, detail_json, prev_hash, hash";
@@ -260,5 +279,172 @@ impl AuditStore {
     /// All events in chain order, decoded.
     pub fn all(&self) -> Result<Vec<StoredEvent>, AuditError> {
         self.scan()?.into_iter().map(RawRow::into_stored).collect()
+    }
+
+    // ----- Run index (v0.4 batch 1b) ----------------------------------------
+
+    const RUN_COLUMNS: &str = "run_id, session_id, parent_run_id, fingerprint, \
+         fingerprint_schema, started_at_ms, ended_at_ms, start_seq, end_seq, status";
+
+    fn run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRecord> {
+        Ok(RunRecord {
+            run_id: row.get(0)?,
+            session_id: row.get(1)?,
+            parent_run_id: row.get(2)?,
+            fingerprint: row.get(3)?,
+            fingerprint_schema: row.get(4)?,
+            started_at_ms: row.get(5)?,
+            ended_at_ms: row.get(6)?,
+            start_seq: row.get(7)?,
+            end_seq: row.get(8)?,
+            status: RunStatus::parse(&row.get::<_, String>(9)?),
+        })
+    }
+
+    /// Write (or overwrite) one derived index row.
+    ///
+    /// The index is derived, so `INSERT OR REPLACE` is safe: a rebuild produces
+    /// the same row again from the chain.
+    pub fn index_run_start(&mut self, record: &RunRecord) -> Result<(), AuditError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO runs (run_id, session_id, parent_run_id, fingerprint, \
+             fingerprint_schema, started_at_ms, ended_at_ms, start_seq, end_seq, status) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                record.run_id,
+                record.session_id,
+                record.parent_run_id,
+                record.fingerprint,
+                record.fingerprint_schema,
+                record.started_at_ms,
+                record.ended_at_ms,
+                record.start_seq,
+                record.end_seq,
+                record.status.as_str(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Close one index row. Returns `false` when the run is not in the index
+    /// (the caller may then [`Self::rebuild_run_index`]), never an error: a
+    /// missing derived row must not be able to fail a run.
+    pub fn index_run_end(
+        &mut self,
+        run_id: &str,
+        end_seq: i64,
+        ended_at_ms: i64,
+        status: RunStatus,
+    ) -> Result<bool, AuditError> {
+        let changed = self.conn.execute(
+            "UPDATE runs SET end_seq = ?2, ended_at_ms = ?3, status = ?4 WHERE run_id = ?1",
+            params![run_id, end_seq, ended_at_ms, status.as_str()],
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// Runs from the index, oldest first, capped at `limit`.
+    pub fn list_runs(&self, limit: usize) -> Result<Vec<RunRecord>, AuditError> {
+        let sql = format!(
+            "SELECT {} FROM runs ORDER BY start_seq ASC LIMIT ?1",
+            Self::RUN_COLUMNS
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([limit as i64], Self::run_from_row)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// Every index row, oldest first.
+    pub fn all_runs(&self) -> Result<Vec<RunRecord>, AuditError> {
+        let sql = format!(
+            "SELECT {} FROM runs ORDER BY start_seq ASC",
+            Self::RUN_COLUMNS
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([], Self::run_from_row)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// One run by id.
+    pub fn get_run(&self, run_id: &str) -> Result<Option<RunRecord>, AuditError> {
+        let sql = format!("SELECT {} FROM runs WHERE run_id = ?1", Self::RUN_COLUMNS);
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query([run_id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(Self::run_from_row(row)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// The runs the **chain** describes, regardless of what the index says.
+    pub fn derive_runs(&self) -> Result<(Vec<RunRecord>, RebuildReport), AuditError> {
+        let events = self.all()?;
+        Ok(crate::run::derive_runs_from(&events))
+    }
+
+    /// Rebuild the index from the chain alone. Writes only to `runs`.
+    pub fn rebuild_run_index(&mut self) -> Result<RebuildReport, AuditError> {
+        let (rows, report) = self.derive_runs()?;
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM runs", [])?;
+        for row in &rows {
+            tx.execute(
+                "INSERT INTO runs (run_id, session_id, parent_run_id, fingerprint, \
+                 fingerprint_schema, started_at_ms, ended_at_ms, start_seq, end_seq, status) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    row.run_id,
+                    row.session_id,
+                    row.parent_run_id,
+                    row.fingerprint,
+                    row.fingerprint_schema,
+                    row.started_at_ms,
+                    row.ended_at_ms,
+                    row.start_seq,
+                    row.end_seq,
+                    row.status.as_str(),
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(report)
+    }
+
+    /// Cross-check the index against the chain. An empty vector means they agree.
+    pub fn check_run_index(&self) -> Result<Vec<String>, AuditError> {
+        let (derived, _) = self.derive_runs()?;
+        let stored = self.all_runs()?;
+        let mut findings = Vec::new();
+
+        for row in &derived {
+            match stored.iter().find(|s| s.run_id == row.run_id) {
+                None => findings.push(format!(
+                    "missing in index: {} (chain has it at seq {})",
+                    row.run_id, row.start_seq
+                )),
+                Some(s) if s != row => findings.push(format!(
+                    "index row differs from the chain: {} (index {s:?}, chain {row:?})",
+                    row.run_id
+                )),
+                Some(_) => {}
+            }
+        }
+        for row in &stored {
+            if !derived.iter().any(|d| d.run_id == row.run_id) {
+                findings.push(format!(
+                    "not in the chain: {} (index row at seq {})",
+                    row.run_id, row.start_seq
+                ));
+            }
+        }
+        Ok(findings)
     }
 }
