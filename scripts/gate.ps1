@@ -2,7 +2,8 @@
 # Local quality gate -- run before every commit:  scripts/gate.ps1
 #
 # Requires QEMU (`qemu-system-riscv64`) and `riscv64-unknown-elf-gcc` on PATH:
-# some tests boot a real guest.
+# some tests boot a real guest. The ui probes need Node >= 22.6 (`node`, type
+# stripping of the imported .ts modules; default since Node 23.6).
 #
 # Each step fails fast with a non-zero exit code.
 
@@ -40,6 +41,12 @@ npm run build
 $buildCode = $LASTEXITCODE
 Pop-Location
 if ($buildCode -ne 0) { Fail "npm run build" }
+
+Write-Host "==> ui probes (scroll / layout)"
+node ui/scripts/probe-ui-scroll.mjs
+if ($LASTEXITCODE -ne 0) { Fail "ui probe (chat scroll)" }
+node ui/scripts/probe-ui-width.mjs
+if ($LASTEXITCODE -ne 0) { Fail "ui probe (pane layout)" }
 
 Write-Host "==> bilingual doc links"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-bilingual.ps1

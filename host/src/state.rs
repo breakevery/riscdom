@@ -1745,6 +1745,13 @@ impl AppState {
     /// slot, which kept the badge on "VM 运行中" forever (v0.3.1 #3). The child
     /// process is checked too, and a dead handle is dropped so the next
     /// `start_vm` sees an empty slot.
+    ///
+    /// **Not a pure query — it performs lazy cleanup.** When the child process is
+    /// gone this call drops the handle (the slot becomes `None`) and clears the
+    /// VM start time. Call it only from callers that accept that side effect:
+    /// never while another `vm_slot` guard is held (that would deadlock), and not
+    /// from a path that needs the dead handle to survive. Use the slot directly
+    /// when a side-effect-free check is required.
     pub fn vm_is_running(&self) -> bool {
         let (had_vm, alive) = {
             let mut slot = match self.vm_slot.lock() {
@@ -1767,6 +1774,9 @@ impl AppState {
     }
 
     /// VM status for the top-bar badge (v0.3 #4c).
+    ///
+    /// Inherits the lazy cleanup of [`Self::vm_is_running`]: a stale handle is
+    /// dropped here too.
     pub fn vm_status(&self) -> VmStatusView {
         let running = self.vm_is_running();
         let since_ms = self

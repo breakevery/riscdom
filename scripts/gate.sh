@@ -2,7 +2,8 @@
 # Local quality gate -- run before every commit:  scripts/gate.sh
 #
 # Requires QEMU (`qemu-system-riscv64`) and `riscv64-unknown-elf-gcc` on PATH:
-# some tests boot a real guest.
+# some tests boot a real guest. The ui probes need Node >= 22.6 (`node`, type
+# stripping of the imported .ts modules; default since Node 23.6).
 #
 # Each step fails fast with a non-zero exit code.
 set -eu
@@ -31,6 +32,10 @@ cargo check --manifest-path ui/src-tauri/Cargo.toml || fail "cargo check ui/src-
 
 echo "==> npm run build (ui)"
 (cd ui && npm run build) || fail "npm run build"
+
+echo "==> ui probes (scroll / layout)"
+node ui/scripts/probe-ui-scroll.mjs || fail "ui probe (chat scroll)"
+node ui/scripts/probe-ui-width.mjs || fail "ui probe (pane layout)"
 
 echo "==> bilingual doc links"
 sh scripts/check-bilingual.sh || fail "bilingual links"

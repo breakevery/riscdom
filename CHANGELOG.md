@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-17
+
+### Fixed
+
+- **A snapshot restore now honours a manually configured QEMU path**: the restore built its own
+  `VMConfig` with `qemu_exe: None`, so it silently fell back to auto-discovery and could boot with a
+  different binary than the one configured in *Settings → Toolchain*. The agent loop and the restore
+  now inject the configured path through one helper. (Reproduction: the old function did not fail —
+  it returned `Ok(())` while ignoring the path. The regression test asserts that the restore must go
+  through the configured binary, so that assertion panics on the `Ok`.)
+- **A QEMU process that has exited is no longer reported as running**: `vm_is_running` looked at the
+  slot only, so a handle left behind by a guest shutdown (or a killed or crashed QEMU) kept the
+  top-bar badge on "VM running" forever. The child process is checked as well and a dead handle is
+  dropped.
+- **`read_serial` returns the captured output when the guest never goes quiet**: the overall wait
+  used to answer "No serial output yet" even though the buffer was full (a guest printing in a loop
+  never reaches the 150 ms quiet window). Only a genuinely empty buffer reports silence now.
+- **A finished run no longer pulls the chat back to the bottom**: the completion handler forced
+  scroll-to-bottom even when the reader had scrolled up. It now respects the scroll state and shows
+  the "jump to latest" button, matching the serial panel.
+- **The two-pane layout stays inside the window**: the chat column was clamped only against a fixed
+  240–900 px range, so a wide chat column pushed the serial column off-screen in a narrow window. The
+  drag bound is derived from the measured container and the serial column has an adaptive minimum.
+
 ## [0.3.0] - 2026-09-16
 
 ### Added
@@ -235,7 +259,8 @@ locally only. (An earlier draft was deleted; the `v0.1.0` tag remains.)
 - Real DeepSeek API end-to-end: **executed and passing** (2026-09-14, `iterations = 6`,
   serial captured `HELLO RISCV`; see `host/README.md`).
 
-[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/breakevery/riscdom/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/breakevery/riscdom/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/breakevery/riscdom/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/breakevery/riscdom/compare/v0.2.0...v0.2.1

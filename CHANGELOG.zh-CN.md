@@ -9,6 +9,23 @@
 
 ## [未发布]
 
+## [0.3.1] - 2026-09-17
+
+### 修复
+
+- **快照恢复会写入手动指定的 QEMU 路径**：恢复路径自建 `VMConfig` 且写死 `qemu_exe: None`，于是静默
+  回落到自动探测，可能用与「设置 → 工具链」中配置的不同的二进制引导。现在 agent 循环与恢复共用同一
+  注入逻辑。（复现说明：未修时函数**不报错**而是返回 `Ok(())` 并忽略该路径；回归测试断言“恢复必须
+  走所配置的二进制”，因此拿到 `Ok` 时该断言失败 panic。）
+- **QEMU 进程已退出时不再报 running**：`vm_is_running` 只看槽位，guest 关机（或 QEMU 被杀/崩溃）后
+  残留的句柄会让顶栏徽标永远停在“VM 运行中”。现在同时检查子进程，并丢弃死句柄。
+- **guest 持续输出时 `read_serial` 返回已捕获数据**：整体等待到期时此前会答“无串口输出”，即使缓冲区
+  已满（循环打印的 guest 永远等不到 150ms 静默期）。现在只有缓冲区真的为空才报空。
+- **任务结束后不再把聊天拉回底部**：完成处理此前强制滚到底，即使用户已上翻。现在尊重滚动状态并显示
+  “回到最新”，与串口侧一致。
+- **双栏布局不再溢出窗口**：聊天列此前只按固定 240–900px 夹紧，窄窗下会把串口列挤出屏幕。现在拖动
+  上限由实测容器宽度推导，串口列最小宽度自适应。
+
 ## [0.3.0] - 2026-09-16
 
 ### 新增
@@ -205,7 +222,8 @@
   `agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
 - 真实 DeepSeek API 端到端：**已执行通过**（2026-09-14，`iterations = 6`，串口捕获 `HELLO RISCV`；结果见 `host/README.md`）。
 
-[未发布]: https://github.com/breakevery/riscdom/compare/v0.3.0...HEAD
+[未发布]: https://github.com/breakevery/riscdom/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/breakevery/riscdom/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/breakevery/riscdom/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/breakevery/riscdom/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/breakevery/riscdom/compare/v0.2.0...v0.2.1
