@@ -1,11 +1,11 @@
 [中文](qemu-stdio.zh-CN.md) | English
 
-# QEMU stdio and the relay-port lease (v0.4 #1)
+# Removing the QEMU port dependency, and the relay-port lease (v0.4 #1)
 
-> **Status: proposal.** This batch writes no code. It answers what "QEMU stdio (option 3)"
-> should mean for this codebase, what a unified port lease would be, and how the two relate to
-> the TCP transport that ships today. §2 flags one thing that needs a decision before any
-> implementation: the label "option 3" is not documented in this repository.
+> **Status: proposal.** This batch writes no code. It answers what "removing the QEMU port
+> dependency" should mean for this codebase, what a unified port lease would be, and how the two
+> relate to the TCP transport that ships today. The earlier label "option 3" was dropped: no list of
+> options is recorded anywhere in this repository, so it named nothing a reader could look up.
 
 ## 1. What we do today
 
@@ -33,12 +33,12 @@ Facts, as the code stands:
 - **Serial by file** is already a supported endpoint variant (`SerialEndpoint::file`), though the
   serial *reader* currently attaches only for the TCP variant.
 
-## 2. What "option 3" means — needs confirmation
+## 2. What "removing the port dependency" means
 
-The label appears once, in `PROJECT_CONSTITUTION.md` §10 (v0.4 item 1): *"QEMU stdio (option 3) and
-a unified relay-port lease: remove the TCP port dependency for QMP/serial altogether and hand out
-relay ports through a single lease."* There is **no enumeration of options 1/2/3** anywhere in this
-repository — no doc, no changelog entry, no comment.
+The v0.4 roadmap item (`PROJECT_CONSTITUTION.md` §10) reads: *"Removing the QEMU TCP port dependency,
+and a unified relay-port lease."* The earlier wording called this "QEMU stdio (option 3)" — a label
+with **no enumeration of options 1/2/3** anywhere in this repository (no doc, no changelog entry, no
+comment), so it was replaced by a name that says what the change is.
 
 The reading this proposal uses (to be confirmed or corrected before implementation):
 
@@ -98,15 +98,18 @@ from the equation entirely.
 
 ## 6. Phasing
 
-**v0.4 (proposal):**
+**v0.4 (authorised for this batch): the lease only.** No protocol change, nothing about stdio.
 
-1. The lease: one allocator in `sandbox` (or `host`, if the host should own the policy) that tracks
-   held ports; `start_vm` and snapshot resume take ports from it. Small, testable, no protocol change.
-2. QMP over stdio behind a config switch, with the serial on the file variant, plus a reader for it.
-3. Tests: the existing port-race pressure test keeps passing; a new test starts a guest with stdio
-   QMP and reads the serial from the file.
+1. One allocator in `sandbox::relay` that tracks held ports; `start_vm`, the snapshot resume and the
+   host's own port choices take ports from it. Small, testable, no protocol change.
+2. The existing three-attempt retries stay, unchanged, as the fallback.
+3. Tests: concurrent requests never return the same port, a released port is reusable, exhaustion
+   reports a clear error, and the existing port-race / retry tests keep passing.
 
-**Later:** make stdio the default, drop the QMP TCP path, and (only then) retire the retries.
+**v0.5: take QMP and the serial off TCP.** QMP over stdio behind a config switch, the serial on the
+file variant with a reader for it, then a test that boots a guest that way, then — later still —
+make stdio the default and retire the retries. The `sandbox` authorisation granted for v0.4 covers
+the **port lease**; the stdio / file rework is explicitly **not** part of it and is deferred to v0.5.
 
 ## 7. Crates this touches
 

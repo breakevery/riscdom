@@ -227,9 +227,10 @@ m. **[DONE]** Bilingual (English/Chinese) docs before going public
 
 ### v0.4 roadmap
 
-1. **QEMU stdio (option 3) and a unified relay-port lease**: remove the TCP port dependency for
-   QMP/serial altogether and hand out relay ports through a single lease (proposal:
-   [docs/qemu-stdio.md](docs/qemu-stdio.md)).
+1. **Removing the QEMU TCP port dependency, and a unified relay-port lease**: relay ports come out
+   of a single lease, and QMP (and the serial) stop needing a TCP port at all (proposal:
+   [docs/qemu-stdio.md](docs/qemu-stdio.md)). The label "option 3" was dropped: no list of options is
+   recorded anywhere in this repository, so it named nothing a reader could look up.
 2. **[DONE] Stage 5c-3: end-to-end failure-path diagnostics**: a failed run prints a report
    naming the first failing step, that step's own output, the serial state and the chain
    verdict (`host/tests/diagnosis/`; how to read it: [docs/e2e-debugging.md](docs/e2e-debugging.md)).
@@ -243,4 +244,14 @@ m. **[DONE]** Bilingual (English/Chinese) docs before going public
 8. **Incremental snapshots and encryption**.
 9. **Session encryption, export and search**.
 10. **Multi-AI society and a `Governance` trait** (the constitution's experiment variable).
-11. **Theme switching, and bilingual code comments**.
+11. **[DONE] Theme switching**: light / dark / follow-system, cycled in the Appearance tab and applied
+    by `ui/src/lib/theme.ts` — the single writer of `data-theme` — with `ui/scripts/probe-ui-theme.mjs`
+    pinning its rules. **Bilingual *code comments* are dropped**: they duplicate the code and rot with
+    it, while this repository already keeps its documentation in two languages. A bilingual *interface*
+    is what a user actually reads, so it is listed below instead.
+
+### v0.5 candidates
+
+1. **A bilingual interface**: the UI strings are hard-coded per component (Chinese in the app, English
+   in the panels' docs) and there is no language switch. Making the interface translatable is a feature
+   of its own, so it does not belong on the v0.4 roadmap.

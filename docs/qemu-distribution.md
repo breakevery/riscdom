@@ -2,9 +2,9 @@
 
 # Getting QEMU to the user: bundle or download (v0.4 #4)
 
-> **Status: proposal.** No code in this batch. §4 lists licence facts and the obligations the
-> licence text attaches to a distributor; **it is not a legal opinion and reaches no conclusion about
-> whether any option is compliant.** That call is the project owner's (or a lawyer's).
+> **Status: decision recorded in §5; no code in this batch.** §4 lists licence facts and the
+> obligations the licence text attaches to a distributor; **it is not a legal opinion.** What §5
+> decides is the *distribution model*, not the licence question.
 
 ## 1. Where users stand today
 
@@ -70,29 +70,36 @@ Facts, each of which should be verified against the exact build before acting:
   third-party notice file** and no mention of QEMU's (or the downloaded GCC's) licence anywhere in
   the repository — a gap worth closing whichever option is chosen.
 
-## 5. Recommendation
+## 5. Decision
 
-**Download on demand; do not bundle.** The engineering reasons, in order of weight:
+**Download on demand. Do not bundle QEMU, and do not host our own mirror either: fetch the archive
+from the upstream official release.**
+
+The reasons, in order of weight:
 
 1. The machinery already exists and is proven here (§2) — bundling means new packaging work on every
    platform for a payload that is not ours.
 2. The installer stays small, and the first-run experience stays honest: the app already tells the
    user exactly what is missing and offers a manual path, which the preflight then verifies.
 3. Bundling makes us the distributor of a GPL-2.0 binary, which is a set of obligations we would have
-   to take on deliberately; downloading keeps our shipped artifact ours.
+   to take on deliberately (§4); downloading keeps our shipped artifact ours.
 4. QEMU versions move faster than our release cadence; a download path lets us follow the pinned
    version by changing one constant.
+5. **No mirror of our own.** Serving the archive ourselves would make us a distributor and a
+   publisher of a binary we do not build. Taking it from the official upstream release keeps one
+   party between upstream and the user, and the guarantee we already rely on for GCC — a pinned URL
+   plus a pinned SHA-256 — is what makes the fetch trustworthy. If upstream withdraws an asset the
+   download fails loudly (§3, last row), and the manual install path is unaffected.
 
-If bundling is chosen anyway, §4's obligation list becomes a work item, not a footnote: licence text
-and notices in the installer, a corresponding-source mechanism for the exact build, and a decision
-about how that interacts with our Apache-2.0 terms — reviewed by someone qualified to make that call.
+Bundling, and mirroring, are not planned. Revisit bundling only if a distribution channel makes a
+network fetch impossible (e.g. a store that forbids it), and only with a licence review.
 
 ## 6. Phasing
 
 1. **Now (done):** discovery + manual path + the environment preflight. A user with QEMU installed is
    fully served.
-2. **Next (proposed for v0.4/v0.5):** a pinned QEMU *download* spec mirroring the GCC one — version,
-   per-platform URL + SHA-256, Zip-Slip guard, cancel, progress, install into the app data directory,
-   then adopt it like a manual path (and let the preflight confirm it).
-3. **Not planned:** bundling QEMU into the installer. Revisit only if a distribution channel makes a
-   download impossible (e.g. a store that forbids network fetches), and only with a licence review.
+2. **Next (v0.4 #4, implemented in this batch):** a pinned QEMU *download* spec mirroring the GCC one —
+   version, per-platform URL + SHA-256, Zip-Slip guard, cancel, progress, install into the app data
+   directory, then adopt it like a manual path (and let the preflight confirm it). The third-party
+   licence notices ship with it.
+3. **Not planned:** bundling QEMU into the installer, and mirroring the archives ourselves.
