@@ -18,8 +18,11 @@ fail() {
 echo "==> cargo fmt --all -- --check"
 cargo fmt --all -- --check || fail "cargo fmt"
 
-echo "==> cargo clippy (portable crates)"
-cargo clippy -p audit -p sandbox -p agent --all-targets -- -D warnings || fail "cargo clippy"
+echo "==> cargo clippy (audit / sandbox / agent / host)"
+cargo clippy -p audit -p sandbox -p agent -p host --all-targets -- -D warnings || fail "cargo clippy"
+
+echo "==> cargo clippy (ui/src-tauri)"
+cargo clippy --manifest-path ui/src-tauri/Cargo.toml --all-targets -- -D warnings || fail "cargo clippy ui/src-tauri"
 
 echo "==> cargo check (portable crates)"
 cargo check -p audit -p sandbox -p agent || fail "cargo check"

@@ -58,13 +58,25 @@ pub fn build_guest_elf() -> PathBuf {
 }
 
 /// Compile a named fixture (e.g. `hello.c`, `hello_split.c`) into an ELF.
+///
+/// Every call gets its **own** output path. Two parallel tests in one binary
+/// used to compile the same fixture into the same file, so a reader could open it
+/// while `gcc` was rewriting it — the gate caught that as
+/// `kernel not found: …\target\tmp\guest\hello_split.elf` (v0.4 1f).
 pub fn build_guest(fixture: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static SEQ: AtomicUsize = AtomicUsize::new(0);
+
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let fixtures = manifest.join("tests").join("fixtures");
     let out_dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("guest");
     std::fs::create_dir_all(&out_dir).expect("create guest dir");
     let stem = fixture.trim_end_matches(".c");
-    let elf = out_dir.join(format!("{stem}.elf"));
+    let elf = out_dir.join(format!(
+        "{stem}-{}-{}.elf",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
 
     let status = Command::new(riscv_gcc())
         .args([

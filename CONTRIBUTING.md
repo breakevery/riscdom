@@ -29,8 +29,9 @@ scripts\gate.ps1      # Windows
 sh scripts/gate.sh    # Unix
 ```
 
-The gate runs, in order: `cargo fmt --all -- --check` → `cargo clippy -D warnings` →
-`cargo check` → `cargo test` → `cargo check` for `ui/src-tauri` → `npm run build` →
+The gate runs, in order: `cargo fmt --all -- --check` → `cargo clippy -D warnings` (the workspace
+crates `audit` / `sandbox` / `agent` / `host`, and `ui/src-tauri`) → `cargo check` → `cargo test` →
+`cargo check` for `ui/src-tauri` → `npm run build` →
 the ui regression probes (`node ui/scripts/probe-ui-scroll.mjs` /
 `node ui/scripts/probe-ui-width.mjs`) → the bilingual-link check
 (`scripts/check-bilingual.ps1` / `.sh`).

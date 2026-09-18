@@ -90,7 +90,7 @@ fn cancelling_stops_the_download_and_cleans_up() {
     let err =
         download_and_install(&spec, &dest, &cancel, &mut |_| {}).expect_err("cancel must abort");
     assert!(matches!(err, ToolchainDownloadError::Cancelled));
-    assert_eq!(cancel.load(Ordering::Relaxed), true);
+    assert!(cancel.load(Ordering::Relaxed));
     assert!(!dir
         .join("install")
         .join(".download-tmp")

@@ -19,9 +19,13 @@ Write-Host "==> cargo fmt --all -- --check"
 cargo fmt --all -- --check
 if ($LASTEXITCODE -ne 0) { Fail "cargo fmt" }
 
-Write-Host "==> cargo clippy (portable crates)"
-cargo clippy -p audit -p sandbox -p agent --all-targets -- -D warnings
+Write-Host "==> cargo clippy (audit / sandbox / agent / host)"
+cargo clippy -p audit -p sandbox -p agent -p host --all-targets -- -D warnings
 if ($LASTEXITCODE -ne 0) { Fail "cargo clippy" }
+
+Write-Host "==> cargo clippy (ui/src-tauri)"
+cargo clippy --manifest-path ui/src-tauri/Cargo.toml --all-targets -- -D warnings
+if ($LASTEXITCODE -ne 0) { Fail "cargo clippy ui/src-tauri" }
 
 Write-Host "==> cargo check (portable crates)"
 cargo check -p audit -p sandbox -p agent
