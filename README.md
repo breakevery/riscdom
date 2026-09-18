@@ -195,6 +195,8 @@ behaviour through the contact listed there.
 
 - The code in this repository is licensed under Apache-2.0.
 - When using this project, follow the terms of your model provider.
+- QEMU and the downloaded RISC-V toolchain are separate programs under their own licences; what that
+  means here is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## More
 

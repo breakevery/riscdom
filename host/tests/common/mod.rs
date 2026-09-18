@@ -166,6 +166,50 @@ pub fn toolchain_archive() -> (Vec<u8>, String) {
     ])
 }
 
+/// Where the QEMU emulator sits inside an extracted archive.
+///
+/// The name comes from the sandbox (it owns QEMU discovery), so a fixture archive
+/// cannot drift away from what [`host::qemu_download`] looks for.
+pub fn qemu_entry() -> String {
+    format!("qemu/bin/{}", sandbox::qemu_discover::exe_name())
+}
+
+/// The archive kind the QEMU downloader expects on this platform.
+///
+/// Separate from [`platform_archive_kind`] because the QEMU downloader is a
+/// self-contained parallel of the toolchain one, with its own types (v0.4 #4).
+pub fn qemu_archive_kind() -> host::qemu_download::ArchiveKind {
+    if cfg!(target_os = "windows") {
+        host::qemu_download::ArchiveKind::Zip
+    } else {
+        host::qemu_download::ArchiveKind::TarGz
+    }
+}
+
+/// A download spec pointing at `server` with the given checksum (QEMU, v0.4 #4).
+pub fn qemu_spec_for(
+    server: &MockServer,
+    sha256: String,
+    name: &str,
+) -> host::qemu_download::QemuDownloadSpec {
+    host::qemu_download::QemuDownloadSpec {
+        version: host::qemu_download::QEMU_VERSION.to_string(),
+        url: server.url(name),
+        sha256,
+        archive_kind: qemu_archive_kind(),
+        install_subdir: format!("qemu-{}", host::qemu_download::QEMU_VERSION),
+    }
+}
+
+/// Archive bytes for a valid, installable QEMU fixture.
+pub fn qemu_archive() -> (Vec<u8>, String) {
+    let entry = qemu_entry();
+    build_archive(&[
+        (entry.as_str(), b"#!/bin/sh\n# fake qemu\n".as_slice()),
+        ("qemu/README.txt", b"qemu fixture\n".as_slice()),
+    ])
+}
+
 /// Bytes of a small, definitely-runnable executable.
 ///
 /// Used as a fake `riscv-none-elf-gcc` so that the `--version` validation in

@@ -16,6 +16,7 @@ pub mod events;
 pub mod keyring;
 pub mod paths;
 pub mod preflight;
+pub mod qemu_download;
 pub mod session;
 pub mod settings;
 pub mod state;

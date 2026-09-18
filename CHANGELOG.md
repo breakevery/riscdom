@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A QEMU downloader, and the third-party notices** (v0.4 #4): `host/src/qemu_download.rs` is a
+  self-contained parallel of the toolchain downloader — pinned version, per-platform URL + SHA-256,
+  Zip-Slip guard, cancellation, progress, idempotent install under the app data directory. Its
+  **spec table is empty on purpose**: this repository can pin no QEMU build (upstream publishes
+  source; Windows installs come from a third-party packager) and a guessed digest is worse than no
+  download, so it refuses with an actionable error instead of inventing one — see
+  [docs/qemu-distribution.md](docs/qemu-distribution.md) §5. The licences we rely on are now written
+  down in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 - **Theme switching**: light / dark / follow the system, chosen in *Settings → 外观* and stored in
   `settings.json`. Every colour in the stylesheet is now a token, so a theme is one token block;
   the serial terminal follows the same tokens.

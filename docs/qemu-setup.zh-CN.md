@@ -2,8 +2,8 @@
 
 # QEMU 安装
 
-智芯城（RiscDom）用 **`qemu-system-riscv64`** 启动 guest。它**不捆绑、也不代下载**（与 RISC-V GCC
-不同）：由你安装，RiscDom 去找；或你在应用里手动指定。
+智芯城（RiscDom）用 **`qemu-system-riscv64`** 启动 guest。它**不捆绑、目前也没有应用内下载**
+（原因见 §3）：由你安装，RiscDom 去找；或你在应用里手动指定。
 
 ## 1. 安装 QEMU
 
@@ -48,7 +48,19 @@ brew install qemu
 set RISCDOM_QEMU=C:\Program Files\qemu\qemu-system-riscv64.exe
 ```
 
-## 3. 验证
+## 3. 应用内下载：机器已就位，但还没有可钉的版本
+
+RiscDom 已经有一套 QEMU 下载器（`host/src/qemu_download.rs`，v0.4 #4），套路与 RISC-V 工具链那套一致：
+钉住版本、按平台给 URL 与 **SHA-256**、防 Zip Slip 解压、可取消、有进度，重复执行幂等，装进应用数据
+目录并把可执行文件返回给调用方采纳。
+
+**它在所有平台上都拒绝执行，这是故意的。** 一份下载规格带着一个 URL 与一个摘要；一个没人发现的错误
+摘要比“干脆不下载”更糟，而这个模块没有“跳过校验”开关。本仓库没有任何**可以拉取并钉住的 QEMU 构建**：
+上游 release 发布的是源码，Windows 安装包来自第三方打包者，而钉住那家打包者是一个分发决策 ——
+见 [qemu-distribution.md](qemu-distribution.md) §5。在出现可诚实钉住的构建之前，入口仍是上面第 1 步；
+两条路最终都由预检验证“装完能不能跑”。
+
+## 4. 验证
 
 ```text
 qemu-system-riscv64 --version

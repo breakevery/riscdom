@@ -2,8 +2,8 @@
 
 # QEMU setup
 
-RiscDom boots the guest with **`qemu-system-riscv64`**. It is not bundled and it is not downloaded
-for you (unlike the RISC-V GCC): install it, and RiscDom finds it — or you point the app at it.
+RiscDom boots the guest with **`qemu-system-riscv64`**. It is not bundled, and there is no in-app
+download yet (§3 explains why): install it, and RiscDom finds it — or you point the app at it.
 
 ## 1. Install QEMU
 
@@ -50,7 +50,22 @@ directory) and survives restarts.
 set RISCDOM_QEMU=C:\Program Files\qemu\qemu-system-riscv64.exe
 ```
 
-## 3. Verify
+## 3. In-app download: machinery in place, nothing to pin yet
+
+RiscDom has a QEMU downloader (`host/src/qemu_download.rs`, v0.4 #4) built on the same pattern as
+the RISC-V toolchain one: a pinned version, a per-platform URL and **SHA-256**, Zip-Slip-guarded
+extraction, cancellation, progress, and an idempotent re-run that installs under the app data
+directory and returns the executable to adopt.
+
+**It refuses to run, on every platform, and that is deliberate.** A download spec carries a URL and
+a digest; a guessed digest that nobody notices is worse than no download at all, and the module has
+no "skip verification" switch. This repository records no QEMU build it may fetch and pin: the
+upstream release publishes source, Windows installs come from a third-party packager, and pinning
+that packager is a distribution decision — see [qemu-distribution.md](qemu-distribution.md) §5.
+Until a build can be pinned honestly, step 1 above is the way in, and the preflight verifies the
+result either way.
+
+## 4. Verify
 
 ```text
 qemu-system-riscv64 --version

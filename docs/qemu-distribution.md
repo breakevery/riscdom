@@ -66,9 +66,9 @@ Facts, each of which should be verified against the exact build before acting:
   upstream to the user's machine. Whether that is "distribution" by us, and therefore whether any of
   the obligations above attach, is a legal classification, not a technical one.
 - **Our own position today**: the repository is Apache-2.0 (`LICENSE`), the app links no QEMU code,
-  and QEMU runs as a separate process we start and talk to over stdio/TCP. There is currently **no
-  third-party notice file** and no mention of QEMU's (or the downloaded GCC's) licence anywhere in
-  the repository — a gap worth closing whichever option is chosen.
+  and QEMU runs as a separate process we start and talk to over stdio/TCP. Those facts are now written
+  down where a user can find them: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) states the
+  licences of QEMU and of the downloaded RISC-V GCC, and how we do — and do not — use them.
 
 ## 5. Decision
 
@@ -94,12 +94,28 @@ The reasons, in order of weight:
 Bundling, and mirroring, are not planned. Revisit bundling only if a distribution channel makes a
 network fetch impossible (e.g. a store that forbids it), and only with a licence review.
 
+### What upstream actually publishes (found while implementing v0.4 #4)
+
+The decision above says "fetch it from the upstream official release". Implementing that ran into
+what this repository can and cannot see: it records **no QEMU asset it may pin**. The release server
+publishes source; the official download page this repository already sends Windows users to
+(`https://www.qemu.org/download/#windows`) offers Microsoft's `winget` package and third-party
+installers, not a binary to fetch. A download spec is a URL **plus a SHA-256**, and neither may be
+invented — so the QEMU downloader ships complete and refuses to run, and no digest is written down
+(see `docs/qemu-setup.md` §3).
+
+That leaves one question for the project owner, not for this document: is a third-party packager an
+acceptable source? If yes, §5 changes and the spec table gets an entry; if no, the manual install
+stays until upstream publishes a Windows binary.
+
 ## 6. Phasing
 
 1. **Now (done):** discovery + manual path + the environment preflight. A user with QEMU installed is
    fully served.
-2. **Next (v0.4 #4, implemented in this batch):** a pinned QEMU *download* spec mirroring the GCC one —
-   version, per-platform URL + SHA-256, Zip-Slip guard, cancel, progress, install into the app data
-   directory, then adopt it like a manual path (and let the preflight confirm it). The third-party
-   licence notices ship with it.
+2. **Next (v0.4 #4, partly done):** a pinned QEMU download spec mirroring the GCC one — version,
+   per-platform URL + SHA-256, Zip-Slip guard, cancel, progress, install into the app data directory,
+   then adopt it like a manual path (and let the preflight confirm it). The **machinery is in
+   (`host/src/qemu_download.rs`) and tested against a local server**; the **spec table stays empty**
+   because no build can be pinned yet (§5). The licence facts ship as
+   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 3. **Not planned:** bundling QEMU into the installer, and mirroring the archives ourselves.

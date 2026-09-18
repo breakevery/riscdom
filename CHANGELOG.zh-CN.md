@@ -11,6 +11,12 @@
 
 ### 新增
 
+- **QEMU 下载器，与第三方声明**（v0.4 #4）：`host/src/qemu_download.rs` 是工具链下载器的一份自包含平行
+  实现 —— 钉住版本、按平台 URL + SHA-256、防 Zip Slip、可取消、有进度、装进应用数据目录且幂等。它的
+  **规格表故意为空**：本仓库没有可钉的 QEMU 构建（上游发源码，Windows 安装包来自第三方打包者），而编造一个
+  摘要比不下载更糟，所以它报一个可执行的错误而不是瞎编 —— 见
+  [docs/qemu-distribution.md](docs/qemu-distribution.md) §5。我们依赖的许可证现在写在
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 - **主题切换**：浅色 / 深色 / 跟随系统，在「设置 → 外观」选择并存入 `settings.json`。样式表里所有颜色
   都是令牌，主题即一组令牌；串口终端也跟随同一套令牌。
 - **`scripts/clean-temp.ps1` / `scripts/clean-temp.sh`**：清理 RiscDom 在系统临时目录下的条目。默认

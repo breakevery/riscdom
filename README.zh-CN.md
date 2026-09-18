@@ -184,6 +184,8 @@ gate（`scripts/gate.ps1` / `scripts/gate.sh`），并经由受门禁保护的�
 
 - 本仓库代码采用 Apache-2.0 许可证。
 - 使用本项目时请遵守你所用模型服务商的条款。
+- QEMU 与下载来的 RISC-V 工具链是按各自许可证发布的独立程序；这对本项目意味着什么写在
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## 更多
 
