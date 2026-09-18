@@ -228,13 +228,15 @@ m. **[DONE]** Bilingual (English/Chinese) docs before going public
 ### v0.4 roadmap
 
 1. **QEMU stdio (option 3) and a unified relay-port lease**: remove the TCP port dependency for
-   QMP/serial altogether and hand out relay ports through a single lease.
+   QMP/serial altogether and hand out relay ports through a single lease (proposal:
+   [docs/qemu-stdio.md](docs/qemu-stdio.md)).
 2. **[DONE] Stage 5c-3: end-to-end failure-path diagnostics**: a failed run prints a report
    naming the first failing step, that step's own output, the serial state and the chain
    verdict (`host/tests/diagnosis/`; how to read it: [docs/e2e-debugging.md](docs/e2e-debugging.md)).
 3. **`tauri-plugin-dialog`**: a native file picker for toolchain / QEMU paths, replacing the
    `window.prompt` text input.
-4. **QEMU one-click download or bundling** (with a GPL compliance review).
+4. **QEMU one-click download or bundling** (with a GPL compliance review; proposal:
+   [docs/qemu-distribution.md](docs/qemu-distribution.md)).
 5. **Environment capability preflight**: compile a minimal guest and boot it on the real toolchain / QEMU paths, then report which step failed (warn-only, cached per configuration, with a recorded "continue anyway"). Version rules were dropped on purpose: this repository records no QEMU × GCC compatibility matrix, and inventing one would be guesswork (batch 3).
 6. **macOS / Linux support and a multi-OS CI matrix**.
 7. **Multi-VM parallelism**: more than one host-owned guest at a time.
