@@ -1,8 +1,10 @@
 import type { AppStore } from "../state/appStore";
+import { runsEmptyText, toRunRows } from "../lib/runView";
 
 /** Audit status: event count, hash-chain state, filtering and the recent list. */
 export default function AuditTab({ store }: { store: AppStore }) {
   const chain = store.auditStatus?.chain;
+  const runRows = toRunRows(store.runs, Date.now());
 
   return (
     <>
@@ -41,6 +43,30 @@ export default function AuditTab({ store }: { store: AppStore }) {
           </li>
         ))}
       </ul>
+
+      {/* Runs (v0.4 1d): read-only window onto the derived index. */}
+      <div className="status-line">
+        <span className="small">最近运行（run）</span>
+        <button className="ghost tiny" onClick={() => void store.refreshRuns()}>
+          刷新
+        </button>
+      </div>
+      {runRows.length === 0 ? (
+        <div className="muted small">{runsEmptyText()}</div>
+      ) : (
+        <ul className="audit-list">
+          {runRows.map((r) => (
+            <li key={r.runId} title={r.runId}>
+              <span className={`badge ${r.status === "ok" ? "ok" : ""}`}>
+                {r.statusLabel}
+              </span>
+              <span className="action">{r.fingerprint}</span>
+              <span className="muted small">{r.whenLabel}</span>
+              {r.parentLabel ? <span className="muted small">{r.parentLabel}</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
     </>
   );
 }

@@ -64,6 +64,26 @@ export const listAuditEvents = (
     actionPrefix: actionPrefix ?? null,
   });
 
+/** One run from the host's derived index (read-only, v0.4 1d). */
+export interface RunView {
+  run_id: string;
+  status: string;
+  /** Full configuration digest (64 hex characters). */
+  fingerprint: string;
+  /** First 16 hex characters, for display. */
+  fingerprint_short: string;
+  parent_run_id: string | null;
+  session_id: string | null;
+  started_at_ms: number;
+  ended_at_ms: number | null;
+}
+
+export const listRuns = (limit = 20) =>
+  invoke<RunView[]>("list_runs", { limit });
+
+export const getRun = (runId: string) =>
+  invoke<RunView | null>("get_run", { runId });
+
 export const setLlmConfig = (
   apiKey: string,
   baseUrl: string,

@@ -32,7 +32,8 @@ sh scripts/gate.sh    # Unix
 gate 依次执行：`cargo fmt --all -- --check` → `cargo clippy -D warnings`（workspace 的 `audit` /
 `sandbox` / `agent` / `host`，以及 `ui/src-tauri`）→ `cargo check` →
 `cargo test` → `ui/src-tauri` 的 `cargo check` → `npm run build` → UI 回归探针
-（`node ui/scripts/probe-ui-scroll.mjs` / `node ui/scripts/probe-ui-width.mjs`）→
+（`node ui/scripts/probe-ui-scroll.mjs` / `node ui/scripts/probe-ui-width.mjs` /
+`node ui/scripts/probe-ui-runs.mjs`）→
 镜像常量守卫（`node scripts/check-mirrored-constants.mjs`）→
 双语文档链接检查（`scripts/check-bilingual.ps1` / `.sh`）。
 

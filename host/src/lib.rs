@@ -26,7 +26,7 @@ pub use keyring::{KeyringBackend, OsKeyring, SERVICE};
 pub use session::{SessionMessage, SessionMeta, SessionStore};
 pub use state::{
     AgentOutcomeView, AppState, AuditStatusView, ChainStatusView, LlmConfigInput, LlmConfigStatus,
-    LlmReadiness, LocalProbeResult, LocalProviderInfo, ProviderPresetView, QemuView,
+    LlmReadiness, LocalProbeResult, LocalProviderInfo, ProviderPresetView, QemuView, RunView,
     SessionDetailView, SnapshotMetaView, StoredEventView, ToolchainDownloadStatus, ToolchainView,
     VmStatusView,
 };

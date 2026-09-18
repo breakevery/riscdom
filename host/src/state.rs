@@ -435,6 +435,40 @@ pub struct SnapshotMetaView {
     pub mode: String,
 }
 
+/// One run from the derived index, shaped for the frontend (v0.4 1d).
+///
+/// Read-only: the run's history lives in the audit chain, and this is what the
+/// chain says about it.
+#[derive(Debug, Clone, Serialize)]
+pub struct RunView {
+    pub run_id: String,
+    /// `open` / `ok` / `failed` / `interrupted` / `abandoned`.
+    pub status: String,
+    /// The full configuration digest (64 hex characters).
+    pub fingerprint: String,
+    /// The first 16 hex characters, for display.
+    pub fingerprint_short: String,
+    pub parent_run_id: Option<String>,
+    pub session_id: Option<String>,
+    pub started_at_ms: i64,
+    pub ended_at_ms: Option<i64>,
+}
+
+impl From<&audit::RunRecord> for RunView {
+    fn from(record: &audit::RunRecord) -> Self {
+        Self {
+            run_id: record.run_id.clone(),
+            status: record.status.as_str().to_string(),
+            fingerprint: record.fingerprint.clone(),
+            fingerprint_short: audit::short_fingerprint(&record.fingerprint).to_string(),
+            parent_run_id: record.parent_run_id.clone(),
+            session_id: record.session_id.clone(),
+            started_at_ms: record.started_at_ms,
+            ended_at_ms: record.ended_at_ms,
+        }
+    }
+}
+
 /// A session plus its messages, for `open_session`.
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionDetailView {
@@ -1718,6 +1752,32 @@ impl AppState {
             count: store.count()?,
             chain: ChainStatusView::from(audit::verify_chain(&store)?),
         })
+    }
+
+    // ----- Runs (v0.4 1d) ---------------------------------------------------
+
+    /// Recent runs from the derived index, oldest first. Read-only.
+    pub fn list_runs(&self, limit: usize) -> Result<Vec<RunView>, HostError> {
+        let store = self
+            .audit
+            .lock()
+            .map_err(|_| HostError::Other("audit store lock poisoned".into()))?;
+        let runs = store
+            .list_runs(limit)
+            .map_err(|e| HostError::Other(e.to_string()))?;
+        Ok(runs.iter().map(RunView::from).collect())
+    }
+
+    /// One run by id, or `None` when this log has never seen it.
+    pub fn get_run(&self, run_id: &str) -> Result<Option<RunView>, HostError> {
+        let store = self
+            .audit
+            .lock()
+            .map_err(|_| HostError::Other("audit store lock poisoned".into()))?;
+        let run = store
+            .get_run(run_id)
+            .map_err(|e| HostError::Other(e.to_string()))?;
+        Ok(run.as_ref().map(RunView::from))
     }
 
     /// Recent events, newest last, filtered.

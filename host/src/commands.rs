@@ -8,7 +8,7 @@ use crate::events::TOOLCHAIN_DOWNLOAD;
 use crate::state::QemuView;
 use crate::state::{
     AgentOutcomeView, AppState, AuditStatusView, LlmConfigStatus, LlmReadiness, LocalProbeResult,
-    ProviderPresetView, SessionDetailView, SnapshotMetaView, StoredEventView,
+    ProviderPresetView, RunView, SessionDetailView, SnapshotMetaView, StoredEventView,
     ToolchainDownloadStatus, ToolchainView, VmStatusView,
 };
 use crate::SessionMeta;
@@ -227,6 +227,26 @@ pub async fn list_audit_events(
     state
         .list_events(limit, actor, action_prefix)
         .map_err(|e| e.user_message())
+}
+
+/// Recent runs from the derived index (read-only, v0.4 1d).
+#[tauri::command]
+pub async fn list_runs(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<RunView>, String> {
+    state
+        .list_runs(limit.unwrap_or(20))
+        .map_err(|e| e.user_message())
+}
+
+/// One run by id, or `null` when this log has never seen it.
+#[tauri::command]
+pub async fn get_run(
+    state: State<'_, AppState>,
+    run_id: String,
+) -> Result<Option<RunView>, String> {
+    state.get_run(&run_id).map_err(|e| e.user_message())
 }
 
 /// Probe localhost for local OpenAI-compatible LLM servers.

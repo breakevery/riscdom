@@ -30,6 +30,8 @@ export interface AppStore {
   auditActorFilter: string;
   setAuditActorFilter: (v: string) => void;
   refreshAudit: () => Promise<void>;
+  runs: api.RunView[];
+  refreshRuns: () => Promise<void>;
   workspaceFiles: string[];
   refreshWorkspace: () => Promise<void>;
   // serial / vm (consumed by the canvas in stage 6c)
@@ -140,6 +142,7 @@ export function useAppStore(): AppStore {
   const [auditStatus, setAuditStatus] = useState<api.AuditStatus | null>(null);
   const [auditEvents, setAuditEvents] = useState<api.AuditEvent[]>([]);
   const [auditActorFilter, setAuditActorFilter] = useState("");
+  const [runs, setRuns] = useState<api.RunView[]>([]);
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
   const [serial, setSerial] = useState("");
   const [vmState, setVmState] = useState("idle");
@@ -194,6 +197,16 @@ export function useAppStore(): AppStore {
       setLastError(String(e));
     }
   }, [auditActorFilter]);
+
+  // Runs come from the host's derived index (v0.4 1d). Nothing here mutates a
+  // run: the panel is a window onto what the chain already says.
+  const refreshRuns = useCallback(async () => {
+    try {
+      setRuns(await api.listRuns(20));
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
 
   // ---- sessions (declared before the event subscription that uses them) ----
 
@@ -488,6 +501,7 @@ export function useAppStore(): AppStore {
         setStreamingActive(false);
         setBusy(false);
         void refreshAudit();
+        void refreshRuns();
         void refreshWorkspace();
         void refreshSessions();
         // The VM (if the run started one) now lives in the host slot.
@@ -533,13 +547,14 @@ export function useAppStore(): AppStore {
       }),
     );
     return () => offs.forEach((f) => f());
-  }, [push, refreshAudit, refreshWorkspace]);
+  }, [push, refreshAudit, refreshRuns, refreshWorkspace]);
 
   useEffect(() => {
     void refreshLlmStatus();
     void refreshAudit();
+    void refreshRuns();
     void refreshWorkspace();
-  }, [refreshLlmStatus, refreshAudit, refreshWorkspace]);
+  }, [refreshLlmStatus, refreshAudit, refreshRuns, refreshWorkspace]);
 
   const send = useCallback(
     async (input: string) => {
@@ -572,6 +587,8 @@ export function useAppStore(): AppStore {
     auditActorFilter,
     setAuditActorFilter,
     refreshAudit,
+    runs,
+    refreshRuns,
     workspaceFiles,
     refreshWorkspace,
     serial,
