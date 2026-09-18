@@ -4,11 +4,12 @@
 //! matching directory, so two of them in parallel would delete each other's
 //! fixtures (and the backdating below would then fail on a missing path).
 
-use agent::tempdirs::{
-    sweep_stale_temp_dirs, sweep_stale_temp_dirs_with_age, DATA_DIR_NAME, TEMP_DIR_MAX_AGE,
-    TEMP_PREFIX,
-};
-use std::path::{Path, PathBuf};
+#[cfg(target_os = "windows")]
+use agent::tempdirs::sweep_stale_temp_dirs_with_age;
+use agent::tempdirs::{sweep_stale_temp_dirs, DATA_DIR_NAME, TEMP_DIR_MAX_AGE, TEMP_PREFIX};
+#[cfg(target_os = "windows")]
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 

@@ -29,15 +29,19 @@ scripts\gate.ps1      # Windows
 sh scripts/gate.sh    # Unix
 ```
 
-The gate runs, in order: `cargo fmt --all -- --check` → `cargo clippy -D warnings` (the workspace
-crates `audit` / `sandbox` / `agent` / `host`, and `ui/src-tauri`) → `cargo check` → `cargo test` →
-`cargo check` for `ui/src-tauri` → `npm run build` →
-the ui regression probes (`node ui/scripts/probe-ui-scroll.mjs` /
-`node ui/scripts/probe-ui-width.mjs` / `node ui/scripts/probe-ui-runs.mjs` /
-`node ui/scripts/probe-ui-dialog.mjs` / `node ui/scripts/probe-ui-preflight.mjs` /
-`node ui/scripts/probe-ui-theme.mjs`) → the mirror guard
+The gate is the **single list of what "green" means**: CI runs the same file
+(`sh scripts/gate.sh` in `.github/workflows/ci.yml`), so a check cannot drift between CI and a
+developer machine. In order: `cargo fmt --all -- --check` → `cargo clippy -D warnings` (the
+workspace crates `audit` / `sandbox` / `agent` / `host`, and `ui/src-tauri`) → `cargo check` →
+`cargo test` → `cargo check` for `ui/src-tauri` → `npm run build` →
+the ui regression probes (`node ui/scripts/probe-ui-*.mjs`) → the mirror guard
 (`node scripts/check-mirrored-constants.mjs`) → the bilingual-link check
 (`scripts/check-bilingual.ps1` / `.sh`).
+
+Platform differences are **printed, never skipped silently**: on non-Windows the `host` /
+`ui/src-tauri` lint and check are skipped (Tauri needs webkit2gtk / gtk / librsvg there), and
+without QEMU + a RISC-V GCC the guest-booting tests are skipped in favour of the portable library
+tests.
 
 There is also a lighter preflight: `scripts/preflight.ps1` (Windows) /
 `scripts/preflight.sh` (Unix).

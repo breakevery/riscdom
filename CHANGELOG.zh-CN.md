@@ -26,6 +26,11 @@
 
 ### 修复
 
+- **CI 改为调用 gate，不再自己维护命令清单**：`.github/workflows/ci.yml` 现在只安装 Rust + Node，然后
+  调 `sh scripts/gate.sh`，于是检查项再也不会在 CI 与本机之间漂移（原先独立的前端 job 已并入）。改成这套
+  之后的第一次运行就抓到真问题：某个测试里两条 `use` 只在 Windows 需要，Linux 上被 `-D warnings` 判为
+  错误。`scripts/gate.sh` 现在也会检测平台并**打印**跳过的步骤（无系统库时的 Tauri lint/check；无 QEMU +
+  RISC-V GCC 时的起 guest 测试），而不是失败、也不是静默跳过。
 - **启动时清理过期的临时目录**：宿主启动时删除超过 24 小时的 `riscdom-*` **目录**（只删目录）。
   `<temp>/riscdom`（兜底数据目录）在白名单中、永不被删；examples 改用带 pid 的唯一名，避免清理时误删正在
   运行的实例。

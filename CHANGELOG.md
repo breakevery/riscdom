@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **CI runs the gate instead of keeping its own command list**: `.github/workflows/ci.yml` now
+  installs Rust + Node and calls `sh scripts/gate.sh`, so a check can no longer drift between CI and
+  a developer machine (the separate frontend job folded into it). The first run of that arrangement
+  found a real Linux-only defect: two `use` statements in a test were needed only on Windows and
+  failed `-D warnings` on Linux. `scripts/gate.sh` also detects its platform and prints what it
+  skips there (Tauri lint/check without the system libraries; the guest-booting tests without QEMU +
+  a RISC-V GCC) instead of failing or skipping silently.
 - **Stale temp directories are swept at startup**: every `riscdom-*` directory older than 24 h is
   removed when the host starts (directories only). `<temp>/riscdom` — the fallback data directory —
   is whitelisted and never touched, and the examples now use pid-unique names so a cleanup cannot
