@@ -628,6 +628,13 @@ impl AppState {
         // Startup hook (v0.4 1e): make runs left open by a previous process
         // legible. Best effort — it must never stop the app from starting.
         let _ = state.abandon_stale_runs();
+        // Startup hygiene (v0.4 batch 5): a build that a killed process could not
+        // clean leaves a `riscdom-build-*` directory behind; remove the ones old
+        // enough that nothing can still be using them. Only that prefix is touched.
+        let swept = agent::sweep_stale_build_dirs(agent::BUILD_DIR_MAX_AGE);
+        if swept > 0 {
+            eprintln!("startup hygiene: removed {swept} stale build director(ies)");
+        }
         state
     }
 

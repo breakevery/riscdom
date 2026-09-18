@@ -114,6 +114,9 @@ gate 非零退出时，包装脚本以 1 退出，**不会产生任何提交**�
 7. **读运行诊断。** 端到端运行每次都会打印一份
    （`cargo test -p host --test e2e_ui -- --ignored --nocapture`）：它点名第一个失败的步骤，并引用该
    步骤自己的输出。每一行的含义见 [docs/e2e-debugging.md](docs/e2e-debugging.md)。
+8. **临时目录积多了就清一次。** 每个测试都在系统临时目录里留一个工作区且从不清理；
+   `scripts/clean-temp.ps1` / `scripts/clean-temp.sh` 会清掉 RiscDom 的条目（默认 dry-run，加
+   `-Force` / `--force` 才真删），且只匹配 `riscdom-` 前缀。
 
 文档双语：英文为主文档（如 `README.md`），中文译本同目录 `*.zh-CN.md`，
 首行加语言切换：

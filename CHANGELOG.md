@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`scripts/clean-temp.ps1` / `scripts/clean-temp.sh`** remove RiscDom's directories from the
+  system temp directory. Dry run by default; `-Force` / `--force` deletes. Only entries whose
+  name starts with `riscdom-` are matched, and `<temp>/riscdom` (the fallback data directory)
+  is excluded explicitly.
 - **End-to-end failure-path diagnostics** (stage 5c-3): an end-to-end run now prints a report
   naming the first failing step, that step's own output, the serial state (including “the
   guest never printed anything”) and the audit-chain verdict. How to read it:
@@ -25,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Stale build scratch directories are swept at startup**: a build cleans up after itself, and
+  the ones a killed process could not clean (older than 24 h) are removed when the host starts.
+  Only the `riscdom-build-*` prefix is touched.
 - **Build scratch directories are removed when the build finishes**: the per-build path fixed
   the concurrency race but leaked one small directory per compile; success and failure both
   clean up now.

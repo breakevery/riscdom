@@ -126,6 +126,10 @@ Flaky tests cost real time, so diagnose the **layer** before adding any defence.
    (`cargo test -p host --test e2e_ui -- --ignored --nocapture`); it names the first failing
    step and quotes that step's own output. What each line means:
    [docs/e2e-debugging.md](docs/e2e-debugging.md).
+8. **Clean the temp directory when it piles up.** Every test keeps its workspace under the
+   system temp directory, and they are never removed. `scripts/clean-temp.ps1` /
+   `scripts/clean-temp.sh` clear RiscDom's entries (dry run by default; `-Force` / `--force`
+   deletes). Only the `riscdom-` prefix is ever matched.
 
 Docs are bilingual: the English file is the main document (for example `README.md`) and the
 Chinese translation lives alongside it as `*.zh-CN.md`, with a language switcher on the first

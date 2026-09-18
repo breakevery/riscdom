@@ -16,6 +16,7 @@
 use crate::error::AgentError;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, SystemTime};
 
 /// Where the toolchain path came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -414,6 +415,50 @@ pub fn compile_freestanding(
         let _ = std::fs::remove_dir_all(dir);
     }
     compiled
+}
+
+/// Build directories older than this are swept at startup (v0.4 batch 5).
+pub const BUILD_DIR_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// The prefix every per-build scratch directory carries.
+pub const BUILD_DIR_PREFIX: &str = "riscdom-build-";
+
+/// Remove `riscdom-build-*` directories whose last write is older than `cutoff`.
+///
+/// A build cleans up after itself; this only covers what a build *could not* clean
+/// — the compile guard's timeout path, or a host that died mid-compile. Only that
+/// one prefix is touched, so `<temp>/riscdom` (the fallback data directory) and
+/// every other `riscdom-*` entry are safe by construction. Returns how many
+/// directories went away.
+pub fn sweep_build_dirs_older_than(cutoff: SystemTime) -> usize {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(BUILD_DIR_PREFIX) || !path.is_dir() {
+            continue;
+        }
+        let Ok(modified) = entry.metadata().and_then(|meta| meta.modified()) else {
+            continue;
+        };
+        if modified >= cutoff {
+            continue;
+        }
+        if std::fs::remove_dir_all(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+/// [`sweep_build_dirs_older_than`] with a relative age (the caller picks the age).
+pub fn sweep_stale_build_dirs(max_age: Duration) -> usize {
+    sweep_build_dirs_older_than(SystemTime::now() - max_age)
 }
 
 /// Invoke the compiler once.

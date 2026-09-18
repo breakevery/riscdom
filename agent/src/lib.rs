@@ -26,7 +26,8 @@ pub mod tools;
 
 pub use agent::{AgentLoop, AgentOutcome};
 pub use compiler::{
-    compile_freestanding, CompileOutput, CompilerConfig, ToolchainError, ToolchainSource,
+    compile_freestanding, sweep_build_dirs_older_than, sweep_stale_build_dirs, CompileOutput,
+    CompilerConfig, ToolchainError, ToolchainSource, BUILD_DIR_MAX_AGE, BUILD_DIR_PREFIX,
     CRT0_INJECTED, GCC_NAMES, TOOLCHAIN_URL,
 };
 pub use config::AgentConfig;
