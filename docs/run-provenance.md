@@ -32,8 +32,9 @@ run_0192f4c1-8a3d-7c2e-9f10-6b1d4e0a55aa
 
 **Evidence on cost:** `uuid 1.26.1` is *already* in the workspace lock file — it arrives
 transitively via `tauri-utils` / `schemars`, which the `host` crate builds anyway. Making it a
-direct dependency of `audit` (with the `v7` feature, whose `getrandom` is also already in the
-graph) adds a direct edge and a feature flag, not a new third-party crate. Keep the prefix
+direct dependency of **`host`** — the crate that mints the id, §4.1; the audit layer only stores it
+as a string — (with the `v7` feature, whose `getrandom` is also already in the graph) adds a direct
+edge and a feature flag, not a new third-party crate. `audit` stays free of it. Keep the prefix
 hand-written on top of `Uuid::now_v7()`, so the storage layer never depends on a formatting helper.
 
 Rejected alternatives (kept for the record):
@@ -190,7 +191,7 @@ event.
    `detail_json` (the exact bytes that were hashed, kept as a string so no re-serialisation can
    change them). The index stores only the digest. Consequence: the log is self-sufficient — the
    configuration of any run can be recovered and re-verified from the chain alone, which is exactly
-   what v0.6's comparison needs and what `--rebuild-index` relies on.
+   what v0.6's comparison needs and what `audit-rebuild` relies on.
 5. Membership is **derived from the interval**, not stored per event: `runs` rows carry
    `[start_seq, end_seq]`, and "which run does event N belong to" is a range lookup. This keeps the
    event schema frozen (option A's problem) while staying O(1) per lookup with an index on
@@ -222,21 +223,37 @@ rewrite, destroys the append-only guarantee that the project is built on, and ch
 are already quoted in released artifacts. **Rejected, and worth stating in the docs of any future
 scheme.**
 
-### 3.3 `audit-verify`
+### 3.3 `audit-verify` (read-only) and `audit-rebuild`
 
 The chain verdict keeps its exact meaning and its exit codes (`0` intact, `1` broken, `2` usage or
-I/O error), so every existing script and CI step keeps working. Additive changes, both optional and
-off by default:
+I/O error), so every existing script and CI step keeps working. `audit-verify` itself stays
+**read-only**: it holds no path that writes to the log or to the index.
+
+One additive, optional flag:
 
 - `audit-verify <db> --runs` — cross-check the index against the chain: every `runs` row must match
   a `run.start` event with the same `run_id`, fingerprint and `start_seq`; every `run.end` must
   match its row; every open run must have no `end_seq`. Findings are reported as a separate section
   and, when they exist, change the exit code to `1` (the log and its provenance disagree, which is
   exactly the state an operator must not miss).
-- `--rebuild-index <db>` — regenerate `runs` from the chain alone (a repair path for a tampered or
-  truncated index). Every column is reconstructed, including the configuration text, because
-  `run.start` carries the canonical JSON in `detail_json`. Writes only to `runs`, never to
-  `audit_events`.
+
+Rebuilding the derived index is a **separate binary**, `audit-rebuild <db>`:
+
+- it rewrites `runs` from the chain alone — every column, the configuration text included, because
+  `run.start` carries the canonical JSON in `detail_json`;
+- it then runs the same cross-check and prints the result, so one command says whether the log's run
+  provenance is consistent;
+- exit codes: `0` rebuilt and consistent, `1` rebuilt but the log still reports a problem (index
+  findings, or run markers the chain cannot form into runs — a rebuild cannot invent the missing
+  counterpart of an orphan marker, and twice-started run ids are reported too), `2` usage error or
+  unreadable database.
+- it writes only to `runs`, never to `audit_events`, whose append-only triggers stay in force.
+
+**Why separate rather than a `--rebuild-index` flag on the checker.** A checker that can write
+cannot be trusted as a checker: one repair run would silently erase the very divergence `--runs`
+exists to surface, and it would hand the read-only role a write path into the audit directory that
+it does not need. The log's integrity verdict and the mutation of a derived cache are different
+privileges, so they are different programs.
 
 ## 4. Ownership and lifecycle
 
@@ -298,8 +315,9 @@ silently contains events from two different VM instances.
 3. Host: mint the id, compute the fingerprint, append the markers around `run_agent`, maintain the
    `runs` row, and handle the open-run case at startup.
 4. Read path: `list_runs` / `get_run` (read-only), plus the index rebuild routine.
-5. `audit-verify`: `--runs` (cross-check the index against the chain) and `--rebuild-index` (rebuild
-   it) — both additive, with the chain verdict and the `0` / `1` / `2` exit codes unchanged.
+5. Bins: `audit-verify --runs` (read-only cross-check) and the separate `audit-rebuild` (rebuild the
+   derived index from the chain, then run the same check) — both additive, with the chain verdict
+   and the `0` / `1` / `2` exit codes unchanged.
 
 **Out of scope, deliberately:**
 
@@ -326,8 +344,9 @@ silently contains events from two different VM instances.
    nested `vm` object and the `agent` group in Appendix A.
 6. **System prompt: its own object, hash only** — `prompt.sha256`; the prompt text is never stored
    in the chain.
-7. **`audit-verify --runs` ships in v0.4**, together with `--rebuild-index`, so the derived index is
-   trustworthy from the day it exists.
+7. **`audit-verify --runs` ships in v0.4**, and rebuilding ships as the **separate `audit-rebuild`
+   binary** (§3.3), so the checker keeps its read-only role and the derived index is trustworthy from
+   the day it exists.
 8. **VM fingerprint: nested `vm` object**, so "only QEMU changed" is expressible without diffing the
    whole document.
 
@@ -339,7 +358,7 @@ design moves it **into `run.start`'s `detail_json`**, so it is covered by the ha
 
 - the chain is self-sufficient: a run's configuration can be recovered, re-hashed and re-verified
   from the audit log alone, with no dependency on a file outside the chain;
-- `--rebuild-index` reconstructs the index **completely**, configuration text included, because the
+- `audit-rebuild` reconstructs the index **completely**, configuration text included, because the
   source is in the chain;
 - the index holds no fact the chain does not already hold, so tampering with it is detectable by
   rebuilding and comparing.

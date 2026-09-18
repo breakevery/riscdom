@@ -1,7 +1,8 @@
-//! v0.4 batch 1b — `audit-verify --runs` / `--rebuild-index` exit codes.
+//! v0.4 batch 1b — `audit-verify --runs` exit codes.
 //!
 //! The chain verdict and the `0` / `1` / `2` codes are the contract every
-//! existing script depends on; the new flags are additive.
+//! existing script depends on; `--runs` is additive, and the binary holds no
+//! write path (rebuilding lives in `audit-rebuild`, see `run_rebuild_cli.rs`).
 
 use audit::{
     fingerprint, run_end_detail, run_start_detail, AuditEvent, AuditStore, RunRecord, RunStatus,
@@ -123,30 +124,13 @@ fn runs_flag_exits_one_when_the_index_diverges() {
 }
 
 #[test]
-fn rebuild_index_repairs_the_index_and_exits_zero() {
-    let path = db_with_one_run("repair");
-    {
-        let conn = Connection::open(&path).expect("raw");
-        conn.execute("DELETE FROM runs", [])
-            .expect("truncate index");
-    }
-
+fn rebuild_index_is_not_a_verify_flag() {
+    // Rebuilding lives in the separate `audit-rebuild` binary: verify stays read-only.
+    let path = db_with_one_run("no-rebuild");
     let out = verify(path.to_str().unwrap(), &["--rebuild-index"]);
-    assert_eq!(out.status.code(), Some(0));
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        stdout.contains("IndexRebuilt { runs: 1"),
-        "stdout: {stdout}"
-    );
-
-    // Rebuilt from the chain alone, and now consistent.
-    let out = verify(path.to_str().unwrap(), &["--rebuild-index", "--runs"]);
-    assert_eq!(out.status.code(), Some(0));
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        stdout.contains("RunIndex { findings: 0 }"),
-        "stdout: {stdout}"
-    );
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("unknown option"), "stderr: {stderr}");
 }
 
 #[test]

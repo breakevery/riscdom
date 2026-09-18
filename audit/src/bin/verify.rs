@@ -1,13 +1,16 @@
 //! `audit-verify` — independently verify an audit log's hash chain.
 //!
 //! ```text
-//! audit-verify <path-to-db> [--runs] [--rebuild-index]
+//! audit-verify <path-to-db> [--runs]
 //! ```
 //!
 //! - `--runs` — also cross-check the derived run index (`runs`) against the
 //!   chain. Findings are printed; a divergence makes the exit code `1`.
-//! - `--rebuild-index` — rebuild the derived index from the chain alone. Writes
-//!   only to `runs`, never to `audit_events`.
+//!
+//! This binary is **read-only by design**: a checker that can write cannot be
+//! trusted as a checker, and a repair run would silently erase the very
+//! divergence `--runs` exists to surface. Rebuilding the derived index lives in
+//! the separate `audit-rebuild` binary.
 //!
 //! Exit codes:
 //! - `0` — chain intact (and, with `--runs`, the index agrees with it)
@@ -18,22 +21,19 @@ use audit::{verify_chain, AuditStore, ChainStatus};
 use std::path::Path;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: audit-verify <path-to-db> [--runs] [--rebuild-index]";
+const USAGE: &str = "usage: audit-verify <path-to-db> [--runs]";
 
 struct Args {
     path: String,
     runs: bool,
-    rebuild: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
     let mut path: Option<String> = None;
     let mut runs = false;
-    let mut rebuild = false;
     for arg in std::env::args().skip(1) {
         match arg.as_str() {
             "--runs" => runs = true,
-            "--rebuild-index" => rebuild = true,
             other if other.starts_with('-') => return Err(format!("unknown option: {other}")),
             other => {
                 if path.is_some() {
@@ -44,11 +44,7 @@ fn parse_args() -> Result<Args, String> {
         }
     }
     let path = path.ok_or_else(|| "missing <path-to-db>".to_string())?;
-    Ok(Args {
-        path,
-        runs,
-        rebuild,
-    })
+    Ok(Args { path, runs })
 }
 
 fn main() -> ExitCode {
@@ -67,27 +63,13 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
-    let mut store = match AuditStore::open(db) {
+    let store = match AuditStore::open(db) {
         Ok(store) => store,
         Err(e) => {
             eprintln!("failed to open {}: {e}", args.path);
             return ExitCode::from(2);
         }
     };
-
-    // Rebuild first, so a following `--runs` checks what was just written.
-    if args.rebuild {
-        match store.rebuild_run_index() {
-            Ok(report) => println!(
-                "IndexRebuilt {{ runs: {}, starts: {}, ends: {}, abandoned: {}, orphans: {} }}",
-                report.runs, report.starts, report.ends, report.abandoned, report.orphans
-            ),
-            Err(e) => {
-                eprintln!("error: index rebuild failed: {e}");
-                return ExitCode::from(2);
-            }
-        }
-    }
 
     let mut index_diverged = false;
     if args.runs {

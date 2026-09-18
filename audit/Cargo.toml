@@ -14,3 +14,7 @@ hex = "0.4"
 [[bin]]
 name = "audit-verify"
 path = "src/bin/verify.rs"
+
+[[bin]]
+name = "audit-rebuild"
+path = "src/bin/rebuild.rs"
