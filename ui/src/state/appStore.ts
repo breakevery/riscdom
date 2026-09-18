@@ -2,7 +2,9 @@
 // API key is NOT kept here: it lives only in the Settings form until saved.
 
 import { useCallback, useEffect, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import * as api from "../api/tauri";
+import { executableFilters, pickedPath } from "../lib/pathPick";
 
 export type Role = "user" | "assistant" | "tool" | "system";
 
@@ -32,6 +34,9 @@ export interface AppStore {
   refreshAudit: () => Promise<void>;
   runs: api.RunView[];
   refreshRuns: () => Promise<void>;
+  /** Native file pickers (v0.4 batch 2); the manual text entry stays available. */
+  pickToolchainPath: () => Promise<void>;
+  pickQemuPath: () => Promise<void>;
   workspaceFiles: string[];
   refreshWorkspace: () => Promise<void>;
   // serial / vm (consumed by the canvas in stage 6c)
@@ -404,6 +409,38 @@ export function useAppStore(): AppStore {
     [refreshQemu],
   );
 
+  // Native pickers (v0.4 batch 2). A cancelled dialog changes nothing; the manual
+  // text entry stays next to these for the cases a picker cannot serve.
+  const pickToolchainPath = useCallback(async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        title: "选择 riscv64-unknown-elf-gcc",
+        filters: executableFilters("RISC-V GCC", navigator.userAgent),
+      });
+      const path = pickedPath(selected);
+      if (path) await setToolchainPath(path);
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, [setToolchainPath]);
+
+  const pickQemuPath = useCallback(async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        title: "选择 qemu-system-riscv64",
+        filters: executableFilters("QEMU", navigator.userAgent),
+      });
+      const path = pickedPath(selected);
+      if (path) await setQemuPath(path);
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, [setQemuPath]);
+
   const clearQemu = useCallback(async () => {
     try {
       await api.clearQemuPath();
@@ -610,6 +647,8 @@ export function useAppStore(): AppStore {
     toolchainMissing: toolchain !== null && !toolchain.found,
     refreshToolchain,
     setToolchain: setToolchainPath,
+    pickToolchainPath,
+    pickQemuPath,
     clearToolchain,
     qemu,
     refreshQemu,

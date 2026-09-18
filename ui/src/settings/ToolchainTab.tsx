@@ -74,6 +74,13 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
         </button>
         <button
           className="ghost tiny"
+          onClick={() => void store.pickToolchainPath()}
+          title="用系统文件选择器指定"
+        >
+          浏览…
+        </button>
+        <button
+          className="ghost tiny"
           onClick={() => {
             const p = window.prompt(
               "riscv64-unknown-elf-gcc.exe 的完整路径",
@@ -82,7 +89,7 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
             if (p) void store.setToolchain(p.trim());
           }}
         >
-          手动指定
+          手动输入
         </button>
         {store.toolchain?.path ? (
           <button className="ghost tiny" onClick={() => void store.clearToolchain()}>
@@ -120,6 +127,13 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
         </button>
         <button
           className="ghost tiny"
+          onClick={() => void store.pickQemuPath()}
+          title="用系统文件选择器指定"
+        >
+          浏览…
+        </button>
+        <button
+          className="ghost tiny"
           onClick={() => {
             const p = window.prompt(
               "qemu-system-riscv64.exe 的完整路径",
@@ -128,7 +142,7 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
             if (p) void store.setQemu(p.trim());
           }}
         >
-          手动指定
+          手动输入
         </button>
         {store.qemu?.path ? (
           <button className="ghost tiny" onClick={() => void store.clearQemu()}>

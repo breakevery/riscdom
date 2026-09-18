@@ -7,6 +7,10 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Native file pickers (v0.4 batch 2). Only `dialog:allow-open` is granted
+        // in `capabilities/default.json`: the app picks files, it never asks the
+        // dialog plugin to write one.
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Audit DB + AI workspace live under the app's data dir.
             let base = app

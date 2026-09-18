@@ -87,6 +87,23 @@ fn a_non_runnable_file_is_rejected() {
 }
 
 #[test]
+fn a_path_as_the_file_picker_returns_it_is_accepted() {
+    // A native picker hands back a plain path string; on some platforms that is
+    // forward-slash form even on Windows. The command must take it as it comes
+    // (v0.4 batch 2).
+    let state = state("dialog-path");
+    let discovered = state.probe_toolchain().path.expect("discovered path");
+    let picked = discovered.replace('\\', "/");
+
+    state
+        .set_toolchain_path(&picked)
+        .expect("a forward-slash path must be accepted");
+    let view = state.probe_toolchain();
+    assert!(view.found, "{view:?}");
+    assert_eq!(view.source, "Manual");
+}
+
+#[test]
 fn manual_path_wins_and_clearing_restores_discovery() {
     let state = state("manual");
     let discovered = state.probe_toolchain().path.expect("discovered path");
