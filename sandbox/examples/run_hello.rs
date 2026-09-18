@@ -11,19 +11,26 @@
 
 use audit::{verify_chain, AuditSink, AuditStore, SqliteAuditSink};
 use sandbox::{QmpEndpoint, RiscVVirtualMachine, SerialEndpoint, VMConfig};
-use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+/// Ports this run reserved, kept here so their numbers stay reserved after the
+/// OS-level hold is handed off to QEMU (v0.4 #1).
+static HELD: Mutex<Vec<sandbox::relay::PortLease>> = Mutex::new(Vec::new());
+
 fn two_free_ports() -> (u16, u16) {
-    let a = TcpListener::bind("127.0.0.1:0").expect("bind a");
-    let b = TcpListener::bind("127.0.0.1:0").expect("bind b");
-    (
-        a.local_addr().unwrap().port(),
-        b.local_addr().unwrap().port(),
-    )
+    let mut leases = sandbox::relay::lease_local_ports(2).expect("lease two ports");
+    let mut serial = leases.pop().expect("two leases were requested");
+    let mut qmp = leases.pop().expect("two leases were requested");
+    let ports = (qmp.port(), serial.port());
+    qmp.hand_off();
+    serial.hand_off();
+    let mut held = HELD.lock().expect("port guard");
+    held.push(qmp);
+    held.push(serial);
+    ports
 }
 
 fn riscv_gcc() -> PathBuf {

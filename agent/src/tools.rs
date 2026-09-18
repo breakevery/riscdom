@@ -12,8 +12,8 @@ use crate::message::{FunctionCall, ToolCall};
 use crate::policy::WorkspacePolicy;
 use audit::AuditSink;
 use sandbox::platform::{QmpEndpoint, SerialEndpoint};
+use sandbox::relay::PortLease;
 use sandbox::vm::{RiscVVirtualMachine, SerialObserver, VMConfig};
-use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -322,13 +322,16 @@ fn tool_start_vm(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<Stri
         .check_read(Path::new(elf_rel))
         .map_err(|e| deny(ctx, "start_vm", elf_rel, e))?;
 
-    // Ports are picked, released, and only then bound by QEMU: another process
-    // can steal one in that window, which surfaces as a failed boot (a known
-    // TOCTOU). Retry with fresh ports instead of failing the run.
+    // Ports are reserved by the process-wide lease (v0.4 #1), so two parts of this
+    // program cannot be handed the same one; the lease holds the OS-level port too
+    // until just before QEMU starts. A race with *another* process is still
+    // possible after that hand-off, so retry with fresh ports instead of failing
+    // the run.
     const START_ATTEMPTS: usize = 3;
     let mut last_error = String::from("unknown error");
     for attempt in 1..=START_ATTEMPTS {
-        let (qmp_port, serial_port) = two_free_ports()?;
+        let (mut qmp_lease, mut serial_lease) = two_free_ports()?;
+        let (qmp_port, serial_port) = (qmp_lease.port(), serial_lease.port());
         let snapshot_dir = ctx.policy.root.join(".riscdom").join("snapshots");
         let config = VMConfig {
             kernel: elf.clone(),
@@ -342,6 +345,10 @@ fn tool_start_vm(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<Stri
             qemu_exe: ctx.qemu_exe.clone(),
         };
         let mut vm = RiscVVirtualMachine::new(config, Arc::clone(&ctx.audit))?;
+        // Last moment: hand the ports over to QEMU. The leases stay alive for the
+        // rest of this attempt, so nothing in this process can take them again.
+        qmp_lease.hand_off();
+        serial_lease.hand_off();
         match vm.start() {
             Ok(()) => {
                 *ctx.vm = Some(vm);
@@ -447,44 +454,18 @@ fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), A
     Ok(())
 }
 
-/// Two distinct free TCP ports.
+/// Two distinct free TCP ports, reserved by this process (v0.4 #1).
 ///
-/// A process-wide guard keeps them unique across parallel tests **inside one
-/// binary** (bind-then-drop can otherwise hand the same port to two threads).
-/// Cross-process collisions cannot be excluded here — QEMU binds the ports only
-/// after we release them — so [`tool_start_vm`] retries with fresh ports when
-/// QEMU fails to start.
-fn two_free_ports() -> Result<(u16, u16), AgentError> {
-    use std::sync::Mutex;
-    static USED: Mutex<Vec<u16>> = Mutex::new(Vec::new());
-
-    for _ in 0..64 {
-        let a = TcpListener::bind("127.0.0.1:0").map_err(|e| AgentError::Tool(e.to_string()))?;
-        let b = TcpListener::bind("127.0.0.1:0").map_err(|e| AgentError::Tool(e.to_string()))?;
-        let pa = a
-            .local_addr()
-            .map_err(|e| AgentError::Tool(e.to_string()))?
-            .port();
-        let pb = b
-            .local_addr()
-            .map_err(|e| AgentError::Tool(e.to_string()))?
-            .port();
-        if pa == pb {
-            continue;
-        }
-        let mut used = USED
-            .lock()
-            .map_err(|_| AgentError::Tool("port guard poisoned".into()))?;
-        if used.contains(&pa) || used.contains(&pb) {
-            continue;
-        }
-        used.push(pa);
-        used.push(pb);
-        return Ok((pa, pb));
-    }
-    Err(AgentError::Tool(
-        "could not find two distinct free ports".into(),
-    ))
+/// The lease keeps them from being handed to a second holder in this process, and
+/// holds the OS-level port until the caller hands it off. A collision with another
+/// process cannot be excluded — QEMU binds only after we release — so
+/// [`tool_start_vm`] still retries with fresh ports.
+fn two_free_ports() -> Result<(PortLease, PortLease), AgentError> {
+    let mut leases =
+        sandbox::relay::lease_local_ports(2).map_err(|e| AgentError::Tool(e.to_string()))?;
+    let serial = leases.pop().expect("two leases were requested");
+    let qmp = leases.pop().expect("two leases were requested");
+    Ok((qmp, serial))
 }
 
 fn truncate_result(s: &str) -> String {

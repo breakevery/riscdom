@@ -25,6 +25,8 @@ pub enum SandboxError {
     Snapshot(String),
     /// Migration relay error.
     Relay(String),
+    /// The relay-port lease could not hand out a port (v0.4 #1).
+    PortLease(String),
     /// The migration relay timed out (nobody connected, or the stream stalled).
     RelayTimeout(String),
     /// Feature not supported on this platform / in MVP.
@@ -46,6 +48,7 @@ impl fmt::Display for SandboxError {
             SandboxError::AlreadyRunning => write!(f, "the virtual machine is already running"),
             SandboxError::Snapshot(m) => write!(f, "snapshot error: {m}"),
             SandboxError::Relay(m) => write!(f, "relay error: {m}"),
+            SandboxError::PortLease(m) => write!(f, "port lease error: {m}"),
             SandboxError::RelayTimeout(m) => write!(f, "relay timeout: {m}"),
             SandboxError::Unsupported(m) => write!(f, "unsupported: {m}"),
             SandboxError::QemuNotFound { diagnostics } => {

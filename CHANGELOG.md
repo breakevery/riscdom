@@ -30,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   were deliberately not implemented: no QEMU × GCC compatibility matrix exists in
   this repository (see `PROJECT_CONSTITUTION.md` §10).
 
+### Changed
+
+- **Relay ports come from a process-wide lease** (v0.4 #1): `sandbox::relay::lease_local_port` /
+  `lease_local_ports` replace `free_local_port`, returning a `PortLease` that keeps the port — and a
+  bound listener — reserved until it is handed off and dropped. `start_vm`, the snapshot restore and
+  the preflight take their ports from it and release the OS-level hold only just before QEMU starts,
+  so no two parts of this program can be handed the same port and the port cannot be stolen by
+  anyone else until the last moment. The three-attempt retries stay: the hand-off itself cannot be
+  made atomic while QEMU binds the port itself. See [docs/qemu-stdio.md](docs/qemu-stdio.md).
+
 ### Fixed
 
 - **CI runs the gate instead of keeping its own command list**: `.github/workflows/ci.yml` now

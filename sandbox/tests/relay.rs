@@ -107,8 +107,60 @@ fn relay_address_is_loopback() {
 
 #[test]
 fn free_local_port_is_usable() {
-    let port = sandbox::relay::free_local_port().expect("port");
+    let mut lease = sandbox::relay::lease_local_port().expect("lease");
+    let port = lease.port();
     assert_ne!(port, 0);
+    // The lease holds the OS-level port until it is handed off.
+    assert!(lease.holds_listener());
+    assert!(std::net::TcpListener::bind(("127.0.0.1", port)).is_err());
+    lease.hand_off();
+    let listener = std::net::TcpListener::bind(("127.0.0.1", port)).expect("bind after hand-off");
+    drop(listener);
+    assert!(sandbox::relay::leased_ports().contains(&port));
+}
+
+#[test]
+fn dropping_a_lease_releases_the_port() {
+    let port = {
+        let lease = sandbox::relay::lease_local_port().expect("lease");
+        lease.port()
+    };
+    assert!(
+        !sandbox::relay::leased_ports().contains(&port),
+        "port {port} is still reserved after its lease was dropped"
+    );
+}
+
+#[test]
+fn concurrent_leases_never_repeat_a_port() {
+    use std::sync::{Arc, Mutex};
+
+    const THREADS: usize = 8;
+    const PER_THREAD: usize = 4;
+    let seen: Arc<Mutex<Vec<u16>>> = Arc::new(Mutex::new(Vec::new()));
+
+    std::thread::scope(|scope| {
+        for _ in 0..THREADS {
+            let seen = Arc::clone(&seen);
+            scope.spawn(move || {
+                let leases = sandbox::relay::lease_local_ports(PER_THREAD).expect("lease ports");
+                let mut guard = seen.lock().expect("collector lock");
+                for lease in &leases {
+                    assert!(
+                        !guard.contains(&lease.port()),
+                        "port {} was handed to two holders at once",
+                        lease.port()
+                    );
+                    guard.push(lease.port());
+                }
+            });
+        }
+    });
+
+    assert_eq!(
+        seen.lock().expect("collector lock").len(),
+        THREADS * PER_THREAD
+    );
 }
 
 #[test]

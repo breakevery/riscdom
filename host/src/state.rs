@@ -816,19 +816,17 @@ impl AppState {
         let run_id = self.begin_run(None, parent.as_deref(), Some(name));
 
         let restored = (|| -> Result<(), HostError> {
+            // Both ports come from the process-wide lease (v0.4 #1) and are handed
+            // to QEMU only right before it starts.
+            let mut leases = sandbox::relay::lease_local_ports(2)
+                .map_err(|e| HostError::Other(e.to_string()))?;
+            let mut serial_lease = leases.pop().expect("two leases were requested");
+            let mut qmp_lease = leases.pop().expect("two leases were requested");
             let config = VMConfig {
                 kernel: self.resume_kernel()?,
                 memory_mb: agent::VM_MEMORY_MB,
-                qmp: QmpEndpoint::tcp(
-                    "127.0.0.1",
-                    sandbox::relay::free_local_port()
-                        .map_err(|e| HostError::Other(e.to_string()))?,
-                ),
-                serial: SerialEndpoint::tcp(
-                    "127.0.0.1",
-                    sandbox::relay::free_local_port()
-                        .map_err(|e| HostError::Other(e.to_string()))?,
-                ),
+                qmp: QmpEndpoint::tcp("127.0.0.1", qmp_lease.port()),
+                serial: SerialEndpoint::tcp("127.0.0.1", serial_lease.port()),
                 snapshot_dir: self.snapshot_dir(),
                 serial_observer: Some(agent::tools::serial_observer_for(Arc::clone(
                     &self.serial_senders,
@@ -841,6 +839,8 @@ impl AppState {
                 qemu_exe: self.manual_qemu_path(),
             };
             self.stop_current_vm()?;
+            qmp_lease.hand_off();
+            serial_lease.hand_off();
             let vm = RiscVVirtualMachine::resume_from_snapshot_real(
                 config,
                 &path,
@@ -2016,17 +2016,14 @@ impl AppState {
             // 4. it boots that guest and the banner arrives
             emit(pf::STEP_GUEST_BOOTS, "running", None);
             let booted = (|| -> Result<(), String> {
+                let mut leases = sandbox::relay::lease_local_ports(2).map_err(|e| e.to_string())?;
+                let mut serial_lease = leases.pop().expect("two leases were requested");
+                let mut qmp_lease = leases.pop().expect("two leases were requested");
                 let config = VMConfig {
                     kernel: elf.clone(),
                     memory_mb: agent::VM_MEMORY_MB,
-                    qmp: QmpEndpoint::tcp(
-                        "127.0.0.1",
-                        sandbox::relay::free_local_port().map_err(|e| e.to_string())?,
-                    ),
-                    serial: SerialEndpoint::tcp(
-                        "127.0.0.1",
-                        sandbox::relay::free_local_port().map_err(|e| e.to_string())?,
-                    ),
+                    qmp: QmpEndpoint::tcp("127.0.0.1", qmp_lease.port()),
+                    serial: SerialEndpoint::tcp("127.0.0.1", serial_lease.port()),
                     snapshot_dir: self.preflight_dir(),
                     // No observer: the preflight must not feed the run's serial
                     // stream, and must not touch the host-owned VM slot.
@@ -2037,6 +2034,9 @@ impl AppState {
                 };
                 let mut vm = RiscVVirtualMachine::new(config, Arc::clone(&self.sink))
                     .map_err(|e| e.to_string())?;
+                // Last moment: hand the ports over to QEMU.
+                qmp_lease.hand_off();
+                serial_lease.hand_off();
                 let result = match vm.start() {
                     Ok(()) => {
                         crate::preflight::wait_for_banner(crate::preflight::BANNER_TIMEOUT, || {

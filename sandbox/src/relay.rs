@@ -18,7 +18,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Default wait for the peer to connect / finish.
@@ -27,22 +27,154 @@ pub const DEFAULT_RELAY_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long to sleep between accept attempts.
 const ACCEPT_POLL: Duration = Duration::from_millis(20);
 
-/// A free loopback port (bound briefly, then released for the peer to take).
+/// How many binds one request makes before reporting the ports as exhausted.
+pub const MAX_LEASE_ATTEMPTS: usize = 64;
+
+/// The ports this process has handed out and not yet released (v0.4 #1).
+static HELD_PORTS: Mutex<Vec<u16>> = Mutex::new(Vec::new());
+
+/// A loopback port reserved by this process.
 ///
-/// **Known race:** between the release here and the peer's `bind`, another
-/// process may take the port (TOCTOU). Callers that hand the port to QEMU must
-/// therefore retry with a fresh port when the peer fails to bind — see
-/// [`crate::vm::RiscVVirtualMachine::resume_from_snapshot_real`], which retries
-/// up to three times and audits `sandbox.snapshot.resume.retry`.
-pub fn free_local_port() -> Result<u16, SandboxError> {
-    let listener =
-        TcpListener::bind("127.0.0.1:0").map_err(|e| SandboxError::Relay(e.to_string()))?;
-    let port = listener
-        .local_addr()
-        .map_err(|e| SandboxError::Relay(e.to_string()))?
-        .port();
-    drop(listener);
-    Ok(port)
+/// Until [`PortLease::hand_off`] the lease also keeps a *listener* bound, so the
+/// OS cannot give the port to anyone else; the number then stays reserved here
+/// until the lease is dropped.
+///
+/// What this does and does not buy: two parts of *this* program can no longer be
+/// handed the same port, and the OS holds the port until the caller hands it off.
+/// It cannot make the hand-off itself atomic — the peer still binds only after we
+/// let go, because QEMU (with today's flags) cannot be given a pre-bound socket.
+/// So the retries stay, as the backstop for the window that is left.
+pub struct PortLease {
+    port: u16,
+    listener: Option<TcpListener>,
+}
+
+impl PortLease {
+    /// The reserved port number.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Whether the OS-level hold (the bound listener) is still in place.
+    pub fn holds_listener(&self) -> bool {
+        self.listener.is_some()
+    }
+
+    /// Release the listener so the peer can bind the port itself.
+    ///
+    /// Call this as late as possible — immediately before the peer is started —
+    /// because until it happens the port cannot be taken by anyone. The *number*
+    /// stays reserved in this process until the lease is dropped, so our own
+    /// allocator cannot hand the same port to a second holder in the meantime.
+    pub fn hand_off(&mut self) {
+        self.listener = None;
+    }
+}
+
+impl Drop for PortLease {
+    fn drop(&mut self) {
+        self.listener = None;
+        if let Ok(mut held) = HELD_PORTS.lock() {
+            held.retain(|port| *port != self.port);
+        }
+    }
+}
+
+impl std::fmt::Debug for PortLease {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PortLease")
+            .field("port", &self.port)
+            .field("holds_listener", &self.listener.is_some())
+            .finish()
+    }
+}
+
+/// Record `port` as held by this process. `false` when someone else has it.
+fn reserve(port: u16) -> bool {
+    match HELD_PORTS.lock() {
+        Ok(mut held) => {
+            if held.contains(&port) {
+                false
+            } else {
+                held.push(port);
+                true
+            }
+        }
+        // A poisoned registry means a holder panicked; refusing the port is the
+        // safe answer.
+        Err(_) => false,
+    }
+}
+
+/// The ports this process currently reserves (diagnostics and tests).
+pub fn leased_ports() -> Vec<u16> {
+    HELD_PORTS
+        .lock()
+        .map(|held| held.clone())
+        .unwrap_or_default()
+}
+
+/// Reserve `count` distinct loopback ports for this process (v0.4 #1).
+///
+/// Replaces the old `free_local_port`: bind `127.0.0.1:0`, take the port the OS
+/// assigned, and **keep** it reserved — together with its listener — until the
+/// returned leases are dropped or handed off.
+///
+/// Returns [`SandboxError::PortLease`] when no port could be reserved after
+/// [`MAX_LEASE_ATTEMPTS`] tries, naming how many are already held.
+pub fn lease_local_ports(count: usize) -> Result<Vec<PortLease>, SandboxError> {
+    lease_local_ports_with_attempts(count, MAX_LEASE_ATTEMPTS)
+}
+
+/// [`lease_local_ports`] with an explicit bind budget **per port**.
+///
+/// Exposed so a caller can fail fast, and so the exhaustion path has a
+/// deterministic test instead of one that waits for bad luck.
+pub fn lease_local_ports_with_attempts(
+    count: usize,
+    attempts: usize,
+) -> Result<Vec<PortLease>, SandboxError> {
+    let mut leases: Vec<PortLease> = Vec::with_capacity(count);
+    for _ in 0..count {
+        let mut reserved = None;
+        for _ in 0..attempts {
+            let listener = TcpListener::bind("127.0.0.1:0")
+                .map_err(|e| SandboxError::PortLease(e.to_string()))?;
+            let port = listener
+                .local_addr()
+                .map_err(|e| SandboxError::PortLease(e.to_string()))?
+                .port();
+            // The OS will not hand out a port that is bound right now, but it can
+            // hand out one this very call released a moment ago, so check too.
+            if leases.iter().any(|lease| lease.port == port) {
+                continue;
+            }
+            if reserve(port) {
+                reserved = Some(PortLease {
+                    port,
+                    listener: Some(listener),
+                });
+                break;
+            }
+        }
+        match reserved {
+            Some(lease) => leases.push(lease),
+            None => {
+                return Err(SandboxError::PortLease(format!(
+                    "no free loopback port after {attempts} attempts \
+                     ({} already reserved by this process)",
+                    leases.len()
+                )))
+            }
+        }
+    }
+    Ok(leases)
+}
+
+/// Reserve one loopback port. See [`lease_local_ports`].
+pub fn lease_local_port() -> Result<PortLease, SandboxError> {
+    let mut leases = lease_local_ports(1)?;
+    Ok(leases.remove(0))
 }
 
 /// Stream a file into a **listening** peer (client mode).
@@ -252,5 +384,18 @@ impl MigrationRelay {
                 Err(e) => return Err(SandboxError::Relay(e.to_string())),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod lease_tests {
+    use super::*;
+
+    #[test]
+    fn exhaustion_is_reported_clearly() {
+        let error = lease_local_ports_with_attempts(1, 0).expect_err("no attempts, no port");
+        let text = error.to_string();
+        assert!(text.contains("no free loopback port"), "{text}");
+        assert!(text.contains("already reserved by this process"), "{text}");
     }
 }

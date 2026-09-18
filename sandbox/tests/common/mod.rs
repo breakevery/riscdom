@@ -2,35 +2,30 @@
 #![allow(dead_code)]
 
 use sandbox::vm::RiscVVirtualMachine;
-use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-/// Two distinct free TCP ports, held open until both are read.
+/// Two distinct free TCP ports, reserved by this process for the rest of the run.
 ///
-/// A process-wide guard keeps ports unique across parallel tests in the same
-/// binary: bind-then-drop can otherwise hand the same port to two threads.
+/// The process-wide guard is now the sandbox's own port lease (v0.4 #1), so the
+/// numbers cannot be handed to two threads in this binary; the leases are parked
+/// here, handed off to the OS so QEMU can bind, and stay reserved until the
+/// process ends.
 pub fn two_free_ports() -> (u16, u16) {
     use std::sync::Mutex;
-    static USED: Mutex<Vec<u16>> = Mutex::new(Vec::new());
+    static HELD: Mutex<Vec<sandbox::relay::PortLease>> = Mutex::new(Vec::new());
 
-    loop {
-        let a = TcpListener::bind("127.0.0.1:0").expect("bind port a");
-        let b = TcpListener::bind("127.0.0.1:0").expect("bind port b");
-        let pa = a.local_addr().unwrap().port();
-        let pb = b.local_addr().unwrap().port();
-        if pa == pb {
-            continue;
-        }
-        let mut used = USED.lock().expect("port guard");
-        if used.contains(&pa) || used.contains(&pb) {
-            continue;
-        }
-        used.push(pa);
-        used.push(pb);
-        return (pa, pb);
-    }
+    let mut leases = sandbox::relay::lease_local_ports(2).expect("lease two ports");
+    let mut serial = leases.pop().expect("two leases were requested");
+    let mut qmp = leases.pop().expect("two leases were requested");
+    let ports = (qmp.port(), serial.port());
+    qmp.hand_off();
+    serial.hand_off();
+    let mut held = HELD.lock().expect("port guard");
+    held.push(qmp);
+    held.push(serial);
+    ports
 }
 
 /// Locate the RISC-V cross compiler.

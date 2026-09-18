@@ -24,6 +24,14 @@
   `settings.json`、**绝不写入审计链**，并提供可记录的“仍要继续”。**有意不做版本号规则**：
   本仓库没有任何 QEMU × GCC 兼容矩阵可依据（见 `PROJECT_CONSTITUTION.md` §10）。
 
+### 变更
+
+- **relay 端口改由进程级租约分配**（v0.4 #1）：`sandbox::relay::lease_local_port` /
+  `lease_local_ports` 取代 `free_local_port`，返回 `PortLease`，在交接并释放前一直占住该端口（以及一个
+  已绑定的 listener）。`start_vm`、快照恢复与预检都从它取端口，只在 QEMU 启动前才放开 OS 层占用，于是
+  本程序内部不可能再把同一端口发给两个持有者，端口在最后一刻之前也不会被外部抢走。三次重试保留：在
+  QEMU 自己绑定端口的前提下，交接本身无法做成原子。详见 [docs/qemu-stdio.md](docs/qemu-stdio.md)。
+
 ### 修复
 
 - **CI 改为调用 gate，不再自己维护命令清单**：`.github/workflows/ci.yml` 现在只安装 Rust + Node，然后

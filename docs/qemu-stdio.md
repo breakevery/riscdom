@@ -16,9 +16,12 @@ Facts, as the code stands:
 - **Serial** goes over TCP: `SerialEndpoint::tcp(host, port)` renders
   `-serial tcp:host:port,server=on,wait=on` — `wait=on` means QEMU blocks until the host connects,
   which is what gates guest start-up on our reader being attached.
-- **Ports** come from `sandbox::relay::free_local_port()`: bind `127.0.0.1:0`, read the assigned
-  port, **drop the listener**, and hand the number to QEMU. Between the drop and QEMU's bind, any
-  process on the machine may take that port (a *TOCTOU*).
+- **Ports** come from the port lease in `sandbox::relay` (`lease_local_port` / `lease_local_ports`,
+  v0.4 #1): bind `127.0.0.1:0`, read the assigned port, and **keep** it — together with a bound
+  listener — reserved until the caller hands it off and the lease is dropped. The hand-off is what
+  lets QEMU bind, so a race with *another* process still exists in the window between the hand-off
+  and QEMU's bind (a *TOCTOU*). What the lease removes is the same port being handed to two holders
+  inside this process, plus everyone else's access to it right up to the hand-off.
 - **What mitigates it today** is retries, not a design change: `start_vm` retries three times with
   fresh ports (`agent/src/tools.rs`), snapshot resume retries three times (`sandbox/src/vm.rs`),
   and the sandbox test helper `two_free_ports()` keeps a process-wide guard so tests do not hand the
@@ -67,12 +70,12 @@ mechanism, not a preference.
 - Today's mitigation is already process-wide in tests (`two_free_ports()` in the sandbox test
   helpers) — the lease generalises what the tests already do.
 
-Shape of the lease (proposal): one allocator that (a) binds `127.0.0.1:0` to have the OS pick a free
-port, (b) records the port as *held* while the holder still needs it, and (c) refuses to hand the
-same port to a second holder until the first releases it. It does **not** eliminate the TOCTOU by
-itself — we still drop the listener before QEMU binds — so it is a *narrowing* of the window plus a
-single place to retry, not a proof. Removing the QMP port (stdio) is the part that removes a port
-from the equation entirely.
+Shape of the lease (implemented in v0.4 #1): one allocator that (a) binds `127.0.0.1:0` to have the OS
+pick a free port, (b) records the port as *held* while the holder still needs it, and (c) refuses to
+hand the same port to a second holder until the first releases it. It **does not** eliminate the
+TOCTOU by itself — the listener is still released before QEMU binds, just as late as the caller can
+manage — so it is a *narrowing* of the window plus a single place to retry, not a proof. Removing the
+QMP port (stdio) is the part that removes a port from the equation entirely.
 
 ## 4. Interaction with the snapshot relay
 
@@ -98,13 +101,15 @@ from the equation entirely.
 
 ## 6. Phasing
 
-**v0.4 (authorised for this batch): the lease only.** No protocol change, nothing about stdio.
+**v0.4 (authorised, implemented): the lease only.** No protocol change, nothing about stdio.
 
-1. One allocator in `sandbox::relay` that tracks held ports; `start_vm`, the snapshot resume and the
-   host's own port choices take ports from it. Small, testable, no protocol change.
+1. Done: one allocator in `sandbox::relay` that tracks held ports (`lease_local_port` /
+   `lease_local_ports`); `start_vm`, the snapshot resume and the host's own port choices take ports
+   from it and hand them off just before QEMU starts. Small, testable, no protocol change.
 2. The existing three-attempt retries stay, unchanged, as the fallback.
-3. Tests: concurrent requests never return the same port, a released port is reusable, exhaustion
-   reports a clear error, and the existing port-race / retry tests keep passing.
+3. Done: tests in `sandbox/tests/relay.rs` (concurrent leases never repeat a port, a dropped lease
+   frees the number, the listener blocks others until the hand-off) and in `sandbox/src/relay.rs`
+   (exhaustion reports a clear error); the existing port-race / retry tests keep passing.
 
 **v0.5: take QMP and the serial off TCP.** QMP over stdio behind a config switch, the serial on the
 file variant with a reader for it, then a test that boots a guest that way, then — later still —

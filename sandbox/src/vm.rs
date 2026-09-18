@@ -131,6 +131,12 @@ pub struct RiscVVirtualMachine {
     reader: Option<JoinHandle<()>>,
     /// Thread feeding a snapshot into QEMU's `-incoming` connection.
     snapshot_sender: Option<JoinHandle<Result<u64, SandboxError>>>,
+    /// Ports this VM reserved for QEMU to bind (v0.4 #1).
+    ///
+    /// They stay reserved while the VM lives, so a second port request in this
+    /// process cannot be handed one of them; the OS-level hold is released in
+    /// [`Self::start`] just before QEMU is spawned.
+    port_leases: Vec<crate::relay::PortLease>,
 }
 
 impl RiscVVirtualMachine {
@@ -159,6 +165,7 @@ impl RiscVVirtualMachine {
             serial_buf: Arc::new(Mutex::new(Vec::new())),
             reader: None,
             snapshot_sender: None,
+            port_leases: Vec::new(),
         })
     }
 
@@ -180,16 +187,21 @@ impl RiscVVirtualMachine {
         if self.child.is_some() {
             return Err(SandboxError::AlreadyRunning);
         }
+        // Leases from an earlier start are done with.
+        self.port_leases.clear();
 
         // Incoming migration: QEMU *listens* on `-incoming tcp:<addr>`, and a
-        // thread of ours connects and pushes the snapshot into it.
+        // thread of ours connects and pushes the snapshot into it. The port comes
+        // from the process-wide lease (v0.4 #1) and stays reserved until this VM
+        // is dropped.
         if let Some(snapshot) = self.config.incoming_snapshot.clone() {
-            let port = crate::relay::free_local_port()?;
-            let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+            let lease = crate::relay::lease_local_port()?;
+            let addr = std::net::SocketAddr::from(([127, 0, 0, 1], lease.port()));
             self.config.incoming_relay_addr = Some(addr);
             self.snapshot_sender = Some(std::thread::spawn(move || {
                 crate::relay::send_file_to(addr, &snapshot, crate::relay::DEFAULT_RELAY_TIMEOUT)
             }));
+            self.port_leases.push(lease);
         }
 
         let args = self.qemu_args();
@@ -199,6 +211,12 @@ impl RiscVVirtualMachine {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+
+        // Last moment: let go of the listeners so QEMU can bind the ports. The
+        // numbers stay reserved here until this VM is dropped.
+        for lease in &mut self.port_leases {
+            lease.hand_off();
+        }
 
         let child = command
             .spawn()
@@ -514,10 +532,12 @@ impl RiscVVirtualMachine {
         let mut config = config;
         config.incoming_snapshot = Some(snapshot_path.to_path_buf());
 
-        // `-incoming tcp:` makes **QEMU** listen on a port we picked and released
-        // (see `relay::free_local_port`), so another process can steal it in that
-        // window; QEMU then fails to bind, or the QMP connection is reset
-        // (Windows 10054). Retry with a fresh port instead of failing the restore.
+        // `-incoming tcp:` makes **QEMU** listen on a port that this process no
+        // longer holds (see `relay::PortLease`), so another process can still
+        // steal it in the window before QEMU binds; QEMU then fails to bind, or
+        // the QMP connection is reset (Windows 10054). Retry with a fresh port
+        // instead of failing the restore — the lease narrows the window, the
+        // retry covers what is left.
         const RESUME_ATTEMPTS: usize = 3;
         let mut reasons: Vec<String> = Vec::new();
         for attempt in 1..=RESUME_ATTEMPTS {
