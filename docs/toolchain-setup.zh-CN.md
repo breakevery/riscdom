@@ -89,3 +89,9 @@ riscv-none-elf-gcc --version
   请检查你是否通过异常的包装脚本覆盖了编译参数。
 
 另见：[ENVIRONMENT.md](ENVIRONMENT.md)（本项目开发机上实测的版本）。
+
+## 环境预检
+
+配置好编译器后，RiscDom 会用**实际使用它的方式**检查整套环境：编译一个极小的 guest，并用你的 QEMU
+启动它，然后报告卡在哪一步。覆盖范围、触发时机与“仍要继续”逃生阀见
+[preflight.zh-CN.md](preflight.zh-CN.md)。

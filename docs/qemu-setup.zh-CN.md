@@ -68,3 +68,8 @@ qemu-system-riscv64 --version
 - **重负载下偶发启动失败** —— 端口是“先探测、释放、再由 QEMU bind”（已知 TOCTOU）。
   RiscDom 会用新端口重试（审计事件 `sandbox.snapshot.resume.retry` 等可见）；若持续失败，
   说明另有原因。
+
+## 环境预检
+
+RiscDom 不比对版本号：它用你的 QEMU（和你配置的编译器）真的启动一个极小的 guest，报告**实际发生了什么**。
+覆盖范围、触发时机与“仍要继续”逃生阀见 [preflight.zh-CN.md](preflight.zh-CN.md)。

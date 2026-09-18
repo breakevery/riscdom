@@ -1,4 +1,11 @@
 import type { AppStore } from "../state/appStore";
+import {
+  preflightHeadline,
+  progressLine,
+  rowStateLabel,
+  shouldOfferOverride,
+  stepLabel,
+} from "../lib/preflightView";
 
 /** Human-readable state line for the download area. */
 function statusText(store: AppStore): string {
@@ -195,6 +202,46 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
             </button>
           </div>
         </>
+      ) : null}
+
+      {/* Environment preflight (v0.4 batch 3): run the real pair once. */}
+      <h3>环境预检</h3>
+      <div className="status-line">
+        <span
+          className={`dot ${store.preflight?.ok ? "ok" : store.preflight?.checked ? "bad" : "off"}`}
+        />
+        <span className="small">{preflightHeadline(store.preflight)}</span>
+        <button className="ghost tiny" onClick={() => void store.runPreflight()}>
+          重新预检
+        </button>
+      </div>
+      {store.preflightStep ? (
+        <div className="muted small">
+          {progressLine(store.preflightStep.step, store.preflightStep.state)}
+        </div>
+      ) : null}
+      <ul className="audit-list">
+        {(store.preflight?.rows ?? []).map((r) => (
+          <li key={r.step}>
+            <span className={`badge ${r.state === "ok" ? "ok" : ""}`}>
+              {rowStateLabel(r.state)}
+            </span>
+            <span className="action">{stepLabel(r.step)}</span>
+          </li>
+        ))}
+      </ul>
+      {store.preflight?.detail ? (
+        <pre className="muted small">{store.preflight.detail}</pre>
+      ) : null}
+      {store.preflight?.suggestion ? (
+        <div className="banner warn">{store.preflight.suggestion}</div>
+      ) : null}
+      {shouldOfferOverride(store.preflight) ? (
+        <div className="row">
+          <button className="ghost" onClick={() => void store.acknowledgePreflight()}>
+            仍要继续（记录该选择）
+          </button>
+        </div>
       ) : null}
     </>
   );

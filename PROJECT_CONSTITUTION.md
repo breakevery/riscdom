@@ -234,7 +234,7 @@ m. **[DONE]** Bilingual (English/Chinese) docs before going public
 3. **`tauri-plugin-dialog`**: a native file picker for toolchain / QEMU paths, replacing the
    `window.prompt` text input.
 4. **QEMU one-click download or bundling** (with a GPL compliance review).
-5. **QEMU × RISC-V GCC version compatibility check**: refuse or warn on incompatible pairs.
+5. **Environment capability preflight**: compile a minimal guest and boot it on the real toolchain / QEMU paths, then report which step failed (warn-only, cached per configuration, with a recorded "continue anyway"). Version rules were dropped on purpose: this repository records no QEMU × GCC compatibility matrix, and inventing one would be guesswork (batch 3).
 6. **macOS / Linux support and a multi-OS CI matrix**.
 7. **Multi-VM parallelism**: more than one host-owned guest at a time.
 8. **Incremental snapshots and encryption**.

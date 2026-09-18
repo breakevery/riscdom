@@ -15,14 +15,16 @@ pub mod error;
 pub mod events;
 pub mod keyring;
 pub mod paths;
+pub mod preflight;
 pub mod session;
 pub mod settings;
 pub mod state;
 pub mod toolchain_download;
 
 pub use error::HostError;
-pub use events::EventSink;
+pub use events::{EventSink, EV_PREFLIGHT};
 pub use keyring::{KeyringBackend, OsKeyring, SERVICE};
+pub use preflight::{PreflightCache, PreflightRow, PreflightView};
 pub use session::{SessionMessage, SessionMeta, SessionStore};
 pub use state::{
     AgentOutcomeView, AppState, AuditStatusView, ChainStatusView, LlmConfigInput, LlmConfigStatus,

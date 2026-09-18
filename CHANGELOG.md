@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Environment capability preflight**: after the toolchain or QEMU path changes (and
+  on the first run with a stale cache) the host compiles a minimal guest and boots
+  it on the real paths, reporting which of the four steps failed. It is warn-only,
+  cached in `settings.json` against the configuration fingerprint, never writes to
+  the audit chain, and offers a recorded "continue anyway". Version-number rules
+  were deliberately not implemented: no QEMU × GCC compatibility matrix exists in
+  this repository (see `PROJECT_CONSTITUTION.md` §10).
+
 ## [0.3.1] - 2026-09-17
 
 ### Fixed

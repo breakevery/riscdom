@@ -35,6 +35,7 @@ fn save_then_load_round_trips() {
         toolchain_path: Some(
             r"C:\tools\riscv64-unknown-elf\bin\riscv64-unknown-elf-gcc.exe".into(),
         ),
+        preflight: None,
     };
     settings.save(&path).expect("save");
     assert!(path.is_file(), "{path:?}");

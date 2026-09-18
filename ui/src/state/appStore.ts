@@ -37,6 +37,12 @@ export interface AppStore {
   /** Native file pickers (v0.4 batch 2); the manual text entry stays available. */
   pickToolchainPath: () => Promise<void>;
   pickQemuPath: () => Promise<void>;
+  /** Environment preflight (v0.4 batch 3). */
+  preflight: api.PreflightView | null;
+  preflightStep: { step: string; state: string } | null;
+  refreshPreflight: () => Promise<void>;
+  runPreflight: () => Promise<void>;
+  acknowledgePreflight: () => Promise<void>;
   workspaceFiles: string[];
   refreshWorkspace: () => Promise<void>;
   // serial / vm (consumed by the canvas in stage 6c)
@@ -148,6 +154,11 @@ export function useAppStore(): AppStore {
   const [auditEvents, setAuditEvents] = useState<api.AuditEvent[]>([]);
   const [auditActorFilter, setAuditActorFilter] = useState("");
   const [runs, setRuns] = useState<api.RunView[]>([]);
+  const [preflight, setPreflight] = useState<api.PreflightView | null>(null);
+  const [preflightStep, setPreflightStep] = useState<{
+    step: string;
+    state: string;
+  } | null>(null);
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
   const [serial, setSerial] = useState("");
   const [vmState, setVmState] = useState("idle");
@@ -208,6 +219,33 @@ export function useAppStore(): AppStore {
   const refreshRuns = useCallback(async () => {
     try {
       setRuns(await api.listRuns(20));
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
+  // Environment preflight (v0.4 batch 3): the run itself is asynchronous, so the
+  // UI follows `preflight:progress` and re-reads the cached result at the end.
+  const refreshPreflight = useCallback(async () => {
+    try {
+      setPreflight(await api.preflightStatus());
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
+  const runPreflight = useCallback(async () => {
+    try {
+      setPreflightStep(null);
+      await api.runPreflight();
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
+  const acknowledgePreflight = useCallback(async () => {
+    try {
+      setPreflight(await api.acknowledgePreflight());
     } catch (e) {
       setLastError(String(e));
     }
@@ -565,6 +603,12 @@ export function useAppStore(): AppStore {
         }
         void refreshVmState();
       }),
+      api.onHostEvent("preflight:progress", (p) => {
+        const d = p as { step?: string; state?: string };
+        if (!d.step || !d.state) return;
+        setPreflightStep({ step: d.step, state: d.state });
+        if (d.step === "done") void refreshPreflight();
+      }),
       api.onToolchainDownload((event) => {
         setToolchainDownload((prev) => ({
           in_progress:
@@ -584,14 +628,15 @@ export function useAppStore(): AppStore {
       }),
     );
     return () => offs.forEach((f) => f());
-  }, [push, refreshAudit, refreshRuns, refreshWorkspace]);
+  }, [push, refreshAudit, refreshRuns, refreshPreflight, refreshWorkspace]);
 
   useEffect(() => {
     void refreshLlmStatus();
     void refreshAudit();
     void refreshRuns();
+    void refreshPreflight();
     void refreshWorkspace();
-  }, [refreshLlmStatus, refreshAudit, refreshRuns, refreshWorkspace]);
+  }, [refreshLlmStatus, refreshAudit, refreshRuns, refreshPreflight, refreshWorkspace]);
 
   const send = useCallback(
     async (input: string) => {
@@ -649,6 +694,11 @@ export function useAppStore(): AppStore {
     setToolchain: setToolchainPath,
     pickToolchainPath,
     pickQemuPath,
+    preflight,
+    preflightStep,
+    refreshPreflight,
+    runPreflight,
+    acknowledgePreflight,
     clearToolchain,
     qemu,
     refreshQemu,

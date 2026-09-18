@@ -98,3 +98,9 @@ In the app, the toolchain row should show a green dot with a source badge
 
 See also: [ENVIRONMENT.md](ENVIRONMENT.md) for the versions verified on this project's
 development machine.
+
+## Environment preflight
+
+Once a compiler is configured, RiscDom checks the whole environment by **using** it: it
+compiles a tiny guest and boots it with your QEMU, then reports which step failed. What it
+covers, when it runs, and the "continue anyway" escape hatch: [preflight.md](preflight.md).

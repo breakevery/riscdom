@@ -21,6 +21,10 @@ pub struct LocalSettings {
     /// Manual QEMU executable path; `None` means auto-discovery (v0.3 5b-1a).
     #[serde(default)]
     pub qemu_path: Option<String>,
+    /// Last environment capability preflight, bound to the configuration
+    /// fingerprint it was produced for (v0.4 batch 3).
+    #[serde(default)]
+    pub preflight: Option<crate::preflight::PreflightCache>,
 }
 
 impl Default for LocalSettings {
@@ -29,6 +33,7 @@ impl Default for LocalSettings {
             version: SETTINGS_VERSION,
             toolchain_path: None,
             qemu_path: None,
+            preflight: None,
         }
     }
 }

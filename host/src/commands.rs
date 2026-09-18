@@ -5,6 +5,7 @@
 
 use crate::events::TauriEventSink;
 use crate::events::TOOLCHAIN_DOWNLOAD;
+use crate::preflight::PreflightView;
 use crate::state::QemuView;
 use crate::state::{
     AgentOutcomeView, AppState, AuditStatusView, LlmConfigStatus, LlmReadiness, LocalProbeResult,
@@ -92,8 +93,15 @@ pub async fn get_qemu_status(state: State<'_, AppState>) -> Result<QemuView, Str
 
 /// Point the app at a specific QEMU binary (validated with `--version`).
 #[tauri::command]
-pub async fn set_qemu_path(state: State<'_, AppState>, path: String) -> Result<(), String> {
-    state.set_qemu_path(&path).map_err(|e| e.user_message())
+pub async fn set_qemu_path(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<(), String> {
+    state.set_qemu_path(&path).map_err(|e| e.user_message())?;
+    // Configuration changed: check the new environment in the background.
+    spawn_preflight(app);
+    Ok(())
 }
 
 /// Forget the manual QEMU path and go back to auto-discovery.
@@ -121,10 +129,17 @@ pub async fn probe_toolchain(state: State<'_, AppState>) -> Result<ToolchainView
 
 /// Point the app at a specific RISC-V GCC (validated with `--version`).
 #[tauri::command]
-pub async fn set_toolchain_path(state: State<'_, AppState>, path: String) -> Result<(), String> {
+pub async fn set_toolchain_path(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<(), String> {
     state
         .set_toolchain_path(&path)
-        .map_err(|e| e.user_message())
+        .map_err(|e| e.user_message())?;
+    // Configuration changed: check the new environment in the background.
+    spawn_preflight(app);
+    Ok(())
 }
 
 /// Forget the manual path and go back to auto-discovery.
@@ -214,6 +229,38 @@ pub async fn get_current_session_id(state: State<'_, AppState>) -> Result<Option
 #[tauri::command]
 pub async fn get_audit_status(state: State<'_, AppState>) -> Result<AuditStatusView, String> {
     state.audit_status().map_err(|e| e.user_message())
+}
+
+/// The environment preflight result for the current configuration (v0.4 batch 3).
+#[tauri::command]
+pub async fn preflight_status(state: State<'_, AppState>) -> Result<PreflightView, String> {
+    Ok(state.preflight_status())
+}
+
+/// Run the preflight now. Returns immediately; progress arrives as
+/// `preflight:progress` and the result is readable through `preflight_status`.
+#[tauri::command]
+pub async fn run_preflight(app: tauri::AppHandle) -> Result<(), String> {
+    spawn_preflight(app);
+    Ok(())
+}
+
+/// The escape hatch: accept this configuration as it is (recorded in settings).
+#[tauri::command]
+pub async fn acknowledge_preflight(state: State<'_, AppState>) -> Result<PreflightView, String> {
+    state.acknowledge_preflight().map_err(|e| e.user_message())
+}
+
+/// Kick off the preflight in the background: it compiles and boots a guest, so it
+/// must never run on the UI thread.
+fn spawn_preflight(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let emitter: Arc<dyn crate::events::EventSink> = Arc::new(TauriEventSink::new(app.clone()));
+        if let Err(e) = state.ensure_preflight(true, Some(emitter)) {
+            eprintln!("preflight failed: {e}");
+        }
+    });
 }
 
 /// Recent audit events (newest first), optionally filtered.

@@ -73,3 +73,9 @@ Running the guest needs the toolchain too — see [toolchain-setup.md](toolchain
   by QEMU (a known TOCTOU). RiscDom retries with fresh ports
   (`host.toolchain.download.*` and `sandbox.snapshot.resume.retry` audit events show it); a
   persistent failure means something else is wrong.
+
+## Environment preflight
+
+RiscDom does not compare version numbers: it boots a tiny guest with your QEMU (and the
+compiler you configured) and reports what actually happened. What it covers, when it runs,
+and the "continue anyway" escape hatch: [preflight.md](preflight.md).

@@ -84,6 +84,35 @@ export const listRuns = (limit = 20) =>
 export const getRun = (runId: string) =>
   invoke<RunView | null>("get_run", { runId });
 
+/** Environment preflight (v0.4 batch 3). */
+export interface PreflightRow {
+  step: string;
+  /** `ok` / `failed` / `not_run`. */
+  state: string;
+  detail: string | null;
+}
+
+export interface PreflightView {
+  ran: boolean;
+  fingerprint: string;
+  checked: boolean;
+  ok: boolean;
+  rows: PreflightRow[];
+  failed_step: string | null;
+  detail: string | null;
+  suggestion: string | null;
+  checked_at_ms: number | null;
+  overridden: boolean;
+}
+
+export const preflightStatus = () =>
+  invoke<PreflightView>("preflight_status");
+
+export const runPreflight = () => invoke<void>("run_preflight");
+
+export const acknowledgePreflight = () =>
+  invoke<PreflightView>("acknowledge_preflight");
+
 export const setLlmConfig = (
   apiKey: string,
   baseUrl: string,

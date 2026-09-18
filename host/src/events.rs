@@ -22,6 +22,8 @@ pub const EV_AGENT_STREAM_DELTA: &str = "agent:stream:delta";
 pub const EV_AGENT_STREAM_DONE: &str = "agent:stream:done";
 /// VM lifecycle change (start/stop/snapshot).
 pub const EV_VM_STATE: &str = "vm:state";
+/// Environment preflight progress (v0.4 batch 3).
+pub const EV_PREFLIGHT: &str = "preflight:progress";
 
 /// Anything that can deliver an event to the frontend.
 pub trait EventSink: Send + Sync {

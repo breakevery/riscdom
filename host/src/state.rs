@@ -1065,6 +1065,8 @@ impl AppState {
             g.toolchain_path = Some(p.display().to_string());
         }
         self.save_settings();
+        // The environment changed: the cached preflight no longer describes it.
+        self.clear_preflight_cache();
         self.emit_host(
             "host.toolchain.set",
             serde_json::json!({ "path": p.display().to_string(), "version": version }),
@@ -1133,6 +1135,8 @@ impl AppState {
             g.qemu_path = Some(p.display().to_string());
         }
         self.save_settings();
+        // The environment changed: the cached preflight no longer describes it.
+        self.clear_preflight_cache();
         self.emit_host(
             "host.qemu.set",
             serde_json::json!({ "path": p.display().to_string(), "version": version }),
@@ -1740,6 +1744,260 @@ impl AppState {
         Ok(Box::new(DeepSeekClient::new(config)?))
     }
 
+    // ----- Environment preflight (v0.4 batch 3) -----------------------------
+
+    /// Where the preflight guest is built (host-managed, never in the AI's area).
+    fn preflight_dir(&self) -> PathBuf {
+        self.workspace_root.join(".riscdom").join("preflight")
+    }
+
+    fn preflight_cache(&self) -> Option<crate::preflight::PreflightCache> {
+        self.settings.lock().ok().and_then(|s| s.preflight.clone())
+    }
+
+    /// The cached preflight for the **current** configuration, or an unchecked
+    /// view when the configuration changed since it ran.
+    pub fn preflight_status(&self) -> crate::preflight::PreflightView {
+        let fingerprint = audit::fingerprint(&self.run_fingerprint());
+        match self.preflight_cache() {
+            Some(cache) if cache.fingerprint == fingerprint => {
+                crate::preflight::PreflightView::from_cache(&cache, false)
+            }
+            _ => crate::preflight::PreflightView::unchecked(&fingerprint),
+        }
+    }
+
+    /// Run the preflight when the cache has no result for this configuration
+    /// (`force` runs it regardless). A cache hit does not touch the environment.
+    pub fn ensure_preflight(
+        &self,
+        force: bool,
+        emitter: Option<Arc<dyn EventSink>>,
+    ) -> Result<crate::preflight::PreflightView, HostError> {
+        let fingerprint = audit::fingerprint(&self.run_fingerprint());
+        if !force {
+            if let Some(cache) = self.preflight_cache() {
+                if cache.fingerprint == fingerprint {
+                    return Ok(crate::preflight::PreflightView::from_cache(&cache, false));
+                }
+            }
+        }
+        Ok(self.run_preflight_now(emitter))
+    }
+
+    /// Record the escape hatch: the user accepts this configuration as it is, so
+    /// the warning stops until the configuration changes again.
+    pub fn acknowledge_preflight(&self) -> Result<crate::preflight::PreflightView, HostError> {
+        let fingerprint = audit::fingerprint(&self.run_fingerprint());
+        let mut cache =
+            self.preflight_cache()
+                .unwrap_or_else(|| crate::preflight::PreflightCache {
+                    fingerprint: fingerprint.clone(),
+                    ok: false,
+                    failed_step: None,
+                    detail: None,
+                    suggestion: None,
+                    checked_at_ms: now_ms(),
+                    overridden: false,
+                });
+        cache.fingerprint = fingerprint;
+        cache.overridden = true;
+        if let Ok(mut settings) = self.settings.lock() {
+            settings.preflight = Some(cache.clone());
+        }
+        self.save_settings();
+        Ok(crate::preflight::PreflightView::from_cache(&cache, false))
+    }
+
+    /// Forget the cached preflight (the environment changed).
+    fn clear_preflight_cache(&self) {
+        if let Ok(mut settings) = self.settings.lock() {
+            settings.preflight = None;
+        }
+        self.save_settings();
+    }
+
+    /// The four checks, in order, fail-fast. Emits `preflight:progress` when an
+    /// emitter is given. **Never touches the audit chain** and never fails: a
+    /// broken environment is reported, not raised.
+    fn run_preflight_now(
+        &self,
+        emitter: Option<Arc<dyn EventSink>>,
+    ) -> crate::preflight::PreflightView {
+        use crate::preflight as pf;
+
+        let fingerprint = audit::fingerprint(&self.run_fingerprint());
+        let emit = |step: &str, state: &str, detail: Option<&str>| {
+            if let Some(sink) = &emitter {
+                sink.emit(
+                    crate::events::EV_PREFLIGHT,
+                    serde_json::json!({ "step": step, "state": state, "detail": detail }),
+                );
+            }
+        };
+
+        let outcome = (|| -> Result<(), (String, String, String)> {
+            // 1. the configured compiler runs and reports a version
+            emit(pf::STEP_GCC_RUNS, "running", None);
+            let compiler = self.toolchain_config();
+            let gcc = compiler.gcc.clone();
+            match toolchain_runs(&gcc) {
+                Ok(version) => emit(pf::STEP_GCC_RUNS, "ok", Some(&version)),
+                Err(e) => {
+                    let detail = format!("{} --version: {e}", gcc.display());
+                    emit(pf::STEP_GCC_RUNS, "failed", Some(&detail));
+                    return Err((
+                        pf::STEP_GCC_RUNS.to_string(),
+                        detail,
+                        pf::SUGGEST_GCC_RUNS.to_string(),
+                    ));
+                }
+            }
+
+            // 2. it compiles the preflight guest, in the real environment (the
+            //    host's own directory, the real toolchain path: long paths and
+            //    spaces fail here rather than later inside a run)
+            emit(pf::STEP_GCC_COMPILES, "running", None);
+            let dir = self.preflight_dir();
+            let build = std::fs::create_dir_all(&dir)
+                .map_err(|e| format!("preflight dir {}: {e}", dir.display()))
+                .and_then(|()| {
+                    let src = dir.join("guest.c");
+                    let elf = dir.join("guest.elf");
+                    std::fs::write(&src, pf::GUEST_SRC)
+                        .map_err(|e| format!("{}: {e}", src.display()))?;
+                    match agent::compile_freestanding(&compiler, &src, &elf) {
+                        Ok(out) if out.ok && elf.is_file() => Ok(elf),
+                        Ok(out) => Err(format!(
+                            "compiler said:\n{}\n{}",
+                            out.stderr.trim(),
+                            out.stdout.trim()
+                        )),
+                        Err(e) => Err(e.to_string()),
+                    }
+                });
+            let elf = match build {
+                Ok(elf) => {
+                    emit(
+                        pf::STEP_GCC_COMPILES,
+                        "ok",
+                        Some(&elf.display().to_string()),
+                    );
+                    elf
+                }
+                Err(detail) => {
+                    emit(pf::STEP_GCC_COMPILES, "failed", Some(&detail));
+                    return Err((
+                        pf::STEP_GCC_COMPILES.to_string(),
+                        detail,
+                        pf::SUGGEST_GCC_COMPILES.to_string(),
+                    ));
+                }
+            };
+
+            // 3. the configured QEMU runs
+            emit(pf::STEP_QEMU_RUNS, "running", None);
+            let qemu = self.probe_qemu();
+            let Some(qemu_path) = qemu.path.clone() else {
+                let detail = qemu.diagnostics.clone();
+                emit(pf::STEP_QEMU_RUNS, "failed", Some(&detail));
+                return Err((
+                    pf::STEP_QEMU_RUNS.to_string(),
+                    detail,
+                    pf::SUGGEST_QEMU_RUNS.to_string(),
+                ));
+            };
+            match toolchain_runs(Path::new(&qemu_path)) {
+                Ok(version) => emit(pf::STEP_QEMU_RUNS, "ok", Some(&version)),
+                Err(e) => {
+                    let detail = format!("{qemu_path} --version: {e}");
+                    emit(pf::STEP_QEMU_RUNS, "failed", Some(&detail));
+                    return Err((
+                        pf::STEP_QEMU_RUNS.to_string(),
+                        detail,
+                        pf::SUGGEST_QEMU_RUNS.to_string(),
+                    ));
+                }
+            }
+
+            // 4. it boots that guest and the banner arrives
+            emit(pf::STEP_GUEST_BOOTS, "running", None);
+            let booted = (|| -> Result<(), String> {
+                let config = VMConfig {
+                    kernel: elf.clone(),
+                    memory_mb: agent::VM_MEMORY_MB,
+                    qmp: QmpEndpoint::tcp(
+                        "127.0.0.1",
+                        sandbox::relay::free_local_port().map_err(|e| e.to_string())?,
+                    ),
+                    serial: SerialEndpoint::tcp(
+                        "127.0.0.1",
+                        sandbox::relay::free_local_port().map_err(|e| e.to_string())?,
+                    ),
+                    snapshot_dir: self.preflight_dir(),
+                    // No observer: the preflight must not feed the run's serial
+                    // stream, and must not touch the host-owned VM slot.
+                    serial_observer: None,
+                    incoming_snapshot: None,
+                    incoming_relay_addr: None,
+                    qemu_exe: Some(PathBuf::from(&qemu_path)),
+                };
+                let mut vm = RiscVVirtualMachine::new(config, Arc::clone(&self.sink))
+                    .map_err(|e| e.to_string())?;
+                let result = match vm.start() {
+                    Ok(()) => {
+                        crate::preflight::wait_for_banner(crate::preflight::BANNER_TIMEOUT, || {
+                            vm.serial_output()
+                        })
+                    }
+                    Err(e) => Err(format!("QEMU 未能启动：{e}")),
+                };
+                // Always clean up, whatever happened.
+                let _ = vm.stop();
+                result
+            })();
+            match booted {
+                Ok(()) => emit(pf::STEP_GUEST_BOOTS, "ok", Some(pf::BANNER)),
+                Err(detail) => {
+                    emit(pf::STEP_GUEST_BOOTS, "failed", Some(&detail));
+                    return Err((
+                        pf::STEP_GUEST_BOOTS.to_string(),
+                        detail,
+                        pf::SUGGEST_GUEST_BOOTS.to_string(),
+                    ));
+                }
+            }
+            Ok(())
+        })();
+
+        let cache = match outcome {
+            Ok(()) => pf::PreflightCache {
+                fingerprint,
+                ok: true,
+                failed_step: None,
+                detail: None,
+                suggestion: None,
+                checked_at_ms: now_ms(),
+                overridden: false,
+            },
+            Err((step, detail, suggestion)) => pf::PreflightCache {
+                fingerprint,
+                ok: false,
+                failed_step: Some(step),
+                detail: Some(detail),
+                suggestion: Some(suggestion),
+                checked_at_ms: now_ms(),
+                overridden: false,
+            },
+        };
+        if let Ok(mut settings) = self.settings.lock() {
+            settings.preflight = Some(cache.clone());
+        }
+        self.save_settings();
+        emit("done", if cache.ok { "ok" } else { "failed" }, None);
+        pf::PreflightView::from_cache(&cache, true)
+    }
+
     // ----- Audit ------------------------------------------------------------
 
     /// Event count + chain status.
@@ -2208,6 +2466,19 @@ impl AppState {
                 "qemu_missing\n{}",
                 qemu.diagnostics
             )));
+        }
+        // Environment preflight (v0.4 batch 3): warn-only, and only when the cache
+        // has no result for this configuration. It never fails the run — a broken
+        // environment surfaces through the run's own errors — and the user can
+        // inspect or bypass the warning in settings.
+        if let Ok(view) = self.ensure_preflight(false, Some(Arc::clone(&emitter))) {
+            if !view.ok && !view.overridden {
+                eprintln!(
+                    "preflight: {} — {}",
+                    view.failed_step.clone().unwrap_or_default(),
+                    view.detail.clone().unwrap_or_default()
+                );
+            }
         }
         let llm = self.build_llm()?;
         let policy = WorkspacePolicy::new(self.workspace_root.clone());
