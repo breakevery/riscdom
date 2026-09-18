@@ -363,6 +363,17 @@ fn the_fingerprint_is_stable_for_the_same_config_and_differs_otherwise() {
 }
 
 #[test]
+fn the_fingerprint_reads_the_machine_cpu_and_crt0_from_their_owners() {
+    // The values are not copies kept in the host: a change in the sandbox or the
+    // compiler reaches the fingerprint (v0.4 1e).
+    let state = AppState::in_memory(unique_dir("authority")).expect("state");
+    let fp = state.run_fingerprint();
+    assert_eq!(fp["vm"]["machine"], json!(sandbox::VM_MACHINE));
+    assert_eq!(fp["vm"]["cpu"], json!(sandbox::VM_CPU));
+    assert_eq!(fp["agent"]["crt0"], json!(agent::CRT0_INJECTED));
+}
+
+#[test]
 fn the_run_id_never_reaches_the_agent() {
     let (state, sink) = state_with("noid", boot_script());
     state

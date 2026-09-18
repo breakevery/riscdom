@@ -163,6 +163,12 @@ pub struct CompileOutput {
 }
 
 /// Minimal startup code injected into every build.
+///
+/// The injection is unconditional: every ELF built through [`compile_freestanding`]
+/// carries it, so a run's configuration fingerprint records the fact rather than
+/// a copy of a value that could drift (v0.4 1e).
+pub const CRT0_INJECTED: &str = "injected";
+
 const CRT0: &str = r#".section .text.start
 .global _start
 .type _start, @function

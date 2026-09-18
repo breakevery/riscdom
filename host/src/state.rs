@@ -35,16 +35,8 @@ pub const POLL_INTERVAL: Duration = Duration::from_millis(200);
 /// Guest RAM used by the agent's `start_vm` tool (kept in sync there).
 const VM_MEMORY_MB: u32 = 128;
 
-/// QEMU machine / cpu the sandbox boots (`sandbox::vm`'s `qemu_args` hardcodes
-/// them; mirrors are kept here so a run's fingerprint can name them).
-const VM_MACHINE: &str = "virt";
-const VM_CPU: &str = "rv64";
-
 /// The snapshot mechanism the host uses, as recorded in a run's fingerprint.
 const SNAPSHOT_MODE: &str = "tcp-relay";
-
-/// Marker for the compiler's unconditional crt0/`_start` injection.
-const CRT0_MARKER: &str = "injected";
 
 /// Epoch milliseconds (VM start bookkeeping).
 fn now_ms() -> i64 {
@@ -423,6 +415,10 @@ pub struct AppState {
     /// of this process. A restore after a restart cannot recover the producing
     /// run from the migration stream and records no parent (v0.4 1c).
     snapshot_producers: Mutex<HashMap<String, String>>,
+    /// How far the chain had grown when this process opened the store (v0.4 1e).
+    /// Runs starting beyond it belong to this process and may still be running,
+    /// so the abandoned-run hook never touches them.
+    startup_seq: i64,
 }
 
 /// Messages restored into a fresh `AgentLoop` (never the system prompt).
@@ -556,10 +552,18 @@ impl AppState {
         sessions: SessionStore,
     ) -> Self {
         let shared = Arc::new(Mutex::new(store));
+        // Everything the chain holds right now belongs to earlier processes (or
+        // to nothing at all): this is the boundary the abandoned-run hook uses.
+        let startup_seq = shared
+            .lock()
+            .ok()
+            .and_then(|store| store.all().ok())
+            .and_then(|events| events.last().map(|e| e.id))
+            .unwrap_or(0);
         let sink: Arc<Mutex<dyn AuditSink>> = Arc::new(Mutex::new(SqliteAuditSink::from_shared(
             Arc::clone(&shared),
         )));
-        Self {
+        let state = Self {
             audit: shared,
             sink,
             vm_slot: Arc::new(Mutex::new(None)),
@@ -584,7 +588,12 @@ impl AppState {
             current_run_id: Mutex::new(None),
             last_run_id: Mutex::new(None),
             snapshot_producers: Mutex::new(HashMap::new()),
-        }
+            startup_seq,
+        };
+        // Startup hook (v0.4 1e): make runs left open by a previous process
+        // legible. Best effort — it must never stop the app from starting.
+        let _ = state.abandon_stale_runs();
+        state
     }
 
     // ----- Snapshots --------------------------------------------------------
@@ -1860,13 +1869,15 @@ impl AppState {
                 "march": compiler.march,
                 "mabi": compiler.mabi,
                 "link_addr": compiler.link_addr,
-                "crt0": CRT0_MARKER,
+                "crt0": agent::CRT0_INJECTED,
                 "language_allowlist": policy.allowed_extensions,
             },
             "vm": {
                 "memory_mb": VM_MEMORY_MB,
-                "machine": VM_MACHINE,
-                "cpu": VM_CPU,
+                // The machine and the cpu come from the sandbox itself, so a
+                // change there cannot leave the fingerprint behind (v0.4 1e).
+                "machine": sandbox::VM_MACHINE,
+                "cpu": sandbox::VM_CPU,
                 "qemu_path": qemu.path.clone().unwrap_or_else(|| "unknown".into()),
                 "qemu_version": version_of(qemu.path.as_deref()),
                 "snapshot_mode": SNAPSHOT_MODE,
@@ -1956,6 +1967,60 @@ impl AppState {
                 *slot = None;
             }
         }
+    }
+
+    /// Abandon the runs a **previous** process left open (v0.4 1e).
+    ///
+    /// A run whose process disappeared keeps `end_seq = NULL` — nothing fabricates
+    /// an end — so without this hook such a run stays `open` for ever and has to be
+    /// recognised by hand. The hook appends one `host.run.abandoned` event per
+    /// stale run (an ordinary chained event) and rebuilds the derived index.
+    ///
+    /// Boundaries: runs started by **this** process (`start_seq > startup_seq`) are
+    /// never touched, because they may be running right now; a run the chain
+    /// already marks `abandoned` is skipped, so repeated starts do not append a
+    /// second marker; normally closed runs are skipped as well.
+    ///
+    /// Returns the ids it abandoned, oldest first.
+    pub fn abandon_stale_runs(&self) -> Result<Vec<String>, HostError> {
+        let runs = {
+            let store = self
+                .audit
+                .lock()
+                .map_err(|_| HostError::Other("audit mutex poisoned".into()))?;
+            let (runs, _) = store
+                .derive_runs()
+                .map_err(|e| HostError::Other(e.to_string()))?;
+            runs
+        };
+
+        let mut abandoned = Vec::new();
+        for run in runs {
+            if run.end_seq.is_some()
+                || run.status != audit::RunStatus::Open
+                || run.start_seq > self.startup_seq
+            {
+                continue;
+            }
+            let detail = serde_json::json!({
+                "run_id": run.run_id,
+                "detected_at_ms": now_ms(),
+            });
+            if self
+                .append_host_event(audit::ACTION_RUN_ABANDONED, detail)
+                .is_some()
+            {
+                abandoned.push(run.run_id);
+            }
+        }
+
+        if !abandoned.is_empty() {
+            // Keep the derived index in step with the chain we just extended.
+            if let Ok(mut store) = self.audit.lock() {
+                let _ = store.rebuild_run_index();
+            }
+        }
+        Ok(abandoned)
     }
 
     // ----- VM lifecycle -----------------------------------------------------

@@ -27,7 +27,7 @@ pub mod tools;
 pub use agent::{AgentLoop, AgentOutcome};
 pub use compiler::{
     compile_freestanding, CompileOutput, CompilerConfig, ToolchainError, ToolchainSource,
-    TOOLCHAIN_URL,
+    CRT0_INJECTED, TOOLCHAIN_URL,
 };
 pub use config::AgentConfig;
 pub use error::AgentError;

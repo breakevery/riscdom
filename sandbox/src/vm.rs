@@ -38,6 +38,17 @@ const QUIT_GRACE: Duration = Duration::from_secs(2);
 /// How long to wait for a migration (save) or an incoming restore to finish.
 const MIGRATE_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// QEMU machine the sandbox boots (`-machine`).
+///
+/// Exported so anything that has to *name* the machine for a run (the host's
+/// configuration fingerprint) reads one authority instead of copying the
+/// literal — a copy that silently goes stale when this changes (v0.4 1e).
+pub const VM_MACHINE: &str = "virt";
+
+/// CPU model the sandbox boots (`-cpu`); exported for the same reason as
+/// [`VM_MACHINE`].
+pub const VM_CPU: &str = "rv64";
+
 /// A serial observer callback: receives newly-read UART bytes as they arrive.
 pub type SerialObserver = Arc<dyn Fn(&[u8]) + Send + Sync>;
 
@@ -565,9 +576,9 @@ impl RiscVVirtualMachine {
     fn qemu_args(&self) -> Vec<String> {
         let mut args = vec![
             "-machine".into(),
-            "virt".into(),
+            VM_MACHINE.into(),
             "-cpu".into(),
-            "rv64".into(),
+            VM_CPU.into(),
             "-m".into(),
             format!("{}M", self.config.memory_mb),
             "-bios".into(),
