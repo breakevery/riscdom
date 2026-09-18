@@ -199,7 +199,9 @@ m. **[DONE]** 公开前完成中英双语文档
 
 1. **QEMU stdio（方案 3）与统一的 relay 端口租约**：彻底消除 QMP/串口的 TCP 端口依赖，
    relay 端口由单一租约分配。
-2. **阶段 5c-3：端到端失败路径诊断日志**（可选）：e2e 运行失败时提供更完整的诊断。
+2. **[DONE] 阶段 5c-3：端到端失败路径诊断日志**：运行失败时打印报告，点名第一个失败的步骤、该步骤的
+   原始输出、串口状态与链状态（`host/tests/diagnosis/`；怎么读见
+   [docs/e2e-debugging.md](docs/e2e-debugging.md)）。
 3. **引入 `tauri-plugin-dialog`**：用原生文件选择器选择工具链 / QEMU 路径，替代
    `window.prompt` 文本输入。
 4. **QEMU 一键下载或捆绑评估**（含 GPL 合规审查）。

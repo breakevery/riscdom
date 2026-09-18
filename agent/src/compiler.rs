@@ -402,7 +402,28 @@ pub fn compile_freestanding(
     out: &Path,
 ) -> Result<CompileOutput, AgentError> {
     let (crt0, link_ld) = write_build_files(&cfg.link_addr)?;
+    let build_dir = crt0.parent().map(Path::to_path_buf);
 
+    let compiled = run_gcc(cfg, &crt0, &link_ld, src, out);
+
+    // The injected files are scratch: gcc has read them by the time it returns, so
+    // the per-build directory goes away with the build — on success and on failure
+    // alike (v0.4 batch 3-followup-2: the unique path fixed the race but leaked a
+    // directory per compile). The ELF itself lives at `out`, which the caller owns.
+    if let Some(dir) = build_dir {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    compiled
+}
+
+/// Invoke the compiler once.
+fn run_gcc(
+    cfg: &CompilerConfig,
+    crt0: &Path,
+    link_ld: &Path,
+    src: &Path,
+    out: &Path,
+) -> Result<CompileOutput, AgentError> {
     let output = Command::new(&cfg.gcc)
         .arg(format!("-march={}", cfg.march))
         .arg(format!("-mabi={}", cfg.mabi))
@@ -411,10 +432,10 @@ pub fn compile_freestanding(
         .arg("-nostdlib")
         .arg("-nostartfiles")
         .arg("-T")
-        .arg(&link_ld)
+        .arg(link_ld)
         .arg("-o")
         .arg(out)
-        .arg(&crt0)
+        .arg(crt0)
         .arg(src)
         .output()
         .map_err(|e| {
@@ -434,12 +455,13 @@ pub fn compile_freestanding(
     })
 }
 
-/// Write the injected `crt0.S` and linker script to a shared build dir.
+/// Write the injected `crt0.S` and linker script into a **per-build** directory.
 ///
-/// Every call gets its **own** directory: builds are no longer single-threaded (a
-/// run may compile while the environment preflight compiles, and tests run in
-/// parallel), and sharing one path meant the loser of that race compiled against
-/// a half-written file (v0.4 batch 3-followup).
+/// Every call gets its own directory: builds are no longer single-threaded (a run
+/// may compile while the environment preflight compiles, and tests run in
+/// parallel), and sharing one path meant the loser of that race compiled against a
+/// half-written file (v0.4 batch 3-followup). The directory is scratch —
+/// `compile_freestanding` removes it when the build finishes.
 fn write_build_files(link_addr: &str) -> Result<(PathBuf, PathBuf), AgentError> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static SEQ: AtomicUsize = AtomicUsize::new(0);
@@ -457,13 +479,19 @@ fn write_build_files(link_addr: &str) -> Result<(PathBuf, PathBuf), AgentError> 
     let addr = parse_addr(link_addr)?;
     let stack = addr + 0x0800_0000; // 128 MiB above the load address
 
-    std::fs::write(&crt0, CRT0)?;
-    std::fs::write(
-        &link_ld,
-        LINK_LD
-            .replace("LINK_ADDR", &format!("0x{addr:08x}"))
-            .replace("STACK_ADDR", &format!("0x{stack:08x}")),
-    )?;
+    let written = std::fs::write(&crt0, CRT0).and_then(|()| {
+        std::fs::write(
+            &link_ld,
+            LINK_LD
+                .replace("LINK_ADDR", &format!("0x{addr:08x}"))
+                .replace("STACK_ADDR", &format!("0x{stack:08x}")),
+        )
+    });
+    if let Err(e) = written {
+        // Never leave a half-written build directory behind.
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(e.into());
+    }
     Ok((crt0, link_ld))
 }
 

@@ -122,6 +122,10 @@ Flaky tests cost real time, so diagnose the **layer** before adding any defence.
    designs (for port races that would be stdio transport) instead of adding more retries.
 6. **Clean up between runs.** Interrupted test runs leave `target/debug/deps/*.exe` locked, which
    surfaces as `link.exe 1104`; stop the leftovers before re-running a gate.
+7. **Read the run diagnosis.** An end-to-end run prints one on every attempt
+   (`cargo test -p host --test e2e_ui -- --ignored --nocapture`); it names the first failing
+   step and quotes that step's own output. What each line means:
+   [docs/e2e-debugging.md](docs/e2e-debugging.md).
 
 Docs are bilingual: the English file is the main document (for example `README.md`) and the
 Chinese translation lives alongside it as `*.zh-CN.md`, with a language switcher on the first

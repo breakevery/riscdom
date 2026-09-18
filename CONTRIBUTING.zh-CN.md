@@ -111,6 +111,9 @@ gate 非零退出时，包装脚本以 1 退出，**不会产生任何提交**�
    传输），而不是继续叠加重试。
 6. **轮次之间清理干净。** 被中断的测试会占用 `target/debug/deps/*.exe`，表现为
    `link.exe 1104`；重跑门禁前先清掉残留进程。
+7. **读运行诊断。** 端到端运行每次都会打印一份
+   （`cargo test -p host --test e2e_ui -- --ignored --nocapture`）：它点名第一个失败的步骤，并引用该
+   步骤自己的输出。每一行的含义见 [docs/e2e-debugging.md](docs/e2e-debugging.md)。
 
 文档双语：英文为主文档（如 `README.md`），中文译本同目录 `*.zh-CN.md`，
 首行加语言切换：

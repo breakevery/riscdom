@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **End-to-end failure-path diagnostics** (stage 5c-3): an end-to-end run now prints a report
+  naming the first failing step, that step's own output, the serial state (including “the
+  guest never printed anything”) and the audit-chain verdict. How to read it:
+  [docs/e2e-debugging.md](docs/e2e-debugging.md).
 - **Environment capability preflight**: after the toolchain or QEMU path changes (and
   on the first run with a stale cache) the host compiles a minimal guest and boots
   it on the real paths, reporting which of the four steps failed. It is warn-only,
@@ -21,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Build scratch directories are removed when the build finishes**: the per-build path fixed
+  the concurrency race but leaked one small directory per compile; success and failure both
+  clean up now.
 - **Concurrent builds no longer share files**: the injected `crt0.S` / linker script
   used to live at one fixed temporary path, so two builds running at once (a run and
   the preflight, or parallel tests) could compile against a half-written file. Every

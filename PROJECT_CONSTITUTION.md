@@ -229,8 +229,9 @@ m. **[DONE]** Bilingual (English/Chinese) docs before going public
 
 1. **QEMU stdio (option 3) and a unified relay-port lease**: remove the TCP port dependency for
    QMP/serial altogether and hand out relay ports through a single lease.
-2. **Stage 5c-3: end-to-end failure-path diagnostics** (optional): richer logs when the e2e run
-   fails.
+2. **[DONE] Stage 5c-3: end-to-end failure-path diagnostics**: a failed run prints a report
+   naming the first failing step, that step's own output, the serial state and the chain
+   verdict (`host/tests/diagnosis/`; how to read it: [docs/e2e-debugging.md](docs/e2e-debugging.md)).
 3. **`tauri-plugin-dialog`**: a native file picker for toolchain / QEMU paths, replacing the
    `window.prompt` text input.
 4. **QEMU one-click download or bundling** (with a GPL compliance review).
