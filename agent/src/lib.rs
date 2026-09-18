@@ -27,7 +27,7 @@ pub mod tools;
 pub use agent::{AgentLoop, AgentOutcome};
 pub use compiler::{
     compile_freestanding, CompileOutput, CompilerConfig, ToolchainError, ToolchainSource,
-    CRT0_INJECTED, TOOLCHAIN_URL,
+    CRT0_INJECTED, GCC_NAMES, TOOLCHAIN_URL,
 };
 pub use config::AgentConfig;
 pub use error::AgentError;
@@ -38,4 +38,4 @@ pub use message::{
 pub use policy::WorkspacePolicy;
 pub use presets::{builtin_presets, find_preset, ProviderPreset, DEFAULT_PRESET_ID};
 pub use prompt::build_system_prompt;
-pub use tools::{execute_tool, tool_specs, tools_json, ToolContext, ToolSpec};
+pub use tools::{execute_tool, tool_specs, tools_json, ToolContext, ToolSpec, VM_MEMORY_MB};

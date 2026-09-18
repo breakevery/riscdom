@@ -370,6 +370,7 @@ fn the_fingerprint_reads_the_machine_cpu_and_crt0_from_their_owners() {
     let fp = state.run_fingerprint();
     assert_eq!(fp["vm"]["machine"], json!(sandbox::VM_MACHINE));
     assert_eq!(fp["vm"]["cpu"], json!(sandbox::VM_CPU));
+    assert_eq!(fp["vm"]["memory_mb"], json!(agent::VM_MEMORY_MB));
     assert_eq!(fp["agent"]["crt0"], json!(agent::CRT0_INJECTED));
 }
 

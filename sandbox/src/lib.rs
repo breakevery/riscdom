@@ -52,4 +52,6 @@ pub use error::SandboxError;
 pub use platform::{QmpEndpoint, SerialEndpoint};
 pub use qemu_discover::{discover as discover_qemu, QemuDiscoverError, QemuLocation, QemuSource};
 pub use qmp::QmpClient;
-pub use vm::{RiscVVirtualMachine, VMConfig, VM_CPU, VM_MACHINE};
+pub use vm::{
+    RiscVVirtualMachine, VMConfig, SNAPSHOT_JSON_EXT, SNAPSHOT_MIG_EXT, VM_CPU, VM_MACHINE,
+};

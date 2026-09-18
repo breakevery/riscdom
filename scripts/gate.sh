@@ -40,6 +40,9 @@ echo "==> ui probes (scroll / layout)"
 node ui/scripts/probe-ui-scroll.mjs || fail "ui probe (chat scroll)"
 node ui/scripts/probe-ui-width.mjs || fail "ui probe (pane layout)"
 
+echo "==> mirrored constants (host/src)"
+node scripts/check-mirrored-constants.mjs || fail "mirrored constants"
+
 echo "==> bilingual doc links"
 sh scripts/check-bilingual.sh || fail "bilingual links"
 

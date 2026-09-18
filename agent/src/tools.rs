@@ -23,7 +23,11 @@ use std::time::{Duration, Instant};
 pub const MAX_TOOL_RESULT: usize = 8 * 1024;
 
 /// Guest memory size for agent-started VMs (MiB).
-const VM_MEMORY_MB: u32 = 128;
+///
+/// Exported because the host has to name the same value (a run's fingerprint, and
+/// the VM a snapshot restore boots), and a second copy would drift silently
+/// (v0.4 1e-followup).
+pub const VM_MEMORY_MB: u32 = 128;
 
 /// How long `read_serial` waits for the first UART output before returning.
 /// How long `read_serial` waits for the guest's **first** bytes.

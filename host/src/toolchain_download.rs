@@ -115,9 +115,6 @@ impl ToolchainDownloadError {
     }
 }
 
-/// Executable names we accept inside an extracted archive.
-const GCC_NAMES: [&str; 2] = ["riscv-none-elf-gcc", "riscv64-unknown-elf-gcc"];
-
 /// Official SHA-256 values, taken from the `<asset>.sha` files published next to
 /// the archives in the v15.2.0-1 release (and matching GitHub's own asset
 /// digests).
@@ -442,10 +439,14 @@ fn find_compiler(dir: &Path) -> Option<PathBuf> {
     walk(dir, 0)
 }
 
-fn is_compiler_name(path: &Path) -> bool {
+/// Does `path` name one of the RISC-V GCC executables?
+///
+/// The list comes from the agent (the crate that discovers and runs the compiler),
+/// so the host does not keep a second copy of the names (v0.4 1e-followup).
+pub fn is_compiler_name(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
     let stem = name.strip_suffix(".exe").unwrap_or(name);
-    GCC_NAMES.contains(&stem)
+    agent::GCC_NAMES.contains(&stem)
 }

@@ -49,6 +49,15 @@ pub const VM_MACHINE: &str = "virt";
 /// [`VM_MACHINE`].
 pub const VM_CPU: &str = "rv64";
 
+/// Extension of a real snapshot file (a migration stream): `<name>.mig`.
+///
+/// Exported because the host lists, saves and restores those files, and the file
+/// format belongs to the sandbox (v0.4 1e-followup).
+pub const SNAPSHOT_MIG_EXT: &str = "mig";
+
+/// Extension of the reboot-fallback snapshot file: `<name>.json`.
+pub const SNAPSHOT_JSON_EXT: &str = "json";
+
 /// A serial observer callback: receives newly-read UART bytes as they arrive.
 pub type SerialObserver = Arc<dyn Fn(&[u8]) + Send + Sync>;
 
@@ -440,7 +449,10 @@ impl RiscVVirtualMachine {
     pub fn save_snapshot_real(&mut self, name: &str) -> Result<(), SandboxError> {
         std::fs::create_dir_all(&self.config.snapshot_dir)
             .map_err(|e| SandboxError::Snapshot(e.to_string()))?;
-        let path = self.config.snapshot_dir.join(format!("{name}.mig"));
+        let path = self
+            .config
+            .snapshot_dir
+            .join(format!("{name}.{SNAPSHOT_MIG_EXT}"));
         if path.exists() {
             return Err(SandboxError::Snapshot(format!(
                 "snapshot already exists: {} (refusing to overwrite)",
@@ -562,7 +574,9 @@ impl RiscVVirtualMachine {
     }
 
     fn snapshot_path(&self, name: &str) -> PathBuf {
-        self.config.snapshot_dir.join(format!("{name}.json"))
+        self.config
+            .snapshot_dir
+            .join(format!("{name}.{SNAPSHOT_JSON_EXT}"))
     }
 
     /// Record an audit event (best-effort: never fails the caller).

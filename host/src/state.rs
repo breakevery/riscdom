@@ -32,11 +32,12 @@ const CONSTITUTION: &str = include_str!("../../AGENTS.md");
 /// Poll interval for the audit/serial bridge.
 pub const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
-/// Guest RAM used by the agent's `start_vm` tool (kept in sync there).
-const VM_MEMORY_MB: u32 = 128;
-
-/// The snapshot mechanism the host uses, as recorded in a run's fingerprint.
+/// The snapshot mechanism the host uses, as recorded in a run's fingerprint and
+/// in the snapshot listing.
 const SNAPSHOT_MODE: &str = "tcp-relay";
+
+/// The older reboot-fallback snapshots the host still lists and deletes.
+const SNAPSHOT_FALLBACK_MODE: &str = "reboot-fallback";
 
 /// Epoch milliseconds (VM start bookkeeping).
 fn now_ms() -> i64 {
@@ -617,19 +618,19 @@ impl AppState {
                 continue;
             }
             let (name, mode) = match path.extension().and_then(|e| e.to_str()) {
-                Some("mig") => (
+                Some(sandbox::SNAPSHOT_MIG_EXT) => (
                     path.file_stem()
                         .unwrap_or_default()
                         .to_string_lossy()
                         .to_string(),
-                    "tcp-relay",
+                    SNAPSHOT_MODE,
                 ),
-                Some("json") => (
+                Some(sandbox::SNAPSHOT_JSON_EXT) => (
                     path.file_stem()
                         .unwrap_or_default()
                         .to_string_lossy()
                         .to_string(),
-                    "reboot-fallback",
+                    SNAPSHOT_FALLBACK_MODE,
                 ),
                 _ => continue,
             };
@@ -655,7 +656,7 @@ impl AppState {
     pub fn delete_snapshot(&self, name: &str) -> Result<bool, HostError> {
         let dir = self.snapshot_dir();
         let mut removed = false;
-        for ext in ["mig", "json"] {
+        for ext in [sandbox::SNAPSHOT_MIG_EXT, sandbox::SNAPSHOT_JSON_EXT] {
             let path = dir.join(format!("{name}.{ext}"));
             if path.is_file() {
                 std::fs::remove_file(&path)?;
@@ -722,9 +723,12 @@ impl AppState {
             vm.save_snapshot_real(name)
                 .map_err(|e| HostError::Other(e.to_string()))?;
         }
-        let bytes = std::fs::metadata(self.snapshot_dir().join(format!("{name}.mig")))
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let bytes = std::fs::metadata(
+            self.snapshot_dir()
+                .join(format!("{name}.{}", sandbox::SNAPSHOT_MIG_EXT)),
+        )
+        .map(|m| m.len())
+        .unwrap_or(0);
         // Remember which run produced this snapshot, so a restore later in this
         // process can link to it (v0.4 1c). The VM outlives a run, so the run to
         // link to is the most recent one, not necessarily an in-flight run.
@@ -741,7 +745,7 @@ impl AppState {
         }
         self.emit_host(
             "host.snapshot.save",
-            serde_json::json!({ "name": name, "bytes": bytes, "mode": "tcp-relay" }),
+            serde_json::json!({ "name": name, "bytes": bytes, "mode": SNAPSHOT_MODE }),
         );
         Ok(bytes)
     }
@@ -752,7 +756,9 @@ impl AppState {
     /// slot so the next run keeps using it.
     pub fn resume_from_snapshot_real(&self, name: &str) -> Result<(), HostError> {
         Self::validate_snapshot_name(name)?;
-        let path = self.snapshot_dir().join(format!("{name}.mig"));
+        let path = self
+            .snapshot_dir()
+            .join(format!("{name}.{}", sandbox::SNAPSHOT_MIG_EXT));
         if !path.is_file() {
             return Err(HostError::Other(format!("snapshot not found: {name}")));
         }
@@ -770,7 +776,7 @@ impl AppState {
         let restored = (|| -> Result<(), HostError> {
             let config = VMConfig {
                 kernel: self.resume_kernel()?,
-                memory_mb: VM_MEMORY_MB,
+                memory_mb: agent::VM_MEMORY_MB,
                 qmp: QmpEndpoint::tcp(
                     "127.0.0.1",
                     sandbox::relay::free_local_port()
@@ -1873,7 +1879,9 @@ impl AppState {
                 "language_allowlist": policy.allowed_extensions,
             },
             "vm": {
-                "memory_mb": VM_MEMORY_MB,
+                // Guest RAM comes from the agent (the crate that boots the guest),
+                // so a change there cannot leave the fingerprint behind.
+                "memory_mb": agent::VM_MEMORY_MB,
                 // The machine and the cpu come from the sandbox itself, so a
                 // change there cannot leave the fingerprint behind (v0.4 1e).
                 "machine": sandbox::VM_MACHINE,

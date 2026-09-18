@@ -81,7 +81,11 @@ pub struct CompilerConfig {
 }
 
 /// Executable names we accept, in preference order (xPack ships the `riscv-none-elf-` prefix).
-const GCC_NAMES: [&str; 2] = ["riscv64-unknown-elf-gcc", "riscv-none-elf-gcc"];
+///
+/// Exported so that a consumer which has to recognise one of these executables (the
+/// host, when it installs a downloaded archive) matches the same list instead of
+/// keeping its own copy (v0.4 1e-followup).
+pub const GCC_NAMES: [&str; 2] = ["riscv64-unknown-elf-gcc", "riscv-none-elf-gcc"];
 
 /// Environment variables consulted, in priority order.
 const GCC_ENV_VARS: [&str; 2] = ["RISCDOM_RISCV_GCC", "RISCV_GCC"];

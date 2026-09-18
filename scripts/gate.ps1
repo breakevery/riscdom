@@ -52,6 +52,10 @@ if ($LASTEXITCODE -ne 0) { Fail "ui probe (chat scroll)" }
 node ui/scripts/probe-ui-width.mjs
 if ($LASTEXITCODE -ne 0) { Fail "ui probe (pane layout)" }
 
+Write-Host "==> mirrored constants (host/src)"
+node scripts/check-mirrored-constants.mjs
+if ($LASTEXITCODE -ne 0) { Fail "mirrored constants" }
+
 Write-Host "==> bilingual doc links"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-bilingual.ps1
 if ($LASTEXITCODE -ne 0) { Fail "bilingual links" }
