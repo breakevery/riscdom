@@ -201,6 +201,102 @@ fn the_escape_hatch_is_recorded_and_stops_the_warning() {
     assert!(status.overridden && !status.needs_override());
 }
 
+/// A "compiler" that answers `--version` and hangs on every real invocation
+/// (v0.4 batch 3-followup: the guard's timeout path).
+#[cfg(target_os = "windows")]
+fn write_slow_compiler(dir: &Path) -> PathBuf {
+    let path = dir.join("slow-gcc.cmd");
+    std::fs::write(
+        &path,
+        "@echo off\r\nif \"%~1\"==\"--version\" (echo slow-gcc 0.0.0 & exit /b 0)\r\nping -n 60 127.0.0.1 >nul\r\nexit /b 1\r\n",
+    )
+    .expect("write fake compiler");
+    path
+}
+
+/// Are any of this process's compiler children still alive?
+#[cfg(target_os = "windows")]
+fn compiler_children_running(gcc: &Path) -> bool {
+    let name = gcc
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let script = format!(
+        "@(Get-CimInstance Win32_Process -Filter \"ParentProcessId={pid}\" | Where-Object {{ $_.Name -eq '{name}' -or $_.Name -eq 'cmd.exe' }}).Count",
+        pid = std::process::id()
+    );
+    match std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+    {
+        Ok(out) => {
+            String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .parse::<usize>()
+                .unwrap_or(0)
+                > 0
+        }
+        // No shell to ask: the assertion is best-effort by design.
+        Err(_) => false,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn wait_until_no_compiler_children(gcc: &Path, timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if !compiler_children_running(gcc) {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
+
+#[test]
+#[cfg(target_os = "windows")]
+fn a_compiler_that_overruns_is_stopped_and_reported() {
+    let dir = unique_dir("slowgcc");
+    let fake = write_slow_compiler(&dir);
+    let state = AppState::in_memory(&dir).expect("state");
+    state
+        .set_toolchain_path(&fake.display().to_string())
+        .expect("the fake answers --version, so it is accepted");
+
+    let started = std::time::Instant::now();
+    let view = state
+        .ensure_preflight_with(
+            true,
+            None,
+            host::preflight::PreflightOptions {
+                compile_timeout: std::time::Duration::from_secs(3),
+            },
+        )
+        .expect("preflight");
+    let elapsed = started.elapsed();
+
+    assert!(!view.ok);
+    assert_eq!(view.failed_step.as_deref(), Some(STEP_GCC_COMPILES));
+    let detail = view.detail.clone().unwrap_or_default();
+    assert!(
+        detail.contains("超过 3 秒"),
+        "the report must name the timeout: {detail}"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(20),
+        "the guard must not wait for the compiler: {elapsed:?}"
+    );
+
+    // And it really stops it: no compiler child of ours is left running.
+    assert!(
+        wait_until_no_compiler_children(&fake, std::time::Duration::from_secs(10)),
+        "the overrunning compiler must be stopped"
+    );
+}
+
 #[test]
 fn the_status_reports_unchecked_before_anything_ran() {
     let state = state("fresh");

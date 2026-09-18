@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   were deliberately not implemented: no QEMU × GCC compatibility matrix exists in
   this repository (see `PROJECT_CONSTITUTION.md` §10).
 
+### Fixed
+
+- **Concurrent builds no longer share files**: the injected `crt0.S` / linker script
+  used to live at one fixed temporary path, so two builds running at once (a run and
+  the preflight, or parallel tests) could compile against a half-written file. Every
+  build now gets its own directory.
+- **The preflight's compile step has a guard**: a compiler that has not answered within
+  30 s is stopped and reported as a timeout, instead of hanging the panel.
+
 ## [0.3.1] - 2026-09-17
 
 ### Fixed

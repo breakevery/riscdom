@@ -112,7 +112,9 @@ mod tests {
     use std::path::PathBuf;
 
     fn policy() -> (WorkspacePolicy, PathBuf) {
-        let root = std::env::temp_dir().join("riscdom-policy-test");
+        // Unique per process: a fixed shared root made two test binaries fight
+        // over the same directory (v0.4 batch 3-followup).
+        let root = std::env::temp_dir().join(format!("riscdom-policy-test-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         (WorkspacePolicy::new(root.clone()), root)
     }

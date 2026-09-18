@@ -1774,6 +1774,21 @@ impl AppState {
         force: bool,
         emitter: Option<Arc<dyn EventSink>>,
     ) -> Result<crate::preflight::PreflightView, HostError> {
+        self.ensure_preflight_with(
+            force,
+            emitter,
+            crate::preflight::PreflightOptions::default(),
+        )
+    }
+
+    /// [`Self::ensure_preflight`] with explicit options (the compile guard's
+    /// budget is the interesting one).
+    pub fn ensure_preflight_with(
+        &self,
+        force: bool,
+        emitter: Option<Arc<dyn EventSink>>,
+        options: crate::preflight::PreflightOptions,
+    ) -> Result<crate::preflight::PreflightView, HostError> {
         let fingerprint = audit::fingerprint(&self.run_fingerprint());
         if !force {
             if let Some(cache) = self.preflight_cache() {
@@ -1782,7 +1797,7 @@ impl AppState {
                 }
             }
         }
-        Ok(self.run_preflight_now(emitter))
+        Ok(self.run_preflight_now(emitter, options))
     }
 
     /// Record the escape hatch: the user accepts this configuration as it is, so
@@ -1817,12 +1832,87 @@ impl AppState {
         self.save_settings();
     }
 
+    /// Compile the preflight guest, but never wait longer than `budget`.
+    ///
+    /// `agent::compile_freestanding` owns its child process, so the guard runs it
+    /// on a worker thread and, when the budget expires, stops the compiler
+    /// processes **this** process started and reports the timeout (v0.4 batch
+    /// 3-followup). The agent's compile path itself is untouched.
+    fn compile_with_guard(
+        &self,
+        compiler: &agent::CompilerConfig,
+        src: &Path,
+        elf: &Path,
+        budget: Duration,
+    ) -> Result<(), String> {
+        let gcc = compiler.gcc.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let thread_compiler = compiler.clone();
+        let thread_src = src.to_path_buf();
+        let thread_elf = elf.to_path_buf();
+        std::thread::spawn(move || {
+            let _ = tx.send(agent::compile_freestanding(
+                &thread_compiler,
+                &thread_src,
+                &thread_elf,
+            ));
+        });
+
+        match rx.recv_timeout(budget) {
+            Ok(Ok(out)) if out.ok && elf.is_file() => Ok(()),
+            Ok(Ok(out)) => Err(format!(
+                "compiler said:\n{}\n{}",
+                out.stderr.trim(),
+                out.stdout.trim()
+            )),
+            Ok(Err(e)) => Err(e.to_string()),
+            Err(_) => {
+                Self::kill_compiler_children(&gcc);
+                Err(format!(
+                    "编译器超过 {} 秒没有返回，已终止该进程（可能是二进制损坏、包装脚本卡住，或路径有问题）",
+                    budget.as_secs()
+                ))
+            }
+        }
+    }
+
+    /// Stop the compiler processes **this** process started.
+    ///
+    /// Scoped to direct children of the host whose image name is the configured
+    /// compiler's (or `cmd.exe`, for a batch-file wrapper), so a QEMU guest the
+    /// host also owns is never touched. Best effort: the guard's job is to report
+    /// the timeout, not to guarantee an OS-level cleanup.
+    fn kill_compiler_children(gcc: &Path) {
+        let Some(name) = gcc.file_name().and_then(|n| n.to_str()) else {
+            return;
+        };
+        #[cfg(target_os = "windows")]
+        {
+            let script = format!(
+                "$names = @('{name}','cmd.exe'); Get-CimInstance Win32_Process -Filter \"ParentProcessId={pid}\" | Where-Object {{ $names -contains $_.Name }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}",
+                pid = std::process::id()
+            );
+            let _ = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = std::process::Command::new("pkill")
+                .args(["-P", &std::process::id().to_string(), "-x", name])
+                .status();
+        }
+    }
+
     /// The four checks, in order, fail-fast. Emits `preflight:progress` when an
     /// emitter is given. **Never touches the audit chain** and never fails: a
     /// broken environment is reported, not raised.
     fn run_preflight_now(
         &self,
         emitter: Option<Arc<dyn EventSink>>,
+        options: crate::preflight::PreflightOptions,
     ) -> crate::preflight::PreflightView {
         use crate::preflight as pf;
 
@@ -1866,14 +1956,9 @@ impl AppState {
                     let elf = dir.join("guest.elf");
                     std::fs::write(&src, pf::GUEST_SRC)
                         .map_err(|e| format!("{}: {e}", src.display()))?;
-                    match agent::compile_freestanding(&compiler, &src, &elf) {
-                        Ok(out) if out.ok && elf.is_file() => Ok(elf),
-                        Ok(out) => Err(format!(
-                            "compiler said:\n{}\n{}",
-                            out.stderr.trim(),
-                            out.stdout.trim()
-                        )),
-                        Err(e) => Err(e.to_string()),
+                    match self.compile_with_guard(&compiler, &src, &elf, options.compile_timeout) {
+                        Ok(()) => Ok(elf),
+                        Err(detail) => Err(detail),
                     }
                 });
             let elf = match build {

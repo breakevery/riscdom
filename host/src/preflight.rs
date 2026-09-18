@@ -26,6 +26,30 @@ pub const BANNER_TIMEOUT: Duration = Duration::from_secs(10);
 /// How often the serial buffer is polled while waiting for the banner.
 pub const BANNER_POLL: Duration = Duration::from_millis(50);
 
+/// How long the compile step may take before the guard gives up on it.
+///
+/// A compiler that has not answered in this long is not going to (a damaged
+/// binary, a wrapper waiting on input, a path the OS is choking on), and the
+/// preflight must not hang the panel behind it (v0.4 batch 3-followup).
+pub const COMPILE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Options for one preflight run.
+///
+/// The compile timeout is a parameter rather than a constant read inside the
+/// runner, so the guard's timeout path can be exercised without waiting 30 s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PreflightOptions {
+    pub compile_timeout: Duration,
+}
+
+impl Default for PreflightOptions {
+    fn default() -> Self {
+        Self {
+            compile_timeout: COMPILE_TIMEOUT,
+        }
+    }
+}
+
 /// The guest: four lines, one banner, nothing else to go wrong.
 pub const GUEST_SRC: &str = r#"/* Preflight guest (v0.4): print a banner and spin. */
 #define UART0 0x10000000UL
@@ -223,6 +247,18 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_default_compile_budget_is_generous_but_bounded() {
+        let options = PreflightOptions::default();
+        assert_eq!(options.compile_timeout, COMPILE_TIMEOUT);
+        assert!(
+            options.compile_timeout >= Duration::from_secs(10)
+                && options.compile_timeout <= Duration::from_secs(120),
+            "a real compile needs room, a hang needs a ceiling: {:?}",
+            options.compile_timeout
+        );
+    }
 
     #[test]
     fn the_guest_is_short_and_prints_the_banner() {

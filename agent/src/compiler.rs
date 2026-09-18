@@ -436,10 +436,19 @@ pub fn compile_freestanding(
 
 /// Write the injected `crt0.S` and linker script to a shared build dir.
 ///
-/// The directory is deterministic (overwritten per build) to avoid needing
-/// cleanup; compiles are single-threaded in the MVP.
+/// Every call gets its **own** directory: builds are no longer single-threaded (a
+/// run may compile while the environment preflight compiles, and tests run in
+/// parallel), and sharing one path meant the loser of that race compiled against
+/// a half-written file (v0.4 batch 3-followup).
 fn write_build_files(link_addr: &str) -> Result<(PathBuf, PathBuf), AgentError> {
-    let dir = std::env::temp_dir().join("riscdom-build");
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static SEQ: AtomicUsize = AtomicUsize::new(0);
+
+    let dir = std::env::temp_dir().join(format!(
+        "riscdom-build-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
     std::fs::create_dir_all(&dir)?;
 
     let crt0 = dir.join("crt0.S");
@@ -477,7 +486,10 @@ mod tests {
     #[test]
     fn compiles_hello_fixture() {
         let cfg = CompilerConfig::from_env();
-        let out = std::env::temp_dir().join("riscdom-build-test-hello.elf");
+        let out = std::env::temp_dir().join(format!(
+            "riscdom-build-test-hello-{}.elf",
+            std::process::id()
+        ));
         let result = compile_freestanding(&cfg, &fixture("hello.c"), &out).expect("run gcc");
         assert!(
             result.ok,
@@ -490,7 +502,8 @@ mod tests {
     #[test]
     fn reports_compile_failure_without_panicking() {
         let cfg = CompilerConfig::from_env();
-        let out = std::env::temp_dir().join("riscdom-build-test-bad.elf");
+        let out =
+            std::env::temp_dir().join(format!("riscdom-build-test-bad-{}.elf", std::process::id()));
         let result = compile_freestanding(&cfg, &fixture("broken.c"), &out).expect("run gcc");
         assert!(!result.ok, "broken source must not compile");
         assert!(
