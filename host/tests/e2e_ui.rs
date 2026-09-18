@@ -13,6 +13,8 @@
 //!
 //! Requires QEMU and the RISC-V toolchain (same as the agent e2e test).
 
+mod diagnosis;
+
 use agent::llm::MockLlm;
 use agent::message::{ChatMessage, ChatResponse, Choice, FunctionCall, ToolCall};
 use host::events::{RecordingEventSink, EV_AGENT_FINAL, EV_AGENT_TOOL_CALL, EV_SERIAL_CHUNK};
@@ -103,12 +105,20 @@ fn e2e_ui_mock_run_emits_final_and_serial() {
     state
         .start_serial_forwarder(sink.clone() as Arc<dyn host::EventSink>)
         .expect("serial forwarder");
-    let outcome = state
-        .run_agent(
-            sink.clone() as Arc<dyn host::EventSink>,
-            "写一个 RISC-V 裸机 Hello World",
-        )
-        .expect("run_agent");
+    let result = state.run_agent(
+        sink.clone() as Arc<dyn host::EventSink>,
+        "写一个 RISC-V 裸机 Hello World",
+    );
+
+    // Stage 5c-3: print where the run got to, so a failure names the step that
+    // broke and what it said, instead of only which assertion noticed.
+    let host_error = result.as_ref().err().map(|e| e.to_string());
+    println!(
+        "{}",
+        diagnosis::report(&state, &sink, result.as_ref().ok(), host_error.as_deref())
+    );
+
+    let outcome = result.expect("run_agent");
 
     println!("outcome: {outcome:?}");
     println!("--- serial:chunk events ---");
