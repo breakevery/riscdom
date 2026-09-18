@@ -27,7 +27,7 @@
   align-items: center;
   gap: 6px;
   padding: 4px 0;
-  border-bottom: 1px solid #1b2029;
+  border-bottom: 1px solid var(--rule);
 }
 
 .session-list li.active .link {
@@ -53,9 +53,9 @@
   flex: 1 1 auto;
 }
 .msg.system {
-  background: #1f2d3d;
-  border: 1px solid #2d4257;
-  color: #a9c7e8;
+  background: var(--sys-bg);
+  border: 1px solid var(--sys-border);
+  color: var(--sys-fg);
   font-size: 12px;
 }
 
@@ -85,15 +85,15 @@
 }
 
 .banner.warn {
-  background: #3a2f10;
-  border: 1px solid #6b531d;
-  color: #f0d48a;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn-fg);
 }
 
 .banner.info {
-  background: #10314a;
-  border: 1px solid #1f6feb66;
-  color: #a9d3ff;
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  color: var(--info-fg);
 }
 
 .field-error {
@@ -133,8 +133,8 @@
 }
 
 .msg.user {
-  background: #1f6feb33;
-  border: 1px solid #1f6feb55;
+  background: var(--user-bg);
+  border: 1px solid var(--user-border);
   align-self: flex-end;
 }
 
@@ -144,8 +144,8 @@
 }
 
 .msg.tool {
-  background: #2b241433;
-  border: 1px solid #6b531d;
+  background: var(--tool-bg);
+  border: 1px solid var(--tool-border);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
 }
@@ -218,7 +218,7 @@
 }
 
 .dot.off {
-  background: #6e7681;
+  background: var(--off);
 }
 
 .file-list,
@@ -242,11 +242,11 @@
   align-items: center;
   gap: 8px;
   padding: 3px 0;
-  border-bottom: 1px solid #1b2029;
+  border-bottom: 1px solid var(--rule);
 }
 
 .badge {
-  background: #21262d;
+  background: var(--chip-bg);
   border-radius: 4px;
   padding: 1px 6px;
   font-size: 11px;
@@ -272,17 +272,17 @@
   font-size: 11px;
   padding: 1px 8px;
   border-radius: 10px;
-  background: #21262d;
+  background: var(--chip-bg);
   color: var(--muted);
 }
 
 .vm-state.running {
-  background: #1a7f3722;
+  background: var(--ok-tint);
   color: var(--ok);
 }
 
 .vm-state.stopped {
-  background: #f8514922;
+  background: var(--bad-tint);
   color: var(--bad);
 }
 
@@ -295,7 +295,7 @@
   flex: 1 1 auto;
   min-height: 0;
   padding: 6px 8px;
-  background: #0b0f14;
+  background: var(--term-bg);
   overflow: hidden;
 }
 
@@ -315,7 +315,7 @@
   right: 12px;
   bottom: 12px;
   z-index: 5;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 2px 8px var(--shadow);
 }
 
 /* Settings tabs (v0.3 #2) -------------------------------------------------- */
@@ -341,7 +341,7 @@
 .settings-tabs .tab-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #06121f;
+  color: var(--accent-fg);
   font-weight: 600;
 }
 
@@ -350,7 +350,7 @@
 .progress {
   height: 6px;
   border-radius: 3px;
-  background: #1b2029;
+  background: var(--rule);
   overflow: hidden;
   margin: 6px 0;
 }
@@ -372,4 +372,29 @@
   font-size: 13px;
   padding: 20px;
   text-align: center;
+}
+
+/* Theme picker (v0.4 #11a) ------------------------------------------------- */
+
+.theme-choices {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.theme-choices .tab-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.theme-choices .tab-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
 }

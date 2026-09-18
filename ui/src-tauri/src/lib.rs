@@ -66,6 +66,8 @@ pub fn run() {
             host::commands::preflight_status,
             host::commands::run_preflight,
             host::commands::acknowledge_preflight,
+            host::commands::get_theme,
+            host::commands::set_theme,
             host::commands::probe_qemu,
             host::commands::get_qemu_status,
             host::commands::set_qemu_path,

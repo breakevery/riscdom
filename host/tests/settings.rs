@@ -36,6 +36,7 @@ fn save_then_load_round_trips() {
             r"C:\tools\riscv64-unknown-elf\bin\riscv64-unknown-elf-gcc.exe".into(),
         ),
         preflight: None,
+        theme: None,
     };
     settings.save(&path).expect("save");
     assert!(path.is_file(), "{path:?}");
@@ -92,4 +93,36 @@ fn a_manual_toolchain_survives_a_restart() {
     restarted.clear_toolchain_path().expect("clear");
     let after_clear = AppState::in_memory(&workspace).expect("state");
     assert_ne!(after_clear.probe_toolchain().source, "Manual");
+}
+
+#[test]
+fn the_theme_preference_round_trips_and_rejects_nonsense() {
+    let workspace = unique_dir("theme");
+    let state = AppState::in_memory(&workspace).expect("state");
+
+    // Unset means "follow the system".
+    assert_eq!(state.theme(), "system");
+
+    state.set_theme("light").expect("set light");
+    assert_eq!(state.theme(), "light");
+    // It is normalised, so a sloppy caller cannot store junk.
+    state.set_theme("  DARK ").expect("set dark");
+    assert_eq!(state.theme(), "dark");
+    assert!(
+        state.set_theme("neon").is_err(),
+        "unknown themes are refused"
+    );
+    assert_eq!(state.theme(), "dark", "a refused value changes nothing");
+
+    // "restart": the preference comes back from settings.json.
+    let restarted = AppState::in_memory(&workspace).expect("state");
+    assert_eq!(restarted.theme(), "dark");
+    let text = std::fs::read_to_string(restarted.settings_path()).expect("settings.json");
+    assert!(text.contains("\"theme\": \"dark\""), "{text}");
+
+    restarted.set_theme("system").expect("set system");
+    assert_eq!(
+        AppState::in_memory(&workspace).expect("state").theme(),
+        "system"
+    );
 }

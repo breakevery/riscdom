@@ -25,6 +25,9 @@ pub struct LocalSettings {
     /// fingerprint it was produced for (v0.4 batch 3).
     #[serde(default)]
     pub preflight: Option<crate::preflight::PreflightCache>,
+    /// UI theme preference: `light`, `dark` or `system` (v0.4 #11a).
+    #[serde(default)]
+    pub theme: Option<String>,
 }
 
 impl Default for LocalSettings {
@@ -34,6 +37,7 @@ impl Default for LocalSettings {
             toolchain_path: None,
             qemu_path: None,
             preflight: None,
+            theme: None,
         }
     }
 }

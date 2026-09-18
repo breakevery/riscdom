@@ -46,7 +46,7 @@ $buildCode = $LASTEXITCODE
 Pop-Location
 if ($buildCode -ne 0) { Fail "npm run build" }
 
-Write-Host "==> ui probes (scroll / layout / runs / dialog / preflight)"
+Write-Host "==> ui probes (scroll / layout / runs / dialog / preflight / theme)"
 node ui/scripts/probe-ui-scroll.mjs
 if ($LASTEXITCODE -ne 0) { Fail "ui probe (chat scroll)" }
 node ui/scripts/probe-ui-width.mjs
@@ -57,6 +57,8 @@ node ui/scripts/probe-ui-dialog.mjs
 if ($LASTEXITCODE -ne 0) { Fail "ui probe (file picker)" }
 node ui/scripts/probe-ui-preflight.mjs
 if ($LASTEXITCODE -ne 0) { Fail "ui probe (preflight)" }
+node ui/scripts/probe-ui-theme.mjs
+if ($LASTEXITCODE -ne 0) { Fail "ui probe (theme)" }
 
 Write-Host "==> mirrored constants (host/src)"
 node scripts/check-mirrored-constants.mjs

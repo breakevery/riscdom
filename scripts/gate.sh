@@ -36,12 +36,13 @@ cargo check --manifest-path ui/src-tauri/Cargo.toml || fail "cargo check ui/src-
 echo "==> npm run build (ui)"
 (cd ui && npm run build) || fail "npm run build"
 
-echo "==> ui probes (scroll / layout / runs / dialog / preflight)"
+echo "==> ui probes (scroll / layout / runs / dialog / preflight / theme)"
 node ui/scripts/probe-ui-scroll.mjs || fail "ui probe (chat scroll)"
 node ui/scripts/probe-ui-width.mjs || fail "ui probe (pane layout)"
 node ui/scripts/probe-ui-runs.mjs || fail "ui probe (run list)"
 node ui/scripts/probe-ui-dialog.mjs || fail "ui probe (file picker)"
 node ui/scripts/probe-ui-preflight.mjs || fail "ui probe (preflight)"
+node ui/scripts/probe-ui-theme.mjs || fail "ui probe (theme)"
 
 echo "==> mirrored constants (host/src)"
 node scripts/check-mirrored-constants.mjs || fail "mirrored constants"

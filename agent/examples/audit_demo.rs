@@ -15,7 +15,7 @@ use audit::{AuditSink, AuditStore, SqliteAuditSink};
 use std::sync::{Arc, Mutex};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let work = std::env::temp_dir().join("riscdom-agent-demo");
+    let work = std::env::temp_dir().join(format!("riscdom-agent-demo-{}", std::process::id()));
     std::fs::create_dir_all(&work)?;
     let db = work.join("audit.db");
     for suffix in ["", "-wal", "-shm"] {

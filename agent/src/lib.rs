@@ -22,12 +22,12 @@ pub mod policy;
 pub mod presets;
 pub mod prompt;
 pub mod sse;
+pub mod tempdirs;
 pub mod tools;
 
 pub use agent::{AgentLoop, AgentOutcome};
 pub use compiler::{
-    compile_freestanding, sweep_build_dirs_older_than, sweep_stale_build_dirs, CompileOutput,
-    CompilerConfig, ToolchainError, ToolchainSource, BUILD_DIR_MAX_AGE, BUILD_DIR_PREFIX,
+    compile_freestanding, CompileOutput, CompilerConfig, ToolchainError, ToolchainSource,
     CRT0_INJECTED, GCC_NAMES, TOOLCHAIN_URL,
 };
 pub use config::AgentConfig;
@@ -39,4 +39,8 @@ pub use message::{
 pub use policy::WorkspacePolicy;
 pub use presets::{builtin_presets, find_preset, ProviderPreset, DEFAULT_PRESET_ID};
 pub use prompt::build_system_prompt;
+pub use tempdirs::{
+    sweep_stale_temp_dirs, sweep_stale_temp_dirs_with_age, DATA_DIR_NAME, TEMP_DIR_MAX_AGE,
+    TEMP_PREFIX,
+};
 pub use tools::{execute_tool, tool_specs, tools_json, ToolContext, ToolSpec, VM_MEMORY_MB};

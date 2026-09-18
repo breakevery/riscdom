@@ -48,7 +48,7 @@ fn build_guest() -> PathBuf {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures");
-    let out_dir = std::env::temp_dir().join("riscdom-example");
+    let out_dir = std::env::temp_dir().join(format!("riscdom-example-{}", std::process::id()));
     std::fs::create_dir_all(&out_dir).expect("create out dir");
     let elf = out_dir.join("hello.elf");
     let status = Command::new(riscv_gcc())
@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => build_guest(),
     };
 
-    let work = std::env::temp_dir().join("riscdom-example");
+    let work = std::env::temp_dir().join(format!("riscdom-example-{}", std::process::id()));
     std::fs::create_dir_all(&work)?;
     let db_path = work.join("audit.db");
     for suffix in ["", "-wal", "-shm"] {

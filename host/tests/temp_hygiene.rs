@@ -73,6 +73,6 @@ fn starting_up_does_not_touch_fresh_directories() {
         "startup must not remove a directory a build may be using"
     );
     // The threshold is the agent's, and it is a day: nothing younger than that goes.
-    assert!(agent::BUILD_DIR_MAX_AGE >= Duration::from_secs(3600));
+    assert!(agent::TEMP_DIR_MAX_AGE >= Duration::from_secs(3600));
     let _ = std::fs::remove_dir_all(&fresh);
 }

@@ -84,6 +84,11 @@ export const listRuns = (limit = 20) =>
 export const getRun = (runId: string) =>
   invoke<RunView | null>("get_run", { runId });
 
+/** UI theme preference (v0.4 #11a): `light` / `dark` / `system`. */
+export const getTheme = () => invoke<string>("get_theme");
+
+export const setTheme = (theme: string) => invoke<void>("set_theme", { theme });
+
 /** Environment preflight (v0.4 batch 3). */
 export interface PreflightRow {
   step: string;

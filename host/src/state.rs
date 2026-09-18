@@ -628,12 +628,13 @@ impl AppState {
         // Startup hook (v0.4 1e): make runs left open by a previous process
         // legible. Best effort — it must never stop the app from starting.
         let _ = state.abandon_stale_runs();
-        // Startup hygiene (v0.4 batch 5): a build that a killed process could not
-        // clean leaves a `riscdom-build-*` directory behind; remove the ones old
-        // enough that nothing can still be using them. Only that prefix is touched.
-        let swept = agent::sweep_stale_build_dirs(agent::BUILD_DIR_MAX_AGE);
+        // Startup hygiene (v0.4 batch 5/6): whatever a killed process left in the
+        // temp directory is removed once it is old enough that nothing can still
+        // own it. `<temp>/riscdom` — the fallback data directory — is never a
+        // target, and only directories are ever removed.
+        let swept = agent::sweep_stale_temp_dirs_with_age(agent::TEMP_DIR_MAX_AGE);
         if swept > 0 {
-            eprintln!("startup hygiene: removed {swept} stale build director(ies)");
+            eprintln!("startup hygiene: removed {swept} stale temp director(ies)");
         }
         state
     }
@@ -2088,6 +2089,31 @@ impl AppState {
         self.save_settings();
         emit("done", if cache.ok { "ok" } else { "failed" }, None);
         pf::PreflightView::from_cache(&cache, true)
+    }
+
+    // ----- Appearance (v0.4 #11a) -------------------------------------------
+
+    /// The stored UI theme preference; `system` when the user never chose one.
+    pub fn theme(&self) -> String {
+        self.settings
+            .lock()
+            .ok()
+            .and_then(|settings| settings.theme.clone())
+            .unwrap_or_else(|| "system".to_string())
+    }
+
+    /// Store the UI theme preference (`light` / `dark` / `system`).
+    pub fn set_theme(&self, theme: &str) -> Result<(), HostError> {
+        let theme = theme.trim().to_lowercase();
+        if !matches!(theme.as_str(), "light" | "dark" | "system") {
+            return Err(HostError::Other(format!("unknown theme: {theme}")));
+        }
+        if let Ok(mut settings) = self.settings.lock() {
+            settings.theme = Some(theme.clone());
+        }
+        self.save_settings();
+        self.emit_host("host.theme.set", serde_json::json!({ "theme": theme }));
+        Ok(())
     }
 
     // ----- Audit ------------------------------------------------------------

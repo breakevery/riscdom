@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as api from "../api/tauri";
 import { executableFilters, pickedPath } from "../lib/pathPick";
+import { applyTheme, nextTheme, parseTheme, systemPrefersDark } from "../lib/theme";
+import type { ResolvedTheme, Theme } from "../lib/theme";
 
 export type Role = "user" | "assistant" | "tool" | "system";
 
@@ -43,6 +45,11 @@ export interface AppStore {
   refreshPreflight: () => Promise<void>;
   runPreflight: () => Promise<void>;
   acknowledgePreflight: () => Promise<void>;
+  /** Theme (v0.4 #11a). */
+  theme: Theme;
+  resolvedTheme: ResolvedTheme;
+  setTheme: (theme: Theme) => Promise<void>;
+  cycleTheme: () => Promise<void>;
   workspaceFiles: string[];
   refreshWorkspace: () => Promise<void>;
   // serial / vm (consumed by the canvas in stage 6c)
@@ -159,6 +166,9 @@ export function useAppStore(): AppStore {
     step: string;
     state: string;
   } | null>(null);
+  const [theme, setThemeChoice] = useState<Theme>("system");
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>("dark");
+  const [systemDark, setSystemDark] = useState<boolean>(() => systemPrefersDark(window));
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
   const [serial, setSerial] = useState("");
   const [vmState, setVmState] = useState("idle");
@@ -250,6 +260,43 @@ export function useAppStore(): AppStore {
       setLastError(String(e));
     }
   }, []);
+
+  // Theme (v0.4 #11a): the choice lives in settings.json, the applied value follows
+  // the OS while the choice is "system".
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = (event: MediaQueryListEvent) => setSystemDark(event.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    setResolvedTheme(applyTheme(theme, document.documentElement, systemDark));
+  }, [theme, systemDark]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setThemeChoice(parseTheme(await api.getTheme()));
+      } catch (e) {
+        setLastError(String(e));
+      }
+    })();
+  }, []);
+
+  const setTheme = useCallback(async (next: Theme) => {
+    setThemeChoice(next);
+    try {
+      await api.setTheme(next);
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
+  const cycleTheme = useCallback(async () => {
+    await setTheme(nextTheme(theme));
+  }, [setTheme, theme]);
 
   // ---- sessions (declared before the event subscription that uses them) ----
 
@@ -699,6 +746,10 @@ export function useAppStore(): AppStore {
     refreshPreflight,
     runPreflight,
     acknowledgePreflight,
+    theme,
+    resolvedTheme,
+    setTheme,
+    cycleTheme,
     clearToolchain,
     qemu,
     refreshQemu,

@@ -7,7 +7,7 @@
 use audit::{AuditEvent, AuditStore};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = std::env::temp_dir().join("riscdom-audit-demo");
+    let dir = std::env::temp_dir().join(format!("riscdom-audit-demo-{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
     let path = dir.join("demo.db");
     for suffix in ["", "-wal", "-shm"] {

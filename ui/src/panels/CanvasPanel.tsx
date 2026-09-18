@@ -5,17 +5,35 @@ import "@xterm/xterm/css/xterm.css";
 import * as api from "../api/tauri";
 import type { AppStore } from "../state/appStore";
 
-const TERMINAL_THEME = {
-  background: "#0b0f14",
-  foreground: "#d7e0ea",
-  cursor: "#58a6ff",
-};
+/**
+ * The terminal follows the app theme, so it reads the same tokens the stylesheet
+ * does (v0.4 #11a). `xterm` needs plain values, not `var(...)`.
+ */
+function terminalTheme(): { background: string; foreground: string; cursor: string } {
+  try {
+    const styles = getComputedStyle(document.documentElement);
+    const token = (name: string, fallback: string) => styles.getPropertyValue(name).trim() || fallback;
+    return {
+      background: token("--term-bg", "#0b0f14"),
+      foreground: token("--term-fg", "#d7e0ea"),
+      cursor: token("--accent", "#58a6ff"),
+    };
+  } catch {
+    return { background: "#0b0f14", foreground: "#d7e0ea", cursor: "#58a6ff" };
+  }
+}
 
 export default function CanvasPanel({ store }: { store: AppStore }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
+  // The terminal follows the app theme (v0.4 #11a).
+  useEffect(() => {
+    const term = termRef.current;
+    if (term) term.options.theme = terminalTheme();
+  }, [store.resolvedTheme]);
 
   // ----- auto-scroll (v0.3 #1) --------------------------------------------
   const stickRef = useRef(true); // following the latest serial output?
@@ -36,7 +54,7 @@ export default function CanvasPanel({ store }: { store: AppStore }) {
       fontSize: 13,
       cursorBlink: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-      theme: TERMINAL_THEME,
+      theme: terminalTheme(),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

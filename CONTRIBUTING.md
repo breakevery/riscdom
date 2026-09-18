@@ -34,7 +34,8 @@ crates `audit` / `sandbox` / `agent` / `host`, and `ui/src-tauri`) → `cargo ch
 `cargo check` for `ui/src-tauri` → `npm run build` →
 the ui regression probes (`node ui/scripts/probe-ui-scroll.mjs` /
 `node ui/scripts/probe-ui-width.mjs` / `node ui/scripts/probe-ui-runs.mjs` /
-`node ui/scripts/probe-ui-dialog.mjs` / `node ui/scripts/probe-ui-preflight.mjs`) → the mirror guard
+`node ui/scripts/probe-ui-dialog.mjs` / `node ui/scripts/probe-ui-preflight.mjs` /
+`node ui/scripts/probe-ui-theme.mjs`) → the mirror guard
 (`node scripts/check-mirrored-constants.mjs`) → the bilingual-link check
 (`scripts/check-bilingual.ps1` / `.sh`).
 

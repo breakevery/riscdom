@@ -1,16 +1,104 @@
+/* Theme tokens.
+ *
+ * `:root` is the dark palette; `[data-theme="light"]` overrides it. The theme
+ * module (`ui/src/lib/theme.ts`) puts `data-theme` on <html> and is the only thing
+ * that should write it. Every colour in the app is a token, so a theme is a token
+ * block and nothing else.
+ */
 :root {
   color-scheme: dark;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+
+  /* surfaces */
   --bg: #0d1117;
   --panel: #11161d;
   --panel-2: #161c24;
   --border: #232b36;
+  --rule: #1b2029;
+  --chip-bg: #21262d;
+
+  /* text */
   --fg: #e6edf3;
   --muted: #8b949e;
+  --off: #6e7681;
+
+  /* accents */
   --accent: #58a6ff;
+  --accent-fg: #06121f;
   --ok: #3fb950;
   --bad: #f85149;
+  --ok-tint: #1a7f3722;
+  --bad-tint: #f8514922;
+
+  /* controls */
+  --btn: #1f6feb;
+  --btn-fg: #fff;
+  --btn-off-bg: #21262d;
+  --shadow: rgba(0, 0, 0, 0.35);
+
+  /* message tints */
+  --sys-bg: #1f2d3d;
+  --sys-border: #2d4257;
+  --sys-fg: #a9c7e8;
+  --warn-bg: #3a2f10;
+  --warn-border: #6b531d;
+  --warn-fg: #f0d48a;
+  --info-bg: #10314a;
+  --info-border: #1f6feb66;
+  --info-fg: #a9d3ff;
+  --user-bg: #1f6feb33;
+  --user-border: #1f6feb55;
+  --tool-bg: #2b241433;
+  --tool-border: #6b531d;
+
+  /* terminal */
+  --term-bg: #0b0f14;
+  --term-fg: #e6edf3;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #ffffff;
+  --panel: #f6f8fa;
+  --panel-2: #eef1f4;
+  --border: #d0d7de;
+  --rule: #e4e8ec;
+  --chip-bg: #eaeef2;
+
+  --fg: #1f2328;
+  --muted: #656d76;
+  --off: #8c959f;
+
+  --accent: #0969da;
+  --accent-fg: #ffffff;
+  --ok: #1a7f37;
+  --bad: #cf222e;
+  --ok-tint: #1a7f371a;
+  --bad-tint: #cf222e1a;
+
+  --btn: #0969da;
+  --btn-fg: #ffffff;
+  --btn-off-bg: #eaeef2;
+  --shadow: rgba(27, 31, 36, 0.15);
+
+  --sys-bg: #ddf4ff;
+  --sys-border: #b6e3ff;
+  --sys-fg: #0a3069;
+  --warn-bg: #fff8c5;
+  --warn-border: #d4a72c66;
+  --warn-fg: #7d4e00;
+  --info-bg: #ddf4ff;
+  --info-border: #54aeff66;
+  --info-fg: #0a3069;
+  --user-bg: #ddf4ff;
+  --user-border: #b6e3ff;
+  --tool-bg: #fff8c5;
+  --tool-border: #d4a72c66;
+
+  --term-bg: #ffffff;
+  --term-fg: #1f2328;
 }
 
 * {
@@ -31,8 +119,8 @@ body {
 }
 
 button {
-  background: #1f6feb;
-  color: #fff;
+  background: var(--btn);
+  color: var(--btn-fg);
   border: 0;
   border-radius: 6px;
   padding: 8px 14px;
@@ -41,8 +129,8 @@ button {
 }
 
 button:disabled {
-  background: #21262d;
-  color: #6e7681;
+  background: var(--btn-off-bg);
+  color: var(--off);
   cursor: not-allowed;
 }
 

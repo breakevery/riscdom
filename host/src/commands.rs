@@ -231,6 +231,18 @@ pub async fn get_audit_status(state: State<'_, AppState>) -> Result<AuditStatusV
     state.audit_status().map_err(|e| e.user_message())
 }
 
+/// The stored UI theme preference: `light` / `dark` / `system` (v0.4 #11a).
+#[tauri::command]
+pub async fn get_theme(state: State<'_, AppState>) -> Result<String, String> {
+    Ok(state.theme())
+}
+
+/// Store the UI theme preference.
+#[tauri::command]
+pub async fn set_theme(state: State<'_, AppState>, theme: String) -> Result<(), String> {
+    state.set_theme(&theme).map_err(|e| e.user_message())
+}
+
 /// The environment preflight result for the current configuration (v0.4 batch 3).
 #[tauri::command]
 pub async fn preflight_status(state: State<'_, AppState>) -> Result<PreflightView, String> {

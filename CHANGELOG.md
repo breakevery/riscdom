@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Theme switching**: light / dark / follow the system, chosen in *Settings → 外观* and stored in
+  `settings.json`. Every colour in the stylesheet is now a token, so a theme is one token block;
+  the serial terminal follows the same tokens.
 - **`scripts/clean-temp.ps1` / `scripts/clean-temp.sh`** remove RiscDom's directories from the
   system temp directory. Dry run by default; `-Force` / `--force` deletes. Only entries whose
   name starts with `riscdom-` are matched, and `<temp>/riscdom` (the fallback data directory)
@@ -29,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Stale temp directories are swept at startup**: every `riscdom-*` directory older than 24 h is
+  removed when the host starts (directories only). `<temp>/riscdom` — the fallback data directory —
+  is whitelisted and never touched, and the examples now use pid-unique names so a cleanup cannot
+  delete a running one.
 - **Stale build scratch directories are swept at startup**: a build cleans up after itself, and
   the ones a killed process could not clean (older than 24 h) are removed when the host starts.
   Only the `riscdom-build-*` prefix is touched.
