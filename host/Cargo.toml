@@ -18,6 +18,9 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # Reused for the local-model probe (same version/features as `agent`, so the
 # dependency graph is unchanged).
 reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
+# Run ids (v0.4 1c). Already in the workspace lock file (pulled in by
+# `tauri-utils` / `schemars`); this only adds a direct edge plus the `v7` feature.
+uuid = { version = "1", features = ["v7"] }
 
 # API-key persistence. The `keyring` crate ships **no** default backend, so a
 # bare `keyring = "3"` compiles to a silent no-op (writes appear to succeed and

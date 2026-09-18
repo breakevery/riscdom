@@ -18,6 +18,8 @@ use audit::{AuditSink, AuditStore, ChainStatus, SqliteAuditSink, StoredEvent};
 use sandbox::platform::{QmpEndpoint, SerialEndpoint};
 use sandbox::vm::{RiscVVirtualMachine, VMConfig};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -32,6 +34,17 @@ pub const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Guest RAM used by the agent's `start_vm` tool (kept in sync there).
 const VM_MEMORY_MB: u32 = 128;
+
+/// QEMU machine / cpu the sandbox boots (`sandbox::vm`'s `qemu_args` hardcodes
+/// them; mirrors are kept here so a run's fingerprint can name them).
+const VM_MACHINE: &str = "virt";
+const VM_CPU: &str = "rv64";
+
+/// The snapshot mechanism the host uses, as recorded in a run's fingerprint.
+const SNAPSHOT_MODE: &str = "tcp-relay";
+
+/// Marker for the compiler's unconditional crt0/`_start` injection.
+const CRT0_MARKER: &str = "injected";
 
 /// Epoch milliseconds (VM start bookkeeping).
 fn now_ms() -> i64 {
@@ -400,6 +413,16 @@ pub struct AppState {
     pub sessions: Arc<Mutex<SessionStore>>,
     /// The session the next run appends to (created on demand).
     pub current_session_id: Mutex<Option<String>>,
+    /// The run currently in progress, if any (host-owned provenance, v0.4 1c).
+    current_run_id: Mutex<Option<String>>,
+    /// The most recent run, finished or not. The VM outlives a run, so a
+    /// snapshot is usually saved between runs: this is the run a later restore
+    /// links to as its parent.
+    last_run_id: Mutex<Option<String>>,
+    /// Which run produced each saved snapshot (name -> run id), for the lifetime
+    /// of this process. A restore after a restart cannot recover the producing
+    /// run from the migration stream and records no parent (v0.4 1c).
+    snapshot_producers: Mutex<HashMap<String, String>>,
 }
 
 /// Messages restored into a fresh `AgentLoop` (never the system prompt).
@@ -558,6 +581,9 @@ impl AppState {
             stream_receiver: Arc::new(Mutex::new(None)),
             sessions: Arc::new(Mutex::new(sessions)),
             current_session_id: Mutex::new(None),
+            current_run_id: Mutex::new(None),
+            last_run_id: Mutex::new(None),
+            snapshot_producers: Mutex::new(HashMap::new()),
         }
     }
 
@@ -690,6 +716,20 @@ impl AppState {
         let bytes = std::fs::metadata(self.snapshot_dir().join(format!("{name}.mig")))
             .map(|m| m.len())
             .unwrap_or(0);
+        // Remember which run produced this snapshot, so a restore later in this
+        // process can link to it (v0.4 1c). The VM outlives a run, so the run to
+        // link to is the most recent one, not necessarily an in-flight run.
+        let producer = self
+            .current_run_id
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+            .or_else(|| self.last_run_id.lock().ok().and_then(|slot| slot.clone()));
+        if let Some(run_id) = producer {
+            if let Ok(mut producers) = self.snapshot_producers.lock() {
+                producers.insert(name.to_string(), run_id);
+            }
+        }
         self.emit_host(
             "host.snapshot.save",
             serde_json::json!({ "name": name, "bytes": bytes, "mode": "tcp-relay" }),
@@ -707,42 +747,74 @@ impl AppState {
         if !path.is_file() {
             return Err(HostError::Other(format!("snapshot not found: {name}")));
         }
-        let config = VMConfig {
-            kernel: self.resume_kernel()?,
-            memory_mb: VM_MEMORY_MB,
-            qmp: QmpEndpoint::tcp(
-                "127.0.0.1",
-                sandbox::relay::free_local_port().map_err(|e| HostError::Other(e.to_string()))?,
-            ),
-            serial: SerialEndpoint::tcp(
-                "127.0.0.1",
-                sandbox::relay::free_local_port().map_err(|e| HostError::Other(e.to_string()))?,
-            ),
-            snapshot_dir: self.snapshot_dir(),
-            serial_observer: Some(agent::tools::serial_observer_for(Arc::clone(
-                &self.serial_senders,
-            ))),
-            incoming_snapshot: Some(path.clone()),
-            incoming_relay_addr: None,
-            // Honour the user's manual QEMU here too (v0.3.1 #1): a restore used
-            // to fall back to auto-discovery and could boot with a different
-            // binary than the one configured in *Settings → Toolchain*.
-            qemu_exe: self.manual_qemu_path(),
-        };
-        self.stop_current_vm()?;
-        let vm =
-            RiscVVirtualMachine::resume_from_snapshot_real(config, &path, Arc::clone(&self.sink))
-                .map_err(|e| HostError::Other(e.to_string()))?;
-        *self
-            .vm_slot
+
+        // Run provenance (v0.4 1c): a restore is its own run (§4.3) — it is a
+        // materially different execution — linked to the run that produced the
+        // snapshot whenever this process still knows it.
+        let parent = self
+            .snapshot_producers
             .lock()
-            .map_err(|_| HostError::Other("vm slot poisoned".into()))? = Some(vm);
-        // A restored VM is a "fresh" one for the status badge.
-        self.clear_vm_started();
-        self.mark_vm_started();
+            .ok()
+            .and_then(|producers| producers.get(name).cloned());
+        let run_id = self.begin_run(None, parent.as_deref(), Some(name));
+
+        let restored = (|| -> Result<(), HostError> {
+            let config = VMConfig {
+                kernel: self.resume_kernel()?,
+                memory_mb: VM_MEMORY_MB,
+                qmp: QmpEndpoint::tcp(
+                    "127.0.0.1",
+                    sandbox::relay::free_local_port()
+                        .map_err(|e| HostError::Other(e.to_string()))?,
+                ),
+                serial: SerialEndpoint::tcp(
+                    "127.0.0.1",
+                    sandbox::relay::free_local_port()
+                        .map_err(|e| HostError::Other(e.to_string()))?,
+                ),
+                snapshot_dir: self.snapshot_dir(),
+                serial_observer: Some(agent::tools::serial_observer_for(Arc::clone(
+                    &self.serial_senders,
+                ))),
+                incoming_snapshot: Some(path.clone()),
+                incoming_relay_addr: None,
+                // Honour the user's manual QEMU here too (v0.3.1 #1): a restore
+                // used to fall back to auto-discovery and could boot with a
+                // different binary than the one configured in *Settings → Toolchain*.
+                qemu_exe: self.manual_qemu_path(),
+            };
+            self.stop_current_vm()?;
+            let vm = RiscVVirtualMachine::resume_from_snapshot_real(
+                config,
+                &path,
+                Arc::clone(&self.sink),
+            )
+            .map_err(|e| HostError::Other(e.to_string()))?;
+            *self
+                .vm_slot
+                .lock()
+                .map_err(|_| HostError::Other("vm slot poisoned".into()))? = Some(vm);
+            // A restored VM is a "fresh" one for the status badge.
+            self.clear_vm_started();
+            self.mark_vm_started();
+            Ok(())
+        })();
+
+        if let Some(run_id) = &run_id {
+            let (status, reason) = match &restored {
+                Ok(()) => (audit::RunStatus::Ok, "snapshot restored".to_string()),
+                Err(e) => (
+                    audit::RunStatus::Failed,
+                    format!("snapshot restore failed: {e}"),
+                ),
+            };
+            self.finish_run(run_id, status, &reason);
+        }
+        restored?;
+
         self.emit_host(
             "host.snapshot.resume",
-            serde_json::json!({ "name": name, "mode": "tcp-relay" }),
+            serde_json::json!({ "name": name, "mode": SNAPSHOT_MODE }),
         );
         Ok(())
     }
@@ -1736,6 +1808,156 @@ impl AppState {
         Ok(())
     }
 
+    // ----- Run provenance (v0.4 batch 1c) -----------------------------------
+
+    /// The configuration document a run's fingerprint hashes (design §1.2).
+    ///
+    /// Only values the host can actually resolve are included; anything else is
+    /// recorded as `"unknown"` rather than omitted, so two fingerprints that
+    /// differ only by an unreadable field never look identical. The API key is
+    /// never part of it, in any form.
+    pub fn run_fingerprint(&self) -> serde_json::Value {
+        let agent_config = self.agent_config();
+        let compiler = self.toolchain_config();
+        let toolchain = self.probe_toolchain();
+        let qemu = self.probe_qemu();
+        let policy = WorkspacePolicy::new(self.workspace_root.clone());
+
+        let hex_sha256 = |bytes: &[u8]| -> String {
+            let mut hasher = Sha256::new();
+            hasher.update(bytes);
+            format!("{:x}", hasher.finalize())
+        };
+        // The tool set is hashed as the exact JSON the model is offered.
+        let tools_sha256 = hex_sha256(
+            serde_json::to_string(&agent::tools::tools_json())
+                .unwrap_or_default()
+                .as_bytes(),
+        );
+        let prompt = format!("{CONSTITUTION}\n\n{}", agent::prompt::OPERATING_RULES);
+
+        // Versions come from running `--version`; an unreadable one is recorded
+        // as unknown instead of being dropped.
+        let version_of = |path: Option<&str>| -> String {
+            path.map(|p| toolchain_runs(Path::new(p)).unwrap_or_else(|_| "unknown".into()))
+                .unwrap_or_else(|| "unknown".into())
+        };
+
+        serde_json::json!({
+            "schema": {
+                "fingerprint_schema": audit::FINGERPRINT_SCHEMA_V1,
+                "app_version": env!("CARGO_PKG_VERSION"),
+            },
+            "llm": {
+                "provider_id": agent_config.provider_id,
+                "base_url": agent_config.base_url,
+                "model": agent_config.model,
+            },
+            "agent": {
+                "max_iterations": agent_config.max_iterations,
+                "request_timeout_secs": agent_config.request_timeout_secs,
+                "tools_sha256": tools_sha256,
+                "march": compiler.march,
+                "mabi": compiler.mabi,
+                "link_addr": compiler.link_addr,
+                "crt0": CRT0_MARKER,
+                "language_allowlist": policy.allowed_extensions,
+            },
+            "vm": {
+                "memory_mb": VM_MEMORY_MB,
+                "machine": VM_MACHINE,
+                "cpu": VM_CPU,
+                "qemu_path": qemu.path.clone().unwrap_or_else(|| "unknown".into()),
+                "qemu_version": version_of(qemu.path.as_deref()),
+                "snapshot_mode": SNAPSHOT_MODE,
+            },
+            "toolchain": {
+                "path": toolchain.path.clone().unwrap_or_else(|| "unknown".into()),
+                "version": version_of(toolchain.path.as_deref()),
+                "source": toolchain.source,
+            },
+            "policy": {
+                "allowed_extensions": policy.allowed_extensions,
+                "traversal_guard": "normalize+containment",
+            },
+            "prompt": { "sha256": hex_sha256(prompt.as_bytes()) },
+        })
+    }
+
+    /// Mint the id of one run. Host-side only: the id is never handed to the
+    /// agent or the sandbox (an id the AI can influence is not provenance).
+    fn new_run_id() -> String {
+        format!("run_{}", uuid::Uuid::now_v7())
+    }
+
+    /// Append a host event and return its position in the chain (best effort).
+    fn append_host_event(&self, action: &str, detail: serde_json::Value) -> Option<StoredEvent> {
+        let mut store = self.audit.lock().ok()?;
+        store
+            .append(audit::AuditEvent::new("host", action, detail))
+            .ok()
+    }
+
+    /// Open run provenance: mint the id, append `run.start` and index it.
+    ///
+    /// Best effort by construction: provenance must never be able to fail a run,
+    /// so every error path here degrades to `None`.
+    fn begin_run(
+        &self,
+        session_id: Option<&str>,
+        parent_run_id: Option<&str>,
+        resumed_from_snapshot: Option<&str>,
+    ) -> Option<String> {
+        let run_id = Self::new_run_id();
+        let config = self.run_fingerprint();
+        let detail = audit::run_start_detail(
+            &run_id,
+            session_id,
+            parent_run_id,
+            resumed_from_snapshot,
+            &config,
+        );
+        let stored = self.append_host_event(audit::ACTION_RUN_START, detail)?;
+        if let Ok(mut slot) = self.current_run_id.lock() {
+            *slot = Some(run_id.clone());
+        }
+        if let Ok(mut slot) = self.last_run_id.lock() {
+            *slot = Some(run_id.clone());
+        }
+        let row = audit::RunRecord {
+            run_id: run_id.clone(),
+            session_id: session_id.map(str::to_string),
+            parent_run_id: parent_run_id.map(str::to_string),
+            fingerprint: audit::fingerprint(&config),
+            fingerprint_schema: audit::FINGERPRINT_SCHEMA_V1.to_string(),
+            started_at_ms: stored.event.timestamp_ms,
+            ended_at_ms: None,
+            start_seq: stored.id,
+            end_seq: None,
+            status: audit::RunStatus::Open,
+        };
+        if let Ok(mut store) = self.audit.lock() {
+            let _ = store.index_run_start(&row);
+        }
+        Some(run_id)
+    }
+
+    /// Close run provenance: append `run.end` and close the index row.
+    fn finish_run(&self, run_id: &str, status: audit::RunStatus, reason: &str) {
+        let detail = audit::run_end_detail(run_id, status, reason);
+        let Some(stored) = self.append_host_event(audit::ACTION_RUN_END, detail) else {
+            return;
+        };
+        if let Ok(mut store) = self.audit.lock() {
+            let _ = store.index_run_end(run_id, stored.id, stored.event.timestamp_ms, status);
+        }
+        if let Ok(mut slot) = self.current_run_id.lock() {
+            if slot.as_deref() == Some(run_id) {
+                *slot = None;
+            }
+        }
+    }
+
     // ----- VM lifecycle -----------------------------------------------------
 
     /// Is the host currently holding a **live** VM?
@@ -1883,6 +2105,11 @@ impl AppState {
         }
         let pre_len = agent.messages().len();
 
+        // Run provenance (v0.4 1c): one run = one `run_agent` call. The markers
+        // are ordinary chained events; the id itself stays host-side and is never
+        // handed to the agent or the sandbox.
+        let run_id = self.begin_run(Some(&session_id), None, None);
+
         // Stream subscription: forwarded as `agent:stream:delta` / `:done`.
         if let Ok(mut slot) = self.stream_receiver.lock() {
             *slot = Some(agent.subscribe_stream());
@@ -1961,6 +2188,31 @@ impl AppState {
             self.mark_vm_started();
         } else {
             self.clear_vm_started();
+        }
+
+        // Close run provenance on both paths: a failed run is `failed`, not
+        // open. Only a run whose process never returns stays open (§4.2).
+        if let Some(run_id) = &run_id {
+            // Only a run that produced a final answer counts as `ok`. A truncated
+            // run (`max_iterations`) did not complete either, so it is `failed`
+            // with a reason that says which case it was; `interrupted` stays
+            // reserved for a human stop.
+            let (status, reason) = match &outcome {
+                Ok(AgentOutcome::Final { iterations, .. }) => (
+                    audit::RunStatus::Ok,
+                    format!("final answer after {iterations} iterations"),
+                ),
+                Ok(AgentOutcome::MaxIterations { iterations, .. }) => (
+                    audit::RunStatus::Failed,
+                    format!("iteration cap reached ({iterations}) without a final answer"),
+                ),
+                Ok(AgentOutcome::Failed { reason, iterations }) => (
+                    audit::RunStatus::Failed,
+                    format!("agent run failed after {iterations} iterations: {reason}"),
+                ),
+                Err(e) => (audit::RunStatus::Failed, format!("host error: {e}")),
+            };
+            self.finish_run(run_id, status, &reason);
         }
 
         let outcome = outcome?;
