@@ -183,3 +183,58 @@ export function toCompareRows(runs: RunLike[], selected: string[]): CompareRow[]
       snapshotLabel: snapshotLabel(run.resumed_from_snapshot),
     }));
 }
+
+// ----- Field-level fingerprint diff (v0.6 batch 1) --------------------------
+
+/**
+ * One top-level field of the two runs' fingerprints, as the host returns it.
+ *
+ * `a` / `b` are the documents' values — a whole nested object, not its keys — and
+ * arrive already structured, which is why the UI can render them without parsing
+ * anything. A field one document does not carry is `null` there.
+ */
+export interface FingerprintFieldDiff {
+  field: string;
+  a: unknown;
+  b: unknown;
+  is_different: boolean;
+}
+
+/**
+ * How one value is shown: a string as it is, everything else as JSON.
+ *
+ * Nested values are printed whole — the diff compares them as one field, so
+ * hiding part of one behind a disclosure would hide the difference itself. The
+ * panel wraps and scrolls long text rather than truncating it.
+ */
+export function valueText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined) return "null";
+  return JSON.stringify(value, null, 2);
+}
+
+/** The collapsed header: how many fields there are, and how many differ. */
+export function diffTitle(rows: FingerprintFieldDiff[]): string {
+  const different = rows.filter((row) => row.is_different).length;
+  return `字段级差异 · ${rows.length} 个字段 · ${different} 处不同`;
+}
+
+/** The row's state as a CSS hook. Never carries an order — the host's is kept. */
+export function diffRowState(row: FingerprintFieldDiff): string {
+  return row.is_different ? "different" : "same";
+}
+
+/** What the diff area says while the host has not answered yet. */
+export function diffLoadingText(): string {
+  return "差异读取中…";
+}
+
+/** What it says when there is no field to compare at all. */
+export function diffEmptyText(): string {
+  return "这两个 run 的指纹里没有可比字段。";
+}
+
+/** What it says when the host refused to produce the diff. */
+export function diffFailedText(reason: string): string {
+  return `指纹差异读取失败：${reason}`;
+}

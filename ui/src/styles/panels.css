@@ -332,6 +332,62 @@
   word-break: break-all;
 }
 
+/* Field-level fingerprint diff (v0.6 batch 1): the collapsed block under the two
+   run columns. One grid line per field — field name, run A, run B — in the order
+   the host sent; values are shown whole, so the panel wraps them instead of
+   cutting them off. */
+.diff-block {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+}
+
+.diff-summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.diff-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diff-row {
+  display: grid;
+  grid-template-columns: minmax(56px, 6rem) 1fr 1fr;
+  gap: 8px;
+  align-items: start;
+  padding: 4px 6px;
+  border-left: 2px solid var(--rule);
+}
+
+/* A field whose values differ, and one whose values do not: the difference is the
+   thing to look at, so it is marked; the equal row is dimmed, never hidden. */
+.diff-row.different {
+  border-left-color: var(--accent);
+  background: var(--panel-2);
+}
+
+.diff-row.same {
+  color: var(--muted);
+}
+
+.diff-field {
+  font-family: ui-monospace, monospace;
+  word-break: break-all;
+}
+
+.diff-value {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Canvas panel */
 .canvas-head {
   display: flex;

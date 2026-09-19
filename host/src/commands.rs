@@ -6,6 +6,7 @@
 use crate::events::TauriEventSink;
 use crate::events::TOOLCHAIN_DOWNLOAD;
 use crate::preflight::PreflightView;
+use crate::run_diff::FingerprintFieldDiff;
 use crate::state::QemuView;
 use crate::state::{
     AgentOutcomeView, AppState, AuditStatusView, LlmConfigStatus, LlmReadiness, LocalProbeResult,
@@ -437,5 +438,20 @@ pub async fn export_run_audit(
 ) -> Result<usize, String> {
     state
         .export_run_audit(&run_id, path)
+        .map_err(|e| e.user_message())
+}
+
+/// Two runs' configuration fingerprints, field by field (v0.6 batch 1).
+///
+/// The rows come back in the order the fingerprint declares its fields, and every
+/// field the two documents carry is in the list — unchanged ones included.
+#[tauri::command]
+pub async fn compare_run_fingerprints(
+    state: State<'_, AppState>,
+    run_a: String,
+    run_b: String,
+) -> Result<Vec<FingerprintFieldDiff>, String> {
+    state
+        .compare_run_fingerprints(&run_a, &run_b)
         .map_err(|e| e.user_message())
 }

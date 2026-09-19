@@ -122,6 +122,38 @@ The "snapshots" section of the settings pane lists snapshots under
 - "**restore**" (real snapshots only): after confirmation the current VM is stopped and
   restored from the snapshot (see `host/README.md`).
 
+## Audit tab: runs, side-by-side and the field-level diff
+
+Ticking two runs in the audit tab's list opens the side-by-side panel, and **under
+it** the **field-level diff** (v0.6 batch 1, golden-path step 8). The host compares
+the two configuration fingerprints it read off the chain — not a digest, the
+documents themselves — and returns one row per **top-level** field, in the order the
+fingerprint declares them. The panel renders that order exactly as it arrives: it
+never re-sorts it, and it renders every field, the unchanged ones included.
+
+The block is collapsed by default; its header carries the summary:
+
+- `字段级差异 · 7 个字段 · 3 处不同` — how many fields there are, and how many differ;
+- `字段级差异 · 7 个字段 · 0 处不同` — two runs configured identically;
+- `差异读取中…` — the host has not answered yet;
+- `指纹差异读取失败：<reason>` — the host refused, e.g. a run id this log never saw.
+
+Expanded, each row shows the field name, the first run's value and the second run's
+value. A row whose values differ is highlighted; a row whose values are equal is
+dimmed. Values are shown **whole** — monospace, wrapped — the UI truncates nothing
+and offers no "show more".
+
+The interface is Chinese; this is the list of the strings this block adds, kept here
+so it can be mirrored when the interface becomes translatable
+(`PROJECT_CONSTITUTION.md` §v0.5 roadmap item 8):
+
+| Chinese | English |
+| --- | --- |
+| 字段级差异 · N 个字段 · M 处不同 | field-level differences · N fields · M differ |
+| 差异读取中… | reading the differences… |
+| 指纹差异读取失败：<原因> | could not read the fingerprint diff: <reason> |
+| 这两个 run 的指纹里没有可比字段。 | these two runs' fingerprints share no field to compare. |
+
 ## Session persistence
 
 Conversations are saved automatically; after a restart you can open / rename / delete them

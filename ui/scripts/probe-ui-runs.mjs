@@ -186,10 +186,48 @@ check(
   `${compare[0].snapshotLabel}/${compare[1].snapshotLabel}`,
 );
 
+// Field-level fingerprint diff (v0.6 batch 1, golden-path step 8).
+//
+// The host returns the rows in the fingerprint's declaration order, and the panel
+// renders exactly that: the probe pins the presentation the panel owes the
+// operator — a complete list, a header that counts, and no truncation.
+const diffRows = [
+  { field: "schema", a: { app_version: "0.6.0" }, b: { app_version: "0.6.0" }, is_different: false },
+  { field: "llm", a: { model: "deepseek-chat" }, b: { model: "deepseek-reasoner" }, is_different: true },
+  { field: "vm", a: { memory_mb: 256 }, b: null, is_different: true },
+];
+check(
+  "the header counts the fields and the differences",
+  runs.diffTitle(diffRows) === "字段级差异 · 3 个字段 · 2 处不同",
+  runs.diffTitle(diffRows),
+);
+check(
+  "an all-equal diff still counts every field",
+  runs.diffTitle(diffRows.map((row) => ({ ...row, is_different: false }))) ===
+    "字段级差异 · 3 个字段 · 0 处不同",
+  runs.diffTitle(diffRows.map((row) => ({ ...row, is_different: false }))),
+);
+check(
+  "a changed field is marked and an equal one is not",
+  runs.diffRowState(diffRows[1]) === "different" && runs.diffRowState(diffRows[0]) === "same",
+);
+check("a string value reads as it is", runs.valueText("deepseek-chat") === "deepseek-chat");
+check(
+  "a nested value is shown whole",
+  runs.valueText({ memory_mb: 256 }) === '{\n  "memory_mb": 256\n}',
+  runs.valueText({ memory_mb: 256 }),
+);
+check("a value one run does not carry reads as null", runs.valueText(null) === "null");
+check("the loading line says something", runs.diffLoadingText().length > 0);
+check("the empty state says something", runs.diffEmptyText().length > 0);
+check(
+  "a refusal quotes the host",
+  runs.diffFailedText("no run run_x in this log").includes("no run run_x in this log"),
+);
+
 // Wiring: the tab uses the shipped rule, and the calls resolve to real commands.
 const tab = readFileSync(TAB, "utf8");
-const store = readFileSync(STORE, "utf8");
-check("AuditTab uses the run helpers", /from\s+"\.\.\/lib\/runView"/.test(tab));
+const store = readFileSync(STORE, "utf8");check("AuditTab uses the run helpers", /from\s+"\.\.\/lib\/runView"/.test(tab));
 check("AuditTab renders the rows", /toRunRows\(store\.runs/.test(tab));
 check("AuditTab has an empty state", /runsEmptyText\(\)/.test(tab));
 
@@ -199,6 +237,7 @@ for (const [name, command] of [
   ["listRuns", "list_runs"],
   ["getRun", "get_run"],
   ["exportRunAudit", "export_run_audit"],
+  ["compareRunFingerprints", "compare_run_fingerprints"],
   ["getWorkspaceRoot", "workspace_root"],
 ]) {
   check(`the ${name} wrapper calls \`${command}\``, api.includes(`"${command}"`));
@@ -252,6 +291,26 @@ check(
   /resumed_from_snapshot:\s*string\s*\|\s*null/.test(api),
 );
 
+// The field-level diff, wired end to end (v0.6 batch 1).
+check(
+  "the store asks the host for the two selected runs' diff",
+  /\.compareRunFingerprints\(runA, runB\)/.test(store) &&
+    /selectedRuns\.length !== MAX_COMPARED_RUNS/.test(store),
+);
+check(
+  "the tab renders the diff area under the two columns",
+  /<details className="diff-block">/.test(tab) &&
+    /diffTitle\(store\.diffRows\)/.test(tab) &&
+    /valueText\(row\.a\)/.test(tab) &&
+    /valueText\(row\.b\)/.test(tab),
+);
+check("the diff area is collapsed by default", /<details/.test(tab) && !/<details open/.test(tab));
+check(
+  "the rows keep the order the host sent",
+  /store\.diffRows\.map\(/.test(tab) && !/diffRows[\s\S]{0,200}?\.sort\(/.test(tab),
+);
+check("the placeholder for an unimplemented diff is gone", !/字段级差异是 v0\.6/.test(tab));
+
 // Run-row layout (v0.5 batch 11).
 //
 // The walkthrough found the audit tab's run rows sitting behind a horizontal
@@ -295,6 +354,22 @@ check(
   "the run checkbox has its own size",
   /\.run-pick\s*\{[^}]*width:\s*\d+px/.test(panelsCss),
   "without an explicit width the global input rule makes it fill the row",
+);
+
+// The field-level diff's presentation (v0.6 batch 1).
+check(
+  "a differing field is highlighted",
+  /\.diff-row\.different\s*\{[^}]*border-left-color:\s*var\(--accent\)/.test(panelsCss),
+);
+check(
+  "an equal field is dimmed",
+  /\.diff-row\.same\s*\{[^}]*color:\s*var\(--muted\)/.test(panelsCss),
+);
+check("diff values are monospace", /\.diff-value\s*\{[^}]*ui-monospace/.test(panelsCss));
+check(
+  "diff values wrap instead of being cut off",
+  /\.diff-value\s*\{[^}]*white-space:\s*pre-wrap/.test(panelsCss) &&
+    /\.diff-value\s*\{[^}]*overflow-wrap:\s*anywhere/.test(panelsCss),
 );
 
 console.log(`\n${failures === 0 ? "OK" : `${failures} failing check(s)`}`);

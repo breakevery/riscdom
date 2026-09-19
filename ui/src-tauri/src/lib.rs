@@ -83,6 +83,7 @@ pub fn run() {
             host::commands::export_serial_log,
             host::commands::export_audit_jsonl,
             host::commands::export_run_audit,
+            host::commands::compare_run_fingerprints,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

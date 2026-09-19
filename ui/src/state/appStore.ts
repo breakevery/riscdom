@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import * as api from "../api/tauri";
 import { executableFilters, pickedPath } from "../lib/pathPick";
-import { defaultExportPath, toggleRunSelection as nextRunSelection } from "../lib/runView";
+import { defaultExportPath, diffFailedText, MAX_COMPARED_RUNS, toggleRunSelection as nextRunSelection } from "../lib/runView";
 import { applyTheme, nextTheme, parseTheme, systemPrefersDark } from "../lib/theme";
 import type { ResolvedTheme, Theme } from "../lib/theme";
 
@@ -61,6 +61,13 @@ export interface AppStore {
   selectedRuns: string[];
   toggleRunSelection: (runId: string) => void;
   clearRunSelection: () => void;
+  /**
+   * The two runs' fingerprints, field by field (v0.6 batch 1): the host's rows in
+   * the host's order, or `null` while there is nothing to show — no pair selected,
+   * or the question still in flight. `diffNote` carries the host's refusal.
+   */
+  diffRows: api.FingerprintFieldDiff[] | null;
+  diffNote: string | null;
   /** Native file pickers (v0.4 batch 2); the manual text entry stays available. */
   pickToolchainPath: () => Promise<void>;
   pickQemuPath: () => Promise<void>;
@@ -188,6 +195,8 @@ export function useAppStore(): AppStore {
   const [runs, setRuns] = useState<api.RunView[]>([]);
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
   const [selectedRuns, setSelectedRuns] = useState<string[]>([]);
+  const [diffRows, setDiffRows] = useState<api.FingerprintFieldDiff[] | null>(null);
+  const [diffNote, setDiffNote] = useState<string | null>(null);
   const [preflight, setPreflight] = useState<api.PreflightView | null>(null);
   const [preflightStep, setPreflightStep] = useState<{
     step: string;
@@ -295,6 +304,35 @@ export function useAppStore(): AppStore {
   }, []);
 
   const clearRunSelection = useCallback(() => setSelectedRuns([]), []);
+
+  // The field-level diff of the two selected runs (v0.6 batch 1). It is the host's
+  // answer — both fingerprint documents are read off the chain there — and the UI
+  // renders the rows in exactly the order they arrive: no re-sorting, no diffing
+  // JSON here. Changing the pair, or clearing it, supersedes the answer in flight.
+  useEffect(() => {
+    if (selectedRuns.length !== MAX_COMPARED_RUNS) {
+      setDiffRows(null);
+      setDiffNote(null);
+      return;
+    }
+    let cancelled = false;
+    const [runA, runB] = selectedRuns;
+    api
+      .compareRunFingerprints(runA, runB)
+      .then((rows) => {
+        if (cancelled) return;
+        setDiffRows(rows);
+        setDiffNote(null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setDiffRows(null);
+        setDiffNote(diffFailedText(String(e)));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRuns]);
 
   // Environment preflight (v0.4 batch 3): the run itself is asynchronous, so the
   // UI follows `preflight:progress` and re-reads the cached result at the end.
@@ -786,6 +824,8 @@ export function useAppStore(): AppStore {
     selectedRuns,
     toggleRunSelection,
     clearRunSelection,
+    diffRows,
+    diffNote,
     workspaceFiles,
     refreshWorkspace,
     serial,

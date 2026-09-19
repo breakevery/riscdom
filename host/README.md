@@ -36,6 +36,7 @@ Dependency direction: `host → {agent, sandbox, audit}`; `ui/src-tauri → host
 | `resume_from_snapshot_real(name)` | `()` (stops the current VM first, then restores with `-incoming`) |
 | `export_audit_jsonl(path)` | `usize` (written inside the workspace) |
 | `export_run_audit(run_id, path)` | `usize` (one run's record, self-contained: the chain from its first event to that run's end; an abandoned run ends at its `host.run.abandoned` marker, an open run is refused) |
+| `compare_run_fingerprints(run_a, run_b)` | `FingerprintFieldDiff[]` (v0.6 batch 1: the two runs' configuration fingerprints side by side, one row per **top-level** field — `field` / `a` / `b` / `is_different` — in the order `AppState::run_fingerprint` declares them, unchanged fields included; the documents come from the chain's `run.start` events, and an unknown run id is an error) |
 | `workspace_root()` | `string` (the absolute workspace path) |
 
 ## Events (host → frontend)

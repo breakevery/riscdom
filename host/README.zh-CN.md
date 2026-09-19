@@ -36,6 +36,7 @@
 | `resume_from_snapshot_real(name)` | `()`（先停当前 VM，再以 `-incoming` 恢复） |
 | `export_audit_jsonl(path)` | `usize`（写入工作区内） |
 | `export_run_audit(run_id, path)` | `usize`（一次 run 的记录，自足：从链的第一条事件到该 run 结束；abandoned 的 run 以 `host.run.abandoned` 标记结尾，进行中的 run 会被拒） |
+| `compare_run_fingerprints(run_a, run_b)` | `FingerprintFieldDiff[]`（v0.6 批次 1：两个 run 的配置指纹并排，每个**顶层**字段一行 —— `field` / `a` / `b` / `is_different` —— 顺序即 `AppState::run_fingerprint` 的声明顺序，无差异的字段也在列表里；文档取自链上的 `run.start` 事件，run id 不存在会报错） |
 | `workspace_root()` | `string`（工作区根绝对路径） |
 
 ## 事件（host → 前端）

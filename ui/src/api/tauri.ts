@@ -201,6 +201,27 @@ export const exportAuditJsonl = (path: string) =>
 export const exportRunAudit = (runId: string, path: string) =>
   invoke<number>("export_run_audit", { runId, path });
 
+/**
+ * One top-level field of two runs' fingerprints (v0.6 batch 1). `a` / `b` are the
+ * documents' values as the host read them off the chain — whole nested objects,
+ * not their keys. They are structured JSON, so the UI renders them, never
+ * re-parses a string the host formatted for it.
+ */
+export interface FingerprintFieldDiff {
+  field: string;
+  a: unknown;
+  b: unknown;
+  is_different: boolean;
+}
+
+/**
+ * Field-by-field diff of two runs' fingerprints (v0.6 batch 1). The rows arrive
+ * in the fingerprint's declaration order and cover every field the two documents
+ * carry; the UI renders that order as it is and never re-sorts it.
+ */
+export const compareRunFingerprints = (runA: string, runB: string) =>
+  invoke<FingerprintFieldDiff[]>("compare_run_fingerprints", { runA, runB });
+
 /** A snapshot on disk. */
 export interface SnapshotMeta {
   name: string;

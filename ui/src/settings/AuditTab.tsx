@@ -1,9 +1,14 @@
 import type { AppStore } from "../state/appStore";
 import {
   comparePanelVisible,
+  diffEmptyText,
+  diffLoadingText,
+  diffRowState,
+  diffTitle,
   runsEmptyText,
   toCompareRows,
   toRunRows,
+  valueText,
 } from "../lib/runView";
 
 /** Audit status: event count, hash-chain state, filtering and the recent list. */
@@ -11,6 +16,12 @@ export default function AuditTab({ store }: { store: AppStore }) {
   const chain = store.auditStatus?.chain;
   const runRows = toRunRows(store.runs, Date.now());
   const compareRows = toCompareRows(store.runs, store.selectedRuns);
+  // The collapsed header of the field-level diff (v0.6 batch 1): the host's count
+  // once it has answered, its refusal when it refused, and a loading line before
+  // either. Never a count of rows the UI made up.
+  const diffHeadline = store.diffRows
+    ? diffTitle(store.diffRows)
+    : (store.diffNote ?? diffLoadingText());
 
   return (
     <>
@@ -111,25 +122,47 @@ export default function AuditTab({ store }: { store: AppStore }) {
       {/* Side-by-side (v0.5 batch 2, step 7): two runs, their digests next to each
           other. A field-by-field diff is v0.6. */}
       {comparePanelVisible(store.selectedRuns) ? (
-        <div className="compare-grid">
-          {compareRows.map((c) => (
-            <div className="compare-col" key={c.runId} title={c.runId}>
-              <div className="muted small">{c.runId}</div>
-              <div className="status-line">
-                <span className={`badge ${c.status === "ok" ? "ok" : ""}`}>
-                  {c.statusLabel}
-                </span>
-                <span className="muted small">{c.startedLabel}</span>
+        <>
+          <div className="compare-grid">
+            {compareRows.map((c) => (
+              <div className="compare-col" key={c.runId} title={c.runId}>
+                <div className="muted small">{c.runId}</div>
+                <div className="status-line">
+                  <span className={`badge ${c.status === "ok" ? "ok" : ""}`}>
+                    {c.statusLabel}
+                  </span>
+                  <span className="muted small">{c.startedLabel}</span>
+                </div>
+                {c.snapshotLabel ? (
+                  <div className="muted small">{c.snapshotLabel}</div>
+                ) : null}
+                <div className="action small">{c.fingerprintShort}</div>
+                <div className="action small wrap">{c.fingerprint}</div>
               </div>
-              {c.snapshotLabel ? (
-                <div className="muted small">{c.snapshotLabel}</div>
-              ) : null}
-              <div className="action small">{c.fingerprintShort}</div>
-              <div className="action small wrap">{c.fingerprint}</div>
-            </div>
-          ))}
-          <div className="muted small">字段级差异是 v0.6。</div>
-        </div>
+            ))}
+          </div>
+          {/* Field-level diff (v0.6 batch 1), under the two columns: the host's
+              rows in the host's order — left is the first run selected, right the
+              second — collapsed until asked for, and complete when opened (an
+              unchanged field is dimmed, never dropped, never truncated). */}
+          <details className="diff-block">
+            <summary className="diff-summary">{diffHeadline}</summary>
+            {store.diffRows && store.diffRows.length > 0 ? (
+              <ul className="diff-list">
+                {store.diffRows.map((row) => (
+                  <li key={row.field} className={`diff-row ${diffRowState(row)}`}>
+                    <span className="diff-field action small">{row.field}</span>
+                    <pre className="diff-value">{valueText(row.a)}</pre>
+                    <pre className="diff-value">{valueText(row.b)}</pre>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {store.diffRows && store.diffRows.length === 0 ? (
+              <div className="muted small">{diffEmptyText()}</div>
+            ) : null}
+          </details>
+        </>
       ) : null}
       {store.runExportNote ? (
         <div className="muted small">{store.runExportNote}</div>
