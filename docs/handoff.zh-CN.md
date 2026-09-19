@@ -11,31 +11,31 @@
 
 ## 1. 快照 —— 截至 v0.5.0-preview.1（正式版发布时更新本节）
 
-- **`v0.5.0-preview.1` 已作为预发布版发布**，且刻意**不是** Latest：它存在的目的是让另一个人在干净
-  机器上走一遍黄金路径。<https://github.com/breakevery/riscdom/releases/tag/v0.5.0-preview.1> ——
-  附件为 `RiscDom_0.5.0-preview.1_x64_en-US.msi`（6,332,416 字节）与
-  `RiscDom_0.5.0-preview.1_x64-setup.exe`（4,463,424 字节）。
-- **Latest 仍是 `v0.4.0`。**
-- **`v0.5.0` 正式版等测试者反馈**：干净机器上第 1–2 步的真实走查（按
-  [golden-path-checklist.zh-CN.md](golden-path-checklist.zh-CN.md) 记录），加上真实 API key 的两次 run。
-- **已经走查过一次，但只是本地**：[../walkthroughs/2026-09-19-preview1-local.md](../walkthroughs/2026-09-19-preview1-local.md)
+- **`v0.5.0` 已发布，它就是 Latest。**
+  <https://github.com/breakevery/riscdom/releases/tag/v0.5.0> —— 附件为 `RiscDom_0.5.0_x64_en-US.msi`
+  与 `RiscDom_0.5.0_x64-setup.exe`，构建时已去掉预览版的 MSI 版本覆盖（因此「应用和功能」里显示
+  `0.5.0`）。它证明了什么、没证明什么，写在 [RELEASE_NOTES.zh-CN.md](RELEASE_NOTES.zh-CN.md)。
+- **`v0.5.0-preview.1` 作为历史保留**（它是预发布版，所以直到本版发布前 Latest 一直由 `v0.4.0` 持有）。
+  它的附件仍留在原处。
+- **走查记录已有一份，且是本地那次**：[../walkthroughs/2026-09-19-preview1-local.md](../walkthroughs/2026-09-19-preview1-local.md)
   —— 七步全过，真实模型 + 真实 key，用的是**安装版 MSI**；但**本机不是干净环境**（QEMU 与 RISC-V GCC
-  早已装好），所以它不能单独关闭发布门槛。它发现的问题已在 v0.5 批次 11 处理：run 行布局（S-1）、
-  快照默认名（G-1）、工具调用标记（E-1）、预检措辞（E-2）、actor 实时过滤（E-3）均已修复；G-2
-  （改模型未生效）仍需真人用鼠标复核，G-3（预览版在「已安装的应用」里显示 `0.5.0.1`）是设计如此、
-  已在清单里说明，G-4（QEMU 控制台窗口抢前台）需要改 sandbox。**外部测试者的走查仍未发生** ——
-  `v0.5.0` 等的是它。
+  早已装好）。它发现的问题已修复（S-1 / G-1 / E-1 / E-2 / E-3 在批次 11，G-4 在批次 12）；G-2
+  （改模型未生效）与「在聊天框里输入中文」仍需真人用键盘复核，G-3（「已安装的应用」里的 `0.5.0.1`）
+  已随覆盖本身一起消失。
+- **外部走查仍未发生。** 它本是本版的计划，但没有发生，因此「干净机器走查」现在是 **v0.5.x 的补强项**
+  （§8），而不是阻塞项：[golden-path-checklist.zh-CN.md](golden-path-checklist.zh-CN.md) 是测试者要填的
+  表单，`walkthroughs/` 是它该去的地方。
 - 近期提交（新→旧）：`287ffdb`（发布 bump）← `2a5d296`（README/CLA 措辞）← `993e5d1`（CLA）←
   `f662ad7`（自足导出）← `20a7c6d`（索引里的来源快照）← `a22112f`（abandoned 导出、工作区默认路径、
   两 run 对比）← `26ad597`（run 区间导出）← `e70457f`（黄金路径设计）。
-- tag：`v0.5.0-preview.1` = `cea44f7b9920a079422217f811afb49350e08477` →
-  `287ffdb095e1659b89a8cafe040647ada64d0026`；`v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d`
-  → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`；`v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c`
-  → `b9be9111c620faad686c7a9d095e0ebc04b31225`。
+- tag：`v0.5.0` 即本次发布（给本文件定版的那个提交）；`v0.5.0-preview.1` =
+  `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`；
+  `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`；
+  `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`。
 - 该提交处的测试总况：**281 passed / 0 failed / 8 ignored / 79 suites**；CI 全绿（`ubuntu-latest` 上跑
   `scripts/gate.sh`，另加 gitleaks）。
-- 未完成项：`%TEMP%` 下的临时目录仍未清理（删除确认未被放行）；CLA.md 待律师过目；不支持 macOS/Linux；
-  真实首跑尚未发生。
+- 未完成项：`%TEMP%` 下的临时目录仍未清理（删除确认始终未被放行）；CLA.md 待律师过目；不支持
+  macOS/Linux；**由他人进行的干净机器走查尚未发生** —— 如今它是 v0.5.x 的补强项，而不是阻塞项。
 
 ## 2. 远端操作按轮授权，且必须有明确文字
 

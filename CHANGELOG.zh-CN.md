@@ -7,6 +7,42 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)。
 
+## [0.5.0] - 2026-09-19
+
+**黄金路径已完整，本版就是「预览版的工作 + 其走查发现已修」的那一版。** 全路径已被走查过一次 ——
+在开发机上，而非干净环境 —— 记录见
+[walkthroughs/2026-09-19-preview1-local.md](walkthroughs/2026-09-19-preview1-local.md)；它证明了什么、
+没证明什么，写在 [RELEASE_NOTES.zh-CN.md](RELEASE_NOTES.zh-CN.md)。
+
+### 新增
+
+- **七步走查的记录**（v0.5 批次 10–11）：安装 → 创建环境 → 跑任务 → 存快照 → 导出审计记录 → rollback
+  → 改一个配置字段再跑，用真实模型、真实 API key 与**安装版 MSI**。每一步都通过；记录里列出了这次走查
+  产生的五项发现及其处理结果。
+- **`scripts/scan-encoding.py`**（v0.5 批次 13）：针对 0x3F 家族编码事故的手动诊断工具（U+FFFD、连续
+  `?`、只含 `?` 的字面量、CJK 旁的 `?`、UTF-8 被当 GBK 读）。**刻意不入门禁** —— 它的「只含 `?` 的
+  字面量」判据无法区分真损坏与合法代码。
+
+### 修复
+
+- **审计页的 run 行除了复选框什么都看不见**（走查 S-1）：全局 `input { width: 100% }` 也作用于复选框，
+  它撑满整行，把状态、指纹、时间与「导出」按钮全挤出可视区。现在复选框有自己的尺寸、行内文本改用省略号
+  收缩、控件永不收缩，设置页也改用窗口宽度而不是自身内容宽度。
+- **快照弹窗默认值写死 `snap1`**（G-1）：默认值改为取自时钟（`snap-YYYYMMDD-HHMM`），直接确认不再
+  让每个快照同名。
+- **工具调用行显示成 `?? write_source ?`**（E-1）：那几行 JSX 里原本的标记在写入时被吃成了字面量
+  `?`；现在改为一枚 CSS 状态点加一个中文词。
+- **预检句子看似可点其实不可点**（E-2）、**审计 actor 过滤器失焦才生效**（E-3）：句子改为指向它右侧的
+  按钮，过滤器改为随输入实时生效。
+- **QEMU 会在应用上方弹出控制台窗口**（G-4）：sandbox 在 Windows 上以 `CREATE_NO_WINDOW` 启动它。
+  `-display none` 关掉的是 guest 显示，不是那个控制台。
+
+### 变更
+
+- **预览版的 MSI 版本覆盖已删除。** `bundle.windows.wix.version` 只因 `preview.1` 不是合法的 MSI
+  `ProductVersion` 而存在；`0.5.0` 是纯数字，因此 MSI 现在直接携带包版本，「应用和功能」里显示 `0.5.0`。
+  若该覆盖日后与纯数字版本一起回归，gate 里的 `scripts/check-wix-version.mjs` 会让构建失败。
+
 ## [0.5.0-preview.1] - 2026-09-19
 
 **这是预览版，给准备在干净机器上走黄金路径的人。** 预览版尚未在干净环境验证过：测试者需要什么、
@@ -314,7 +350,8 @@
   `agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
 - 真实 DeepSeek API 端到端：**已执行通过**（2026-09-14，`iterations = 6`，串口捕获 `HELLO RISCV`；结果见 `host/README.md`）。
 
-[未发布]: https://github.com/breakevery/riscdom/compare/v0.4.0...HEAD
+[未发布]: https://github.com/breakevery/riscdom/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/breakevery/riscdom/compare/v0.5.0-preview.1...v0.5.0
 [0.4.0]: https://github.com/breakevery/riscdom/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/breakevery/riscdom/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/breakevery/riscdom/compare/v0.2.2...v0.3.0

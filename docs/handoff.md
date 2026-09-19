@@ -11,40 +11,36 @@ branch `main`. The close-out of every batch is the same: gate green → `scripts
 (which runs the gate itself) → push — and none of those remote-facing steps happens without the
 current request authorising it (§2).
 
-## 1. Snapshot — as of v0.5.0-preview.1 (update this section when the final release ships)
+## 1. Snapshot — as of v0.5.0 (update this section when the next release ships)
 
-- **`v0.5.0-preview.1` is released as a pre-release**, and is deliberately **not** the Latest
-  release: it exists so someone else can walk the golden path on a clean machine.
-  <https://github.com/breakevery/riscdom/releases/tag/v0.5.0-preview.1> — assets
-  `RiscDom_0.5.0-preview.1_x64_en-US.msi` (6,332,416 bytes) and
-  `RiscDom_0.5.0-preview.1_x64-setup.exe` (4,463,424 bytes).
-- **Latest is still `v0.4.0`.** A preview must never take that marker (§8's rule is about the final
-  release, but the same discipline applies to the flag).
-- **`v0.5.0` final waits on tester feedback**: a real walk of steps 1–2 on a clean machine, recorded
-  against [golden-path-checklist.md](golden-path-checklist.md), plus two real runs with a real API
-  key.
-- **One walk has been done, locally**: [../walkthroughs/2026-09-19-preview1-local.md](../walkthroughs/2026-09-19-preview1-local.md)
+- **`v0.5.0` is released, and it is the Latest release.**
+  <https://github.com/breakevery/riscdom/releases/tag/v0.5.0> — assets `RiscDom_0.5.0_x64_en-US.msi`
+  and `RiscDom_0.5.0_x64-setup.exe`, built without the preview's MSI version override (so *Apps &
+  features* shows `0.5.0`). What it proves and what it does not is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
+- **`v0.5.0-preview.1` is kept as history** (a pre-release, which is why `v0.4.0` held the Latest
+  marker until this release). Its assets stay where they were.
+- **One walk has been recorded, and it was local**: [../walkthroughs/2026-09-19-preview1-local.md](../walkthroughs/2026-09-19-preview1-local.md)
   — seven steps, a real model and a real key, the **installed MSI**; but **not** a clean machine
-  (QEMU and a RISC-V GCC were already installed there), so it does not close the gate on its own.
-  Its findings were dealt with in v0.5 batch 11: the run-row layout (S-1), the snapshot name (G-1),
-  the tool-call markers (E-1), the preflight wording (E-2) and the live actor filter (E-3) are
-  fixed; G-2 (a model change that did not take effect) still needs a human with a mouse, G-3 (the
-  preview's `0.5.0.1` in *Apps & features*) is by design and is now explained in the checklist, and
-  G-4 (QEMU's console window taking focus) needs a sandbox change. **An external tester's walk is
-  still outstanding** — that is what `v0.5.0` waits for.
+  (QEMU and a RISC-V GCC were already installed there). Its five findings were fixed (S-1, G-1, E-1,
+  E-2, E-3 in v0.5 batch 11; G-4 in batch 12); G-2 (a model change that did not take effect) and
+  "typing Chinese into the chat box" still need a human with a keyboard, and G-3 (`0.5.0.1` in
+  *Apps & features*) disappeared with the override itself.
+- **An external walk is still outstanding.** It was this release's plan and it did not happen, so
+  the clean-machine walk is now a **v0.5.x strengthening item** (§8), not a blocker: [golden-path-checklist.md](golden-path-checklist.md)
+  is the form a tester fills in, and `walkthroughs/` is where it goes.
 - Recent commits (newest first): `287ffdb` (release bump) ← `2a5d296` (README/CLA wording) ←
   `993e5d1` (CLA) ← `f662ad7` (self-contained export) ← `20a7c6d` (source snapshot in the index) ←
   `a22112f` (abandoned export, workspace default path, two-run compare) ← `26ad597` (run interval
   export) ← `e70457f` (golden-path design).
-- Tags: `v0.5.0-preview.1` = `cea44f7b9920a079422217f811afb49350e08477` →
-  `287ffdb095e1659b89a8cafe040647ada64d0026`; `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d`
-  → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`; `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c`
-  → `b9be9111c620faad686c7a9d095e0ebc04b31225`.
+- Tags: `v0.5.0` is this release (the commit that versions this file); `v0.5.0-preview.1` =
+  `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`;
+  `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`;
+  `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`.
 - Test totals at that commit: **281 passed / 0 failed / 8 ignored / 79 suites**; CI green
   (`scripts/gate.sh` on `ubuntu-latest` plus gitleaks).
 - Open items: the temp directories under `%TEMP%` have not been cleaned (the deletion confirmation
-  was not granted); CLA.md awaits a lawyer's eye; no macOS/Linux support; the real first walk has
-  not happened.
+  was never granted); CLA.md awaits a lawyer's eye; no macOS/Linux support; **the clean-machine walk
+  by someone else has not happened** — now a v0.5.x strengthening item rather than a blocker.
 
 ## 2. Remote operations are per-turn and authorised in words
 

@@ -7,6 +7,47 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-09-19
+
+**The golden path is complete, and this release is the preview's work with its walkthrough findings
+fixed.** One walk of the whole path has been done — on the developer's machine, not a clean one — and
+its result is [walkthroughs/2026-09-19-preview1-local.md](walkthroughs/2026-09-19-preview1-local.md);
+what that does and does not prove is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
+
+### Added
+
+- **A recorded walkthrough of the seven steps** (v0.5 batches 10–11): install → create an environment
+  → run a task → save a snapshot → export the audit record → roll back → change one configuration
+  field and run again, with a real model, a real API key and the **installed MSI**. Every step
+  passed; the record lists the five findings the walk produced and what happened to each.
+- **`scripts/scan-encoding.py`** (v0.5 batch 13): a hand-run diagnostic for the 0x3F family of
+  encoding accidents (U+FFFD, runs of `?`, `?`-only literals, `?` beside CJK, UTF-8-read-as-GBK).
+  Deliberately **not** in the gate — its `?`-literal rule cannot tell damage from legitimate code.
+
+### Fixed
+
+- **The audit tab's run rows were invisible apart from their checkbox** (walkthrough S-1): the global
+  `input { width: 100% }` rule applied to the checkbox too, so it filled the row and pushed the
+  status, fingerprint, time and 导出 button out of view. The checkbox now has its own size, the row's
+  text shrinks with an ellipsis instead, the controls never shrink, and the settings pane uses the
+  window's width rather than its own content's.
+- **The snapshot prompt opened with a hard-coded `snap1`** (G-1): the default now comes from the
+  clock (`snap-YYYYMMDD-HHMM`), so pressing Enter no longer reuses one name for every snapshot.
+- **Tool-call rows read `?? write_source ?`** (E-1): those JSX lines had been written with literal
+  `?` characters where their markers used to be; the row now shows a CSS status dot and a word.
+- **The preflight sentence looked clickable where it was not** (E-2) and **the audit actor filter
+  only applied on blur** (E-3): the sentence points at the button beside it, and the filter follows
+  what you type.
+- **QEMU opened a console window over the app** (G-4): the sandbox starts QEMU with
+  `CREATE_NO_WINDOW` on Windows. `-display none` hides the guest's display, not that console.
+
+### Changed
+
+- **The preview's MSI version override is gone.** `bundle.windows.wix.version` existed only because
+  `preview.1` is not a valid MSI `ProductVersion`; `0.5.0` is numeric, so the MSI now carries the
+  package version and *Apps & features* shows `0.5.0`. `scripts/check-wix-version.mjs` (in the gate)
+  fails if that override ever comes back alongside a numeric version.
+
 ## [0.5.0-preview.1] - 2026-09-19
 
 **A preview, for people who will walk the golden path on a clean machine.** A preview has not been
@@ -382,7 +423,8 @@ locally only. (An earlier draft was deleted; the `v0.1.0` tag remains.)
 - Real DeepSeek API end-to-end: **executed and passing** (2026-09-14, `iterations = 6`,
   serial captured `HELLO RISCV`; see `host/README.md`).
 
-[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/breakevery/riscdom/compare/v0.5.0-preview.1...v0.5.0
 [0.4.0]: https://github.com/breakevery/riscdom/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/breakevery/riscdom/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/breakevery/riscdom/compare/v0.2.2...v0.3.0
