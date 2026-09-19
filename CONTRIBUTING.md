@@ -84,6 +84,32 @@ Therefore:
 Example: commit `363e5ab` (*docs: add v0.3.1 release notes (post-tag)*) states its body in English
 because of exactly this constraint — the Chinese wording would have been stored as `?`.
 
+## Contributor License Agreement (CLA)
+
+**Every contributor must accept the [CLA](CLA.md) before a pull request can be merged.** The CLA is
+what allows this project to be **open core**: it keeps your contribution under Apache-2.0 *and* lets
+the project owner distribute derived work under a commercial proprietary licence (see CLA.md §3).
+You keep the copyright in your contribution.
+
+Sign it by commenting on the pull request with exactly this sentence, **in English**:
+
+```text
+I have read the CLA Document and I hereby sign the CLA
+```
+
+(In Chinese, for reference: 我已阅读 CLA 文档，并在此签署该 CLA。) The sentence is not translated —
+the bot matches the English text exactly.
+
+The [CLA Assistant](.github/workflows/cla.yml) bot verifies the signature and records it in
+[`signatures/version1/cla.json`](signatures/version1/cla.json).
+
+- **A pull request whose author has not signed the CLA is not merged**; the check stays red until
+  they do.
+- Contributing as an employee, or on behalf of a company, is a corporate contribution: contact the
+  project owner through the repository's issue tracker before the first pull request.
+- A trivial fix (a typo, a broken link, a small documentation correction) may be accepted without a
+  signature — CLA.md §9. Anything larger needs a recorded one.
+
 ## Pull requests
 
 1. Fork the repository (or create a branch if you have write access).
@@ -93,6 +119,7 @@ because of exactly this constraint — the Chinese wording would have been store
 4. Describe what changed, how you verified it (test output, screenshots), and any residual
    limits or follow-ups.
 5. Security issues go through [SECURITY.md](SECURITY.md) — never a public issue.
+6. The CLA check must be green — see the section above.
 
 ## Never commit
 

@@ -77,6 +77,27 @@ gate 非零退出时，包装脚本以 1 退出，**不会产生任何提交**�
 例：commit `363e5ab`（*docs: add v0.3.1 release notes (post-tag)*）的正文只能用英文，原因正是
 这条约束——中文表述会被存成 `?`。
 
+## 贡献者许可协议（CLA）
+
+**每位贡献者都必须先接受 [CLA](CLA.md)，PR 才会被合并。** CLA 正是本项目能走 **open core
+（开放核心）** 的前提：它让你的贡献留在 Apache-2.0 之下，**同时**允许项目所有者以商业专有许可
+分发衍生工作（见 CLA.md §3）。你**保留**其贡献的版权。
+
+签署方式：在 PR 下评论**恰好**下面这句**英文**（签署句不翻译，机器人按英文原文精确匹配）：
+
+```text
+I have read the CLA Document and I hereby sign the CLA
+```
+
+（中文对照：我已阅读 CLA 文档，并在此签署该 CLA。）
+
+[CLA Assistant](.github/workflows/cla.yml) 机器人会校验签署，并把记录写进
+[`signatures/version1/cla.json`](signatures/version1/cla.json)。
+
+- **作者未签署 CLA 的 PR 不会被合并**；检查会一直红到签完为止。
+- 以雇员身份、或代表公司贡献，属于企业贡献：请在首次提交 PR 之前通过仓库 issue 区联系项目所有者。
+- 微小修正（错别字、失效链接、小型文档更正）可不经签署接受 —— CLA.md §9。更大的改动必须有签署记录。
+
 ## PR 流程
 
 1. Fork 仓库（有写权限则新建分支）。
@@ -84,6 +105,7 @@ gate 非零退出时，包装脚本以 1 退出，**不会产生任何提交**�
 3. 本地先跑 gate。**所有 PR 必须通过 CI 的 gate。**
 4. 说明改了什么、如何验证（测试输出、截图）以及残留限制或后续项。
 5. 安全问题走 [SECURITY.md](SECURITY.md)，不要开公开 issue。
+6. CLA 检查必须是绿的 —— 见上一节。
 
 ## 绝不提交
 

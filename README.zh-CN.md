@@ -187,6 +187,16 @@ gate（`scripts/gate.ps1` / `scripts/gate.sh`），并经由受门禁保护的�
 - QEMU 与下载来的 RISC-V 工具链是按各自许可证发布的独立程序；这对本项目意味着什么写在
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
+### 开放核心（Open Core）
+
+RiscDom 采用 **open core** 模式，贡献者有权知道自己的代码会被如何使用：
+
+- 本仓库的**核心**保持 [Apache-2.0](LICENSE)；
+- **外围组件可能以商业专有许可发布**；
+- 因此**外部贡献必须签署 [CLA](CLA.md)**，该协议授予项目所有者重新许可与再许可的权利
+  （CLA.md §3）；
+- 该授权的完整条款写在 [CLA.md](CLA.md)。
+
 ## 更多
 
 - [PROJECT_CONSTITUTION.md](PROJECT_CONSTITUTION.md) — 完整宪法、架构分层、审计事件类型

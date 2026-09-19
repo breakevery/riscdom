@@ -198,6 +198,16 @@ behaviour through the contact listed there.
 - QEMU and the downloaded RISC-V toolchain are separate programs under their own licences; what that
   means here is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+### Open core
+
+RiscDom is **open core**, and a contributor has the right to know how their work will be used:
+
+- the **core** of this repository stays under [Apache-2.0](LICENSE);
+- **peripheral components may be released under a commercial proprietary licence**;
+- **external contributions therefore require a signed [CLA](CLA.md)**, which grants the project
+  owner the right to relicense and sublicense them (CLA.md §3);
+- the terms of that grant are stated in full in [CLA.md](CLA.md).
+
 ## More
 
 - [PROJECT_CONSTITUTION.md](PROJECT_CONSTITUTION.md) — full constitution, architecture
