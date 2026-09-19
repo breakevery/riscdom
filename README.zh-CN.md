@@ -183,19 +183,10 @@ gate（`scripts/gate.ps1` / `scripts/gate.sh`），并经由受门禁保护的�
 [Apache License 2.0](LICENSE)。
 
 - 本仓库代码采用 Apache-2.0 许可证。
+- 若您向本仓库提交贡献，需签署 [CLA](CLA.md)。
 - 使用本项目时请遵守你所用模型服务商的条款。
 - QEMU 与下载来的 RISC-V 工具链是按各自许可证发布的独立程序；这对本项目意味着什么写在
   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-
-### 开放核心（Open Core）
-
-RiscDom 采用 **open core** 模式，贡献者有权知道自己的代码会被如何使用：
-
-- 本仓库的**核心**保持 [Apache-2.0](LICENSE)；
-- **外围组件可能以商业专有许可发布**；
-- 因此**外部贡献必须签署 [CLA](CLA.md)**，该协议授予项目所有者重新许可与再许可的权利
-  （CLA.md §3）；
-- 该授权的完整条款写在 [CLA.md](CLA.md)。
 
 ## 更多
 

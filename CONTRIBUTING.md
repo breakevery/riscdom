@@ -86,10 +86,10 @@ because of exactly this constraint — the Chinese wording would have been store
 
 ## Contributor License Agreement (CLA)
 
-**Every contributor must accept the [CLA](CLA.md) before a pull request can be merged.** The CLA is
-what allows this project to be **open core**: it keeps your contribution under Apache-2.0 *and* lets
-the project owner distribute derived work under a commercial proprietary licence (see CLA.md §3).
-You keep the copyright in your contribution.
+**If you contribute to this repository, you need to accept the [CLA](CLA.md) before a pull request
+can be merged.** You keep the copyright in your contribution; the rights the CLA grants over it are
+stated in CLA.md §3. (Contributions may be taken in somewhere other than this repository in the
+future, so this section speaks only for the flow that exists here today.)
 
 Sign it by commenting on the pull request with exactly this sentence, **in English**:
 
@@ -103,8 +103,8 @@ the bot matches the English text exactly.
 The [CLA Assistant](.github/workflows/cla.yml) bot verifies the signature and records it in
 [`signatures/version1/cla.json`](signatures/version1/cla.json).
 
-- **A pull request whose author has not signed the CLA is not merged**; the check stays red until
-  they do.
+- **In this repository, a pull request whose author has not signed the CLA is not merged**; the
+  check stays red until they do.
 - Contributing as an employee, or on behalf of a company, is a corporate contribution: contact the
   project owner through the repository's issue tracker before the first pull request.
 - A trivial fix (a typo, a broken link, a small documentation correction) may be accepted without a
