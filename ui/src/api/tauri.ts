@@ -185,6 +185,14 @@ export const exportSerialLog = (path: string) =>
 export const exportAuditJsonl = (path: string) =>
   invoke<number>("export_audit_jsonl", { path });
 
+/**
+ * Export **one run's** audit interval as JSONL (v0.5 batch 1). Returns the number
+ * of events written. The host writes only inside the workspace, and refuses a run
+ * that has not ended.
+ */
+export const exportRunAudit = (runId: string, path: string) =>
+  invoke<number>("export_run_audit", { runId, path });
+
 /** A snapshot on disk. */
 export interface SnapshotMeta {
   name: string;

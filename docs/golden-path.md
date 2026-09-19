@@ -212,22 +212,34 @@ exists, run `audit-verify` logic over it, and delete it — with no dialog in th
 Smallest honest v0.5, in one sentence: **make step 5 real, make step 7 legible, and write down what
 steps 1–2 mean.**
 
-## 8. Decisions only the project owner can make
+## 8. Decisions (settled)
 
-1. **Export scope**: per run (§4 recommendation) or the whole chain as today.
-2. **Export destination**: a visible path in the workspace, chosen in a save dialog (§4
-   recommendation), or a fixed hidden `.riscdom/audit/` path.
-3. **Where the interval comes from**: the export command takes a run id (§4 recommendation), or
-   `RunView` grows `start_seq` / `end_seq` and the UI passes them.
-4. **A CLI export** in v0.5 (recommendation: no) or left to v0.6.
-5. **"Environment"**: keep it a phrase (§5 recommendation), or make it an object.
-6. **The release gate**: is "a person walks steps 1–2 with a real API key on a clean machine"
-   required per release (recommendation: yes, recorded in the release notes), or is the `--ignored`
-   e2e test enough.
-7. **Step 7 minimalism**: show the two fingerprints side by side (recommendation) or also show which
-   fingerprint *fields* differ — the latter is a small diff engine, and it drifts towards v0.6.
-8. **Snapshot naming**: leave `window.prompt` alone (recommendation: out of scope for v0.5, but it is
-   inconsistent with the native dialogs next to it) or fix it in v0.5.
+All eight were settled by the project owner on 2026-09-19; §4–§6's recommendations are the
+decisions, with the two additions below marked.
+
+1. **Export scope: one run's interval.** The whole-log export stays for "give me everything"
+   (`export_audit_jsonl`); the golden path's step 5 uses the run-scoped export.
+2. **Export destination: a visible path in the workspace**, chosen in a native *save* dialog. The
+   host still refuses a path outside the workspace, and that refusal is shown to the user rather
+   than swallowed. *(Decision: the UI uses `save()`, which is why `dialog:allow-save` joins the
+   capability set — pinned by `ui/scripts/probe-ui-dialog.mjs` so it cannot grow quietly.)*
+3. **The interval comes from the run id.** `export_run_audit(run_id, path)` resolves
+   `[start_seq, end_seq]` in the audit layer; **`RunView` is unchanged** — the UI never handles
+   sequence numbers.
+4. **No CLI export in v0.5.** `audit-verify` and `audit-rebuild` keep their shapes; an export
+   subcommand is a v0.6 question.
+5. **"Environment" stays a phrase, not an object.** Step 2 is the three configurations plus a
+   recorded preflight, and it is documented as such.
+6. **The release gate includes a human walk of steps 1–2 with a real API key**, and it must be
+   **recorded against a checklist template**: a template in the repository that a person fills in
+   per release — machine and date, OS build, QEMU and GCC versions *and where each came from*
+   (`winget` / manual / in-app download), provider and model, the preflight verdict, the two runs'
+   fingerprints, and the exported file with its `audit-verify` verdict. A walk nobody wrote down is
+   a walk nobody can check. **The template is v0.5 work and does not exist yet.**
+7. **Step 7 stays minimal in v0.5**: each run shows its fingerprint and which snapshot it came
+   from. Diffing the fingerprint field by field is v0.6.
+8. **Snapshot naming keeps `window.prompt` in v0.5.** It is inconsistent with the native dialogs
+   beside it and worth fixing, but it is not on the golden path.
 
 ## 9. Not doing
 

@@ -84,6 +84,30 @@ pub fn short_fingerprint(fingerprint: &str) -> &str {
     &fingerprint[..end]
 }
 
+/// The audit-id interval a run occupies, as the **inclusive** range
+/// `[start_seq, end_seq]` (v0.5 batch 1).
+///
+/// A run with no `run.end` on the chain has no interval: refusing here is what
+/// keeps an exported file from being a silently truncated record. That covers both
+/// a run that is still open and one the chain marks `abandoned` — the index
+/// deliberately leaves `end_seq` empty rather than inventing an end (see
+/// [`crate::store::AuditStore::derive_runs`]).
+pub fn run_interval(record: &RunRecord) -> Result<(i64, i64), AuditError> {
+    match record.end_seq {
+        Some(end) if end >= record.start_seq => Ok((record.start_seq, end)),
+        Some(end) => Err(AuditError::Other(format!(
+            "run {} has an end ({end}) before its start ({})",
+            record.run_id, record.start_seq
+        ))),
+        None => Err(AuditError::Other(format!(
+            "run {} has not ended (status: {}): there is no `run.end` on the chain, \
+             so there is no interval to export",
+            record.run_id,
+            record.status.as_str()
+        ))),
+    }
+}
+
 /// Terminal state of a run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]

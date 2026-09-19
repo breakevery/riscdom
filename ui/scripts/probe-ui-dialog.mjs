@@ -56,23 +56,45 @@ const caps = JSON.parse(readFileSync(CAPS, "utf8"));
 check("the JS plugin is a dependency", Boolean(pkg.dependencies["@tauri-apps/plugin-dialog"]), pkg.dependencies["@tauri-apps/plugin-dialog"]);
 check("the Rust plugin is a dependency", /tauri-plugin-dialog\s*=\s*"2"/.test(cargo));
 check("the shell initialises the plugin", /tauri_plugin_dialog::init\(\)/.test(shell));
-check("only `dialog:allow-open` is granted", caps.permissions.includes("dialog:allow-open"), JSON.stringify(caps.permissions));
+// v0.5 batch 1 granted `dialog:allow-save` for the audit export. The set is pinned so
+// the permission cannot grow quietly: exactly the two dialog permissions, each with a
+// caller, and never the blanket `dialog:default`.
+const DIALOG_PERMISSIONS = ["dialog:allow-open", "dialog:allow-save"];
+const granted = caps.permissions
+  .filter((p) => p.startsWith("dialog:"))
+  .sort()
+  .join(",");
 check(
-  "no broader dialog permission sneaks in",
-  !caps.permissions.some((p) => p === "dialog:default" || p.startsWith("dialog:allow-save")),
+  "exactly the dialog permissions we use are granted",
+  granted === [...DIALOG_PERMISSIONS].sort().join(","),
+  `${granted} (granted: ${JSON.stringify(caps.permissions)})`,
+);
+check(
+  "no blanket dialog permission",
+  !caps.permissions.includes("dialog:default"),
   JSON.stringify(caps.permissions),
 );
 
 // The settings tab uses the picker and keeps the manual entry.
 const store = readFileSync(STORE, "utf8");
 const tab = readFileSync(TAB, "utf8");
-check("the store calls the dialog plugin", /import\s+\{\s*open\s*\}\s+from\s+"@tauri-apps\/plugin-dialog"/.test(store));
+check("the store opens a dialog for the pickers", /await open\(\{/.test(store));
 check("the store uses the shipped rules", /pickedPath\(/.test(store) && /executableFilters\(/.test(store));
 check("a cancelled pick is ignored", /if \(path\) await set(Toolchain|Qemu)Path\(path\)/.test(store.replace(/\n/g, " ")) || /if \(path\) await setToolchainPath\(path\)/.test(store));
 const browseButtons = (tab.match(/store\.pick(Toolchain|Qemu)Path\(\)/g) ?? []).length;
 check("both paths offer a browse button", browseButtons === 2, `${browseButtons}`);
 const manualPrompts = (tab.match(/window\.prompt\(/g) ?? []).length;
 check("manual entry is kept for both", manualPrompts === 2, `${manualPrompts}`);
+
+// The save half of the same plugin, used by the audit export (v0.5 batch 1): one
+// caller, a default file name, and nothing exported when the dialog is cancelled.
+check(
+  "the store imports the save dialog",
+  /import\s+\{\s*open,\s*save\s*\}\s+from\s+"@tauri-apps\/plugin-dialog"/.test(store),
+);
+check("the export asks for a path", /await save\(\{/.test(store) && /defaultPath/.test(store));
+check("a cancelled save exports nothing", /if \(!target\) return/.test(store));
+check("the export calls the run-audit command", /api\.exportRunAudit\(runId, target\)/.test(store));
 
 console.log(`\n${failures === 0 ? "OK" : `${failures} failing check(s)`}`);
 process.exit(failures === 0 ? 0 : 1);

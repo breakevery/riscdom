@@ -63,10 +63,22 @@ export default function AuditTab({ store }: { store: AppStore }) {
               <span className="action">{r.fingerprint}</span>
               <span className="muted small">{r.whenLabel}</span>
               {r.parentLabel ? <span className="muted small">{r.parentLabel}</span> : null}
+              <span className="spacer" />
+              {r.exportable ? (
+                <button
+                  className="ghost tiny"
+                  onClick={() => void store.exportRunAudit(r.runId)}
+                >
+                  导出
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>
       )}
+      {store.runExportNote ? (
+        <div className="muted small">{store.runExportNote}</div>
+      ) : null}
     </>
   );
 }

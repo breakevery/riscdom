@@ -22,6 +22,7 @@ const MODULE = path.join(REPO, "ui", "src", "lib", "runView.ts");
 const TAB = path.join(REPO, "ui", "src", "settings", "AuditTab.tsx");
 const API = path.join(REPO, "ui", "src", "api", "tauri.ts");
 const SHELL = path.join(REPO, "ui", "src-tauri", "src", "lib.rs");
+const STORE = path.join(REPO, "ui", "src", "state", "appStore.ts");
 
 let failures = 0;
 
@@ -80,8 +81,20 @@ check("older runs read as hours", rows[2].whenLabel === "3 小时前", rows[2].w
 check("an unknown status is passed through", runs.statusLabel("weird") === "weird");
 check("the empty state says something", runs.runsEmptyText().length > 0);
 
+// Export (v0.5 batch 1): only a run the chain has closed can be exported.
+check(
+  "a finished run is exportable",
+  rows.every((r) => (r.runId === "run_open" ? !r.exportable : r.exportable)),
+  JSON.stringify(rows.map((r) => [r.runId, r.exportable])),
+);
+check(
+  "an open run offers no export",
+  rows.find((r) => r.runId === "run_open").exportable === false,
+);
+
 // Wiring: the tab uses the shipped rule, and the calls resolve to real commands.
 const tab = readFileSync(TAB, "utf8");
+const store = readFileSync(STORE, "utf8");
 check("AuditTab uses the run helpers", /from\s+"\.\.\/lib\/runView"/.test(tab));
 check("AuditTab renders the rows", /toRunRows\(store\.runs/.test(tab));
 check("AuditTab has an empty state", /runsEmptyText\(\)/.test(tab));
@@ -91,10 +104,22 @@ const shell = readFileSync(SHELL, "utf8");
 for (const [name, command] of [
   ["listRuns", "list_runs"],
   ["getRun", "get_run"],
+  ["exportRunAudit", "export_run_audit"],
 ]) {
   check(`the ${name} wrapper calls \`${command}\``, api.includes(`"${command}"`));
   check(`\`${command}\` is registered in the shell`, shell.includes(`commands::${command}`));
 }
+
+// The export button is wired to the wrapper with that row's run id.
+check(
+  "AuditTab offers an export per exportable run",
+  /r\.exportable\s*\?/.test(tab) && /store\.exportRunAudit\(r\.runId\)/.test(tab),
+);
+check(
+  "the export call passes the run id and the chosen path",
+  /exportRunAudit\(runId, target\)/.test(store),
+  "store must call api.exportRunAudit(runId, target)",
+);
 
 console.log(`\n${failures === 0 ? "OK" : `${failures} failing check(s)`}`);
 process.exit(failures === 0 ? 0 : 1);

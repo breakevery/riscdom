@@ -421,3 +421,15 @@ pub async fn export_serial_log(state: State<'_, AppState>, path: String) -> Resu
 pub async fn export_audit_jsonl(state: State<'_, AppState>, path: String) -> Result<usize, String> {
     state.export_audit_jsonl(path).map_err(|e| e.user_message())
 }
+
+/// Export **one run's** audit interval as JSONL into the workspace (v0.5 batch 1).
+#[tauri::command]
+pub async fn export_run_audit(
+    state: State<'_, AppState>,
+    run_id: String,
+    path: String,
+) -> Result<usize, String> {
+    state
+        .export_run_audit(&run_id, path)
+        .map_err(|e| e.user_message())
+}

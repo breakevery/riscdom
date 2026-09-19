@@ -25,6 +25,15 @@ export interface RunRow {
   whenLabel: string;
   fingerprint: string;
   parentLabel: string;
+  /**
+   * May this run's audit interval be exported (v0.5 batch 1)?
+   *
+   * Only a run the chain has closed has an interval: `run.start` … `run.end`. An
+   * open run (and an abandoned one, which the index deliberately leaves without an
+   * end) has none, and the host refuses it rather than exporting up to wherever
+   * the chain happens to end — so the button is not offered either.
+   */
+  exportable: boolean;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -67,6 +76,7 @@ export function toRunRows(runs: RunLike[], nowMs: number): RunRow[] {
       whenLabel: formatWhen(run.started_at_ms, nowMs),
       fingerprint: run.fingerprint_short,
       parentLabel: run.parent_run_id ? `← ${run.parent_run_id}` : "",
+      exportable: run.ended_at_ms !== null,
     }));
 }
 

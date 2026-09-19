@@ -2,7 +2,7 @@
 // API key is NOT kept here: it lives only in the Settings form until saved.
 
 import { useCallback, useEffect, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import * as api from "../api/tauri";
 import { executableFilters, pickedPath } from "../lib/pathPick";
 import { applyTheme, nextTheme, parseTheme, systemPrefersDark } from "../lib/theme";
@@ -36,6 +36,13 @@ export interface AppStore {
   refreshAudit: () => Promise<void>;
   runs: api.RunView[];
   refreshRuns: () => Promise<void>;
+  /**
+   * Export one run's audit interval (v0.5 batch 1) through the native save
+   * dialog. Cancelling exports nothing; a failure is reported in
+   * `runExportNote` rather than thrown at the panel.
+   */
+  exportRunAudit: (runId: string) => Promise<void>;
+  runExportNote: string | null;
   /** Native file pickers (v0.4 batch 2); the manual text entry stays available. */
   pickToolchainPath: () => Promise<void>;
   pickQemuPath: () => Promise<void>;
@@ -192,6 +199,8 @@ export function useAppStore(): AppStore {
     progress: { downloaded: number; total: number | null } | null;
   }>({ in_progress: false, event: null, progress: null });
   const [lastError, setLastError] = useState<string | null>(null);
+  // The last run-export outcome (v0.5 batch 1): shown in the audit tab.
+  const [runExportNote, setRunExportNote] = useState<string | null>(null);
 
   const push = useCallback((item: Omit<ChatItem, "id">) => {
     setMessages((prev) => [...prev, { ...item, id: nextId++ }]);
@@ -231,6 +240,23 @@ export function useAppStore(): AppStore {
       setRuns(await api.listRuns(20));
     } catch (e) {
       setLastError(String(e));
+    }
+  }, []);
+
+  // Export one run's audit interval (v0.5 batch 1). The host writes only inside
+  // the workspace, so a path picked outside it is refused there; the note shows
+  // whatever the host said instead of pretending the export happened.
+  const exportRunAudit = useCallback(async (runId: string) => {
+    try {
+      const target = await save({
+        defaultPath: `${runId}.audit.jsonl`,
+        filters: [{ name: "JSONL", extensions: ["jsonl"] }],
+      });
+      if (!target) return; // a cancelled dialog exports nothing
+      const lines = await api.exportRunAudit(runId, target);
+      setRunExportNote(`已导出 ${runId} 的 ${lines} 行记录：${target}`);
+    } catch (e) {
+      setRunExportNote(`导出 ${runId} 失败：${String(e)}（只能导出到工作区内）`);
     }
   }, []);
 
@@ -718,6 +744,8 @@ export function useAppStore(): AppStore {
     refreshAudit,
     runs,
     refreshRuns,
+    exportRunAudit,
+    runExportNote,
     workspaceFiles,
     refreshWorkspace,
     serial,

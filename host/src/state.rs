@@ -2172,6 +2172,8 @@ impl AppState {
             action_prefix,
             from_ms: None,
             to_ms: None,
+            from_id: None,
+            to_id: None,
         };
         let mut events = store.list(filter, limit)?;
         events.reverse(); // newest first for the UI
@@ -2189,6 +2191,30 @@ impl AppState {
             .lock()
             .map_err(|_| HostError::Other("audit store lock poisoned".into()))?;
         Ok(store.export_jsonl(&abs)?)
+    }
+
+    /// Export **one run's** audit interval as JSONL (v0.5 batch 1).
+    ///
+    /// The interval is `[start_seq, end_seq]` of that run — the slice of the chain
+    /// the run occupies, `run.start` and `run.end` included, so the file explains
+    /// itself and can be verified line by line without this application. A run with
+    /// no `run.end` (still open, or abandoned by a crash) has no interval and is
+    /// refused rather than exported to wherever the chain happens to end.
+    pub fn export_run_audit(&self, run_id: &str, path: String) -> Result<usize, HostError> {
+        let policy = WorkspacePolicy::new(self.workspace_root.clone());
+        let abs = policy
+            .check_read(Path::new(&path))
+            .map_err(|e| HostError::Policy(e.to_string()))?;
+        let store = self
+            .audit
+            .lock()
+            .map_err(|_| HostError::Other("audit store lock poisoned".into()))?;
+        let record = store
+            .get_run(run_id)?
+            .ok_or_else(|| HostError::Other(format!("unknown run: {run_id}")))?;
+        let (from, to) =
+            audit::run_interval(&record).map_err(|e| HostError::Other(e.to_string()))?;
+        Ok(store.export_interval_jsonl(from, to, &abs)?)
     }
 
     // ----- Workspace --------------------------------------------------------

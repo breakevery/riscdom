@@ -68,6 +68,13 @@ pub struct EventFilter {
     pub from_ms: Option<i64>,
     /// Inclusive upper bound on `timestamp_ms`.
     pub to_ms: Option<i64>,
+    /// Inclusive lower bound on the event id (v0.5 batch 1).
+    ///
+    /// The id is the chain position, which is what a run's interval is expressed
+    /// in (`run.start` / `run.end` carry their own id as `start_seq` / `end_seq`).
+    pub from_id: Option<i64>,
+    /// Inclusive upper bound on the event id (v0.5 batch 1).
+    pub to_id: Option<i64>,
 }
 
 /// A raw row straight from SQLite (keeps `detail_json` verbatim so the hash can
@@ -225,6 +232,14 @@ impl AuditStore {
             clauses.push("timestamp_ms <= ?");
             args.push(Value::Integer(to));
         }
+        if let Some(from) = filter.from_id {
+            clauses.push("id >= ?");
+            args.push(Value::Integer(from));
+        }
+        if let Some(to) = filter.to_id {
+            clauses.push("id <= ?");
+            args.push(Value::Integer(to));
+        }
         if !clauses.is_empty() {
             sql.push_str(" WHERE ");
             sql.push_str(&clauses.join(" AND "));
@@ -248,20 +263,37 @@ impl AuditStore {
     /// `hash` so an external tool can verify the chain independently.
     pub fn export_jsonl(&self, path: &Path) -> Result<usize, AuditError> {
         let events = self.all()?;
-        let mut file = std::fs::File::create(path)?;
-        for e in &events {
-            let line = serde_json::json!({
-                "id": e.id,
-                "timestamp_ms": e.event.timestamp_ms,
-                "actor": e.event.actor,
-                "action": e.event.action,
-                "detail": e.event.detail,
-                "prev_hash": e.prev_hash,
-                "hash": e.hash,
-            });
-            writeln!(file, "{}", serde_json::to_string(&line)?)?;
+        write_events_jsonl(&events, path)
+    }
+
+    /// Write the events in the **inclusive** id range `[from_id, to_id]` as JSONL.
+    ///
+    /// Same line shape as [`Self::export_jsonl`] — a range export is a slice of the
+    /// chain, not a different format, so the file stays verifiable line by line and
+    /// no header or invented event is needed to describe it (v0.5 batch 1).
+    ///
+    /// An empty range is not an error: it writes an empty file and returns `0`;
+    /// `from_id > to_id` is a caller bug and is refused.
+    pub fn export_interval_jsonl(
+        &self,
+        from_id: i64,
+        to_id: i64,
+        path: &Path,
+    ) -> Result<usize, AuditError> {
+        if from_id > to_id {
+            return Err(AuditError::Other(format!(
+                "empty audit interval: from_id {from_id} is after to_id {to_id}"
+            )));
         }
-        Ok(events.len())
+        let events = self.list(
+            EventFilter {
+                from_id: Some(from_id),
+                to_id: Some(to_id),
+                ..EventFilter::default()
+            },
+            usize::MAX,
+        )?;
+        write_events_jsonl(&events, path)
     }
 
     /// All rows in chain order (raw form, `pub(crate)` for verification).
@@ -447,4 +479,26 @@ impl AuditStore {
         }
         Ok(findings)
     }
+}
+
+/// Write events, in the order given, as JSONL.
+///
+/// One writer for both the whole-log export and the range export, so the two can
+/// never drift apart: a range export is a slice of the chain, and its lines must
+/// stay byte-for-byte the same shape as the whole-log ones.
+fn write_events_jsonl(events: &[StoredEvent], path: &Path) -> Result<usize, AuditError> {
+    let mut file = std::fs::File::create(path)?;
+    for e in events {
+        let line = serde_json::json!({
+            "id": e.id,
+            "timestamp_ms": e.event.timestamp_ms,
+            "actor": e.event.actor,
+            "action": e.event.action,
+            "detail": e.event.detail,
+            "prev_hash": e.prev_hash,
+            "hash": e.hash,
+        });
+        writeln!(file, "{}", serde_json::to_string(&line)?)?;
+    }
+    Ok(events.len())
 }
