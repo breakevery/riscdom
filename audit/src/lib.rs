@@ -22,10 +22,10 @@ pub use error::AuditError;
 pub use event::{AuditEvent, StoredEvent};
 pub use hash::{compute_hash, verify_chain, ChainStatus, GENESIS_PREV_HASH};
 pub use run::{
-    canonical_json, derive_runs_from, fingerprint, parse_run_end, parse_run_start, run_end_detail,
-    run_interval, run_start_detail, short_fingerprint, RebuildReport, RunEndPayload, RunRecord,
-    RunStartPayload, RunStatus, ACTION_RUN_ABANDONED, ACTION_RUN_END, ACTION_RUN_START,
-    FINGERPRINT_SCHEMA_V1, SHORT_FINGERPRINT_LEN,
+    abandoned_end, canonical_json, derive_runs_from, fingerprint, parse_run_end, parse_run_start,
+    run_end_detail, run_interval, run_start_detail, short_fingerprint, RebuildReport,
+    RunEndPayload, RunRecord, RunStartPayload, RunStatus, ACTION_RUN_ABANDONED, ACTION_RUN_END,
+    ACTION_RUN_START, FINGERPRINT_SCHEMA_V1, SHORT_FINGERPRINT_LEN,
 };
 pub use sink::{AuditSink, FileAuditSink, SqliteAuditSink};
 pub use store::{AuditStore, EventFilter};

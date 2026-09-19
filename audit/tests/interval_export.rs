@@ -100,7 +100,8 @@ fn lines(path: &std::path::Path) -> Vec<serde_json::Value> {
 fn the_export_holds_exactly_the_runs_interval() {
     let (store, record) = store_with_a_finished_run();
     let file = unique_file("exact");
-    let (from, to) = run_interval(&record).expect("a finished run has an interval");
+    let (from, to) =
+        run_interval(&record, &store.all().unwrap()).expect("a finished run has an interval");
 
     let written = store
         .export_interval_jsonl(from, to, &file)
@@ -147,7 +148,7 @@ fn the_export_holds_exactly_the_runs_interval() {
 fn every_exported_line_still_verifies_on_its_own() {
     let (store, record) = store_with_a_finished_run();
     let file = unique_file("verify");
-    let (from, to) = run_interval(&record).unwrap();
+    let (from, to) = run_interval(&record, &store.all().unwrap()).unwrap();
     store.export_interval_jsonl(from, to, &file).unwrap();
 
     let exported = lines(&file);
@@ -188,7 +189,7 @@ fn every_exported_line_still_verifies_on_its_own() {
 fn a_full_range_export_is_byte_for_byte_the_whole_log_export() {
     let (store, record) = store_with_a_finished_run();
     let whole = unique_file("whole");
-    let (from, to) = run_interval(&record).unwrap();
+    let (from, to) = run_interval(&record, &store.all().unwrap()).unwrap();
     let full = unique_file("full");
 
     let all = store.all().unwrap();
@@ -211,7 +212,7 @@ fn a_full_range_export_is_byte_for_byte_the_whole_log_export() {
 fn an_empty_range_writes_an_empty_file() {
     let (store, record) = store_with_a_finished_run();
     let file = unique_file("empty");
-    let (_, to) = run_interval(&record).unwrap();
+    let (_, to) = run_interval(&record, &store.all().unwrap()).unwrap();
 
     let written = store
         .export_interval_jsonl(to + 10, to + 20, &file)
@@ -225,7 +226,7 @@ fn an_empty_range_writes_an_empty_file() {
 fn a_backwards_range_is_refused() {
     let (store, record) = store_with_a_finished_run();
     let file = unique_file("backwards");
-    let (from, _) = run_interval(&record).unwrap();
+    let (from, _) = run_interval(&record, &store.all().unwrap()).unwrap();
 
     let error = store
         .export_interval_jsonl(from + 3, from, &file)
@@ -252,41 +253,161 @@ fn a_run_without_an_end_has_no_interval() {
     assert_eq!(record.status, RunStatus::Open);
     assert_eq!(record.end_seq, None);
 
-    let error = run_interval(record).expect_err("an open run has no interval to export");
+    let error = run_interval(record, &store.all().unwrap())
+        .expect_err("an open run has no interval to export");
     let text = error.to_string();
     assert!(text.contains("has not ended"), "{text}");
     assert!(text.contains("run_open"), "{text}");
     assert!(text.contains("open"), "{text}");
 }
 
-#[test]
-fn an_abandoned_run_is_refused_with_its_status_named() {
-    // The chain marks the run abandoned, but nothing fabricates a `run.end`, so the
-    // index leaves `end_seq` empty. The export says so instead of guessing an end.
-    let mut store = AuditStore::in_memory().unwrap();
+/// A chain with one abandoned run and a second run after it: the abandoned run
+/// never got a `run.end`, so its interval has to end at its own marker.
+fn store_with_an_abandoned_run() -> (AuditStore, i64, i64) {
+    let mut store = AuditStore::in_memory().expect("store");
+    let start = store
+        .append(event(
+            "host",
+            audit::ACTION_RUN_START,
+            audit::run_start_detail("run_stale", Some("s1"), None, None, &serde_json::json!({})),
+        ))
+        .expect("run.start");
+    store
+        .append(event(
+            "agent",
+            "agent.tool.call",
+            serde_json::json!({ "name": "compile" }),
+        ))
+        .unwrap();
+    let marker = store
+        .append(event(
+            "host",
+            audit::ACTION_RUN_ABANDONED,
+            serde_json::json!({ "run_id": "run_stale", "detected_at_ms": 1 }),
+        ))
+        .expect("host.run.abandoned");
+
+    // A later run: its events must never enter the abandoned one's interval.
     store
         .append(event(
             "host",
             audit::ACTION_RUN_START,
-            audit::run_start_detail("run_stale", None, None, None, &serde_json::json!({})),
+            audit::run_start_detail("run_later", None, None, None, &serde_json::json!({})),
+        ))
+        .expect("run.start (later)");
+    store
+        .append(event("sandbox", "vm.start", serde_json::json!({})))
+        .unwrap();
+
+    (store, start.id, marker.id)
+}
+
+#[test]
+fn an_abandoned_run_exports_up_to_its_abandoned_event() {
+    // Nothing fabricates a `run.end`, so the index leaves `end_seq` empty — but the
+    // chain does say where the run stopped, and the export ends on that line.
+    let (store, start_id, marker_id) = store_with_an_abandoned_run();
+    let (runs, report) = store.derive_runs().unwrap();
+    assert_eq!(report.abandoned, 1, "{report:?}");
+
+    let record = runs
+        .iter()
+        .find(|r| r.run_id == "run_stale")
+        .expect("the chain has the abandoned run");
+    assert_eq!(record.status, RunStatus::Abandoned);
+    assert_eq!(record.end_seq, None, "the index invents no end");
+    assert_eq!(store.get_run("run_stale").unwrap(), None, "not indexed yet");
+
+    let (from, to) = run_interval(record, &store.all().unwrap())
+        .expect("an abandoned run has an interval: `run.start` .. `host.run.abandoned`");
+    assert_eq!(from, start_id);
+    assert_eq!(to, marker_id);
+
+    let file = unique_file("abandoned");
+    store.export_interval_jsonl(from, to, &file).unwrap();
+    let exported = lines(&file);
+    let ids: Vec<i64> = exported.iter().map(|l| l["id"].as_i64().unwrap()).collect();
+    assert_eq!(ids, (from..=to).collect::<Vec<_>>(), "{ids:?}");
+
+    // The last line is the event that explains the run: self-describing, no header.
+    let last = exported.last().unwrap();
+    assert_eq!(last["action"], audit::ACTION_RUN_ABANDONED);
+    assert_eq!(last["detail"]["run_id"], "run_stale");
+
+    // The next run is out of the interval, so the export cannot bleed into it.
+    let actions: Vec<&str> = exported
+        .iter()
+        .map(|l| l["action"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        actions,
+        vec![
+            audit::ACTION_RUN_START,
+            "agent.tool.call",
+            audit::ACTION_RUN_ABANDONED,
+        ],
+        "{actions:?}"
+    );
+    assert!(
+        !ids.contains(&(marker_id + 1)),
+        "`run_later` starts right after the marker and must not be exported"
+    );
+}
+
+#[test]
+fn an_abandoned_run_without_a_marker_is_refused() {
+    // A status with no event behind it has no interval either: the refusal names
+    // the missing marker instead of guessing where the run stopped.
+    let record = RunRecord {
+        run_id: "run_ghost".into(),
+        session_id: None,
+        parent_run_id: None,
+        fingerprint: "f".into(),
+        fingerprint_schema: "s".into(),
+        started_at_ms: 0,
+        ended_at_ms: None,
+        start_seq: 1,
+        end_seq: None,
+        status: RunStatus::Abandoned,
+    };
+
+    let text = run_interval(&record, &[]).unwrap_err().to_string();
+    assert!(text.contains("abandoned"), "{text}");
+    assert!(text.contains("run_ghost"), "{text}");
+}
+
+#[test]
+fn a_marker_for_another_run_does_not_close_this_one() {
+    // The window is bounded by the next `run.start`, but it is also keyed by run id.
+    let mut store = AuditStore::in_memory().unwrap();
+    let start = store
+        .append(event(
+            "host",
+            audit::ACTION_RUN_START,
+            audit::run_start_detail("run_mine", None, None, None, &serde_json::json!({})),
         ))
         .unwrap();
     store
         .append(event(
             "host",
             audit::ACTION_RUN_ABANDONED,
-            serde_json::json!({ "run_id": "run_stale", "detected_at_ms": 1 }),
+            serde_json::json!({ "run_id": "run_other", "detected_at_ms": 1 }),
         ))
         .unwrap();
-    let (runs, report) = store.derive_runs().unwrap();
-    assert_eq!(report.abandoned, 1, "{report:?}");
-    let record = &runs[0];
-    assert_eq!(record.status, RunStatus::Abandoned);
-    assert_eq!(record.end_seq, None);
+    let record = RunRecord {
+        run_id: "run_mine".into(),
+        session_id: None,
+        parent_run_id: None,
+        fingerprint: "f".into(),
+        fingerprint_schema: "s".into(),
+        started_at_ms: 0,
+        ended_at_ms: None,
+        start_seq: start.id,
+        end_seq: None,
+        status: RunStatus::Abandoned,
+    };
 
-    let text = run_interval(record).unwrap_err().to_string();
-    assert!(text.contains("has not ended"), "{text}");
-    assert!(text.contains("abandoned"), "{text}");
+    assert!(run_interval(&record, &store.all().unwrap()).is_err());
 }
 
 #[test]
@@ -297,8 +418,8 @@ fn the_index_path_yields_the_same_interval_as_the_chain() {
 
     assert_eq!(from_index, record);
     assert_eq!(
-        run_interval(&from_index).unwrap(),
-        run_interval(&record).unwrap()
+        store.run_interval(&from_index).unwrap(),
+        store.run_interval(&record).unwrap()
     );
 
     // An unknown run is simply absent — the caller decides what that means.
@@ -308,7 +429,7 @@ fn the_index_path_yields_the_same_interval_as_the_chain() {
 #[test]
 fn the_id_filter_bounds_are_inclusive() {
     let (store, record) = store_with_a_finished_run();
-    let (from, to) = run_interval(&record).unwrap();
+    let (from, to) = run_interval(&record, &store.all().unwrap()).unwrap();
 
     let only_first = store
         .list(

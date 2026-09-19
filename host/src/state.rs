@@ -2197,9 +2197,12 @@ impl AppState {
     ///
     /// The interval is `[start_seq, end_seq]` of that run — the slice of the chain
     /// the run occupies, `run.start` and `run.end` included, so the file explains
-    /// itself and can be verified line by line without this application. A run with
-    /// no `run.end` (still open, or abandoned by a crash) has no interval and is
-    /// refused rather than exported to wherever the chain happens to end.
+    /// itself and can be verified line by line without this application. A run the
+    /// chain marked **abandoned** (its process disappeared) has no `run.end`, so its
+    /// interval ends at that run's `host.run.abandoned` event and the exported file
+    /// ends on the line that says why it stopped (v0.5 batch 2). A run that is still
+    /// open has no interval at all and is refused rather than exported to wherever
+    /// the chain happens to end.
     pub fn export_run_audit(&self, run_id: &str, path: String) -> Result<usize, HostError> {
         let policy = WorkspacePolicy::new(self.workspace_root.clone());
         let abs = policy
@@ -2212,9 +2215,19 @@ impl AppState {
         let record = store
             .get_run(run_id)?
             .ok_or_else(|| HostError::Other(format!("unknown run: {run_id}")))?;
-        let (from, to) =
-            audit::run_interval(&record).map_err(|e| HostError::Other(e.to_string()))?;
+        let (from, to) = store
+            .run_interval(&record)
+            .map_err(|e| HostError::Other(e.to_string()))?;
         Ok(store.export_interval_jsonl(from, to, &abs)?)
+    }
+
+    /// The AI workspace root as an absolute path string (v0.5 batch 2).
+    ///
+    /// The host is the one that knows where the workspace is, so the UI asks for it
+    /// instead of hard-coding a path: it is used to pre-fill the audit export's
+    /// default file name, which must be a path the export is allowed to write to.
+    pub fn workspace_root_display(&self) -> String {
+        self.workspace_root.to_string_lossy().into_owned()
     }
 
     // ----- Workspace --------------------------------------------------------

@@ -10,6 +10,8 @@
 export interface RunLike {
   run_id: string;
   status: string;
+  /** Full configuration digest (64 hex characters). */
+  fingerprint: string;
   fingerprint_short: string;
   parent_run_id: string | null;
   session_id: string | null;
@@ -26,12 +28,12 @@ export interface RunRow {
   fingerprint: string;
   parentLabel: string;
   /**
-   * May this run's audit interval be exported (v0.5 batch 1)?
+   * May this run's audit interval be exported (v0.5 batches 1–2)?
    *
-   * Only a run the chain has closed has an interval: `run.start` … `run.end`. An
-   * open run (and an abandoned one, which the index deliberately leaves without an
-   * end) has none, and the host refuses it rather than exporting up to wherever
-   * the chain happens to end — so the button is not offered either.
+   * A run the chain has closed — by `run.end`, or by `host.run.abandoned` when its
+   * process disappeared — has an interval, so the button is offered. A run that is
+   * still **open** has none, and the host refuses it rather than exporting up to
+   * wherever the chain happens to end, so the button is not offered either.
    */
   exportable: boolean;
 }
@@ -76,11 +78,95 @@ export function toRunRows(runs: RunLike[], nowMs: number): RunRow[] {
       whenLabel: formatWhen(run.started_at_ms, nowMs),
       fingerprint: run.fingerprint_short,
       parentLabel: run.parent_run_id ? `← ${run.parent_run_id}` : "",
-      exportable: run.ended_at_ms !== null,
+      exportable: run.status !== "open",
     }));
 }
 
 /** What the list says when the log has no runs yet. */
 export function runsEmptyText(): string {
   return "暂无运行记录：跑一次之后，这里会出现带配置指纹的 run。";
+}
+
+// ----- Audit export (v0.5 batch 2) -----------------------------------------
+
+/**
+ * Default file name for a run's audit export.
+ *
+ * The workspace root comes from the host — the UI does not hard-code where the
+ * workspace is — and the file is named after the run so two exports never collide.
+ * An unknown root falls back to the bare file name, which the save dialog still
+ * resolves against the user's last directory.
+ */
+export function defaultExportPath(workspaceRoot: string | null, runId: string): string {
+  const name = `${runId}.audit.jsonl`;
+  if (!workspaceRoot) return name;
+  const root = workspaceRoot.replace(/[\\/]+$/, "");
+  const sep = root.includes("\\") ? "\\" : "/";
+  return `${root}${sep}${name}`;
+}
+
+// ----- Side-by-side comparison (v0.5 batch 2) -------------------------------
+
+/** How many runs the side-by-side panel holds. */
+export const MAX_COMPARED_RUNS = 2;
+
+/**
+ * The selection after the operator clicked `runId`.
+ *
+ * Clicking a selected run removes it. Clicking a new one appends it, and **a third
+ * selection replaces the oldest**: the panel then always shows the two runs the
+ * operator touched last. Silently ignoring the third click would leave a stale pair
+ * on screen and make "why did nothing happen?" a fair question; v0.5 only ever
+ * compares two, so the oldest is the one to drop.
+ */
+export function toggleRunSelection(current: string[], runId: string): string[] {
+  if (current.includes(runId)) return current.filter((id) => id !== runId);
+  return [...current, runId].slice(-MAX_COMPARED_RUNS);
+}
+
+/** The side-by-side panel appears exactly when two runs are selected. */
+export function comparePanelVisible(selected: string[]): boolean {
+  return selected.length === MAX_COMPARED_RUNS;
+}
+
+/** Local absolute timestamp, `YYYY-MM-DD HH:MM:SS`. */
+export function formatTimestamp(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  );
+}
+
+/** One column of the side-by-side panel. */
+export interface CompareRow {
+  runId: string;
+  status: string;
+  statusLabel: string;
+  /** When the run started, as an absolute local timestamp. */
+  startedLabel: string;
+  /** The full digest (64 hex characters). */
+  fingerprint: string;
+  /** The first 16 characters, for scanning. */
+  fingerprintShort: string;
+}
+
+/**
+ * Columns for the side-by-side panel, in **selection order** — the order the
+ * operator clicked, so "left" and "right" mean what they just chose. A selected id
+ * that is no longer in the list is dropped rather than rendered empty.
+ */
+export function toCompareRows(runs: RunLike[], selected: string[]): CompareRow[] {
+  return selected
+    .map((id) => runs.find((r) => r.run_id === id))
+    .filter((run): run is RunLike => Boolean(run))
+    .map((run) => ({
+      runId: run.run_id,
+      status: run.status,
+      statusLabel: statusLabel(run.status),
+      startedLabel: formatTimestamp(run.started_at_ms),
+      fingerprint: run.fingerprint,
+      fingerprintShort: run.fingerprint_short,
+    }));
 }

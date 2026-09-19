@@ -85,27 +85,81 @@ pub fn short_fingerprint(fingerprint: &str) -> &str {
 }
 
 /// The audit-id interval a run occupies, as the **inclusive** range
-/// `[start_seq, end_seq]` (v0.5 batch 1).
+/// `[start_seq, end_seq]` (v0.5 batch 1; abandoned runs since batch 2).
 ///
-/// A run with no `run.end` on the chain has no interval: refusing here is what
-/// keeps an exported file from being a silently truncated record. That covers both
-/// a run that is still open and one the chain marks `abandoned` — the index
-/// deliberately leaves `end_seq` empty rather than inventing an end (see
+/// The interval is read off the record when the chain closed the run normally.
+/// A run the chain marks **abandoned** never got a `run.end` — the index leaves
+/// `end_seq` empty rather than inventing one — so its interval ends at that run's
+/// own [`ACTION_RUN_ABANDONED`] event, which needs `chain` to find. The exported
+/// file's last line is then that event, so it says for itself why the run stopped.
+///
+/// A run that is still open has no interval, and neither has one the chain calls
+/// abandoned without a marker: refusing here is what keeps an exported file from
+/// being a silently truncated record (see
 /// [`crate::store::AuditStore::derive_runs`]).
-pub fn run_interval(record: &RunRecord) -> Result<(i64, i64), AuditError> {
-    match record.end_seq {
-        Some(end) if end >= record.start_seq => Ok((record.start_seq, end)),
-        Some(end) => Err(AuditError::Other(format!(
-            "run {} has an end ({end}) before its start ({})",
-            record.run_id, record.start_seq
-        ))),
-        None => Err(AuditError::Other(format!(
-            "run {} has not ended (status: {}): there is no `run.end` on the chain, \
-             so there is no interval to export",
-            record.run_id,
-            record.status.as_str()
-        ))),
+pub fn run_interval(record: &RunRecord, chain: &[StoredEvent]) -> Result<(i64, i64), AuditError> {
+    if let Some(end) = record.end_seq {
+        return if end >= record.start_seq {
+            Ok((record.start_seq, end))
+        } else {
+            Err(AuditError::Other(format!(
+                "run {} has an end ({end}) before its start ({})",
+                record.run_id, record.start_seq
+            )))
+        };
     }
+
+    if record.status == RunStatus::Abandoned {
+        return match abandoned_end(chain, record) {
+            Some(end) => Ok((record.start_seq, end)),
+            None => Err(AuditError::Other(format!(
+                "run {} is marked abandoned but the chain has no `{ACTION_RUN_ABANDONED}` \
+                 event for it, so there is no interval to export",
+                record.run_id
+            ))),
+        };
+    }
+
+    Err(AuditError::Other(format!(
+        "run {} has not ended (status: {}): there is no `run.end` on the chain, \
+         so there is no interval to export",
+        record.run_id,
+        record.status.as_str()
+    )))
+}
+
+/// The id of the `host.run.abandoned` event that closed `record`, if the chain
+/// has one (v0.5 batch 2).
+///
+/// The search is bounded on both sides, so an abandoned interval can never bleed
+/// into a neighbouring run:
+///
+/// - it starts **after** the run's own `start_seq` — an earlier marker belongs to
+///   an earlier incarnation of the same id;
+/// - it stops **before the next `run.start`** on the chain, because one run's
+///   interval cannot contain another run's opening event.
+///
+/// The first marker in that window wins: the chain is append-only, so an earlier
+/// one can only have been written first.
+pub fn abandoned_end(chain: &[StoredEvent], record: &RunRecord) -> Option<i64> {
+    let next_start = chain
+        .iter()
+        .filter(|e| e.id > record.start_seq && e.event.action == ACTION_RUN_START)
+        .map(|e| e.id)
+        .min();
+
+    chain
+        .iter()
+        .filter(|e| e.id > record.start_seq)
+        .filter(|e| match next_start {
+            Some(bound) => e.id < bound,
+            None => true,
+        })
+        .filter(|e| e.event.action == ACTION_RUN_ABANDONED)
+        .find(|e| {
+            e.event.detail.get("run_id").and_then(|v| v.as_str()) == Some(record.run_id.as_str())
+        })
+        .map(|e| e.id)
 }
 
 /// Terminal state of a run.

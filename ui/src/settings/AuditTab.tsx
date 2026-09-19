@@ -1,10 +1,16 @@
 import type { AppStore } from "../state/appStore";
-import { runsEmptyText, toRunRows } from "../lib/runView";
+import {
+  comparePanelVisible,
+  runsEmptyText,
+  toCompareRows,
+  toRunRows,
+} from "../lib/runView";
 
 /** Audit status: event count, hash-chain state, filtering and the recent list. */
 export default function AuditTab({ store }: { store: AppStore }) {
   const chain = store.auditStatus?.chain;
   const runRows = toRunRows(store.runs, Date.now());
+  const compareRows = toCompareRows(store.runs, store.selectedRuns);
 
   return (
     <>
@@ -47,6 +53,13 @@ export default function AuditTab({ store }: { store: AppStore }) {
       {/* Runs (v0.4 1d): read-only window onto the derived index. */}
       <div className="status-line">
         <span className="small">最近运行（run）</span>
+        <span className="muted small">勾选两个可并排对比指纹</span>
+        <span className="spacer" />
+        {store.selectedRuns.length > 0 ? (
+          <button className="ghost tiny" onClick={() => store.clearRunSelection()}>
+            清除选择
+          </button>
+        ) : null}
         <button className="ghost tiny" onClick={() => void store.refreshRuns()}>
           刷新
         </button>
@@ -57,6 +70,13 @@ export default function AuditTab({ store }: { store: AppStore }) {
         <ul className="audit-list">
           {runRows.map((r) => (
             <li key={r.runId} title={r.runId}>
+              <input
+                type="checkbox"
+                className="run-pick"
+                checked={store.selectedRuns.includes(r.runId)}
+                onChange={() => store.toggleRunSelection(r.runId)}
+                aria-label={`选择 ${r.runId}`}
+              />
               <span className={`badge ${r.status === "ok" ? "ok" : ""}`}>
                 {r.statusLabel}
               </span>
@@ -76,6 +96,26 @@ export default function AuditTab({ store }: { store: AppStore }) {
           ))}
         </ul>
       )}
+      {/* Side-by-side (v0.5 batch 2, step 7): two runs, their digests next to each
+          other. A field-by-field diff is v0.6. */}
+      {comparePanelVisible(store.selectedRuns) ? (
+        <div className="compare-grid">
+          {compareRows.map((c) => (
+            <div className="compare-col" key={c.runId} title={c.runId}>
+              <div className="muted small">{c.runId}</div>
+              <div className="status-line">
+                <span className={`badge ${c.status === "ok" ? "ok" : ""}`}>
+                  {c.statusLabel}
+                </span>
+                <span className="muted small">{c.startedLabel}</span>
+              </div>
+              <div className="action small">{c.fingerprintShort}</div>
+              <div className="action small wrap">{c.fingerprint}</div>
+            </div>
+          ))}
+          <div className="muted small">字段级差异是 v0.6。</div>
+        </div>
+      ) : null}
       {store.runExportNote ? (
         <div className="muted small">{store.runExportNote}</div>
       ) : null}

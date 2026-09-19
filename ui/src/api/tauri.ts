@@ -177,6 +177,12 @@ export const getWorkspaceFiles = () => invoke<string[]>("get_workspace_files");
 export const readWorkspaceFile = (path: string) =>
   invoke<string>("read_workspace_file", { path });
 
+/**
+ * The AI workspace root, as an absolute path (v0.5 batch 2). The audit export
+ * builds its default file name under it instead of hard-coding a location.
+ */
+export const getWorkspaceRoot = () => invoke<string>("workspace_root");
+
 export const getSerialBuffer = () => invoke<string>("get_serial_buffer");
 
 export const exportSerialLog = (path: string) =>

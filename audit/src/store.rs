@@ -296,6 +296,17 @@ impl AuditStore {
         write_events_jsonl(&events, path)
     }
 
+    /// The interval `record` occupies, resolved against **this store's chain**
+    /// (v0.5 batch 2).
+    ///
+    /// Shorthand for [`crate::run::run_interval`]: a run the chain closed reads its
+    /// interval off the record, and an abandoned one needs the chain to locate the
+    /// `host.run.abandoned` event that ends it.
+    pub fn run_interval(&self, record: &RunRecord) -> Result<(i64, i64), AuditError> {
+        let chain = self.all()?;
+        crate::run::run_interval(record, &chain)
+    }
+
     /// All rows in chain order (raw form, `pub(crate)` for verification).
     pub(crate) fn scan(&self) -> Result<Vec<RawRow>, AuditError> {
         let sql = format!("SELECT {SELECT_COLUMNS} FROM audit_events ORDER BY id ASC");

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import * as api from "../api/tauri";
 import { executableFilters, pickedPath } from "../lib/pathPick";
+import { defaultExportPath, toggleRunSelection as nextRunSelection } from "../lib/runView";
 import { applyTheme, nextTheme, parseTheme, systemPrefersDark } from "../lib/theme";
 import type { ResolvedTheme, Theme } from "../lib/theme";
 
@@ -43,6 +44,18 @@ export interface AppStore {
    */
   exportRunAudit: (runId: string) => Promise<void>;
   runExportNote: string | null;
+  /**
+   * The AI workspace root, as the host reports it (v0.5 batch 2). The audit
+   * export's default file name is built under it, so no path is hard-coded here.
+   */
+  workspaceRoot: string | null;
+  /**
+   * The runs selected in the audit tab, in click order (v0.5 batch 2). At most
+   * `MAX_COMPARED_RUNS`; the side-by-side panel shows exactly two.
+   */
+  selectedRuns: string[];
+  toggleRunSelection: (runId: string) => void;
+  clearRunSelection: () => void;
   /** Native file pickers (v0.4 batch 2); the manual text entry stays available. */
   pickToolchainPath: () => Promise<void>;
   pickQemuPath: () => Promise<void>;
@@ -168,6 +181,8 @@ export function useAppStore(): AppStore {
   const [auditEvents, setAuditEvents] = useState<api.AuditEvent[]>([]);
   const [auditActorFilter, setAuditActorFilter] = useState("");
   const [runs, setRuns] = useState<api.RunView[]>([]);
+  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
+  const [selectedRuns, setSelectedRuns] = useState<string[]>([]);
   const [preflight, setPreflight] = useState<api.PreflightView | null>(null);
   const [preflightStep, setPreflightStep] = useState<{
     step: string;
@@ -217,6 +232,7 @@ export function useAppStore(): AppStore {
   const refreshWorkspace = useCallback(async () => {
     try {
       setWorkspaceFiles(await api.getWorkspaceFiles());
+      setWorkspaceRoot(await api.getWorkspaceRoot());
     } catch (e) {
       setLastError(String(e));
     }
@@ -243,22 +259,33 @@ export function useAppStore(): AppStore {
     }
   }, []);
 
-  // Export one run's audit interval (v0.5 batch 1). The host writes only inside
-  // the workspace, so a path picked outside it is refused there; the note shows
-  // whatever the host said instead of pretending the export happened.
-  const exportRunAudit = useCallback(async (runId: string) => {
-    try {
-      const target = await save({
-        defaultPath: `${runId}.audit.jsonl`,
-        filters: [{ name: "JSONL", extensions: ["jsonl"] }],
-      });
-      if (!target) return; // a cancelled dialog exports nothing
-      const lines = await api.exportRunAudit(runId, target);
-      setRunExportNote(`已导出 ${runId} 的 ${lines} 行记录：${target}`);
-    } catch (e) {
-      setRunExportNote(`导出 ${runId} 失败：${String(e)}（只能导出到工作区内）`);
-    }
+  // Export one run's audit interval (v0.5 batches 1-2). The default lands in the
+  // workspace, named after the run; the host still refuses a path outside it, so
+  // the note shows whatever the host said instead of pretending the export worked.
+  const exportRunAudit = useCallback(
+    async (runId: string) => {
+      try {
+        const target = await save({
+          defaultPath: defaultExportPath(workspaceRoot, runId),
+          filters: [{ name: "JSONL", extensions: ["jsonl"] }],
+        });
+        if (!target) return; // a cancelled dialog exports nothing
+        const lines = await api.exportRunAudit(runId, target);
+        setRunExportNote(`已导出 ${runId} 的 ${lines} 行记录：${target}`);
+      } catch (e) {
+        setRunExportNote(`导出 ${runId} 失败：${String(e)}（只能导出到工作区内）`);
+      }
+    },
+    [workspaceRoot],
+  );
+
+  // Two-run selection for the side-by-side panel (v0.5 batch 2). The rule lives in
+  // `runView.ts` so the probe can check it without a React harness.
+  const toggleRunSelection = useCallback((runId: string) => {
+    setSelectedRuns((prev) => nextRunSelection(prev, runId));
   }, []);
+
+  const clearRunSelection = useCallback(() => setSelectedRuns([]), []);
 
   // Environment preflight (v0.4 batch 3): the run itself is asynchronous, so the
   // UI follows `preflight:progress` and re-reads the cached result at the end.
@@ -746,6 +773,10 @@ export function useAppStore(): AppStore {
     refreshRuns,
     exportRunAudit,
     runExportNote,
+    workspaceRoot,
+    selectedRuns,
+    toggleRunSelection,
+    clearRunSelection,
     workspaceFiles,
     refreshWorkspace,
     serial,

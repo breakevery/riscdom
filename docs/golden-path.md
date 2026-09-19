@@ -131,7 +131,7 @@ Each step: what goes in, what the user does, what must be true afterwards, and h
 | 2 | Create an environment | LLM key (or a local provider) | Pick a provider, paste the key, run the preflight | Provider/model saved, readiness true, preflight green over all four steps | Bad key → readiness names the reason; a failed preflight step names the step and suggests the fix |
 | 3 | Run an agent task | A request in plain language | Send it | A run with an id, a fingerprint and an interval; the guest was compiled, booted, read | `max_iterations` / `failed` → the diagnosis report names the first failing step |
 | 4 | Save a snapshot | A running host-owned VM | Name it, save | `.riscdom/snapshots/<name>.mig`, listed with size and time | No running VM → the button is disabled and says why; a failed save reports the QEMU/relay error |
-| 5 | Get an audit record | A finished run | **Export it** (today: nothing to press) | A file a third party can verify with `audit-verify` | Chain broken → export must not pretend otherwise |
+| 5 | Get an audit record | A finished run (including one the chain marks abandoned) | **Export it** from the run list | A file a third party can verify with `audit-verify`; an abandoned run's file ends on its `host.run.abandoned` marker | Chain broken → export must not pretend otherwise |
 | 6 | Roll back | A snapshot | Restore | A **new** run whose `parent_run_id` points at the previous one and whose `run.start` names the snapshot | A dead port / QMP reset → retried three times, then reported; a missing snapshot is rejected before the VM stops |
 | 7 | Change the configuration and run again | Any one fingerprint field | Change it, run the same request again | A second run, same request, **different fingerprint** | An unreadable difference: the user sees two 64-character digests, not "only QEMU changed" |
 
@@ -143,13 +143,17 @@ in the audit tab.**
 - **What**: the events of `[start_seq, end_seq]` inclusive — which includes that run's `run.start`
   (carrying `fingerprint_schema` and the canonical `fingerprint_json` that was hashed) and its
   `run.end`. Nothing else, and nothing new: the run's metadata is *already inside* the exported
-  events, so the file explains itself and stays verifiable line by line.
+  events, so the file explains itself and stays verifiable line by line. A run the chain marks
+  **abandoned** has no `run.end`; its interval ends at that run's `host.run.abandoned` event
+  instead, so the file's last line still says why the run stopped.
 - **Format**: the JSONL that `export_jsonl` already writes unchanged — `id` / `timestamp_ms` /
   `actor` / `action` / `detail` / `prev_hash` / `hash` per line, id order. A reader can re-hash each
   line and check the links without this application.
 - **Where**: a default path under the workspace, offered in a native *save* dialog so the user can
-  choose. (The workspace is what the export command is allowed to write to; `.riscdom/` is skipped by
-  the file list, which is why a visible default is better than the hidden internal directory.)
+  choose. The app asks the host for the workspace root and offers `<root>/<run_id>.audit.jsonl`; the
+  host is the one that knows where the workspace is. (The workspace is what the export command is
+  allowed to write to; `.riscdom/` is skipped by the file list, which is why a visible default is
+  better than the hidden internal directory.)
 - **Who**: the user, per run, from the run list in *Settings → 审计*.
 
 Alternatives and their costs:
@@ -207,7 +211,7 @@ exists, run `audit-verify` logic over it, and delete it — with no dialog in th
 | 4 Save a snapshot | Exists | None (the `window.prompt` name is a candidate, not a requirement) |
 | 5 Get an audit record | **Two-thirds missing** | **The work of this version**: expose the run interval, scope the export to it, add the UI entry point, and prove it with a test |
 | 6 Roll back | Exists | None |
-| 7 Change the configuration and run again | Mechanism exists, readability does not | **Minimal**: show the fingerprint per run and which snapshot a run came from; do **not** build a diff |
+| 7 Change the configuration and run again | Mechanism exists, readability does not | **Minimal**: show the fingerprint per run, let two runs be selected for a side-by-side digest view, and show which snapshot a run came from; do **not** build a diff |
 
 Smallest honest v0.5, in one sentence: **make step 5 real, make step 7 legible, and write down what
 steps 1–2 mean.**
@@ -237,7 +241,8 @@ decisions, with the two additions below marked.
    fingerprints, and the exported file with its `audit-verify` verdict. A walk nobody wrote down is
    a walk nobody can check. **The template is v0.5 work and does not exist yet.**
 7. **Step 7 stays minimal in v0.5**: each run shows its fingerprint and which snapshot it came
-   from. Diffing the fingerprint field by field is v0.6.
+   from, and two runs can be selected to see their short and full digests, start time and status
+   side by side. Diffing the fingerprint field by field is v0.6.
 8. **Snapshot naming keeps `window.prompt` in v0.5.** It is inconsistent with the native dialogs
    beside it and worth fixing, but it is not on the golden path.
 

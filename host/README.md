@@ -35,6 +35,8 @@ Dependency direction: `host → {agent, sandbox, audit}`; `ui/src-tauri → host
 | `save_snapshot_real(name)` | `u64` (real snapshot bytes; `Err("no running vm")` when there is no VM) |
 | `resume_from_snapshot_real(name)` | `()` (stops the current VM first, then restores with `-incoming`) |
 | `export_audit_jsonl(path)` | `usize` (written inside the workspace) |
+| `export_run_audit(run_id, path)` | `usize` (one run's interval; an abandoned run ends at its `host.run.abandoned` marker, an open run is refused) |
+| `workspace_root()` | `string` (the absolute workspace path) |
 
 ## Events (host → frontend)
 

@@ -148,6 +148,66 @@ fn exports_exactly_the_runs_interval_into_the_workspace() {
 }
 
 #[test]
+fn an_abandoned_run_exports_up_to_its_marker() {
+    // v0.5 batch 2: a run whose process disappeared has no `run.end`, but the chain
+    // records `host.run.abandoned`, and the export ends on that line.
+    let dir = unique_dir("abandoned");
+    let state = AppState::in_memory(dir.clone()).expect("state");
+    let config = state.run_fingerprint();
+    {
+        let mut store = state.audit.lock().expect("audit");
+        store
+            .append(AuditEvent::new(
+                "host",
+                audit::ACTION_RUN_START,
+                audit::run_start_detail("run_stale", None, None, None, &config),
+            ))
+            .expect("run.start");
+        store
+            .append(AuditEvent::new(
+                "agent",
+                "agent.tool.call",
+                serde_json::json!({ "name": "compile" }),
+            ))
+            .expect("inside");
+        store
+            .append(AuditEvent::new(
+                "host",
+                audit::ACTION_RUN_ABANDONED,
+                serde_json::json!({ "run_id": "run_stale", "detected_at_ms": 1 }),
+            ))
+            .expect("marker");
+        // The hook rebuilds the derived index after appending its marker.
+        store.rebuild_run_index().expect("rebuild");
+    }
+    std::fs::create_dir_all(dir.join("audit")).expect("target dir");
+
+    let written = state
+        .export_run_audit("run_stale", "audit/run_stale.jsonl".into())
+        .expect("an abandoned run is exportable");
+
+    let file = dir.join("audit").join("run_stale.jsonl");
+    let exported = lines(&file);
+    assert_eq!(written, exported.len());
+    let actions: Vec<&str> = exported
+        .iter()
+        .map(|l| l["action"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        actions,
+        vec![
+            audit::ACTION_RUN_START,
+            "agent.tool.call",
+            audit::ACTION_RUN_ABANDONED
+        ],
+        "{actions:?}"
+    );
+    let last = exported.last().unwrap();
+    assert_eq!(last["detail"]["run_id"], "run_stale");
+    assert_eq!(last["actor"], "host");
+}
+
+#[test]
 fn an_unknown_run_is_refused() {
     let (state, dir) = state_with_a_finished_run("unknown");
 

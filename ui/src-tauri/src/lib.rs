@@ -78,6 +78,7 @@ pub fn run() {
             host::commands::run_agent,
             host::commands::get_workspace_files,
             host::commands::read_workspace_file,
+            host::commands::workspace_root,
             host::commands::get_serial_buffer,
             host::commands::export_serial_log,
             host::commands::export_audit_jsonl,

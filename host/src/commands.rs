@@ -410,6 +410,12 @@ pub async fn get_serial_buffer(state: State<'_, AppState>) -> Result<String, Str
     Ok(state.serial_buffer())
 }
 
+/// The AI workspace root, as an absolute path (v0.5 batch 2).
+#[tauri::command]
+pub async fn workspace_root(state: State<'_, AppState>) -> Result<String, String> {
+    Ok(state.workspace_root_display())
+}
+
 /// Write the serial log into the workspace. Returns bytes written.
 #[tauri::command]
 pub async fn export_serial_log(state: State<'_, AppState>, path: String) -> Result<usize, String> {

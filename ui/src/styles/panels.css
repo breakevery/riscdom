@@ -257,6 +257,38 @@
   font-family: ui-monospace, monospace;
 }
 
+/* Two-run comparison (v0.5 batch 2) */
+.run-pick {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.status-line .spacer {
+  flex: 1 1 auto;
+}
+
+.compare-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.compare-col {
+  flex: 1 1 200px;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.compare-col .action {
+  font-family: ui-monospace, monospace;
+  word-break: break-all;
+}
+
 /* Canvas panel */
 .canvas-head {
   display: flex;
