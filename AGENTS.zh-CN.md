@@ -2,6 +2,9 @@
 
 # 智芯城 RiscDom — AGENTS.md
 
+> 跨对话交接文档：[docs/handoff.zh-CN.md](docs/handoff.zh-CN.md) —— 接手本项目时请先读它。
+> 第 1 节是易变快照，第 2–12 节是必须守住的约束。
+
 ## 项目身份
 中文名：智芯城
 英文名：RiscDom

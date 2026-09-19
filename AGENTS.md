@@ -2,6 +2,9 @@
 
 # RiscDom — AGENTS.md
 
+> Cross-conversation handoff: [docs/handoff.md](docs/handoff.md) — start there when you take this
+> project over. Section 1 is a volatile snapshot; sections 2–12 are the constraints that must hold.
+
 ## Project identity
 
 English name: RiscDom

@@ -5,6 +5,11 @@
 > This file extends `AGENTS.md`: it is the complete governance and architecture description.
 > `AGENTS.md` is the core summary injected every turn; this file is the searchable full
 > version. It must not contradict `AGENTS.md`; where they conflict, `AGENTS.md` wins.
+>
+> **If you are taking this project over, read [docs/handoff.md](docs/handoff.md) first** — the
+> cross-conversation handoff: a volatile snapshot of where the project stands, then the stable
+> constraints (remote-operation rules, the gate, the audit invariants, the CLA, the release
+> gate and what v0.6 starts from).
 
 ## 1. Project identity
 
