@@ -11,8 +11,15 @@ branch `main`. The close-out of every batch is the same: gate green → `scripts
 (which runs the gate itself) → push — and none of those remote-facing steps happens without the
 current request authorising it (§2).
 
-## 1. Snapshot — as of v0.5.0 (update this section when the next release ships)
+## 1. Snapshot — `v0.5.0` is the release; v0.6's step 8 is delivered and unreleased (update this
+section when the next release ships)
 
+- **v0.6's golden-path step 8 is delivered and unreleased** (v0.6 batches 1–2): two runs are compared
+  field by field — the data layer and the API ([../host/src/run_diff.rs](../host/src/run_diff.rs),
+  `AppState::compare_run_fingerprints`, the `compare_run_fingerprints` command) and the collapsed
+  block under the audit tab's two-run panel. **It awaits a walk, and then a release**: no version
+  bump, no tag and no release has been made for it, and both are a separate decision. What changed,
+  for a reader: [CHANGELOG.md](../CHANGELOG.md) `[Unreleased]`.
 - **`v0.5.0` is released, and it is the Latest release.**
   <https://github.com/breakevery/riscdom/releases/tag/v0.5.0> — assets `RiscDom_0.5.0_x64_en-US.msi`
   and `RiscDom_0.5.0_x64-setup.exe`, built without the preview's MSI version override (so *Apps &
@@ -28,19 +35,23 @@ current request authorising it (§2).
 - **An external walk is still outstanding.** It was this release's plan and it did not happen, so
   the clean-machine walk is now a **v0.5.x strengthening item** (§8), not a blocker: [golden-path-checklist.md](golden-path-checklist.md)
   is the form a tester fills in, and `walkthroughs/` is where it goes.
-- Recent commits (newest first): `287ffdb` (release bump) ← `2a5d296` (README/CLA wording) ←
+- Recent commits (newest first): `b5aac541` (the field-level diff in the audit tab) ← `4d407cea` (the
+  fingerprint diff: data layer + API) ← `287ffdb` (release bump) ← `2a5d296` (README/CLA wording) ←
   `993e5d1` (CLA) ← `f662ad7` (self-contained export) ← `20a7c6d` (source snapshot in the index) ←
-  `a22112f` (abandoned export, workspace default path, two-run compare) ← `26ad597` (run interval
-  export) ← `e70457f` (golden-path design).
-- Tags: `v0.5.0` is this release (the commit that versions this file); `v0.5.0-preview.1` =
+  `a22112f` (abandoned export, workspace default path, two-run compare).
+- Tags: `v0.5.0` is the release (the commit that versions this file), and **v0.6 has no tag yet**;
+  `v0.5.0-preview.1` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`;
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`;
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`.
-- Test totals at that commit: **281 passed / 0 failed / 8 ignored / 79 suites**; CI green
-  (`scripts/gate.sh` on `ubuntu-latest` plus gitleaks).
+- Test totals at the tip `b5aac541` (unreleased work): **291 passed / 0 failed / 8 ignored / 80
+  suites** — 281 / 0 / 8 / 79 at the `v0.5.0` release commit. The gate is 12 steps, green locally and
+  in CI (`scripts/gate.sh` on `ubuntu-latest` plus gitleaks).
 - Open items: the temp directories under `%TEMP%` have not been cleaned (the deletion confirmation
   was never granted); CLA.md awaits a lawyer's eye; no macOS/Linux support; **the clean-machine walk
-  by someone else has not happened** — now a v0.5.x strengthening item rather than a blocker.
+  by someone else has not happened** — now a v0.5.x strengthening item rather than a blocker;
+  **the v0.6 step-8 walk has not been done and no release has been prepared for it** — the walk, and
+  then the decision to release, come first.
 
 ## 2. Remote operations are per-turn and authorised in words
 
@@ -115,12 +126,15 @@ fingerprints, the exported file and its `audit-verify` verdict, and any failure 
 are covered by `cargo test -p host --test golden_path -- --ignored`. "The implementation is
 complete" is not the gate.
 
-## 9. v0.6 starts at golden-path step 8
+## 9. v0.6 starts at golden-path step 8 — and the step is delivered
 
 v0.6 is the automatic comparison of two runs — which fields differ between their fingerprints —
-which v0.5 deliberately stops short of. The parallel items in `PROJECT_CONSTITUTION.md` §10's v0.5
-roadmap (QEMU stdio, macOS/Linux, several VMs, incremental snapshots, session encryption, several
-AIs, a bilingual interface) are **not** v0.6 content: they are candidates to be chosen or dropped.
+which v0.5 deliberately stops short of. **Delivered** in batches 1–2 (`host/src/run_diff.rs`,
+`AppState::compare_run_fingerprints`, the `compare_run_fingerprints` command, and the collapsed
+field-level block under the audit tab's two-run panel); it awaits a walk and a release. The parallel
+items in `PROJECT_CONSTITUTION.md` §10's v0.5 roadmap (QEMU stdio, macOS/Linux, several VMs,
+incremental snapshots, session encryption, several AIs, a bilingual interface) are **not** v0.6
+content: they are candidates to be chosen or dropped.
 
 ## 10. Documentation is bilingual, enforced
 

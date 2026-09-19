@@ -7,6 +7,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**The golden path's eighth step is delivered — two runs are compared field by field — and it awaits a
+walk and a release.** `v0.5.0` is still the Latest release and no tag, version bump or announcement
+has been made for this work: those are decided separately, once a walk of the step is recorded.
+
+### Added
+
+- **Two runs' fingerprints, field by field** (v0.6 batch 1, data layer + API): `host/src/run_diff.rs`
+  turns the two fingerprint documents into an ordered list of their top-level fields — the field name,
+  both values and whether they differ — in the order `AppState::run_fingerprint` declares them (never
+  alphabetical). Nested values are compared as a whole, the list covers every field the two documents
+  carry even when nothing differs, and only fields they actually carry appear in it.
+  `AppState::compare_run_fingerprints(run_a, run_b)` reads both documents off the chain's `run.start`
+  events, and the `compare_run_fingerprints` command exposes it to the UI.
+- **The field-level diff, in the audit tab** (v0.6 batch 2): under the two-run side-by-side panel, a
+  collapsed block whose header counts the fields and the differences (`字段级差异 · 7 个字段 · 3 处不同`,
+  and `· 0 处不同` for two runs configured identically). Expanded, each row is the field name, the
+  first run's value and the second run's value; a row whose values differ is highlighted, an equal one
+  is dimmed, and values are shown **whole** — monospace and wrapped, never truncated. The panel renders
+  the host's rows in the order they arrive and re-sorts nothing.
+
 ## [0.5.0] - 2026-09-19
 
 **The golden path is complete, and this release is the preview's work with its walkthrough findings
