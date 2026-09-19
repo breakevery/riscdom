@@ -17,6 +17,7 @@ pub mod keyring;
 pub mod paths;
 pub mod preflight;
 pub mod qemu_download;
+pub mod run_diff;
 pub mod session;
 pub mod settings;
 pub mod state;
@@ -26,6 +27,7 @@ pub use error::HostError;
 pub use events::{EventSink, EV_PREFLIGHT};
 pub use keyring::{KeyringBackend, OsKeyring, SERVICE};
 pub use preflight::{PreflightCache, PreflightRow, PreflightView};
+pub use run_diff::{diff_fingerprints, FingerprintFieldDiff, FINGERPRINT_FIELDS};
 pub use session::{SessionMessage, SessionMeta, SessionStore};
 pub use state::{
     AgentOutcomeView, AppState, AuditStatusView, ChainStatusView, LlmConfigInput, LlmConfigStatus,

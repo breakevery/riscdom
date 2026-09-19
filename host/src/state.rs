@@ -6,6 +6,7 @@ use crate::events::{
     EV_AGENT_TOOL_CALL, EV_AGENT_TOOL_RESULT, EV_SERIAL_CHUNK, EV_VM_STATE,
 };
 use crate::keyring::{user_for_provider, InMemoryKeyring, KeyringBackend, OsKeyring, SERVICE};
+use crate::run_diff::{self, FingerprintFieldDiff};
 use crate::session::{SessionMessage, SessionMeta, SessionStore};
 use crate::settings::LocalSettings;
 use crate::toolchain_download::DownloadEvent;
@@ -2158,6 +2159,50 @@ impl AppState {
             .get_run(run_id)
             .map_err(|e| HostError::Other(e.to_string()))?;
         Ok(run.as_ref().map(RunView::from))
+    }
+
+    /// Compare two runs' configuration fingerprints, field by field (v0.6 1).
+    ///
+    /// The documents come from the **chain**, not from the index: each run's
+    /// `start_seq` is the id of its `run.start` event, and that event carries the
+    /// canonical JSON that was hashed. Read-only; the rows are in
+    /// [`run_diff::FINGERPRINT_FIELDS`] order.
+    pub fn compare_run_fingerprints(
+        &self,
+        run_a: &str,
+        run_b: &str,
+    ) -> Result<Vec<FingerprintFieldDiff>, HostError> {
+        let store = self
+            .audit
+            .lock()
+            .map_err(|_| HostError::Other("audit store lock poisoned".into()))?;
+        let left = Self::run_fingerprint_document(&store, run_a)?;
+        let right = Self::run_fingerprint_document(&store, run_b)?;
+        Ok(run_diff::diff_fingerprints(&left, &right))
+    }
+
+    /// The fingerprint document a run's `run.start` carries.
+    fn run_fingerprint_document(
+        store: &AuditStore,
+        run_id: &str,
+    ) -> Result<serde_json::Value, HostError> {
+        let record = store
+            .get_run(run_id)
+            .map_err(|e| HostError::Other(e.to_string()))?
+            .ok_or_else(|| HostError::Other(format!("no run {run_id} in this log")))?;
+        let event = store
+            .get(record.start_seq)
+            .map_err(|e| HostError::Other(e.to_string()))?
+            .ok_or_else(|| {
+                HostError::Other(format!(
+                    "run {run_id}: its `run.start` event ({}) is not in the chain",
+                    record.start_seq
+                ))
+            })?;
+        let payload = audit::parse_run_start(&event.event.detail)?;
+        serde_json::from_str(&payload.fingerprint_json).map_err(|e| {
+            HostError::Other(format!("run {run_id}: `fingerprint_json` is not JSON: {e}"))
+        })
     }
 
     /// Recent events, newest last, filtered.
