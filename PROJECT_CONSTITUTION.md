@@ -262,13 +262,34 @@ and the temp-directory cleanup.
 
 ### v0.5 roadmap
 
-1. **Removing the QEMU TCP port dependency**: QMP over stdio behind a config switch and the serial on
+1. **The golden path — the main line for v0.5–v0.6.** A developer who has never seen this repository
+   gets from a fresh machine to a compared re-run:
+
+   install → create an environment → run an agent task → save a snapshot → get an audit record →
+   roll back → change the configuration and run again → **compare the two runs**
+
+   The first seven steps, done by hand, are **v0.5**; the eighth — the automatic comparison — is
+   **v0.6**. v0.5 stands on what v0.4 already put on the chain (every run carries an id, a
+   configuration fingerprint and an audit interval: [docs/run-provenance.md](docs/run-provenance.md)),
+   and it needs one thing that does not exist yet: **audit export**, without which step 5 — the audit
+   record — is not something a user can hold on to or hand to someone else.
+
+   How the rest of this roadmap relates to the golden path:
+
+   - **Prerequisites.** *Session encryption, export and search* (item 6) carries the export that step
+     5 depends on. *macOS / Linux support and a multi-OS CI matrix* (item 3) decides how far "a
+     developer who has never seen this repository" reaches: the path is Windows-only today.
+   - **Parallel, off the path.** Removing the QEMU TCP port dependency (item 2), multi-VM parallelism
+     (item 4), incremental snapshots and encryption (item 5), the multi-AI society (item 7) and the
+     bilingual interface (item 8). Each improves the product; none of them is a step a newcomer has to
+     take to reach a compared re-run, and none may be allowed to delay the path.
+2. **Removing the QEMU TCP port dependency**: QMP over stdio behind a config switch and the serial on
    the file variant, then the retries retire — [docs/qemu-stdio.md](docs/qemu-stdio.md) §6.
-2. **macOS / Linux support and a multi-OS CI matrix**.
-3. **Multi-VM parallelism**: more than one host-owned guest at a time.
-4. **Incremental snapshots and encryption**.
-5. **Session encryption, export and search**.
-6. **Multi-AI society and a `Governance` trait** (the constitution's experiment variable).
-7. **A bilingual interface**: the UI strings are hard-coded per component (Chinese in the app, English
+3. **macOS / Linux support and a multi-OS CI matrix**.
+4. **Multi-VM parallelism**: more than one host-owned guest at a time.
+5. **Incremental snapshots and encryption**.
+6. **Session encryption, export and search**.
+7. **Multi-AI society and a `Governance` trait** (the constitution's experiment variable).
+8. **A bilingual interface**: the UI strings are hard-coded per component (Chinese in the app, English
    in the panels' docs) and there is no language switch. Making the interface translatable is a feature
    of its own.
