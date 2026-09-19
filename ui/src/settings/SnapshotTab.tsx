@@ -1,4 +1,5 @@
 import type { AppStore } from "../state/appStore";
+import { defaultSnapshotName } from "../lib/snapshotName";
 
 /**
  * Snapshots (real `tcp-relay` `.mig` files and legacy `reboot-fallback` `.json`).
@@ -19,7 +20,12 @@ export default function SnapshotTab({ store }: { store: AppStore }) {
             store.vmIsRunning ? "保存当前 VM 状态" : "需要运行中的 VM（先让 AI 启动一台）"
           }
           onClick={() => {
-            const name = window.prompt("快照名称（字母/数字/-/_）", "snap1");
+            // v0.5 batch 11: a timestamp default instead of the old hard-coded
+            // `snap1`, so pressing Enter does not reuse the same name every time.
+            const name = window.prompt(
+              "快照名称（字母/数字/-/_）",
+              defaultSnapshotName(Date.now()),
+            );
             if (name) void store.saveSnapshot(name.trim());
           }}
         >

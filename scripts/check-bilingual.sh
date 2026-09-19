@@ -10,6 +10,10 @@
 #   - LICENSE: kept as English legal text by design.
 #   - IDENTITY.md / SOUL.md / USER.md: agent-workspace identity files that are read by the AI,
 #     not human-facing user documentation; they are deliberately single-language.
+#   - walkthroughs/: release-gate evidence archives (v0.5 batch 11). Each file is one person's
+#     walk of the golden path on one machine, recorded as it happened; translating a record of
+#     what somebody observed would be inventing a second record. The directory has its own
+#     README explaining this.
 set -eu
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,7 +24,7 @@ trap 'rm -f "$tmp"' EXIT
 
 find . -type f -name '*.md' \
     -not -path './node_modules/*' -not -path './target/*' -not -path './.git/*' \
-    -not -path './.cowork-temp/*' -not -path './dist/*' \
+    -not -path './.cowork-temp/*' -not -path './dist/*' -not -path './walkthroughs/*' \
     -not -path '*/node_modules/*' -not -path '*/target/*' -not -path '*/dist/*' \
     -not -name 'LICENSE' -not -name 'LICENSE.md' -not -name 'LICENSE.txt' \
     -not -name 'IDENTITY.md' -not -name 'SOUL.md' -not -name 'USER.md' \

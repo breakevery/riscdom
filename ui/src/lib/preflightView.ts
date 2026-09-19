@@ -53,7 +53,11 @@ export function rowStateLabel(state: string): string {
 /** One sentence for the top of the panel. */
 export function preflightHeadline(p: PreflightLike | null): string {
   if (!p || !p.checked) {
-    return "尚未预检：改完工具链 / QEMU 路径后会自动跑一次，也可以手动点「重新预检」。";
+    // v0.5 batch 11: the sentence used to quote the button's own label
+    // (「重新预检」), which read like a link but was plain text. The button beside
+    // the sentence is the only clickable thing, so the sentence points at it
+    // instead of impersonating it.
+    return "尚未预检：改完工具链 / QEMU 路径后会自动跑一次；右侧按钮可随时手动触发。";
   }
   if (p.ok) {
     return "预检通过：这套环境实际能编译并启动 guest。";

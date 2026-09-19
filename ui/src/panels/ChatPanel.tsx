@@ -201,8 +201,17 @@ export default function ChatPanel({ store }: { store: AppStore }) {
             m.role === "tool" ? (
               <details key={m.id} className="msg tool">
                 <summary>
-                  ?? {m.toolName}
-                  {m.ok === undefined ? " (running…)" : m.ok ? " ?" : " ?"}
+                  {/* v0.5 batch 11: these markers were literal `?` in the source
+                      (the emoji they replaced were lost when the line was written),
+                      so the row read `?? write_source ?`. A status dot from CSS plus
+                      a word cannot be lost or fail to render. */}
+                  <span
+                    className={`dot ${
+                      m.ok === undefined ? "off" : m.ok ? "ok" : "bad"
+                    }`}
+                  />
+                  工具 {m.toolName}
+                  {m.ok === undefined ? "（运行中…）" : m.ok ? "（成功）" : "（失败）"}
                 </summary>
                 {m.toolArgs ? <pre className="kv">args: {m.toolArgs}</pre> : null}
                 {m.toolResult !== undefined ? (

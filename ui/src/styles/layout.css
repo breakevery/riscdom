@@ -70,6 +70,15 @@
   display: flex;
 }
 
+/* v0.5 batch 11: the settings panel used to be sized by its content (`flex: 0 1 auto`
+ * as a flex item), so it settled at whatever its narrowest layout needed — a few
+ * hundred pixels in a two-metre-wide window, with the audit tab's run rows spilling
+ * out of it. It now takes the window, and `.settings-body` caps the line length for
+ * readability, which is where the run list gets its room from. */
+.settings-page > .panel {
+  flex: 1 1 auto;
+}
+
 .resizer {
   background: var(--border);
   cursor: col-resize;

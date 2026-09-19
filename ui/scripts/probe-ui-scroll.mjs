@@ -63,6 +63,24 @@ if (preFix) {
     /useEffect\(\(\) => \{\s*if \(!store\.busy\) \{\s*stickRef\.current = true;/.test(src),
     false,
   );
+
+  // Tool-call rows (v0.5 batch 11).
+  //
+  // The walkthrough showed a row reading `?? write_source ?`: the JSX had been
+  // written with literal `?` characters where its markers used to be. The row now
+  // carries a status dot drawn from CSS plus a word, neither of which can be lost.
+  check(
+    "no literal '?' marker is left in the tool row",
+    /\?\?\s*\{m\.toolName\}/.test(src),
+    false,
+  );
+  check("the tool row shows a status dot", /className=\{`dot \$\{/.test(src), true);
+  check("the tool row names the running state", src.includes("（运行中…）"), true);
+  check(
+    "the tool row names success and failure",
+    src.includes("（成功）") && src.includes("（失败）"),
+    true,
+  );
 }
 
 console.log(`\n${failures === 0 ? "OK" : `${failures} failing check(s)`}`);

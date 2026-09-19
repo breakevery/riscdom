@@ -252,5 +252,50 @@ check(
   /resumed_from_snapshot:\s*string\s*\|\s*null/.test(api),
 );
 
+// Run-row layout (v0.5 batch 11).
+//
+// The walkthrough found the audit tab's run rows sitting behind a horizontal
+// scrollbar, with the 导出 button off-view: the settings pane was sized by its
+// content, and the row is a flex line whose text could not shrink. The contract
+// below is what keeps status + fingerprint + button on screen; it is CSS, so the
+// probe pins the rules rather than a rendered result.
+const LAYOUT = path.join(REPO, "ui", "src", "styles", "layout.css");
+const PANELS = path.join(REPO, "ui", "src", "styles", "panels.css");
+const layoutCss = readFileSync(LAYOUT, "utf8");
+const panelsCss = readFileSync(PANELS, "utf8");
+check(
+  "the settings pane fills the window",
+  /\.settings-page\s*>\s*\.panel\s*\{[^}]*flex:\s*1 1 auto/.test(layoutCss),
+  "without it the pane is content-sized and the run rows spill out",
+);
+check(
+  "the run list never scrolls sideways",
+  /\.audit-list\s*\{[^}]*overflow-x:\s*hidden/.test(panelsCss),
+);
+check(
+  "run text shrinks with an ellipsis",
+  /\.audit-list li > \.action,[\s\S]*?text-overflow:\s*ellipsis/.test(panelsCss),
+);
+check(
+  "row controls never shrink",
+  /\.audit-list li > \.badge,[\s\S]*?flex:\s*0 0 auto/.test(panelsCss),
+  "the 导出 button must never be the thing that falls off the edge",
+);
+check(
+  "the row's actions sit at the right edge",
+  /\.audit-list li \.spacer\s*\{[^}]*flex:\s*1 1 auto/.test(panelsCss),
+);
+check(
+  "the run row keeps the full run id as a tooltip",
+  /title=\{r\.runId\}/.test(tab),
+);
+// The root cause: the global `input { width: 100% }` rule stretched the checkbox,
+// which pushed the whole row out of view.
+check(
+  "the run checkbox has its own size",
+  /\.run-pick\s*\{[^}]*width:\s*\d+px/.test(panelsCss),
+  "without an explicit width the global input rule makes it fill the row",
+);
+
 console.log(`\n${failures === 0 ? "OK" : `${failures} failing check(s)`}`);
 process.exit(failures === 0 ? 0 : 1);

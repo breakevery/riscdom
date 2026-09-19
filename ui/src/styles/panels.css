@@ -182,6 +182,8 @@
   padding: 12px 14px 24px;
   display: flex;
   flex-direction: column;
+  /* Readable line length on a wide window (v0.5 batch 11). */
+  max-width: 900px;
 }
 
 .settings-body label {
@@ -229,6 +231,10 @@
   font-size: 12px;
   max-height: 200px;
   overflow-y: auto;
+  /* v0.5 batch 11: `overflow-y: auto` already makes the horizontal axis scrollable,
+   * which is how a run row used to end up behind a horizontal scrollbar. These lists
+   * scroll vertically only; their rows are built to fit instead (see below). */
+  overflow-x: hidden;
 }
 
 .file-list li {
@@ -243,6 +249,32 @@
   gap: 8px;
   padding: 3px 0;
   border-bottom: 1px solid var(--rule);
+  min-width: 0;
+}
+
+/* A row must survive a narrow pane (v0.5 batch 11).
+ *
+ * Every text span may shrink and ends in an ellipsis; the status chip, the checkbox
+ * and the buttons never shrink, so an action (导出 / 恢复 / 删除) is never the thing
+ * that falls off the edge. The full value stays available as a `title` tooltip. */
+.audit-list li > .action,
+.audit-list li > .muted {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-list li > .badge,
+.audit-list li > button,
+.audit-list li > input {
+  flex: 0 0 auto;
+}
+
+/* Push the row's actions to the right edge (the markup's `spacer`). */
+.audit-list li .spacer {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .badge {
@@ -257,10 +289,21 @@
   font-family: ui-monospace, monospace;
 }
 
-/* Two-run comparison (v0.5 batch 2) */
+/* Two-run comparison (v0.5 batch 2).
+ *
+ * v0.5 batch 11 — this rule is where the run-row bug actually was. The global rule
+ * `input, textarea, select { width: 100%; padding: 8px 10px }` (styles.css) applies to
+ * a checkbox too: `flex: 0 0 auto` only stopped it from *shrinking*, so the checkbox
+ * kept a 100%-wide box, Chromium drew its glyph in the middle of it, and every
+ * sibling — the status chip, the fingerprint, the time, the 导出 button — was pushed
+ * out of the row. A run row looked like a lone centred checkbox. A checkbox needs a
+ * size of its own. */
 .run-pick {
   flex: 0 0 auto;
   margin: 0;
+  width: 13px;
+  height: 13px;
+  padding: 0;
 }
 
 .status-line .spacer {

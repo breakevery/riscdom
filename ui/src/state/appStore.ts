@@ -34,7 +34,12 @@ export interface AppStore {
   auditEvents: api.AuditEvent[];
   auditActorFilter: string;
   setAuditActorFilter: (v: string) => void;
-  refreshAudit: () => Promise<void>;
+  /**
+   * Reload the audit events. `actorOverride` filters by the value the caller just
+   * typed, so the list can follow the input without waiting for the state update
+   * to land (v0.5 batch 11).
+   */
+  refreshAudit: (actorOverride?: string) => Promise<void>;
   runs: api.RunView[];
   refreshRuns: () => Promise<void>;
   /**
@@ -238,16 +243,20 @@ export function useAppStore(): AppStore {
     }
   }, []);
 
-  const refreshAudit = useCallback(async () => {
-    try {
-      const status = await api.getAuditStatus();
-      setAuditStatus(status);
-      const actor = auditActorFilter.trim() || undefined;
-      setAuditEvents(await api.listAuditEvents(50, actor, undefined));
-    } catch (e) {
-      setLastError(String(e));
-    }
-  }, [auditActorFilter]);
+  const refreshAudit = useCallback(
+    async (actorOverride?: string) => {
+      try {
+        const status = await api.getAuditStatus();
+        setAuditStatus(status);
+        const actor =
+          (actorOverride ?? auditActorFilter).trim() || undefined;
+        setAuditEvents(await api.listAuditEvents(50, actor, undefined));
+      } catch (e) {
+        setLastError(String(e));
+      }
+    },
+    [auditActorFilter],
+  );
 
   // Runs come from the host's derived index (v0.4 1d). Nothing here mutates a
   // run: the panel is a window onto what the chain already says.

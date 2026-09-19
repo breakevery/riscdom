@@ -128,6 +128,11 @@
 - The fingerprints above are the two runs of the same request with one configuration
   field changed (step 7). Recording them is what makes "the environment was captured"
   checkable rather than asserted.
+- **A preview's version number looks different in Windows.** If you installed the preview MSI,
+  *Settings → Apps → Installed apps* shows **`0.5.0.1`**, not `0.5.0-preview.1`: WiX cannot take a
+  pre-release version, so the preview pins the MSI's own installer version separately while the
+  package version — and every artifact name — stays `0.5.0-preview.1`. That is expected, not a bug
+  to report; the final `0.5.0` deletes the override (`CHANGELOG.md`, the preview entry's §Notes).
 - An exported run record is **self-contained**: put the file into an empty database and
   `audit-verify` judges it with nothing carried over from the machine that produced it
   (`--runs` additionally needs the derived index rebuilt there, which is `audit-rebuild`'s

@@ -23,6 +23,15 @@ current request authorising it (§2).
 - **`v0.5.0` final waits on tester feedback**: a real walk of steps 1–2 on a clean machine, recorded
   against [golden-path-checklist.md](golden-path-checklist.md), plus two real runs with a real API
   key.
+- **One walk has been done, locally**: [../walkthroughs/2026-09-19-preview1-local.md](../walkthroughs/2026-09-19-preview1-local.md)
+  — seven steps, a real model and a real key, the **installed MSI**; but **not** a clean machine
+  (QEMU and a RISC-V GCC were already installed there), so it does not close the gate on its own.
+  Its findings were dealt with in v0.5 batch 11: the run-row layout (S-1), the snapshot name (G-1),
+  the tool-call markers (E-1), the preflight wording (E-2) and the live actor filter (E-3) are
+  fixed; G-2 (a model change that did not take effect) still needs a human with a mouse, G-3 (the
+  preview's `0.5.0.1` in *Apps & features*) is by design and is now explained in the checklist, and
+  G-4 (QEMU's console window taking focus) needs a sandbox change. **An external tester's walk is
+  still outstanding** — that is what `v0.5.0` waits for.
 - Recent commits (newest first): `287ffdb` (release bump) ← `2a5d296` (README/CLA wording) ←
   `993e5d1` (CLA) ← `f662ad7` (self-contained export) ← `20a7c6d` (source snapshot in the index) ←
   `a22112f` (abandoned export, workspace default path, two-run compare) ← `26ad597` (run interval

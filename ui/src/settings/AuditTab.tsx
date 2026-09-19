@@ -30,13 +30,17 @@ export default function AuditTab({ store }: { store: AppStore }) {
         </button>
       </div>
 
+      {/* v0.5 batch 11: the filter follows the input instead of applying on blur —
+          waiting for focus to leave hid the effect of what had just been typed. */}
       <label className="row">
         <span className="small">按 actor 过滤</span>
         <input
           value={store.auditActorFilter}
           placeholder="sandbox / agent / host / human"
-          onChange={(e) => store.setAuditActorFilter(e.target.value)}
-          onBlur={() => void store.refreshAudit()}
+          onChange={(e) => {
+            store.setAuditActorFilter(e.target.value);
+            void store.refreshAudit(e.target.value);
+          }}
         />
       </label>
 
@@ -80,7 +84,12 @@ export default function AuditTab({ store }: { store: AppStore }) {
               <span className={`badge ${r.status === "ok" ? "ok" : ""}`}>
                 {r.statusLabel}
               </span>
-              <span className="action">{r.fingerprint}</span>
+              {/* The row must survive a narrow window (v0.5 batch 11): the text
+                  spans shrink with an ellipsis, the button never does, and the
+                  full value stays reachable as a tooltip. */}
+              <span className="action" title={r.runId}>
+                {r.fingerprint}
+              </span>
               <span className="muted small">{r.whenLabel}</span>
               {r.parentLabel ? <span className="muted small">{r.parentLabel}</span> : null}
               {r.snapshotLabel ? (
