@@ -33,16 +33,18 @@
 - **外部走查仍未发生。** 它本是本版的计划，但没有发生，因此「干净机器走查」现在是 **v0.5.x 的补强项**
   （§8），而不是阻塞项：[golden-path-checklist.zh-CN.md](golden-path-checklist.zh-CN.md) 是测试者要填的
   表单，`walkthroughs/` 是它该去的地方。
-- 近期提交（新→旧）：`6c5ddb65`（变更日志与交接快照）← `b5aac541`（审计页里的字段级差异）←
-  `4d407cea`（指纹 diff：数据层 + API）← `287ffdb`（v0.5.0-preview.1 发布 bump）← `2a5d296`（README/CLA
-  措辞）← `993e5d1`（CLA）← `f662ad7`（自足导出）← `20a7c6d`（索引里的来源快照）。
+- 近期提交（新→旧）：`b0efeb8`（v0.6.0-preview.1 发布：版本 bump、变更日志、发布说明）← `6c5ddb65`
+  （变更日志与交接快照）← `b5aac541`（审计页里的字段级差异）← `4d407cea`（指纹 diff：数据层 + API）←
+  `287ffdb`（v0.5.0-preview.1 发布 bump）← `2a5d296`（README/CLA 措辞）← `993e5d1`（CLA）←
+  `f662ad7`（自足导出）。
 - tag：`v0.6.0-preview.1` 即本次预览（给本文件定版的那个提交）；`v0.5.0` 是它之前的正式版，也是持有
   Latest 标记的那个；`v0.5.0-preview.1` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`；
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`；
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`。
-- 发布提交处的测试总况：**291 passed / 0 failed / 8 ignored / 80 suites**（v0.5.0 为 281 / 0 / 8 / 79）。
-  gate 共 12 步，本地与 CI 均全绿（`ubuntu-latest` 上跑 `scripts/gate.sh`，另加 gitleaks）。
+- 发布提交 `b0efeb8` 处的测试总况：**291 passed / 0 failed / 8 ignored / 80 suites**
+  （v0.5.0 为 281 / 0 / 8 / 79）。gate 共 12 步，本地与 CI 均全绿（`ubuntu-latest` 上跑
+  `scripts/gate.sh`，另加 gitleaks）。
 - 未完成项：`%TEMP%` 下的临时目录仍未清理（删除确认始终未被放行）；CLA.md 待律师过目；不支持
   macOS/Linux；**由他人进行的干净机器走查尚未发生** —— 仍是 v0.5.x 的补强项，而不是阻塞项；
   **预览版的界面尚未经人工走查** —— 已在 [RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) 披露，

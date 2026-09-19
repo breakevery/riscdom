@@ -39,17 +39,18 @@ section when the next release ships)
 - **An external walk is still outstanding.** It was this release's plan and it did not happen, so
   the clean-machine walk is now a **v0.5.x strengthening item** (§8), not a blocker: [golden-path-checklist.md](golden-path-checklist.md)
   is the form a tester fills in, and `walkthroughs/` is where it goes.
-- Recent commits (newest first): `6c5ddb65` (the changelog and the handoff snapshot) ← `b5aac541` (the
-  field-level diff in the audit tab) ← `4d407cea` (the fingerprint diff: data layer + API) ←
-  `287ffdb` (the v0.5.0-preview.1 release bump) ← `2a5d296` (README/CLA wording) ← `993e5d1` (CLA) ←
-  `f662ad7` (self-contained export) ← `20a7c6d` (source snapshot in the index).
+- Recent commits (newest first): `b0efeb8` (the v0.6.0-preview.1 release: version bump, changelog,
+  release notes) ← `6c5ddb65` (the changelog and the handoff snapshot) ← `b5aac541` (the field-level diff
+  in the audit tab) ← `4d407cea` (the fingerprint diff: data layer + API) ← `287ffdb` (the
+  v0.5.0-preview.1 release bump) ← `2a5d296` (README/CLA wording) ← `993e5d1` (CLA) ← `f662ad7`
+  (self-contained export).
 - Tags: `v0.6.0-preview.1` is this preview (the commit that versions this file); `v0.5.0` is the
   release before it and the one holding the Latest marker; `v0.5.0-preview.1` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`;
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`;
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`.
-- Test totals at the release commit: **291 passed / 0 failed / 8 ignored / 80 suites** (v0.5.0 was
-  281 / 0 / 8 / 79). The gate is 12 steps, green locally and in CI (`scripts/gate.sh` on
+- Test totals at the release commit `b0efeb8`: **291 passed / 0 failed / 8 ignored / 80 suites**
+  (v0.5.0 was 281 / 0 / 8 / 79). The gate is 12 steps, green locally and in CI (`scripts/gate.sh` on
   `ubuntu-latest` plus gitleaks).
 - Open items: the temp directories under `%TEMP%` have not been cleaned (the deletion confirmation
   was never granted); CLA.md awaits a lawyer's eye; no macOS/Linux support; **the clean-machine walk
