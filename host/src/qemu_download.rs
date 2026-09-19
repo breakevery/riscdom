@@ -7,19 +7,17 @@
 //! following one cannot change the other.
 //!
 //! **The spec table is empty on purpose, and that is a decision, not an omission.**
-//! A spec may only carry a URL and a digest somebody has actually fetched and
-//! hashed: a guessed digest is a silent integrity hole, and this module has no
-//! "skip verification" switch to fall back on. As far as this repository records,
-//! the upstream release publishes **source**, not a Windows binary — Windows
-//! installs come from a third-party packager (see `docs/qemu-distribution.md` §5).
-//! Pinning that packager would move the distribution question to someone else
-//! without saying so. So until there is a build that can be pinned honestly,
-//! [`spec_for_current_platform`] refuses, and the manual path in
-//! `docs/qemu-setup.md` is the way in.
+//! The project decided to *guide* the user instead of downloading QEMU (v0.4 #4,
+//! `docs/qemu-distribution.md` §5): a spec may only carry a URL and a digest somebody has actually
+//! fetched and hashed, and the upstream release publishes no Windows binary to pin. Pinning a
+//! third-party packager's installer would put that packager into our supply chain without saying so,
+//! and a guessed digest is a silent integrity hole — this module has no "skip verification" switch.
+//! So [`spec_for_current_platform`] refuses and hands back [`install_guidance`], and the manual path
+//! in `docs/qemu-setup.md` is the way in.
 //!
-//! Everything below the spec table is complete and exercised by tests against a
-//! loopback server (`host/tests/qemu_download.rs`), so pinning a real release later
-//! is a data change, not a code change.
+//! Everything below the spec table is written and exercised by tests against a loopback server
+//! (`host/tests/qemu_download.rs`), so pinning a real release later would be a data change, not a
+//! code change. Nothing calls it today.
 //!
 //! `QemuDownloadEvent::Failed` is emitted by the *caller* (it owns the error text);
 //! this module emits Started / Progress / Verifying / Extracting / Done /
@@ -82,9 +80,10 @@ pub enum QemuDownloadEvent {
 #[derive(Debug, Error)]
 pub enum QemuDownloadError {
     #[error(
-        "no QEMU download is pinned for {platform}: this repository holds no URL and no SHA-256 \
-         for a QEMU {version} build, and this module refuses to guess one. Install QEMU yourself \
-         ({hint}) — RiscDom finds it afterwards."
+        "no QEMU download is pinned for {platform}: RiscDom does not fetch QEMU {version} itself — \
+         upstream publishes no Windows binary, and pinning a third-party packager's installer is a \
+         supply-chain decision this project has not taken (docs/qemu-distribution.md §5). \
+         Install it yourself: {hint}. RiscDom finds it afterwards."
     )]
     UnpinnedPlatform {
         platform: String,
@@ -123,22 +122,72 @@ impl QemuDownloadError {
     }
 }
 
+/// Is `winget` available to run? (Windows only — `false` everywhere else.)
+///
+/// `winget` is the install path this project guides users to when it exists; when it does not, the
+/// official download page is offered instead.
+///
+/// The App Execution Alias is checked first because it is a cheap filesystem test: asking the
+/// program itself spawns a process, and on a loaded machine that spawn can fail (observed while
+/// writing this: two back-to-back `winget --version` calls disagreed). The spawn stays as the
+/// fallback for installs that put `winget` somewhere else on `PATH`.
+pub fn winget_available() -> bool {
+    if !cfg!(target_os = "windows") {
+        return false;
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        // Where the App Installer registers the alias for the current user.
+        let alias = Path::new(&local)
+            .join("Microsoft")
+            .join("WindowsApps")
+            .join("winget.exe");
+        if alias.is_file() {
+            return true;
+        }
+    }
+    std::process::Command::new("winget")
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// What to tell the user to do instead — the decision in `docs/qemu-distribution.md` §5 is to guide,
+/// not to download.
+pub fn install_guidance() -> String {
+    install_guidance_with(winget_available())
+}
+
+/// [`install_guidance`] with the `winget` detection decided by the caller.
+///
+/// Both branches are reachable on one machine only through this entry point, so the branch that this
+/// machine does *not* take is still tested (`host/tests/qemu_spec.rs`).
+pub fn install_guidance_with(winget: bool) -> String {
+    if winget {
+        format!("run `{}`", sandbox::qemu_discover::QEMU_WINGET_HINT)
+    } else {
+        format!(
+            "download an installer from {}",
+            sandbox::qemu_discover::QEMU_DOWNLOAD_URL
+        )
+    }
+}
+
 /// The download that matches this machine.
 ///
-/// There is none today, for the reason in the module docs: no QEMU build that this
-/// repository may fetch (upstream, not a third-party packager) exists to pin. The
-/// function still exists so that adding one is a table entry, and so callers get an
-/// actionable error instead of an unwired gap.
+/// There is none today, for the reason in the module docs: this project guides users to a QEMU they
+/// install themselves instead of downloading one (upstream publishes no Windows binary, and pinning
+/// a third-party packager is a supply-chain decision — `docs/qemu-distribution.md` §5). The function
+/// still exists so that the error is actionable and a future decision would be a table entry.
 pub fn spec_for_current_platform() -> Result<QemuDownloadSpec, QemuDownloadError> {
     let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
     Err(QemuDownloadError::UnpinnedPlatform {
         platform,
         version: QEMU_VERSION,
-        hint: format!(
-            "{} / {}",
-            sandbox::qemu_discover::QEMU_WINGET_HINT,
-            sandbox::qemu_discover::QEMU_DOWNLOAD_URL
-        ),
+        hint: install_guidance(),
     })
 }
 

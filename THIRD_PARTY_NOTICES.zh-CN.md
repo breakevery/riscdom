@@ -13,8 +13,8 @@ RiscDom 启动，并通过管道或 TCP socket 与之对话。本文件只陈述
   `COPYING` / `LICENSE` 为准。
 - **RiscDom 如何使用**：把 `qemu-system-riscv64` 作为子进程启动，通过 QMP 与串口连接驱动它。RiscDom
   不链接任何 QEMU 代码，也不修改 QEMU 源码。
-- **它如何到达用户**：由用户自行安装 QEMU（[docs/qemu-setup.md](docs/qemu-setup.md)）。RiscDom 不托管、
-  不镜像、也不再分发 QEMU 二进制。
+- **它如何到达用户**：由用户自行安装 QEMU（[docs/qemu-setup.md](docs/qemu-setup.md)）—— 应用只会把它引向
+  `winget` 或官网下载页。RiscDom 不下载、不托管、不镜像、也不再分发 QEMU。
 
 ## RISC-V 工具链（xPack `riscv-none-elf-gcc`）
 

@@ -13,10 +13,7 @@ it does not decide whether any distribution model is compliant — that question
 - **Licence: GPL-2.0.** Components inside a given QEMU build may carry other licences; the
   `COPYING` / `LICENSE` files that build ships are the authority for that build.
 - **How RiscDom uses it**: `qemu-system-riscv64` is started as a child process and driven over QMP
-  and a serial connection. No QEMU code is linked into RiscDom, and no QEMU source is modified.
-- **How it reaches the user**: the user installs QEMU themselves
-  ([docs/qemu-setup.md](docs/qemu-setup.md)). RiscDom does not host, mirror or redistribute QEMU
-  binaries.
+  and a serial connection. No QEMU code is linked into RiscDom, and no QEMU source is modified.- **How it reaches the user**: the user installs QEMU themselves ([docs/qemu-setup.md](docs/qemu-setup.md)) — guided to `winget` or the official download page. RiscDom does not download, host, mirror or redistribute QEMU.
 
 ## RISC-V toolchain (xPack `riscv-none-elf-gcc`)
 

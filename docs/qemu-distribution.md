@@ -45,6 +45,9 @@ it is the main input to the recommendation in §5.
 | **What we ship** | A GPL-2.0 binary (see §4). | Our own code; the binary comes from upstream to the user's machine. |
 | **Failure modes** | A broken/mismatched QEMU inside our installer becomes *our* bug report. | Upstream availability and checksum drift become the failure modes; both are handled by pinning + verification, as the GCC download already does. |
 
+A third option — neither bundling nor downloading, but pointing the user at an install they run
+themselves — is what §5 decides.
+
 ## 4. Licence facts (no conclusions)
 
 Facts, each of which should be verified against the exact build before acting:
@@ -72,50 +75,46 @@ Facts, each of which should be verified against the exact build before acting:
 
 ## 5. Decision
 
-**Download on demand. Do not bundle QEMU, and do not host our own mirror either: fetch the archive
-from the upstream official release.**
+**Guide, do not download: send the user to `winget` or the official download page.**
 
-The reasons, in order of weight:
+The three ways to get QEMU onto a user's machine, and where each one stands:
 
-1. The machinery already exists and is proven here (§2) — bundling means new packaging work on every
-   platform for a payload that is not ours.
-2. The installer stays small, and the first-run experience stays honest: the app already tells the
-   user exactly what is missing and offers a manual path, which the preflight then verifies.
-3. Bundling makes us the distributor of a GPL-2.0 binary, which is a set of obligations we would have
-   to take on deliberately (§4); downloading keeps our shipped artifact ours.
-4. QEMU versions move faster than our release cadence; a download path lets us follow the pinned
-   version by changing one constant.
-5. **No mirror of our own.** Serving the archive ourselves would make us a distributor and a
-   publisher of a binary we do not build. Taking it from the official upstream release keeps one
-   party between upstream and the user, and the guarantee we already rely on for GCC — a pinned URL
-   plus a pinned SHA-256 — is what makes the fetch trustworthy. If upstream withdraws an asset the
-   download fails loudly (§3, last row), and the manual install path is unaffected.
+- **Bundle it in the installer — rejected.** New packaging work on every platform for a payload that
+  is not ours, a bigger installer, and the obligations of distributing a GPL-2.0 binary (§4).
+- **Download it at runtime — dropped while implementing v0.4 #4.** A download spec is a URL *plus* a
+  SHA-256, and neither may be guessed. The upstream release publishes **source**; the official
+  download page this repository already sends Windows users to
+  (`https://www.qemu.org/download/#windows`) offers Microsoft's `winget` package and third-party
+  installers. Pinning a third-party packager's installer would put that packager into our supply
+  chain silently, and a digest nobody can reproduce is worse than no download at all.
+- **Guide the user — chosen.** RiscDom says what to install and how — `winget install
+  SoftwareFreedomConservancy.QEMU` when `winget` is present, the official download page when it is
+  not — and then does what it already does: find the install, remember a manual path, and let the
+  preflight prove the toolchain × QEMU pair really boots a guest.
 
-Bundling, and mirroring, are not planned. Revisit bundling only if a distribution channel makes a
-network fetch impossible (e.g. a store that forbids it), and only with a licence review.
+Why guiding, and not the other two:
 
-### What upstream actually publishes (found while implementing v0.4 #4)
+1. **Upstream publishes no Windows binary**, so "download it from the official release" has nothing
+   to point at. That is what v0.4 #4 ran into.
+2. **A third-party packager is a supply-chain link.** Adding one by pinning its installer is a
+   decision a build script should not make on its own.
+3. **Building QEMU ourselves would make us the distributor of a GPL-2.0 binary** (§4), with the
+   obligations that follow.
+4. It is the smallest change: discovery, the manual path and the preflight already exist, and the
+   user ends up with a QEMU that their own package manager keeps updated.
 
-The decision above says "fetch it from the upstream official release". Implementing that ran into
-what this repository can and cannot see: it records **no QEMU asset it may pin**. The release server
-publishes source; the official download page this repository already sends Windows users to
-(`https://www.qemu.org/download/#windows`) offers Microsoft's `winget` package and third-party
-installers, not a binary to fetch. A download spec is a URL **plus a SHA-256**, and neither may be
-invented — so the QEMU downloader ships complete and refuses to run, and no digest is written down
-(see `docs/qemu-setup.md` §3).
+The downloader built for v0.4 #4 stays in the tree, unwired and refusing to run
+(`host/src/qemu_download.rs`, spec table empty — see `docs/qemu-setup.md` §3). It is kept because the
+machinery is written and tested, and a future distribution channel might justify it; nothing calls
+it today.
 
-That leaves one question for the project owner, not for this document: is a third-party packager an
-acceptable source? If yes, §5 changes and the spec table gets an entry; if no, the manual install
-stays until upstream publishes a Windows binary.
+Bundling and mirroring stay unplanned. Revisit bundling only if a distribution channel makes a
+user-run install impossible (e.g. a store that forbids it), and only with a licence review.
 
 ## 6. Phasing
 
-1. **Now (done):** discovery + manual path + the environment preflight. A user with QEMU installed is
-   fully served.
-2. **Next (v0.4 #4, partly done):** a pinned QEMU download spec mirroring the GCC one — version,
-   per-platform URL + SHA-256, Zip-Slip guard, cancel, progress, install into the app data directory,
-   then adopt it like a manual path (and let the preflight confirm it). The **machinery is in
-   (`host/src/qemu_download.rs`) and tested against a local server**; the **spec table stays empty**
-   because no build can be pinned yet (§5). The licence facts ship as
-   [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+1. **Now (done):** discovery + manual path + the environment preflight, plus guided install (§5). A
+   user with QEMU installed is fully served, and a user without it is told exactly what to run.
+2. **Kept, unwired:** the downloader machinery (`host/src/qemu_download.rs`) — written and tested
+   against a local server, spec table empty because no build may be pinned (§5). Nothing calls it.
 3. **Not planned:** bundling QEMU into the installer, and mirroring the archives ourselves.

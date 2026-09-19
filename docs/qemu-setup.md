@@ -50,20 +50,17 @@ directory) and survives restarts.
 set RISCDOM_QEMU=C:\Program Files\qemu\qemu-system-riscv64.exe
 ```
 
-## 3. In-app download: machinery in place, nothing to pin yet
+## 3. No in-app download: you install it
 
-RiscDom has a QEMU downloader (`host/src/qemu_download.rs`, v0.4 #4) built on the same pattern as
-the RISC-V toolchain one: a pinned version, a per-platform URL and **SHA-256**, Zip-Slip-guarded
-extraction, cancellation, progress, and an idempotent re-run that installs under the app data
-directory and returns the executable to adopt.
+RiscDom does not fetch QEMU on your behalf, and that is a decision rather than a gap
+([qemu-distribution.md](qemu-distribution.md) §5): upstream publishes no Windows binary to pin, pinning
+a third-party packager's installer would put that packager into our supply chain, and building QEMU
+ourselves would make us the distributor of a GPL-2.0 binary. Step 1 above is the way in. When
+something is missing the app says what to run — `winget install SoftwareFreedomConservancy.QEMU`
+where `winget` exists, the official download page where it does not.
 
-**It refuses to run, on every platform, and that is deliberate.** A download spec carries a URL and
-a digest; a guessed digest that nobody notices is worse than no download at all, and the module has
-no "skip verification" switch. This repository records no QEMU build it may fetch and pin: the
-upstream release publishes source, Windows installs come from a third-party packager, and pinning
-that packager is a distribution decision — see [qemu-distribution.md](qemu-distribution.md) §5.
-Until a build can be pinned honestly, step 1 above is the way in, and the preflight verifies the
-result either way.
+(The downloader written for v0.4 #4, `host/src/qemu_download.rs`, stays in the tree unwired, with an
+empty spec table, for the reasons above; nothing in the app calls it.)
 
 ## 4. Verify
 

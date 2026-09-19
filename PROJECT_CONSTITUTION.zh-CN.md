@@ -205,8 +205,9 @@ m. **[DONE]** 公开前完成中英双语文档
    [docs/e2e-debugging.md](docs/e2e-debugging.md)）。
 3. **引入 `tauri-plugin-dialog`**：用原生文件选择器选择工具链 / QEMU 路径，替代
    `window.prompt` 文本输入。
-4. **QEMU 一键下载或捆绑评估**（含 GPL 合规审查；提案见
-   [docs/qemu-distribution.md](docs/qemu-distribution.md)）。
+4. **[DONE] QEMU 分发方式已定 —— 引导，不捆绑也不下载**：应用把用户引向 `winget` / 官网下载页。上游不发
+   Windows 二进制；第三方打包者会变成一段没被点名的供应链；而自建 QEMU 构建会让我们成为 GPL-2.0 二进制
+   的分发者（详见 [docs/qemu-distribution.md](docs/qemu-distribution.md) §5）。
 5. **环境能力预检**：在**真实的**工具链 / QEMU 路径上编译一个最小 guest 并启动它，报告卡在哪一步（仅告警、按配置缓存、可记录“仍要继续”）。**有意不做版本号规则**：本仓库没有任何 QEMU × GCC 兼容矩阵可依据，自己编一套就是猜（批次 3）。
 6. **macOS / Linux 支持与多 OS CI 矩阵**。
 7. **多 VM 并行**：同一时间驱动多台宿主持有的 guest。
