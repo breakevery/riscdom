@@ -297,28 +297,30 @@ impl AuditStore {
         write_events_jsonl(&events, path)
     }
 
-    /// Write the events in the **inclusive** id range `[from_id, to_id]` as JSONL.
+    /// Write the chain **up to and including** `to_id`, from its first event, as JSONL.
     ///
-    /// Same line shape as [`Self::export_jsonl`] — a range export is a slice of the
-    /// chain, not a different format, so the file stays verifiable line by line and
-    /// no header or invented event is needed to describe it (v0.5 batch 1).
+    /// This is the export behind a run-scoped record (v0.5 batch 4): a file that
+    /// claims to be a run's record has to stand on its own, so it starts at the
+    /// chain's first event. Its first line's `prev_hash` is therefore
+    /// [`GENESIS_PREV_HASH`], which is where `verify_chain` starts — the file can be
+    /// verified in an empty database, with no prefix carried over from the one it was
+    /// cut from.
     ///
-    /// An empty range is not an error: it writes an empty file and returns `0`;
-    /// `from_id > to_id` is a caller bug and is refused.
-    pub fn export_interval_jsonl(
+    /// The **slice** form (`from_id`..`to_id`) is deliberately not offered. Two
+    /// meanings for "export" is one meaning too many, and the one worth keeping is
+    /// the file that can answer "is this record intact" by itself; a mid-chain slice
+    /// cannot, because its first line links to an event it does not contain.
+    ///
+    /// Same line shape as [`Self::export_jsonl`] — an export is a prefix of the
+    /// chain, not a different format. A `to_id` below the first event is not an
+    /// error: it writes an empty file and returns `0`.
+    pub fn export_self_contained_jsonl(
         &self,
-        from_id: i64,
         to_id: i64,
         path: &Path,
     ) -> Result<usize, AuditError> {
-        if from_id > to_id {
-            return Err(AuditError::Other(format!(
-                "empty audit interval: from_id {from_id} is after to_id {to_id}"
-            )));
-        }
         let events = self.list(
             EventFilter {
-                from_id: Some(from_id),
                 to_id: Some(to_id),
                 ..EventFilter::default()
             },
@@ -334,8 +336,14 @@ impl AuditStore {
     /// interval off the record, and an abandoned one needs the chain to locate the
     /// `host.run.abandoned` event that ends it.
     pub fn run_interval(&self, record: &RunRecord) -> Result<(i64, i64), AuditError> {
+        Ok((record.start_seq, self.run_end(record)?))
+    }
+
+    /// The id of the event that closes `record`, resolved against this store's chain
+    /// (v0.5 batch 4). This is the boundary a run-scoped export cuts at.
+    pub fn run_end(&self, record: &RunRecord) -> Result<i64, AuditError> {
         let chain = self.all()?;
-        crate::run::run_interval(record, &chain)
+        crate::run::run_end(record, &chain)
     }
 
     /// All rows in chain order (raw form, `pub(crate)` for verification).

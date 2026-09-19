@@ -1,20 +1,18 @@
-//! v0.5 batch 2 — an exported run interval verifies on its own.
+//! v0.5 batch 4 — an exported run record verifies on its own.
 //!
-//! Batch 1 made the export a chain slice; this walks the whole claim: build a run,
-//! export its interval, write the exported lines into a **fresh** database, and run
-//! the independent checker (`audit-verify --runs`) over it. Nothing from the source
-//! database is carried over except the exported file, so the verdict is evidence
-//! that the file is a self-sufficient audit record.
+//! The claim a run-scoped export makes is that the file *is* the record: hand it to
+//! a third party, put it in an empty database, and the chain verdict is positive.
+//! This walks exactly that — the source chain has events **before** the run and
+//! **after** it, and none of them is carried over: the export, on its own, has to be
+//! enough. The real `audit-verify` binary judges the result.
 //!
-//! The run has to open the chain for this to work at all, and that is the point:
-//! `verify_chain` starts from the genesis link, so an exported slice can only be
-//! verified in a fresh database when the export starts where the chain does. The
-//! test therefore pins the honest case rather than pretending a mid-chain slice is
-//! a stand-alone log.
+//! Batch 2 pinned the honest case for a mid-chain slice (a run that opens the chain);
+//! batch 4 removed the slice form altogether, so the run no longer has to be first for
+//! the file to be verifiable.
 
 use audit::{
-    run_end_detail, run_interval, run_start_detail, AuditEvent, AuditStore, RunStatus,
-    ACTION_RUN_END, ACTION_RUN_START,
+    run_end_detail, run_start_detail, AuditEvent, AuditStore, RunStatus, ACTION_RUN_END,
+    ACTION_RUN_START,
 };
 use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
@@ -83,24 +81,41 @@ fn import(export: &Path, db: &Path, expected_rows: usize) -> AuditStore {
     AuditStore::open(db).expect("imported store")
 }
 
-fn audit_verify(db: &Path) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_audit-verify"))
-        .arg(db)
-        .arg("--runs")
-        .output()
-        .expect("run audit-verify")
+fn audit_verify(db: &Path, runs: bool) -> std::process::Output {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_audit-verify"));
+    cmd.arg(db);
+    if runs {
+        cmd.arg("--runs");
+    }
+    cmd.output().expect("run audit-verify")
+}
+
+fn output_of(out: &std::process::Output) -> String {
+    format!(
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    )
 }
 
 #[test]
-fn an_exported_interval_verifies_in_a_fresh_database() {
+fn an_exported_record_verifies_in_a_fresh_database() {
     let dir = unique_dir("e2e");
     let source = dir.join("source.db");
     let export = dir.join("run_a.jsonl");
     let verify_db = dir.join("verify.db");
 
-    // A run that opens the chain: its interval starts at the genesis link.
+    // The source chain has an event before the run and one after it, so "the file
+    // stands alone" is a real claim rather than a side effect of the run being first.
     let (start_id, end_id, written) = {
         let mut store = AuditStore::open(&source).expect("source store");
+        store
+            .append(AuditEvent::new(
+                "human",
+                "session.create",
+                serde_json::json!({ "id": "s1" }),
+            ))
+            .expect("before");
         let start = store
             .append(AuditEvent::new(
                 "host",
@@ -108,13 +123,6 @@ fn an_exported_interval_verifies_in_a_fresh_database() {
                 run_start_detail("run_a", Some("s1"), None, None, &config()),
             ))
             .expect("run.start");
-        store
-            .append(AuditEvent::new(
-                "agent",
-                "agent.tool.call",
-                serde_json::json!({ "name": "compile" }),
-            ))
-            .unwrap();
         store
             .append(AuditEvent::new(
                 "sandbox",
@@ -129,7 +137,6 @@ fn an_exported_interval_verifies_in_a_fresh_database() {
                 run_end_detail("run_a", RunStatus::Ok, "done"),
             ))
             .expect("run.end");
-        // A neighbour after the run: it must not be in the file.
         store
             .append(AuditEvent::new(
                 "human",
@@ -144,46 +151,59 @@ fn an_exported_interval_verifies_in_a_fresh_database() {
             .into_iter()
             .find(|r| r.run_id == "run_a")
             .expect("the chain has the run");
+        assert_eq!(record.start_seq, start.id);
 
-        let (from, to) = run_interval(&record, &store.all().unwrap()).unwrap();
-        assert_eq!(
-            (from, to),
-            (start.id, end.id),
-            "the interval is the run's own span"
-        );
-        let written = store.export_interval_jsonl(from, to, &export).unwrap();
+        let to = store.run_end(&record).unwrap();
+        assert_eq!(to, end.id, "the export cuts at this run's `run.end`");
+        let written = store.export_self_contained_jsonl(to, &export).unwrap();
         (start.id, end.id, written)
     };
 
     assert_eq!(
         (start_id, end_id),
-        (1, 4),
-        "`run.start` opens the chain, `run.end` closes it"
+        (2, 4),
+        "the run starts after a session event"
     );
     let exported = lines(&export);
-    assert_eq!(written, 4);
+    assert_eq!(written, 4, "genesis .. run.end");
     assert_eq!(exported.len(), 4);
     assert_eq!(
-        exported.last().unwrap()["detail"]["status"],
-        "ok",
+        exported.first().unwrap()["prev_hash"],
+        audit::GENESIS_PREV_HASH,
+        "the first line is anchored at genesis"
+    );
+    assert!(
+        exported.first().unwrap()["id"].as_i64().unwrap() < start_id,
+        "the run is not the first line — the file carries what came before it"
+    );
+    assert_eq!(
+        exported.last().unwrap()["action"],
+        ACTION_RUN_END,
         "the export ends on `run.end`, not on the neighbour"
     );
+    assert_eq!(exported.last().unwrap()["detail"]["status"], "ok");
 
-    // The file, and nothing else, goes into a fresh database.
+    // The file, and nothing else, goes into a fresh database: no prefix, no other
+    // artefact. The checker judges the imported chain on its own.
     let mut imported = import(&export, &verify_db, written);
+    let out = audit_verify(&verify_db, false);
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert_eq!(out.status.code(), Some(0), "{}", output_of(&out));
+    assert!(stdout.contains("Intact"), "stdout: {stdout}");
+    assert!(
+        !stdout.contains("Broken"),
+        "a self-contained export must not be broken anywhere: {stdout}"
+    );
+
+    // The imported chain also *is* the run: its derived index can be rebuilt from it.
     let report = imported.rebuild_run_index().expect("rebuild derived index");
     assert_eq!(report.runs, 1, "{report:?}");
     assert_eq!(report.ends, 1, "{report:?}");
     assert_eq!(imported.check_run_index().unwrap(), Vec::<String>::new());
 
-    let out = audit_verify(&verify_db);
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(
-        out.status.code(),
-        Some(0),
-        "stdout: {stdout}\nstderr: {stderr}"
-    );
+    let out = audit_verify(&verify_db, true);
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert_eq!(out.status.code(), Some(0), "{}", output_of(&out));
     assert!(stdout.contains("Intact"), "stdout: {stdout}");
     assert!(
         stdout.contains("RunIndex { findings: 0 }"),

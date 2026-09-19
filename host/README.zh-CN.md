@@ -35,7 +35,7 @@
 | `save_snapshot_real(name)` | `u64`（真实快照字节数；无 VM → `Err("no running vm")`） |
 | `resume_from_snapshot_real(name)` | `()`（先停当前 VM，再以 `-incoming` 恢复） |
 | `export_audit_jsonl(path)` | `usize`（写入工作区内） |
-| `export_run_audit(run_id, path)` | `usize`（一次 run 的区间；abandoned 的 run 以 `host.run.abandoned` 标记结尾，进行中的 run 会被拒） |
+| `export_run_audit(run_id, path)` | `usize`（一次 run 的记录，自足：从链的第一条事件到该 run 结束；abandoned 的 run 以 `host.run.abandoned` 标记结尾，进行中的 run 会被拒） |
 | `workspace_root()` | `string`（工作区根绝对路径） |
 
 ## 事件（host → 前端）

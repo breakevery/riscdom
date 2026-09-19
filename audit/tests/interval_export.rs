@@ -1,9 +1,12 @@
-//! v0.5 batch 1 — exporting one run's audit interval.
+//! v0.5 batches 1–4 — exporting one run's record.
 //!
-//! A range export must be **exactly** the chain slice a run occupies: nothing from
-//! before it, nothing from after it, and every line still verifiable on its own.
-//! The whole-log export and the range export share one writer, so the two cannot
-//! drift apart.
+//! A run-scoped export must be **self-contained** (batch 4): it runs from the
+//! chain's first event to the event that closes the run, so its first line is
+//! anchored at genesis and the file can be judged on its own — and it must stop at
+//! the run's end, never spilling into what came after. The interval tests below pin
+//! which events belong to the run; the export tests pin what the file contains.
+//! The whole-log export and the run export share one writer, so the two cannot drift
+//! apart.
 
 use audit::{
     compute_hash, run_interval, AuditEvent, AuditStore, EventFilter, RunRecord, RunStatus,
@@ -97,62 +100,72 @@ fn lines(path: &std::path::Path) -> Vec<serde_json::Value> {
 }
 
 #[test]
-fn the_export_holds_exactly_the_runs_interval() {
+fn the_export_starts_at_genesis_and_ends_at_the_run() {
     let (store, record) = store_with_a_finished_run();
     let file = unique_file("exact");
-    let (from, to) =
-        run_interval(&record, &store.all().unwrap()).expect("a finished run has an interval");
+    let to = store
+        .run_end(&record)
+        .expect("a finished run has a closing event");
 
     let written = store
-        .export_interval_jsonl(from, to, &file)
+        .export_self_contained_jsonl(to, &file)
         .expect("export");
 
     let exported = lines(&file);
     assert_eq!(written, exported.len());
     let ids: Vec<i64> = exported.iter().map(|l| l["id"].as_i64().unwrap()).collect();
-    assert_eq!(ids, (from..=to).collect::<Vec<_>>(), "{ids:?}");
+    let first_id = store.all().unwrap().first().unwrap().id;
+    assert_eq!(ids, (first_id..=to).collect::<Vec<_>>(), "{ids:?}");
 
-    // Nothing from before the run, nothing from after it.
+    // The anchor is genesis: this is what lets an empty database verify the file.
+    assert_eq!(exported[0]["prev_hash"], audit::GENESIS_PREV_HASH);
+    assert_eq!(exported[0]["id"].as_i64(), Some(first_id));
+
+    // The run's metadata travels inside the file: no header line was needed.
+    let start_line = exported
+        .iter()
+        .find(|l| l["action"] == audit::ACTION_RUN_START)
+        .expect("the run.start is in the file");
+    assert_eq!(start_line["actor"], "host");
+    assert_eq!(start_line["detail"]["run_id"], "run_a");
+    assert!(
+        start_line["detail"]["fingerprint_json"].is_string(),
+        "{start_line}"
+    );
+
+    // It ends on `run.end`, and nothing after the run is in the file.
+    let end_line = exported.last().unwrap();
+    assert_eq!(end_line["action"], audit::ACTION_RUN_END);
+    assert_eq!(end_line["detail"]["status"], "ok");
     let actions: Vec<&str> = exported
         .iter()
         .map(|l| l["action"].as_str().unwrap())
         .collect();
-    assert_eq!(
-        actions,
-        vec![
-            audit::ACTION_RUN_START,
-            "agent.tool.call",
-            "vm.start",
-            audit::ACTION_RUN_END,
-        ],
-        "{actions:?}"
-    );
-    for leaked in ["host.start", "session.create", "session.close", "host.stop"] {
+    for leaked in ["session.close", "host.stop"] {
         assert!(
             !actions.contains(&leaked),
-            "`{leaked}` is outside the run and must not be exported"
+            "`{leaked}` is after the run and must not be exported"
         );
     }
-
-    // The run's metadata travels inside the file: no header line was needed.
-    let start_line = &exported[0];
-    assert_eq!(start_line["actor"], "host");
-    let detail = &start_line["detail"];
-    assert_eq!(detail["run_id"], "run_a");
-    assert!(detail["fingerprint_json"].is_string(), "{detail}");
-    let end_line = exported.last().unwrap();
-    assert_eq!(end_line["detail"]["status"], "ok");
+    // What precedes the run is part of the record: it is where the run happened.
+    for included in ["host.start", "session.create"] {
+        assert!(
+            actions.contains(&included),
+            "`{included}` precedes the run and belongs in a self-contained record"
+        );
+    }
 }
 
 #[test]
 fn every_exported_line_still_verifies_on_its_own() {
     let (store, record) = store_with_a_finished_run();
     let file = unique_file("verify");
-    let (from, to) = run_interval(&record, &store.all().unwrap()).unwrap();
-    store.export_interval_jsonl(from, to, &file).unwrap();
+    let to = store.run_end(&record).unwrap();
+    store.export_self_contained_jsonl(to, &file).unwrap();
 
     let exported = lines(&file);
     assert!(!exported.is_empty());
+    assert_eq!(exported[0]["prev_hash"], audit::GENESIS_PREV_HASH);
 
     let mut previous: Option<String> = None;
     for line in &exported {
@@ -186,16 +199,17 @@ fn every_exported_line_still_verifies_on_its_own() {
 }
 
 #[test]
-fn a_full_range_export_is_byte_for_byte_the_whole_log_export() {
-    let (store, record) = store_with_a_finished_run();
+fn a_whole_chain_export_is_byte_for_byte_the_plain_whole_log_export() {
+    // The self-contained form is a prefix of the chain, not a second format: taking
+    // the whole prefix gives exactly what `export_jsonl` writes.
+    let (store, _record) = store_with_a_finished_run();
     let whole = unique_file("whole");
-    let (from, to) = run_interval(&record, &store.all().unwrap()).unwrap();
     let full = unique_file("full");
 
     let all = store.all().unwrap();
     let written_all = store.export_jsonl(&whole).unwrap();
     let written_full = store
-        .export_interval_jsonl(all.first().unwrap().id, all.last().unwrap().id, &full)
+        .export_self_contained_jsonl(all.last().unwrap().id, &full)
         .unwrap();
 
     assert_eq!(written_all, all.len());
@@ -203,19 +217,18 @@ fn a_full_range_export_is_byte_for_byte_the_whole_log_export() {
     assert_eq!(
         std::fs::read_to_string(&whole).unwrap(),
         std::fs::read_to_string(&full).unwrap(),
-        "a range export is a slice of the chain, not a second format"
+        "an export is a prefix of the chain, not a second format"
     );
-    assert!(from < to);
 }
 
 #[test]
-fn an_empty_range_writes_an_empty_file() {
-    let (store, record) = store_with_a_finished_run();
+fn an_export_before_the_first_event_writes_an_empty_file() {
+    let (store, _record) = store_with_a_finished_run();
     let file = unique_file("empty");
-    let (_, to) = run_interval(&record, &store.all().unwrap()).unwrap();
+    let first_id = store.all().unwrap().first().unwrap().id;
 
     let written = store
-        .export_interval_jsonl(to + 10, to + 20, &file)
+        .export_self_contained_jsonl(first_id - 1, &file)
         .unwrap();
 
     assert_eq!(written, 0);
@@ -223,19 +236,44 @@ fn an_empty_range_writes_an_empty_file() {
 }
 
 #[test]
-fn a_backwards_range_is_refused() {
-    let (store, record) = store_with_a_finished_run();
-    let file = unique_file("backwards");
-    let (from, _) = run_interval(&record, &store.all().unwrap()).unwrap();
+fn a_run_that_opens_the_chain_exports_only_itself() {
+    // The boundary case: `run.start` is the first event, so the run's own interval
+    // and the self-contained prefix are the same three events.
+    let mut store = AuditStore::in_memory().unwrap();
+    let start = store
+        .append(event(
+            "host",
+            audit::ACTION_RUN_START,
+            audit::run_start_detail("run_first", None, None, None, &serde_json::json!({})),
+        ))
+        .unwrap();
+    store
+        .append(event(
+            "agent",
+            "agent.tool.call",
+            serde_json::json!({ "name": "compile" }),
+        ))
+        .unwrap();
+    let end = store
+        .append(event(
+            "host",
+            audit::ACTION_RUN_END,
+            audit::run_end_detail("run_first", RunStatus::Ok, "done"),
+        ))
+        .unwrap();
+    let (runs, _) = store.derive_runs().unwrap();
+    let record = &runs[0];
 
-    let error = store
-        .export_interval_jsonl(from + 3, from, &file)
-        .expect_err("a backwards range is a caller bug");
-    assert!(
-        error.to_string().contains("empty audit interval"),
-        "{error}"
-    );
-    assert!(!file.exists(), "nothing may be written on a refusal");
+    let to = store.run_end(record).unwrap();
+    assert_eq!((start.id, to), (1, end.id));
+
+    let file = unique_file("first");
+    store.export_self_contained_jsonl(to, &file).unwrap();
+    let exported = lines(&file);
+    assert_eq!(exported.len(), 3);
+    assert_eq!(exported[0]["prev_hash"], audit::GENESIS_PREV_HASH);
+    assert_eq!(exported[0]["action"], audit::ACTION_RUN_START);
+    assert_eq!(exported.last().unwrap()["action"], audit::ACTION_RUN_END);
 }
 
 #[test]
@@ -322,12 +360,18 @@ fn an_abandoned_run_exports_up_to_its_abandoned_event() {
         .expect("an abandoned run has an interval: `run.start` .. `host.run.abandoned`");
     assert_eq!(from, start_id);
     assert_eq!(to, marker_id);
+    assert_eq!(
+        store.run_end(record).unwrap(),
+        marker_id,
+        "the export cuts at the abandoned marker"
+    );
 
     let file = unique_file("abandoned");
-    store.export_interval_jsonl(from, to, &file).unwrap();
+    store.export_self_contained_jsonl(to, &file).unwrap();
     let exported = lines(&file);
+    assert_eq!(exported[0]["prev_hash"], audit::GENESIS_PREV_HASH);
     let ids: Vec<i64> = exported.iter().map(|l| l["id"].as_i64().unwrap()).collect();
-    assert_eq!(ids, (from..=to).collect::<Vec<_>>(), "{ids:?}");
+    assert_eq!(ids, (1..=to).collect::<Vec<_>>(), "{ids:?}");
 
     // The last line is the event that explains the run: self-describing, no header.
     let last = exported.last().unwrap();

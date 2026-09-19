@@ -132,21 +132,25 @@ Each step: what goes in, what the user does, what must be true afterwards, and h
 | 2 | Create an environment | LLM key (or a local provider) | Pick a provider, paste the key, run the preflight | Provider/model saved, readiness true, preflight green over all four steps | Bad key → readiness names the reason; a failed preflight step names the step and suggests the fix |
 | 3 | Run an agent task | A request in plain language | Send it | A run with an id, a fingerprint and an interval; the guest was compiled, booted, read | `max_iterations` / `failed` → the diagnosis report names the first failing step |
 | 4 | Save a snapshot | A running host-owned VM | Name it, save | `.riscdom/snapshots/<name>.mig`, listed with size and time | No running VM → the button is disabled and says why; a failed save reports the QEMU/relay error |
-| 5 | Get an audit record | A finished run (including one the chain marks abandoned) | **Export it** from the run list | A file a third party can verify with `audit-verify`; an abandoned run's file ends on its `host.run.abandoned` marker | Chain broken → export must not pretend otherwise |
+| 5 | Get an audit record | A finished run (including one the chain marks abandoned) | **Export it** from the run list | A file that verifies **on its own** (an empty database plus `audit-verify`): it starts at the chain's first event and ends on the run's `run.end`, or on its `host.run.abandoned` marker | Chain broken → export must not pretend otherwise |
 | 6 | Roll back | A snapshot | Restore | A **new** run whose `parent_run_id` points at the previous one and whose `run.start` names the snapshot | A dead port / QMP reset → retried three times, then reported; a missing snapshot is rejected before the VM stops |
 | 7 | Change the configuration and run again | Any one fingerprint field | Change it, run the same request again | A second run, same request, **different fingerprint** | An unreadable difference: the user sees two 64-character digests, not "only QEMU changed" |
 
 ## 4. Audit export
 
-**Recommendation: export one run's interval, as plain event JSONL, into the workspace, from a button
+**Recommendation: export one run's record, as plain event JSONL, into the workspace, from a button
 in the audit tab.**
 
-- **What**: the events of `[start_seq, end_seq]` inclusive — which includes that run's `run.start`
-  (carrying `fingerprint_schema` and the canonical `fingerprint_json` that was hashed) and its
-  `run.end`. Nothing else, and nothing new: the run's metadata is *already inside* the exported
-  events, so the file explains itself and stays verifiable line by line. A run the chain marks
-  **abandoned** has no `run.end`; its interval ends at that run's `host.run.abandoned` event
-  instead, so the file's last line still says why the run stopped.
+- **What**: the chain **from its first event up to the event that closes the run** — which includes
+  that run's `run.start` (carrying `fingerprint_schema` and the canonical `fingerprint_json` that
+  was hashed) and its `run.end`, and everything the run happened among. Nothing new: the run's
+  metadata is *already inside* the exported events, so the file explains itself and stays verifiable
+  line by line. A run the chain marks **abandoned** has no `run.end`; its record stops at that
+  run's `host.run.abandoned` event instead, so the file's last line still says why the run stopped.
+  *(v0.5 batch 4: the export starts at genesis rather than at `run.start`, because only then does
+  `verify_chain` — which begins at the genesis link — judge the file **in an empty database**. The
+  slice form was removed rather than kept alongside: two meanings of "export" is one too many, and
+  the one worth keeping answers "is this record intact" by itself.)*
 - **Format**: the JSONL that `export_jsonl` already writes unchanged — `id` / `timestamp_ms` /
   `actor` / `action` / `detail` / `prev_hash` / `hash` per line, id order. A reader can re-hash each
   line and check the links without this application.

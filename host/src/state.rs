@@ -2199,14 +2199,17 @@ impl AppState {
 
     /// Export **one run's** audit interval as JSONL (v0.5 batch 1).
     ///
-    /// The interval is `[start_seq, end_seq]` of that run — the slice of the chain
-    /// the run occupies, `run.start` and `run.end` included, so the file explains
-    /// itself and can be verified line by line without this application. A run the
-    /// chain marked **abandoned** (its process disappeared) has no `run.end`, so its
-    /// interval ends at that run's `host.run.abandoned` event and the exported file
-    /// ends on the line that says why it stopped (v0.5 batch 2). A run that is still
-    /// open has no interval at all and is refused rather than exported to wherever
-    /// the chain happens to end.
+    /// The file is **self-contained** (v0.5 batch 4): it holds the chain from its
+    /// first event up to the event that closes this run, so its first line's
+    /// `prev_hash` is the genesis link and it can be verified in an empty database
+    /// with nothing carried over from this one. Where the run's own events start is
+    /// still recorded — that is the derived index's `start_seq`, not the file's
+    /// first line.
+    ///
+    /// The end is this run's `run.end`; for a run the chain marked **abandoned** (its
+    /// process disappeared) it is that run's `host.run.abandoned` event, so the last
+    /// line says why it stopped. A run that is still open has nothing to close it and
+    /// is refused rather than exported to wherever the chain happens to end.
     pub fn export_run_audit(&self, run_id: &str, path: String) -> Result<usize, HostError> {
         let policy = WorkspacePolicy::new(self.workspace_root.clone());
         let abs = policy
@@ -2219,10 +2222,10 @@ impl AppState {
         let record = store
             .get_run(run_id)?
             .ok_or_else(|| HostError::Other(format!("unknown run: {run_id}")))?;
-        let (from, to) = store
-            .run_interval(&record)
+        let to = store
+            .run_end(&record)
             .map_err(|e| HostError::Other(e.to_string()))?;
-        Ok(store.export_interval_jsonl(from, to, &abs)?)
+        Ok(store.export_self_contained_jsonl(to, &abs)?)
     }
 
     /// The AI workspace root as an absolute path string (v0.5 batch 2).

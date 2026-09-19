@@ -1,12 +1,14 @@
-//! v0.5 batch 1 — `export_run_audit`: one run's audit interval, from the app.
+//! v0.5 batches 1–4 — `export_run_audit`: one run's audit record, from the app.
 //!
-//! The golden path's step 5 is "get an audit record". The record is the slice of
-//! the hash chain a run occupies; this test drives the host command that writes it
-//! and pins the two refusals (no such run, no end yet).
+//! The golden path's step 5 is "get an audit record". The record is the chain from
+//! its first event up to the run's end (batch 4), so the file stands on its own; this
+//! test drives the host command that writes it, checks the file is independently
+//! verifiable, and pins the two refusals (no such run, no end yet).
 
 use audit::{AuditEvent, RunRecord, RunStatus};
 use host::state::AppState;
-use std::path::PathBuf;
+use rusqlite::{params, Connection};
+use std::path::{Path, PathBuf};
 
 fn unique_dir(tag: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -82,7 +84,7 @@ fn state_with_a_finished_run(tag: &str) -> (AppState, PathBuf) {
     (state, dir)
 }
 
-fn lines(path: &std::path::Path) -> Vec<serde_json::Value> {
+fn lines(path: &Path) -> Vec<serde_json::Value> {
     std::fs::read_to_string(path)
         .expect("export file")
         .lines()
@@ -90,8 +92,38 @@ fn lines(path: &std::path::Path) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// Copy an exported file into a fresh database and judge that database's chain.
+///
+/// This is the same call `audit-verify` makes; the point here is that the exported
+/// file alone is enough input to it.
+fn chain_verdict_of_the_export(export: &Path, db: &Path) -> audit::ChainStatus {
+    let _ = audit::AuditStore::open(db).expect("fresh store");
+    {
+        let conn = Connection::open(db).expect("raw connection");
+        for line in lines(export) {
+            conn.execute(
+                "INSERT INTO audit_events \
+                 (id, timestamp_ms, actor, action, detail_json, prev_hash, hash) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    line["id"].as_i64().unwrap(),
+                    line["timestamp_ms"].as_i64().unwrap(),
+                    line["actor"].as_str().unwrap(),
+                    line["action"].as_str().unwrap(),
+                    serde_json::to_string(&line["detail"]).unwrap(),
+                    line["prev_hash"].as_str().unwrap(),
+                    line["hash"].as_str().unwrap(),
+                ],
+            )
+            .expect("import row");
+        }
+    }
+    let store = audit::AuditStore::open(db).expect("imported store");
+    audit::verify_chain(&store).expect("verify")
+}
+
 #[test]
-fn exports_exactly_the_runs_interval_into_the_workspace() {
+fn exports_a_self_contained_record_into_the_workspace() {
     let (state, dir) = state_with_a_finished_run("happy");
     std::fs::create_dir_all(dir.join("audit")).expect("target dir");
 
@@ -104,6 +136,10 @@ fn exports_exactly_the_runs_interval_into_the_workspace() {
     let exported = lines(&file);
     assert_eq!(written, exported.len());
 
+    // It begins at the chain's first event, anchored at genesis (v0.5 batch 4).
+    assert_eq!(exported[0]["prev_hash"], audit::GENESIS_PREV_HASH);
+    assert_eq!(exported[0]["id"].as_i64(), Some(1));
+
     let actions: Vec<&str> = exported
         .iter()
         .map(|l| l["action"].as_str().unwrap())
@@ -111,41 +147,50 @@ fn exports_exactly_the_runs_interval_into_the_workspace() {
     assert_eq!(
         actions,
         vec![
+            "host.start",
             audit::ACTION_RUN_START,
             "agent.tool.call",
             audit::ACTION_RUN_END
         ],
         "{actions:?}"
     );
-    for leaked in ["host.start", "session.close"] {
-        assert!(
-            !actions.contains(&leaked),
-            "`{leaked}` is outside the run and must not be exported"
-        );
-    }
+    assert!(
+        !actions.contains(&"session.close"),
+        "what came after the run must not be exported"
+    );
 
     // The run's own metadata is in the file, so nothing had to be invented.
-    let detail = &exported[0]["detail"];
-    assert_eq!(detail["run_id"], "run_a");
-    assert!(detail["fingerprint_json"].is_string(), "{detail}");
+    let start_line = exported
+        .iter()
+        .find(|l| l["action"] == audit::ACTION_RUN_START)
+        .expect("the run.start is in the file");
+    assert_eq!(start_line["detail"]["run_id"], "run_a");
+    assert!(
+        start_line["detail"]["fingerprint_json"].is_string(),
+        "{start_line}"
+    );
+    assert_eq!(exported.last().unwrap()["action"], audit::ACTION_RUN_END);
     assert_eq!(exported.last().unwrap()["detail"]["status"], "ok");
 
-    // Every line is the chain row itself: same hashes, so an outside tool can check it.
+    // Every line is the chain row itself: same ids and hashes.
     let stored = state
         .audit
         .lock()
         .unwrap()
         .list(audit::EventFilter::default(), 500)
         .expect("list");
-    for (line, row) in exported.iter().zip(
-        stored
-            .iter()
-            .filter(|r| r.event.action != "host.start" && r.event.action != "session.close"),
-    ) {
+    for (line, row) in exported.iter().zip(stored.iter()) {
         assert_eq!(line["id"].as_i64().unwrap(), row.id);
         assert_eq!(line["hash"].as_str().unwrap(), row.hash);
         assert_eq!(line["prev_hash"].as_str().unwrap(), row.prev_hash);
     }
+
+    // The file stands on its own: a fresh database built from it verifies Intact.
+    let verdict = chain_verdict_of_the_export(&file, &dir.join("verify.db"));
+    assert!(
+        matches!(verdict, audit::ChainStatus::Intact { .. }),
+        "the export must verify without the source database: {verdict:?}"
+    );
 }
 
 #[test]
@@ -190,6 +235,11 @@ fn an_abandoned_run_exports_up_to_its_marker() {
     let file = dir.join("audit").join("run_stale.jsonl");
     let exported = lines(&file);
     assert_eq!(written, exported.len());
+    assert_eq!(
+        exported[0]["prev_hash"],
+        audit::GENESIS_PREV_HASH,
+        "self-contained even when the run never ended normally"
+    );
     let actions: Vec<&str> = exported
         .iter()
         .map(|l| l["action"].as_str().unwrap())
@@ -206,6 +256,12 @@ fn an_abandoned_run_exports_up_to_its_marker() {
     let last = exported.last().unwrap();
     assert_eq!(last["detail"]["run_id"], "run_stale");
     assert_eq!(last["actor"], "host");
+
+    let verdict = chain_verdict_of_the_export(&file, &dir.join("verify.db"));
+    assert!(
+        matches!(verdict, audit::ChainStatus::Intact { .. }),
+        "an abandoned run's record must verify on its own: {verdict:?}"
+    );
 }
 
 #[test]

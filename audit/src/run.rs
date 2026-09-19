@@ -87,20 +87,31 @@ pub fn short_fingerprint(fingerprint: &str) -> &str {
 /// The audit-id interval a run occupies, as the **inclusive** range
 /// `[start_seq, end_seq]` (v0.5 batch 1; abandoned runs since batch 2).
 ///
-/// The interval is read off the record when the chain closed the run normally.
-/// A run the chain marks **abandoned** never got a `run.end` — the index leaves
-/// `end_seq` empty rather than inventing one — so its interval ends at that run's
-/// own [`ACTION_RUN_ABANDONED`] event, which needs `chain` to find. The exported
-/// file's last line is then that event, so it says for itself why the run stopped.
+/// A run's interval is what the derived index records and what a run-scoped export
+/// cuts at its **end**; the export starts at the chain's first event instead, so that
+/// the file stands on its own (see [`crate::store::AuditStore::export_self_contained_jsonl`]).
 ///
 /// A run that is still open has no interval, and neither has one the chain calls
-/// abandoned without a marker: refusing here is what keeps an exported file from
-/// being a silently truncated record (see
-/// [`crate::store::AuditStore::derive_runs`]).
+/// abandoned without a marker: refusing here is what keeps a record from being
+/// silently truncated (see [`crate::store::AuditStore::derive_runs`]).
 pub fn run_interval(record: &RunRecord, chain: &[StoredEvent]) -> Result<(i64, i64), AuditError> {
+    Ok((record.start_seq, run_end(record, chain)?))
+}
+
+/// The id of the event that **closes** `record` (v0.5 batch 4).
+///
+/// `run.end` when the chain has one; otherwise, for a run the chain marks
+/// `abandoned`, the id of that run's [`ACTION_RUN_ABANDONED`] event, which is where
+/// its record stops. A run that is still open has no closing event, and neither has
+/// one whose status says `abandoned` with no marker behind it: refusing is what keeps
+/// an export from ending wherever the chain happens to stop.
+///
+/// This is the end of the interval [`run_interval`] reports, and the boundary a
+/// run-scoped export cuts at.
+pub fn run_end(record: &RunRecord, chain: &[StoredEvent]) -> Result<i64, AuditError> {
     if let Some(end) = record.end_seq {
         return if end >= record.start_seq {
-            Ok((record.start_seq, end))
+            Ok(end)
         } else {
             Err(AuditError::Other(format!(
                 "run {} has an end ({end}) before its start ({})",
@@ -111,10 +122,10 @@ pub fn run_interval(record: &RunRecord, chain: &[StoredEvent]) -> Result<(i64, i
 
     if record.status == RunStatus::Abandoned {
         return match abandoned_end(chain, record) {
-            Some(end) => Ok((record.start_seq, end)),
+            Some(end) => Ok(end),
             None => Err(AuditError::Other(format!(
                 "run {} is marked abandoned but the chain has no `{ACTION_RUN_ABANDONED}` \
-                 event for it, so there is no interval to export",
+                 event for it, so there is no record to export",
                 record.run_id
             ))),
         };
@@ -122,7 +133,7 @@ pub fn run_interval(record: &RunRecord, chain: &[StoredEvent]) -> Result<(i64, i
 
     Err(AuditError::Other(format!(
         "run {} has not ended (status: {}): there is no `run.end` on the chain, \
-         so there is no interval to export",
+         so there is no record to export",
         record.run_id,
         record.status.as_str()
     )))

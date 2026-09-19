@@ -119,19 +119,22 @@ VM → 读串口 → 迭代）、写入 `run.end`，返回结果（`final` / `ma
 | 2 | 创建环境 | LLM key（或本地服务） | 选服务商、粘贴 key、跑预检 | 服务商/模型已保存，readiness 为真，预检四步全绿 | key 不对 → readiness 说明原因；预检失败 → 点名步骤并给建议 |
 | 3 | 跑 Agent 任务 | 一句自然语言请求 | 发送 | 一次带 id、指纹与区间的 run；guest 被编译、启动、读取 | `max_iterations` / `failed` → 诊断报告点名第一个失败步骤 |
 | 4 | 存 snapshot | 一台运行中的宿主 VM | 取名、保存 | `.riscdom/snapshots/<name>.mig`，列表中带大小与时间 | 没有运行中的 VM → 按钮禁用并说明原因；保存失败 → 报 QEMU/中继错误 |
-| 5 | 得审计记录 | 一次已结束的 run（含被链标记为 abandoned 的） | 在 run 列表里**导出它** | 一个第三方能用 `audit-verify` 验的文件；abandoned 的 run，其文件以它的 `host.run.abandoned` 标记结尾 | 链已断 → 导出不得假装没断 |
+| 5 | 得审计记录 | 一次已结束的 run（含被链标记为 abandoned 的） | 在 run 列表里**导出它** | 一个能**独立**验证的文件（空库 + `audit-verify`）：从链的第一条事件起，到该 run 的 `run.end`（或其 `host.run.abandoned` 标记）为止 | 链已断 → 导出不得假装没断 |
 | 6 | rollback | 一个快照 | 恢复 | 一次**新的** run：`parent_run_id` 指向上一次，`run.start` 点名快照 | 端口被占 / QMP 重置 → 重试三次后报错；快照缺失 → 在停 VM 之前就被拒 |
 | 7 | 换配置重跑 | 指纹里的任意一个字段 | 改它，用同样的请求再跑 | 第二次 run，同一请求，**不同指纹** | 差异不可读：用户看到两个 64 位十六进制串，而不是「只改了 QEMU」 |
 
 ## 4. 审计导出
 
-**推荐：按「一次 run 的区间」导出，格式就是纯事件 JSONL，落到工作区，由审计页的一个按钮触发。**
+**推荐：按「一次 run 的记录」导出，格式就是纯事件 JSONL，落到工作区，由审计页的一个按钮触发。**
 
-- **导出什么**：闭区间 `[start_seq, end_seq]` 内的事件 —— 其中就包含那次 run 的 `run.start`（带着
-  `fingerprint_schema` 与被哈希的规范 JSON 文本 `fingerprint_json`）与 `run.end`。不多导，也不新增：
-  run 的元数据**本来就在**被导出的事件里，所以文件能自解释，并且仍可逐行验证。被链标记为 **abandoned**
-  的 run 没有 `run.end`，它的区间改以该 run 的 `host.run.abandoned` 事件结尾，所以文件的最后一行仍然
-  说明了它为何停下。
+- **导出什么**：从链的**第一条事件**起到**结束该 run 的那条事件**为止 —— 其中就包含那次 run 的
+  `run.start`（带着 `fingerprint_schema` 与被哈希的规范 JSON 文本 `fingerprint_json`）与 `run.end`，
+  以及它所处的上下文。不新增：run 的元数据**本来就在**被导出的事件里，所以文件能自解释，并且仍可
+  逐行验证。被链标记为 **abandoned** 的 run 没有 `run.end`，它的记录改以该 run 的
+  `host.run.abandoned` 事件结尾，所以文件的最后一行仍然说明了它为何停下。
+  *（v0.5 批次 4：导出从 genesis 而非 `run.start` 开始 —— 只有如此，从 genesis 链接起步的
+  `verify_chain` 才能在**一个空数据库**里判定该文件。切片形式被移除而非并列保留：「导出」有两种含义
+  就是一种太多，值得留下的那种要能自己回答「这份记录是否完整」。）*
 - **什么格式**：`export_jsonl` 已经在写的那个 JSONL，原样不动 —— 每行 `id` / `timestamp_ms` / `actor` /
   `action` / `detail` / `prev_hash` / `hash`，按 id 序。读者无需本应用即可逐行重算哈希并检查链接。
 - **导出到哪**：工作区下的一个默认路径，用原生**另存为**对话框让用户自选。应用向宿主索取工作区根路径，

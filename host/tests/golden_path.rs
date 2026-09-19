@@ -1,4 +1,4 @@
-//! v0.5 batch 3 — the golden path, steps 3 to 7, end to end (ignored by default).
+//! v0.5 batches 3–4 — the golden path, steps 3 to 7, end to end (ignored by default).
 //!
 //! One test walks the main line the v0.5 milestone is about, in order:
 //!
@@ -18,13 +18,13 @@
 //! no API key and no network are involved; steps 1 and 2 (install, configure) are
 //! the manual checklist's job, not this test's.
 //!
-//! The export is verified the way an outsider would. A run-scoped export is a
-//! **slice** of the chain — its first line links to the event before the run — so
-//! the test re-attaches it to the events it was cut from, writes the result into a
-//! **fresh** database, and runs the checker over that. `audit-verify` is a binary
-//! of the `audit` crate, and a `host` test cannot name it with `CARGO_BIN_EXE_*`;
-//! when this checkout has built it (the gate does) the real binary is used, and when
-//! it has not, the test runs the exact library calls the binary wraps and says so.
+//! The export is verified the way an outsider would: the file is written into an
+//! empty database **by itself** — it is self-contained since batch 4, so no prefix and
+//! no other artefact is needed — and the checker is run over that. `audit-verify` is a
+//! binary of the `audit` crate, and a `host` test cannot name it with
+//! `CARGO_BIN_EXE_*`; when this checkout has built it (the gate does) the real binary
+//! is used, and when it has not, the test runs the exact library calls the binary
+//! wraps and says so.
 
 use agent::llm::MockLlm;
 use agent::message::{ChatMessage, ChatResponse, Choice, FunctionCall, ToolCall};
@@ -129,30 +129,13 @@ fn lines(path: &Path) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// One chain row in the export's line shape.
-fn line_of(stored: &audit::StoredEvent) -> serde_json::Value {
-    serde_json::json!({
-        "id": stored.id,
-        "timestamp_ms": stored.event.timestamp_ms,
-        "actor": stored.event.actor,
-        "action": stored.event.action,
-        "detail": stored.event.detail,
-        "prev_hash": stored.prev_hash,
-        "hash": stored.hash,
-    })
-}
-
-/// Rebuild a database from rows, in order, and rebuild its derived index.
-///
-/// An exported interval is a **slice** of a chain: its first line links to the
-/// event before the run, so an outsider verifies it by re-attaching it to the
-/// chain it was cut from. The test does exactly that — the rows before the run,
-/// then the exported lines, verbatim and with their own ids.
-fn rebuild_db(db: &Path, rows: &[serde_json::Value]) -> usize {
+/// Write the exported lines into a fresh database, in order — nothing else.
+fn import_export(export: &Path, db: &Path) -> usize {
     let _ = AuditStore::open(db).expect("fresh store"); // schema (table + triggers)
+    let exported = lines(export);
     {
         let conn = Connection::open(db).expect("raw connection");
-        for line in rows {
+        for line in &exported {
             conn.execute(
                 "INSERT INTO audit_events \
                  (id, timestamp_ms, actor, action, detail_json, prev_hash, hash) \
@@ -170,9 +153,7 @@ fn rebuild_db(db: &Path, rows: &[serde_json::Value]) -> usize {
             .expect("import row");
         }
     }
-    let mut store = AuditStore::open(db).expect("imported store");
-    store.rebuild_run_index().expect("rebuild imported index");
-    rows.len()
+    exported.len()
 }
 
 /// The checker binary this checkout built, if any.
@@ -239,60 +220,50 @@ fn golden_path_steps_three_to_seven() {
         "the snapshot must be listable: {listed:?}"
     );
 
-    // ---- step 5: export this run's audit interval --------------------------
+    // ---- step 5: export this run's audit record ----------------------------
     std::fs::create_dir_all(ws.join("exports")).expect("export dir");
     let written = state
         .export_run_audit(&run_a.run_id, "exports/run_a.jsonl".into())
-        .expect("export the run interval");
+        .expect("export the run's record");
     let export = ws.join("exports").join("run_a.jsonl");
     let exported = lines(&export);
     assert_eq!(written, exported.len());
-    assert_eq!(exported.first().unwrap()["action"], ACTION_RUN_START);
+    assert!(
+        exported.iter().any(|l| l["action"] == ACTION_RUN_START),
+        "the record contains the run's opening marker"
+    );
     assert_eq!(exported.last().unwrap()["action"], ACTION_RUN_END);
     assert_eq!(exported.last().unwrap()["detail"]["run_id"], run_a.run_id);
 
-    // An outsider's check: re-attach the file to the chain it was cut from, in a
-    // fresh database, and let the checker judge the result.
-    let (start_seq, prefix) = {
-        let store = state.audit.lock().expect("audit");
-        let record = store
-            .get_run(&run_a.run_id)
-            .expect("get run")
-            .expect("the run is indexed");
-        let before = store
-            .list(
-                audit::EventFilter {
-                    to_id: Some(record.start_seq - 1),
-                    ..audit::EventFilter::default()
-                },
-                usize::MAX,
-            )
-            .expect("list the chain before the run");
-        (
-            record.start_seq,
-            before.iter().map(line_of).collect::<Vec<_>>(),
-        )
-    };
-    println!(
-        "chain before the run: {} event(s) {:?}",
-        prefix.len(),
-        prefix
-            .iter()
-            .map(|l| l["action"].as_str().unwrap())
-            .collect::<Vec<_>>()
+    // An outsider's check: the file goes into an empty database **alone** — no prefix
+    // carried over from this one — and the checker judges what it finds (v0.5 batch 4).
+    let start_seq = state
+        .audit
+        .lock()
+        .expect("audit")
+        .get_run(&run_a.run_id)
+        .expect("get run")
+        .expect("the run is indexed")
+        .start_seq;
+    assert_eq!(
+        exported[0]["prev_hash"],
+        audit::GENESIS_PREV_HASH,
+        "the file starts at the chain's first event"
     );
-    assert_eq!(exported[0]["id"].as_i64(), Some(start_seq));
+    assert!(
+        exported[0]["id"].as_i64().unwrap() < start_seq,
+        "the run does not open the chain, so the file carries more than the run"
+    );
 
-    let mut rows = prefix;
-    rows.extend(exported.iter().cloned());
     let db = ws.join("verify.db");
-    let imported = rebuild_db(&db, &rows);
-    assert_eq!(imported, rows.len());
+    let imported = import_export(&export, &db);
+    assert_eq!(imported, exported.len());
+
     let verdict = match audit_verify_bin() {
         Some(bin) => {
+            // 1. The file alone: the chain verdict needs nothing this process holds.
             let out = Command::new(&bin)
                 .arg(&db)
-                .arg("--runs")
                 .output()
                 .expect("run audit-verify");
             let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -304,18 +275,43 @@ fn golden_path_steps_three_to_seven() {
                 "stdout: {stdout}\nstderr: {}",
                 String::from_utf8_lossy(&out.stderr)
             );
+            assert!(stdout.contains("Intact"), "stdout: {stdout}");
+
+            // 2. The run is recoverable from it: the derived index rebuilds, and
+            //    `--runs` then agrees. (The rebuild is `audit-rebuild`'s job, not
+            //    something the exported file has to carry.)
+            AuditStore::open(&db)
+                .expect("store")
+                .rebuild_run_index()
+                .expect("rebuild the imported index");
+            let out = Command::new(&bin)
+                .arg(&db)
+                .arg("--runs")
+                .output()
+                .expect("run audit-verify --runs");
+            let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+            println!("audit-verify --runs -> {}", out.status);
+            println!("{stdout}");
+            assert_eq!(out.status.code(), Some(0), "stdout: {stdout}");
+            assert!(stdout.contains("Intact"), "stdout: {stdout}");
+            assert!(
+                stdout.contains("RunIndex { findings: 0 }"),
+                "stdout: {stdout}"
+            );
             stdout
         }
         None => {
             println!(
                 "audit-verify binary not found under target/debug; \
-                      running the library calls it wraps"
+                 running the library calls it wraps"
             );
             let store = AuditStore::open(&db).expect("store");
             assert!(matches!(
                 verify_chain(&store).expect("verify"),
                 ChainStatus::Intact { .. }
             ));
+            let mut store = AuditStore::open(&db).expect("store");
+            store.rebuild_run_index().expect("rebuild");
             assert!(
                 store.check_run_index().expect("check").is_empty(),
                 "the imported index must agree with the imported chain"
@@ -381,6 +377,7 @@ fn golden_path_steps_three_to_seven() {
     );
 
     // The two runs pair up and differ in the field that was changed.
+    println!("run B: {} ({})", run_b.run_id, run_b.fingerprint_short);
     assert_ne!(
         run_a.fingerprint, run_b.fingerprint,
         "changing the model must change the fingerprint"

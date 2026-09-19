@@ -128,9 +128,9 @@
 - The fingerprints above are the two runs of the same request with one configuration
   field changed (step 7). Recording them is what makes "the environment was captured"
   checkable rather than asserted.
-- An exported run interval is a **slice** of the chain: `audit-verify` is run against
-  the database the file belongs to, or against a database rebuilt from the chain
-  before the run plus the exported lines. A file that does not re-attach cleanly is a
-  finding, not a formatting detail.
+- An exported run record is **self-contained**: put the file into an empty database and
+  `audit-verify` judges it with nothing carried over from the machine that produced it
+  (`--runs` additionally needs the derived index rebuilt there, which is `audit-rebuild`'s
+  job). A file that does not verify that way is a finding, not a formatting detail.
 - `Broken` or `findings > 0` is a **stop** for the release: the record no longer
   explains itself.

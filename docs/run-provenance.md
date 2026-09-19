@@ -104,6 +104,27 @@ advisory because the system clock can move.
 Interval convention: `start_seq` inclusive, `end_seq` inclusive, and the run owns every event with
 `start_seq <= id <= end_seq` (see §2.2 for why membership is derived rather than stored per row).
 
+### 1.4 Exporting a run's record
+
+A run's record is exported as **the chain from its first event up to that run's end**, as plain event
+JSONL (v0.5 batch 4). The interval above says where the run's own events are; the export deliberately
+starts **earlier**, at genesis:
+
+- the file has to be verifiable **on its own**. `verify_chain` begins at `GENESIS_PREV_HASH`, so a
+  file whose first line links to an event it does not contain cannot be judged Intact — it could only
+  be re-attached to the database it came from, which is exactly what a reader of the record does not
+  have;
+- the lines before the run (a session being created, the environment preflight booting its guest)
+  are part of what the run happened *in*, they carry no run id of their own, and including them costs
+  nothing;
+- the slice form is **not** offered. Two meanings of "export" is one meaning too many, and the one
+  worth keeping answers "is this record intact" without a second artefact.
+
+The file keeps the whole-log shape (`id` / `timestamp_ms` / `actor` / `action` / `detail` /
+`prev_hash` / `hash`), ends on the run's `run.end` — or on its `host.run.abandoned` marker for a run
+whose process disappeared — and is written into the workspace from the run list. No new event type,
+no header line; `audit-verify` and `audit-rebuild` are untouched.
+
 ## 2. Storage
 
 ### 2.1 What the current implementation gives us
