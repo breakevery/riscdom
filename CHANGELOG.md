@@ -7,11 +7,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0-preview.1] - 2026-09-19
 
-**The golden path's eighth step is delivered — two runs are compared field by field — and it awaits a
-walk and a release.** `v0.5.0` is still the Latest release and no tag, version bump or announcement
-has been made for this work: those are decided separately, once a walk of the step is recorded.
+**The golden path's eighth step ships as a preview: two runs compared field by field.** It has not
+been walked by a human — not on a clean machine, and not on this one — so it is a preview, and
+`v0.5.0` remains the Latest release: a pre-release takes no Latest marker. What this preview is and
+what it does not prove is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 ### Added
 
@@ -28,6 +29,14 @@ has been made for this work: those are decided separately, once a walk of the st
   first run's value and the second run's value; a row whose values differ is highlighted, an equal one
   is dimmed, and values are shown **whole** — monospace and wrapped, never truncated. The panel renders
   the host's rows in the order they arrive and re-sorts nothing.
+
+### Notes
+
+- **This preview's MSI carries a separately pinned installer version.** `0.6.0-preview.1` is a valid
+  semantic version but not a valid MSI `ProductVersion` (WiX takes `major.minor.patch.build`, numeric
+  only), so `bundle.windows.wix.version = "0.6.0"` in `tauri.conf.json` supplies the numeric form
+  while the package version — and therefore the artifact names — stays `0.6.0-preview.1`. Remove or
+  update that field once the package version is numeric again.
 
 ## [0.5.0] - 2026-09-19
 

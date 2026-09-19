@@ -11,15 +11,19 @@ branch `main`. The close-out of every batch is the same: gate green → `scripts
 (which runs the gate itself) → push — and none of those remote-facing steps happens without the
 current request authorising it (§2).
 
-## 1. Snapshot — `v0.5.0` is the release; v0.6's step 8 is delivered and unreleased (update this
+## 1. Snapshot — `v0.6.0-preview.1` is out as a pre-release; `v0.5.0` is still Latest (update this
 section when the next release ships)
 
-- **v0.6's golden-path step 8 is delivered and unreleased** (v0.6 batches 1–2): two runs are compared
-  field by field — the data layer and the API ([../host/src/run_diff.rs](../host/src/run_diff.rs),
+- **`v0.6.0-preview.1` is released as a pre-release** (v0.6 batches 1–2, released in batch 4): two
+  runs are compared field by field — the data layer and the API ([../host/src/run_diff.rs](../host/src/run_diff.rs),
   `AppState::compare_run_fingerprints`, the `compare_run_fingerprints` command) and the collapsed
-  block under the audit tab's two-run panel. **It awaits a walk, and then a release**: no version
-  bump, no tag and no release has been made for it, and both are a separate decision. What changed,
-  for a reader: [CHANGELOG.md](../CHANGELOG.md) `[Unreleased]`.
+  block under the audit tab's two-run panel. A pre-release takes **no Latest marker**, so `v0.5.0`
+  stays the Latest release. Assets: `RiscDom_0.6.0-preview.1_x64_en-US.msi` and
+  `RiscDom_0.6.0-preview.1_x64-setup.exe`, built with `bundle.windows.wix.version = "0.6.0"` (WiX
+  cannot take a pre-release `ProductVersion`), so *Apps & features* shows `0.6.0` while the artifact
+  names keep the package version. What it proves and what it does not is in
+  [RELEASE_NOTES.md](../RELEASE_NOTES.md) — first among the gaps: **no human has walked the new
+  interface**, which is why this is a preview.
 - **`v0.5.0` is released, and it is the Latest release.**
   <https://github.com/breakevery/riscdom/releases/tag/v0.5.0> — assets `RiscDom_0.5.0_x64_en-US.msi`
   and `RiscDom_0.5.0_x64-setup.exe`, built without the preview's MSI version override (so *Apps &
@@ -35,23 +39,23 @@ section when the next release ships)
 - **An external walk is still outstanding.** It was this release's plan and it did not happen, so
   the clean-machine walk is now a **v0.5.x strengthening item** (§8), not a blocker: [golden-path-checklist.md](golden-path-checklist.md)
   is the form a tester fills in, and `walkthroughs/` is where it goes.
-- Recent commits (newest first): `b5aac541` (the field-level diff in the audit tab) ← `4d407cea` (the
-  fingerprint diff: data layer + API) ← `287ffdb` (release bump) ← `2a5d296` (README/CLA wording) ←
-  `993e5d1` (CLA) ← `f662ad7` (self-contained export) ← `20a7c6d` (source snapshot in the index) ←
-  `a22112f` (abandoned export, workspace default path, two-run compare).
-- Tags: `v0.5.0` is the release (the commit that versions this file), and **v0.6 has no tag yet**;
-  `v0.5.0-preview.1` =
+- Recent commits (newest first): `6c5ddb65` (the changelog and the handoff snapshot) ← `b5aac541` (the
+  field-level diff in the audit tab) ← `4d407cea` (the fingerprint diff: data layer + API) ←
+  `287ffdb` (the v0.5.0-preview.1 release bump) ← `2a5d296` (README/CLA wording) ← `993e5d1` (CLA) ←
+  `f662ad7` (self-contained export) ← `20a7c6d` (source snapshot in the index).
+- Tags: `v0.6.0-preview.1` is this preview (the commit that versions this file); `v0.5.0` is the
+  release before it and the one holding the Latest marker; `v0.5.0-preview.1` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`;
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`;
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`.
-- Test totals at the tip `b5aac541` (unreleased work): **291 passed / 0 failed / 8 ignored / 80
-  suites** — 281 / 0 / 8 / 79 at the `v0.5.0` release commit. The gate is 12 steps, green locally and
-  in CI (`scripts/gate.sh` on `ubuntu-latest` plus gitleaks).
+- Test totals at the release commit: **291 passed / 0 failed / 8 ignored / 80 suites** (v0.5.0 was
+  281 / 0 / 8 / 79). The gate is 12 steps, green locally and in CI (`scripts/gate.sh` on
+  `ubuntu-latest` plus gitleaks).
 - Open items: the temp directories under `%TEMP%` have not been cleaned (the deletion confirmation
   was never granted); CLA.md awaits a lawyer's eye; no macOS/Linux support; **the clean-machine walk
-  by someone else has not happened** — now a v0.5.x strengthening item rather than a blocker;
-  **the v0.6 step-8 walk has not been done and no release has been prepared for it** — the walk, and
-  then the decision to release, come first.
+  by someone else has not happened** — still a v0.5.x strengthening item rather than a blocker;
+  **the preview's interface has not been walked by a person** — disclosed in [RELEASE_NOTES.md](../RELEASE_NOTES.md),
+  and the first thing a walk of step 8 should cover.
 
 ## 2. Remote operations are per-turn and authorised in words
 
@@ -117,13 +121,16 @@ The reasons — no upstream Windows binary to pin, an unnamed third-party packag
 link, and not becoming the distributor of a GPL-2.0 binary — are in
 [qemu-distribution.md](qemu-distribution.md) §5.
 
-## 8. The v0.5 release gate is the walk, not the code
+## 8. The release gate is the walk, not the code
 
-v0.5 ships when a person walks steps 1–2 on a clean machine with a real API key and records it
+v0.5 shipped when a person walked steps 1–2 on a clean machine with a real API key and recorded it
 against [golden-path-checklist.md](golden-path-checklist.md) — machine, OS build, QEMU/GCC versions
 **and their sources**, provider and model, the preflight's four steps, the two runs' short
-fingerprints, the exported file and its `audit-verify` verdict, and any failure verbatim. Steps 3–7
-are covered by `cargo test -p host --test golden_path -- --ignored`. "The implementation is
+fingerprints, the exported file and its `audit-verify` verdict, and any failure verbatim. That walk
+did **not** happen before `v0.5.0` shipped, so it is a **v0.5.x strengthening item** rather than a
+blocker (§1), with [../walkthroughs/2026-09-19-preview1-local.md](../walkthroughs/2026-09-19-preview1-local.md)
+as the local walk standing in for it. Steps 3–7 are covered by `cargo test -p host --test golden_path
+-- --ignored`; step 8's comparison has **no** such automated walk yet (§9). "The implementation is
 complete" is not the gate.
 
 ## 9. v0.6 starts at golden-path step 8 — and the step is delivered

@@ -9,13 +9,16 @@
 `main`。每个批次的收尾流程一致：gate 全绿 → `scripts\commit.ps1 "<msg>"`（它自己会跑 gate）→ push ——
 而这些面向远端的动作，只在当轮请求明确授权时才做（见 §2）。
 
-## 1. 快照 —— `v0.5.0` 是正式版；v0.6 第 8 步已交付但未发布（下次发布时更新本节）
+## 1. 快照 —— `v0.6.0-preview.1` 已作为预发布版发出；Latest 仍是 `v0.5.0`（下次发布时更新本节）
 
-- **v0.6 的黄金路径第 8 步已交付、但未发布**（v0.6 批次 1–2）：两次 run 逐字段对比 —— 数据层与 API
-  （[../host/src/run_diff.rs](../host/src/run_diff.rs)、`AppState::compare_run_fingerprints`、
-  `compare_run_fingerprints` 命令）以及审计页两 run 面板下方那个默认折叠的区块。**它等待走查，然后才是
-  发布**：此工作没有版本号 bump、没有 tag、没有 Release，两者都是另行的决定。变更内容见
-  [CHANGELOG.zh-CN.md](../CHANGELOG.zh-CN.md) 的 `[未发布]`。
+- **`v0.6.0-preview.1` 已作为预发布版发布**（v0.6 批次 1–2，批次 4 发布）：两次 run 逐字段对比 —— 数据层
+  与 API（[../host/src/run_diff.rs](../host/src/run_diff.rs)、`AppState::compare_run_fingerprints`、
+  `compare_run_fingerprints` 命令）以及审计页两 run 面板下方那个默认折叠的区块。预发布版**不持有 Latest
+  标记**，因此 `v0.5.0` 仍是 Latest 正式版。附件：`RiscDom_0.6.0-preview.1_x64_en-US.msi` 与
+  `RiscDom_0.6.0-preview.1_x64-setup.exe`，构建时带 `bundle.windows.wix.version = "0.6.0"`（WiX 不接受
+  预发布版 `ProductVersion`），所以「应用和功能」里显示 `0.6.0`，而产物名保留包版本。它证明了什么、
+  没证明什么写在 [RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) —— 缺口中的第一条：**没有任何人
+  走过新界面**，这就是它是预览版的原因。
 - **`v0.5.0` 已发布，它就是 Latest。**
   <https://github.com/breakevery/riscdom/releases/tag/v0.5.0> —— 附件为 `RiscDom_0.5.0_x64_en-US.msi`
   与 `RiscDom_0.5.0_x64-setup.exe`，构建时已去掉预览版的 MSI 版本覆盖（因此「应用和功能」里显示
@@ -30,19 +33,20 @@
 - **外部走查仍未发生。** 它本是本版的计划，但没有发生，因此「干净机器走查」现在是 **v0.5.x 的补强项**
   （§8），而不是阻塞项：[golden-path-checklist.zh-CN.md](golden-path-checklist.zh-CN.md) 是测试者要填的
   表单，`walkthroughs/` 是它该去的地方。
-- 近期提交（新→旧）：`b5aac541`（审计页里的字段级差异）← `4d407cea`（指纹 diff：数据层 + API）←
-  `287ffdb`（发布 bump）← `2a5d296`（README/CLA 措辞）← `993e5d1`（CLA）← `f662ad7`（自足导出）←
-  `20a7c6d`（索引里的来源快照）← `a22112f`（abandoned 导出、工作区默认路径、两 run 对比）。
-- tag：`v0.5.0` 即本次发布（给本文件定版的那个提交），且 **v0.6 尚无 tag**；`v0.5.0-preview.1` =
+- 近期提交（新→旧）：`6c5ddb65`（变更日志与交接快照）← `b5aac541`（审计页里的字段级差异）←
+  `4d407cea`（指纹 diff：数据层 + API）← `287ffdb`（v0.5.0-preview.1 发布 bump）← `2a5d296`（README/CLA
+  措辞）← `993e5d1`（CLA）← `f662ad7`（自足导出）← `20a7c6d`（索引里的来源快照）。
+- tag：`v0.6.0-preview.1` 即本次预览（给本文件定版的那个提交）；`v0.5.0` 是它之前的正式版，也是持有
+  Latest 标记的那个；`v0.5.0-preview.1` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`；
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`；
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`。
-- 处于末端 `b5aac541`（未发布的工作）处的测试总况：**291 passed / 0 failed / 8 ignored / 80 suites**
-  —— `v0.5.0` 发布提交处为 281 / 0 / 8 / 79。gate 共 12 步，本地与 CI 均全绿（`ubuntu-latest` 上跑
-  `scripts/gate.sh`，另加 gitleaks）。
+- 发布提交处的测试总况：**291 passed / 0 failed / 8 ignored / 80 suites**（v0.5.0 为 281 / 0 / 8 / 79）。
+  gate 共 12 步，本地与 CI 均全绿（`ubuntu-latest` 上跑 `scripts/gate.sh`，另加 gitleaks）。
 - 未完成项：`%TEMP%` 下的临时目录仍未清理（删除确认始终未被放行）；CLA.md 待律师过目；不支持
-  macOS/Linux；**由他人进行的干净机器走查尚未发生** —— 如今它是 v0.5.x 的补强项，而不是阻塞项；
-  **v0.6 第 8 步的走查也未做，其发布也尚未准备** —— 先走查，再决定是否发布。
+  macOS/Linux；**由他人进行的干净机器走查尚未发生** —— 仍是 v0.5.x 的补强项，而不是阻塞项；
+  **预览版的界面尚未经人工走查** —— 已在 [RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) 披露，
+  也是第 8 步走查要做的第一件事。
 
 ## 2. 远端操作按轮授权，且必须有明确文字
 
@@ -96,13 +100,15 @@ v0.4 定案：应用只告诉用户装什么（`winget install SoftwareFreedomCo
 找到并记住、验证它。理由 —— 上游没有可钉的 Windows 二进制、第三方打包者会变成没被点名的供应链环节、
 以及不让自己成为 GPL-2.0 二进制的分发者 —— 见 [qemu-distribution.zh-CN.md](qemu-distribution.zh-CN.md) §5。
 
-## 8. v0.5 的发布门槛是「走查」，不是「代码写完」
+## 8. 发布门槛是「走查」，不是「代码写完」
 
 v0.5 的发布条件是：有人在干净机器上用真实 API key 走完第 1–2 步，并对照
 [golden-path-checklist.zh-CN.md](golden-path-checklist.zh-CN.md) 记录 —— 机器、操作系统版本、QEMU/GCC
 版本**及其来源**、服务商与模型、预检四步、两次 run 的短指纹、导出文件与其 `audit-verify` 结论，以及
-任何失败的原样错误。第 3–7 步由 `cargo test -p host --test golden_path -- --ignored` 覆盖。「实现完成」
-不是门槛。
+任何失败的原样错误。那次走查在 `v0.5.0` 发布前**没有发生**，因此它是 **v0.5.x 的补强项**而不是阻塞项
+（§1），由 [../walkthroughs/2026-09-19-preview1-local.md](../walkthroughs/2026-09-19-preview1-local.md)
+那份本地走查代位。第 3–7 步由 `cargo test -p host --test golden_path -- --ignored` 覆盖；第 8 步的
+比较目前**没有**这样的自动走查（§9）。「实现完成」不是门槛。
 
 ## 9. v0.6 从黄金路径第 8 步开始 —— 该步已交付
 
