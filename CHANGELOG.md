@@ -7,18 +7,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-09-19
 
 ### Added
 
-- **A QEMU downloader, and the third-party notices** (v0.4 #4): `host/src/qemu_download.rs` is a
-  self-contained parallel of the toolchain downloader — pinned version, per-platform URL + SHA-256,
-  Zip-Slip guard, cancellation, progress, idempotent install under the app data directory. Its
-  **spec table is empty on purpose**: this repository can pin no QEMU build (upstream publishes
-  source; Windows installs come from a third-party packager) and a guessed digest is worse than no
-  download, so it refuses with an actionable error instead of inventing one — see
-  [docs/qemu-distribution.md](docs/qemu-distribution.md) §5. The licences we rely on are now written
-  down in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- **QEMU setup is guided, not downloaded, and the third-party notices exist** (v0.4 #4): the app says
+  what to run — `winget install SoftwareFreedomConservancy.QEMU` where `winget` exists, the official
+  download page otherwise — instead of fetching QEMU itself. Upstream publishes no Windows binary to
+  pin, a third-party packager would be an unnamed supply-chain link, and building QEMU ourselves would
+  make us the distributor of a GPL-2.0 binary ([docs/qemu-distribution.md](docs/qemu-distribution.md)
+  §5). The downloader written along the way (`host/src/qemu_download.rs`) stays in the tree unwired,
+  with an empty spec table, because a digest nobody can reproduce is worse than no download. What we
+  rely on is written down in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 - **Theme switching**: light / dark / follow the system, chosen in *Settings → 外观* and stored in
   `settings.json`. Every colour in the stylesheet is now a token, so a theme is one token block;
   the serial terminal follows the same tokens.
@@ -328,7 +328,8 @@ locally only. (An earlier draft was deleted; the `v0.1.0` tag remains.)
 - Real DeepSeek API end-to-end: **executed and passing** (2026-09-14, `iterations = 6`,
   serial captured `HELLO RISCV`; see `host/README.md`).
 
-[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/breakevery/riscdom/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/breakevery/riscdom/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/breakevery/riscdom/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/breakevery/riscdom/compare/v0.2.1...v0.2.2

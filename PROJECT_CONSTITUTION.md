@@ -225,35 +225,50 @@ m. **[DONE]** Bilingual (English/Chinese) docs before going public
 - Gate: `cargo test` = **181 passed / 0 failed / 7 ignored** across **58 suites** (v0.3.0 was
   178 / 0 / 7 across 55 suites; the +3 are the three new regression tests).
 
-### v0.4 roadmap
+### v0.4 status
 
-1. **Removing the QEMU TCP port dependency, and a unified relay-port lease**: relay ports come out
-   of a single lease, and QMP (and the serial) stop needing a TCP port at all (proposal:
-   [docs/qemu-stdio.md](docs/qemu-stdio.md)). The label "option 3" was dropped: no list of options is
+1. **Removing the QEMU TCP port dependency, and a unified relay-port lease**: **[DONE] the lease** —
+   relay ports come out of one process-wide lease (`sandbox::relay::lease_local_port`), so two parts of
+   the app can no longer be handed the same port; **moved to v0.5: removing the port dependency
+   itself** (QMP over stdio, the serial on the file variant). Proposal and platform notes:
+   [docs/qemu-stdio.md](docs/qemu-stdio.md). The label "option 3" was dropped: no list of options is
    recorded anywhere in this repository, so it named nothing a reader could look up.
 2. **[DONE] Stage 5c-3: end-to-end failure-path diagnostics**: a failed run prints a report
    naming the first failing step, that step's own output, the serial state and the chain
    verdict (`host/tests/diagnosis/`; how to read it: [docs/e2e-debugging.md](docs/e2e-debugging.md)).
-3. **`tauri-plugin-dialog`**: a native file picker for toolchain / QEMU paths, replacing the
+3. **[DONE] `tauri-plugin-dialog`**: a native file picker for toolchain / QEMU paths, replacing the
    `window.prompt` text input.
 4. **[DONE] QEMU distribution decided — guide, do not bundle or download**: the app points the user at
    `winget` / the official download page. Upstream publishes no Windows binary, a third-party packager
    would be an unnamed supply-chain link, and building QEMU ourselves would make us the distributor of
    a GPL-2.0 binary ([docs/qemu-distribution.md](docs/qemu-distribution.md) §5).
-5. **Environment capability preflight**: compile a minimal guest and boot it on the real toolchain / QEMU paths, then report which step failed (warn-only, cached per configuration, with a recorded "continue anyway"). Version rules were dropped on purpose: this repository records no QEMU × GCC compatibility matrix, and inventing one would be guesswork (batch 3).
-6. **macOS / Linux support and a multi-OS CI matrix**.
-7. **Multi-VM parallelism**: more than one host-owned guest at a time.
-8. **Incremental snapshots and encryption**.
-9. **Session encryption, export and search**.
-10. **Multi-AI society and a `Governance` trait** (the constitution's experiment variable).
-11. **[DONE] Theme switching**: light / dark / follow-system, cycled in the Appearance tab and applied
-    by `ui/src/lib/theme.ts` — the single writer of `data-theme` — with `ui/scripts/probe-ui-theme.mjs`
-    pinning its rules. **Bilingual *code comments* are dropped**: they duplicate the code and rot with
-    it, while this repository already keeps its documentation in two languages. A bilingual *interface*
-    is what a user actually reads, so it is listed below instead.
+5. **[DONE] Environment capability preflight**: compile a minimal guest and boot it on the real toolchain / QEMU paths, then report which step failed (warn-only, cached per configuration, with a recorded "continue anyway"). Version rules were dropped on purpose: this repository records no QEMU × GCC compatibility matrix, and inventing one would be guesswork (batch 3).
+6. **[DONE] Theme switching**: light / dark / follow-system, cycled in the Appearance tab and applied
+   by `ui/src/lib/theme.ts` — the single writer of `data-theme` — with `ui/scripts/probe-ui-theme.mjs`
+   pinning its rules. **Bilingual *code comments* are dropped**: they duplicate the code and rot with
+   it, while this repository already keeps its documentation in two languages. A bilingual *interface*
+   is what a user actually reads, so it is on the v0.5 roadmap below.
 
-### v0.5 candidates
+Not in this section but shipped in v0.4 as well: run provenance (every run becomes a first-class audit
+record — [docs/run-provenance.md](docs/run-provenance.md)), the shared gate between CI and a developer
+machine, commit-time refusal of untracked files, the mirrored-constant guard, the bilingual-link check,
+and the temp-directory cleanup.
 
-1. **A bilingual interface**: the UI strings are hard-coded per component (Chinese in the app, English
+- Gate: `cargo test` = **261 passed / 0 failed / 7 ignored** across **75 suites** (v0.3.1 was
+  181 / 0 / 7 across 58 suites).
+- Moved to v0.5, unfinished in v0.4: removing the QEMU TCP port dependency, macOS / Linux support and a
+  multi-OS CI matrix, multi-VM parallelism, incremental snapshots and encryption, session encryption /
+  export / search, and the multi-AI society with a `Governance` trait.
+
+### v0.5 roadmap
+
+1. **Removing the QEMU TCP port dependency**: QMP over stdio behind a config switch and the serial on
+   the file variant, then the retries retire — [docs/qemu-stdio.md](docs/qemu-stdio.md) §6.
+2. **macOS / Linux support and a multi-OS CI matrix**.
+3. **Multi-VM parallelism**: more than one host-owned guest at a time.
+4. **Incremental snapshots and encryption**.
+5. **Session encryption, export and search**.
+6. **Multi-AI society and a `Governance` trait** (the constitution's experiment variable).
+7. **A bilingual interface**: the UI strings are hard-coded per component (Chinese in the app, English
    in the panels' docs) and there is no language switch. Making the interface translatable is a feature
-   of its own, so it does not belong on the v0.4 roadmap.
+   of its own.

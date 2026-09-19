@@ -7,16 +7,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)。
 
-## [未发布]
+## [0.4.0] - 2026-09-19
 
 ### 新增
 
-- **QEMU 下载器，与第三方声明**（v0.4 #4）：`host/src/qemu_download.rs` 是工具链下载器的一份自包含平行
-  实现 —— 钉住版本、按平台 URL + SHA-256、防 Zip Slip、可取消、有进度、装进应用数据目录且幂等。它的
-  **规格表故意为空**：本仓库没有可钉的 QEMU 构建（上游发源码，Windows 安装包来自第三方打包者），而编造一个
-  摘要比不下载更糟，所以它报一个可执行的错误而不是瞎编 —— 见
-  [docs/qemu-distribution.md](docs/qemu-distribution.md) §5。我们依赖的许可证现在写在
-  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+- **QEMU 改为引导安装、不下载；并补上第三方声明**（v0.4 #4）：应用只告诉你该跑什么 —— 有 `winget` 时
+  给 `winget install SoftwareFreedomConservancy.QEMU`，没有就给官网下载页 —— 而不是自己去拉取 QEMU。
+  上游没有可钉的 Windows 二进制；第三方打包者会变成一段没被点名的供应链；自建 QEMU 构建会让我们成为
+  GPL-2.0 二进制的分发者（[docs/qemu-distribution.md](docs/qemu-distribution.md) §5）。顺便写出来的
+  下载器（`host/src/qemu_download.rs`）留在仓库里不接线、规格表为空，因为一个谁都无法复现的摘要比不下载
+  更糟。我们依赖的许可证写在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 - **主题切换**：浅色 / 深色 / 跟随系统，在「设置 → 外观」选择并存入 `settings.json`。样式表里所有颜色
   都是令牌，主题即一组令牌；串口终端也跟随同一套令牌。
 - **`scripts/clean-temp.ps1` / `scripts/clean-temp.sh`**：清理 RiscDom 在系统临时目录下的条目。默认
@@ -271,7 +271,8 @@
   `agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
 - 真实 DeepSeek API 端到端：**已执行通过**（2026-09-14，`iterations = 6`，串口捕获 `HELLO RISCV`；结果见 `host/README.md`）。
 
-[未发布]: https://github.com/breakevery/riscdom/compare/v0.3.1...HEAD
+[未发布]: https://github.com/breakevery/riscdom/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/breakevery/riscdom/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/breakevery/riscdom/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/breakevery/riscdom/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/breakevery/riscdom/compare/v0.2.1...v0.2.2
