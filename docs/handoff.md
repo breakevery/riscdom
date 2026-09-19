@@ -65,6 +65,15 @@ probe subject `test: 中文正文测试` was stored as `test: ?????????`. Theref
   `git commit -F <file>`;
 - `scripts/commit.ps1 "<msg>"` takes the message as an argument, so the same rule applies to it.
 
+The same accident has a second door: **PowerShell redirection**. `>` and `Out-File` write
+**UTF-16LE** by default, so `git show … > file` (or any command that redirects text) leaves a file
+whose first bytes are `FF FE` — anything that reads it as UTF-8 sees a broken first character
+(v0.5 batch 12 hit this while diffing an old revision). Two habits cover both doors: write text
+through a file with an explicit encoding, and pass it as a **file** rather than as a command-line
+argument, because the argv path is the one that eats characters. To sweep a tree for the whole
+family, run `python3 scripts/scan-encoding.py` by hand — a diagnostic, **not** a gate check
+(§4 says why it stays out: its `?`-literal rule cannot tell damage from legitimate code).
+
 ## 4. The gate is the only list of what "green" means
 
 `scripts/gate.sh` holds every check, in order. `scripts/gate.ps1` and `scripts/commit.ps1` are thin
