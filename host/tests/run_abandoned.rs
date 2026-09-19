@@ -45,6 +45,7 @@ fn seed_open_run(state: &AppState, run_id: &str) {
             run_id: run_id.to_string(),
             session_id: Some("s1".to_string()),
             parent_run_id: None,
+            resumed_from_snapshot: None,
             fingerprint: audit::fingerprint(&config),
             fingerprint_schema: audit::FINGERPRINT_SCHEMA_V1.to_string(),
             started_at_ms: stored.event.timestamp_ms,

@@ -83,6 +83,9 @@ export default function AuditTab({ store }: { store: AppStore }) {
               <span className="action">{r.fingerprint}</span>
               <span className="muted small">{r.whenLabel}</span>
               {r.parentLabel ? <span className="muted small">{r.parentLabel}</span> : null}
+              {r.snapshotLabel ? (
+                <span className="muted small">{r.snapshotLabel}</span>
+              ) : null}
               <span className="spacer" />
               {r.exportable ? (
                 <button
@@ -109,6 +112,9 @@ export default function AuditTab({ store }: { store: AppStore }) {
                 </span>
                 <span className="muted small">{c.startedLabel}</span>
               </div>
+              {c.snapshotLabel ? (
+                <div className="muted small">{c.snapshotLabel}</div>
+              ) : null}
               <div className="action small">{c.fingerprintShort}</div>
               <div className="action small wrap">{c.fingerprint}</div>
             </div>

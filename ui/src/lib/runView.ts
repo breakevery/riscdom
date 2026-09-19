@@ -15,6 +15,8 @@ export interface RunLike {
   fingerprint_short: string;
   parent_run_id: string | null;
   session_id: string | null;
+  /** The snapshot the run was restored from, or null (v0.5 batch 3). */
+  resumed_from_snapshot: string | null;
   started_at_ms: number;
   ended_at_ms: number | null;
 }
@@ -27,6 +29,8 @@ export interface RunRow {
   whenLabel: string;
   fingerprint: string;
   parentLabel: string;
+  /** "Restored from <snapshot>", or empty for a run that started from scratch. */
+  snapshotLabel: string;
   /**
    * May this run's audit interval be exported (v0.5 batches 1–2)?
    *
@@ -78,8 +82,14 @@ export function toRunRows(runs: RunLike[], nowMs: number): RunRow[] {
       whenLabel: formatWhen(run.started_at_ms, nowMs),
       fingerprint: run.fingerprint_short,
       parentLabel: run.parent_run_id ? `← ${run.parent_run_id}` : "",
+      snapshotLabel: snapshotLabel(run.resumed_from_snapshot),
       exportable: run.status !== "open",
     }));
+}
+
+/** How a run's source snapshot is spelled; a run from scratch has none. */
+export function snapshotLabel(snapshot: string | null): string {
+  return snapshot ? `恢复自 ${snapshot}` : "";
 }
 
 /** What the list says when the log has no runs yet. */
@@ -150,6 +160,8 @@ export interface CompareRow {
   fingerprint: string;
   /** The first 16 characters, for scanning. */
   fingerprintShort: string;
+  /** "Restored from <snapshot>", or empty. */
+  snapshotLabel: string;
 }
 
 /**
@@ -168,5 +180,6 @@ export function toCompareRows(runs: RunLike[], selected: string[]): CompareRow[]
       startedLabel: formatTimestamp(run.started_at_ms),
       fingerprint: run.fingerprint,
       fingerprintShort: run.fingerprint_short,
+      snapshotLabel: snapshotLabel(run.resumed_from_snapshot),
     }));
 }

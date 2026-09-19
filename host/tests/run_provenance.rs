@@ -236,6 +236,7 @@ fn an_unfinished_run_keeps_a_null_end_seq() {
                 run_id: "run_orphan".into(),
                 session_id: Some("s9".into()),
                 parent_run_id: None,
+                resumed_from_snapshot: None,
                 fingerprint: audit::fingerprint(&config),
                 fingerprint_schema: audit::FINGERPRINT_SCHEMA_V1.into(),
                 started_at_ms: stored.event.timestamp_ms,
@@ -286,9 +287,20 @@ fn a_snapshot_restore_opens_a_new_run_linked_to_its_producer() {
     );
     assert_eq!(restored.status, RunStatus::Ok);
     assert!(restored.end_seq.is_some());
+    // v0.5 batch 3: the derived index carries the source snapshot, so the run list
+    // can say "restored from s1c" without reading the chain itself.
+    assert_eq!(
+        restored.resumed_from_snapshot.as_deref(),
+        Some("s1c"),
+        "the index names the snapshot the restore came from"
+    );
+    assert_eq!(
+        runs[0].resumed_from_snapshot, None,
+        "a run that started from scratch has no source snapshot"
+    );
 
-    // `resumed_from_snapshot` is chain-only (the index is derived): read it back
-    // from the restore run's start event.
+    // The same value is on the chain, read back from the restore run's start event:
+    // the index is derived, so the two must agree.
     let events = state
         .audit
         .lock()

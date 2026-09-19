@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS runs (
     run_id            TEXT PRIMARY KEY,
     session_id        TEXT,
     parent_run_id     TEXT,
+    resumed_from_snapshot TEXT,
     fingerprint       TEXT NOT NULL,
     fingerprint_schema TEXT NOT NULL,
     started_at_ms     INTEGER NOT NULL,
@@ -143,6 +144,36 @@ impl AuditStore {
 
     fn init_schema(&self) -> Result<(), AuditError> {
         self.conn.execute_batch(SCHEMA)?;
+        self.migrate_runs_table()?;
+        Ok(())
+    }
+
+    /// Add a derived-index column an older database lacks (v0.5 batch 3).
+    ///
+    /// `CREATE TABLE IF NOT EXISTS` cannot alter a table that already exists, so a
+    /// database written before `resumed_from_snapshot` joined the index keeps the
+    /// old shape until this runs. The column is left `NULL` for rows written
+    /// earlier — the honest state, since those rows were derived without it — and
+    /// the next `rebuild_run_index` (or `audit-rebuild`) fills it from the chain.
+    ///
+    /// This touches the **derived index only**. `audit_events`, its triggers and
+    /// the hash formula are never altered.
+    fn migrate_runs_table(&self) -> Result<(), AuditError> {
+        let has_column = {
+            let mut stmt = self.conn.prepare("PRAGMA table_info(runs)")?;
+            let mut rows = stmt.query([])?;
+            let mut found = false;
+            while let Some(row) = rows.next()? {
+                if row.get::<_, String>(1)? == "resumed_from_snapshot" {
+                    found = true;
+                }
+            }
+            found
+        };
+        if !has_column {
+            self.conn
+                .execute("ALTER TABLE runs ADD COLUMN resumed_from_snapshot TEXT", [])?;
+        }
         Ok(())
     }
 
@@ -327,7 +358,8 @@ impl AuditStore {
     // ----- Run index (v0.4 batch 1b) ----------------------------------------
 
     const RUN_COLUMNS: &str = "run_id, session_id, parent_run_id, fingerprint, \
-         fingerprint_schema, started_at_ms, ended_at_ms, start_seq, end_seq, status";
+         fingerprint_schema, started_at_ms, ended_at_ms, start_seq, end_seq, status, \
+         resumed_from_snapshot";
 
     fn run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRecord> {
         Ok(RunRecord {
@@ -341,6 +373,7 @@ impl AuditStore {
             start_seq: row.get(7)?,
             end_seq: row.get(8)?,
             status: RunStatus::parse(&row.get::<_, String>(9)?),
+            resumed_from_snapshot: row.get(10)?,
         })
     }
 
@@ -351,8 +384,9 @@ impl AuditStore {
     pub fn index_run_start(&mut self, record: &RunRecord) -> Result<(), AuditError> {
         self.conn.execute(
             "INSERT OR REPLACE INTO runs (run_id, session_id, parent_run_id, fingerprint, \
-             fingerprint_schema, started_at_ms, ended_at_ms, start_seq, end_seq, status) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             fingerprint_schema, started_at_ms, ended_at_ms, start_seq, end_seq, status, \
+             resumed_from_snapshot) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 record.run_id,
                 record.session_id,
@@ -364,6 +398,7 @@ impl AuditStore {
                 record.start_seq,
                 record.end_seq,
                 record.status.as_str(),
+                record.resumed_from_snapshot,
             ],
         )?;
         Ok(())
@@ -441,8 +476,9 @@ impl AuditStore {
         for row in &rows {
             tx.execute(
                 "INSERT INTO runs (run_id, session_id, parent_run_id, fingerprint, \
-                 fingerprint_schema, started_at_ms, ended_at_ms, start_seq, end_seq, status) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                 fingerprint_schema, started_at_ms, ended_at_ms, start_seq, end_seq, status, \
+                 resumed_from_snapshot) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     row.run_id,
                     row.session_id,
@@ -454,6 +490,7 @@ impl AuditStore {
                     row.start_seq,
                     row.end_seq,
                     row.status.as_str(),
+                    row.resumed_from_snapshot,
                 ],
             )?;
         }

@@ -450,6 +450,9 @@ pub struct RunView {
     pub fingerprint_short: String,
     pub parent_run_id: Option<String>,
     pub session_id: Option<String>,
+    /// The snapshot this run was restored from, when it was a restore
+    /// (v0.5 batch 3). `None` for a run that started from scratch.
+    pub resumed_from_snapshot: Option<String>,
     pub started_at_ms: i64,
     pub ended_at_ms: Option<i64>,
 }
@@ -463,6 +466,7 @@ impl From<&audit::RunRecord> for RunView {
             fingerprint_short: audit::short_fingerprint(&record.fingerprint).to_string(),
             parent_run_id: record.parent_run_id.clone(),
             session_id: record.session_id.clone(),
+            resumed_from_snapshot: record.resumed_from_snapshot.clone(),
             started_at_ms: record.started_at_ms,
             ended_at_ms: record.ended_at_ms,
         }
@@ -2422,6 +2426,7 @@ impl AppState {
             run_id: run_id.clone(),
             session_id: session_id.map(str::to_string),
             parent_run_id: parent_run_id.map(str::to_string),
+            resumed_from_snapshot: resumed_from_snapshot.map(str::to_string),
             fingerprint: audit::fingerprint(&config),
             fingerprint_schema: audit::FINGERPRINT_SCHEMA_V1.to_string(),
             started_at_ms: stored.event.timestamp_ms,

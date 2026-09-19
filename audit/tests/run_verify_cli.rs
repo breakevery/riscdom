@@ -41,6 +41,7 @@ fn db_with_one_run(name: &str) -> PathBuf {
             run_id: "run_a".into(),
             session_id: Some("s1".into()),
             parent_run_id: None,
+            resumed_from_snapshot: None,
             fingerprint: fingerprint(&config()),
             fingerprint_schema: FINGERPRINT_SCHEMA_V1.into(),
             started_at_ms: start.event.timestamp_ms,

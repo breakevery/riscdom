@@ -209,6 +209,10 @@ pub struct RunRecord {
     pub run_id: String,
     pub session_id: Option<String>,
     pub parent_run_id: Option<String>,
+    /// The snapshot this run was restored from, when it was a restore
+    /// (v0.5 batch 3). Derived like every other column: read off the `run.start`
+    /// detail (`resumed_from_snapshot`), never invented.
+    pub resumed_from_snapshot: Option<String>,
     pub fingerprint: String,
     pub fingerprint_schema: String,
     pub started_at_ms: i64,
@@ -356,6 +360,7 @@ pub fn derive_runs_from(events: &[StoredEvent]) -> (Vec<RunRecord>, RebuildRepor
                 run_id: payload.run_id,
                 session_id: payload.session_id,
                 parent_run_id: payload.parent_run_id,
+                resumed_from_snapshot: payload.resumed_from_snapshot,
                 fingerprint: payload.fingerprint,
                 fingerprint_schema: payload.fingerprint_schema,
                 started_at_ms: stored.event.timestamp_ms,

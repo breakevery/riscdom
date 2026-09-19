@@ -168,10 +168,13 @@ event.
 
    ```sql
    -- Every column below is derived from chain events; nothing here exists only in the index.
+   -- `resumed_from_snapshot` joined in v0.5 batch 3; an older database gets it through an
+   -- `ALTER TABLE runs ADD COLUMN` migration, and a rebuild fills it from the chain.
    CREATE TABLE IF NOT EXISTS runs (
        run_id            TEXT PRIMARY KEY,
        session_id        TEXT,
        parent_run_id     TEXT,
+       resumed_from_snapshot TEXT,
        fingerprint       TEXT NOT NULL,
        fingerprint_schema TEXT NOT NULL,
        started_at_ms     INTEGER NOT NULL,

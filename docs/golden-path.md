@@ -104,8 +104,9 @@ Everything that matters is already in the fingerprint document
 (provider, base URL, model — never the key), `vm` (memory, machine, cpu, QEMU path + reported
 version, snapshot mode), `toolchain` (resolved GCC path + version, discovery source). Changing any of
 those and running again genuinely produces a different fingerprint, and both runs appear in the run
-list. **What is missing is readability**: nothing shows *which fields* differ between two runs, and
-the run list does not show which snapshot a run was restored from.
+list. **What is missing is readability**: nothing shows *which fields* differ between two runs.
+(v0.5 has since given each run its fingerprint and, for a restore, the snapshot it came from, plus a
+side-by-side view of two runs — §7/§8 below; the field-by-field diff stays v0.6 work.)
 
 ### 2.8 What already walks part of the path
 
@@ -187,14 +188,15 @@ Alternatives and their costs:
 ## 6. How the seven steps get proved reproducible
 
 **Recommendation: two layers — an `--ignored` end-to-end test that walks steps 3–7, plus a written
-manual checklist for steps 1–2 that a person follows on a clean machine.** Steps 1–2 are machine
+manual checklist for steps 1–2 that a person follows on a clean machine
+([golden-path-checklist.md](golden-path-checklist.md)).** Steps 1–2 are machine
 setup and cannot be honestly automated in this repository's CI (no QEMU, no GUI on the runner);
 steps 3–7 are exactly what the existing mock-LLM harness already does most of.
 
 | Option | Recommendation | Reasoning and cost |
 |---|---|---|
 | **(a) `--ignored` e2e test, mock LLM, real QEMU**: run a task → save a snapshot → restore it (a second run with a parent) → export the run interval → `audit-verify` the exported file → change one fingerprint field → run again → assert the two fingerprints differ | **Recommended** | Reuses `host/tests/e2e_ui.rs` and the 5c-3 diagnosis harness. Cost: one new test module and a small export path. It cannot cover install/config (steps 1–2) and does not use a real model |
-| (b) A **manual checklist** in the docs, walked once per release by a person with a real API key | **Recommended, for steps 1–2** | The only honest way to cover installing QEMU and pasting a key. Cost: human time per release, and it must be *recorded* somewhere to count |
+| (b) A **manual checklist** in the docs ([golden-path-checklist.md](golden-path-checklist.md)), walked once per release by a person with a real API key | **Recommended, for steps 1–2** | The only honest way to cover installing QEMU and pasting a key. Cost: human time per release, and it must be *recorded* somewhere to count |
 | (c) A **script** that drives the app's commands headlessly (no GUI) | Rejected for v0.5 | Duplicates the e2e test with more machinery and no extra coverage |
 | (d) A GUI automation (click the app) | Rejected for v0.5 | Fragile, and the repo has no harness for it |
 
@@ -239,7 +241,7 @@ decisions, with the two additions below marked.
    per release — machine and date, OS build, QEMU and GCC versions *and where each came from*
    (`winget` / manual / in-app download), provider and model, the preflight verdict, the two runs'
    fingerprints, and the exported file with its `audit-verify` verdict. A walk nobody wrote down is
-   a walk nobody can check. **The template is v0.5 work and does not exist yet.**
+   a walk nobody can check. The template is [golden-path-checklist.md](golden-path-checklist.md).
 7. **Step 7 stays minimal in v0.5**: each run shows its fingerprint and which snapshot it came
    from, and two runs can be selected to see their short and full digests, start time and status
    side by side. Diffing the fingerprint field by field is v0.6.

@@ -74,6 +74,8 @@ export interface RunView {
   fingerprint_short: string;
   parent_run_id: string | null;
   session_id: string | null;
+  /** The snapshot this run was restored from, or null (v0.5 batch 3). */
+  resumed_from_snapshot: string | null;
   started_at_ms: number;
   ended_at_ms: number | null;
 }

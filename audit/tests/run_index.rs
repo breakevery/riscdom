@@ -29,6 +29,7 @@ fn start_row(run_id: &str, model: &str, seq: i64, at_ms: i64) -> RunRecord {
         run_id: run_id.to_string(),
         session_id: Some("s1".to_string()),
         parent_run_id: None,
+        resumed_from_snapshot: None,
         fingerprint: fingerprint(&config(model)),
         fingerprint_schema: FINGERPRINT_SCHEMA_V1.to_string(),
         started_at_ms: at_ms,
@@ -201,6 +202,127 @@ fn an_old_database_without_the_index_is_readable() {
     let row = store.get_run("run_a").expect("get").expect("present");
     assert_eq!(row.status, RunStatus::Ok);
     assert!(store.check_run_index().expect("check").is_empty());
+}
+
+#[test]
+fn a_restore_run_keeps_its_snapshot_in_the_index() {
+    let mut store = AuditStore::in_memory().expect("store");
+    let start = store
+        .append(AuditEvent::new(
+            "host",
+            ACTION_RUN_START,
+            run_start_detail(
+                "run_r",
+                Some("s1"),
+                Some("run_p"),
+                Some("snap-a"),
+                &config("m"),
+            ),
+        ))
+        .expect("run.start");
+    store
+        .index_run_start(&RunRecord {
+            run_id: "run_r".into(),
+            session_id: Some("s1".into()),
+            parent_run_id: Some("run_p".into()),
+            resumed_from_snapshot: Some("snap-a".into()),
+            fingerprint: fingerprint(&config("m")),
+            fingerprint_schema: FINGERPRINT_SCHEMA_V1.into(),
+            started_at_ms: start.event.timestamp_ms,
+            ended_at_ms: None,
+            start_seq: start.id,
+            end_seq: None,
+            status: RunStatus::Open,
+        })
+        .expect("index");
+    finish(&mut store, "run_r", RunStatus::Ok);
+
+    // The index carries it…
+    let indexed = store.get_run("run_r").expect("get").expect("present");
+    assert_eq!(indexed.resumed_from_snapshot.as_deref(), Some("snap-a"));
+    assert_eq!(indexed.parent_run_id.as_deref(), Some("run_p"));
+    assert!(
+        store.check_run_index().expect("check").is_empty(),
+        "the hand-maintained row agrees with the chain"
+    );
+
+    // …and the chain rebuilds it identically (the column is derived, not stored).
+    let (derived, _) = store.derive_runs().expect("derive");
+    assert_eq!(derived[0].resumed_from_snapshot.as_deref(), Some("snap-a"));
+    store.rebuild_run_index().expect("rebuild");
+    assert_eq!(store.get_run("run_r").expect("get").unwrap(), derived[0]);
+}
+
+#[test]
+fn a_plain_run_has_no_source_snapshot() {
+    let mut store = AuditStore::in_memory().expect("store");
+    begin(&mut store, "run_a", "deepseek-chat");
+    finish(&mut store, "run_a", RunStatus::Ok);
+
+    let row = store.get_run("run_a").expect("get").expect("present");
+    assert_eq!(row.resumed_from_snapshot, None);
+    assert_eq!(row.parent_run_id, None);
+}
+
+#[test]
+fn an_old_index_table_learns_the_snapshot_column() {
+    let path = tmp_db("migrate");
+    {
+        let mut store = AuditStore::open(&path).expect("store");
+        let start = store
+            .append(AuditEvent::new(
+                "host",
+                ACTION_RUN_START,
+                run_start_detail("run_r", None, None, Some("snap-a"), &config("m")),
+            ))
+            .expect("run.start");
+        store
+            .index_run_start(&RunRecord {
+                run_id: "run_r".into(),
+                session_id: None,
+                parent_run_id: None,
+                resumed_from_snapshot: Some("snap-a".into()),
+                fingerprint: fingerprint(&config("m")),
+                fingerprint_schema: FINGERPRINT_SCHEMA_V1.into(),
+                started_at_ms: start.event.timestamp_ms,
+                ended_at_ms: None,
+                start_seq: start.id,
+                end_seq: None,
+                status: RunStatus::Open,
+            })
+            .expect("index");
+        finish(&mut store, "run_r", RunStatus::Ok);
+    }
+    // A database written before the column existed: the index has the old shape.
+    {
+        let conn = Connection::open(&path).expect("raw");
+        conn.execute_batch("ALTER TABLE runs DROP COLUMN resumed_from_snapshot")
+            .expect("simulate a database from before the column");
+    }
+
+    let mut store = AuditStore::open(&path).expect("reopen");
+    // The migration touches the derived index only: the chain is untouched.
+    assert!(matches!(
+        verify_chain(&store).expect("verify"),
+        ChainStatus::Intact { .. }
+    ));
+    // The column is back, empty on the old row — the honest state, and the
+    // cross-check says so until the index is rebuilt from the chain.
+    let old = store.get_run("run_r").expect("get").expect("present");
+    assert_eq!(old.resumed_from_snapshot, None, "an old row has no value");
+    assert_eq!(store.check_run_index().expect("check").len(), 1);
+
+    store.rebuild_run_index().expect("rebuild");
+    assert!(store.check_run_index().expect("check").is_empty());
+    assert_eq!(
+        store
+            .get_run("run_r")
+            .expect("get")
+            .expect("present")
+            .resumed_from_snapshot
+            .as_deref(),
+        Some("snap-a")
+    );
 }
 
 #[test]

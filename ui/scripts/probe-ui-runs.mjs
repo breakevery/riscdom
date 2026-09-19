@@ -44,6 +44,7 @@ const mock = [
     fingerprint_short: "3173d3e8532f632d",
     parent_run_id: null,
     session_id: "s1",
+    resumed_from_snapshot: null,
     started_at_ms: now - 3 * 60 * 60 * 1000,
     ended_at_ms: now - 3 * 60 * 60 * 1000 + 4_000,
   },
@@ -54,6 +55,7 @@ const mock = [
     fingerprint_short: "aaaaaaaaaaaaaaaa",
     parent_run_id: "run_old",
     session_id: "s1",
+    resumed_from_snapshot: "s20c",
     started_at_ms: now - 30 * 1000,
     ended_at_ms: now - 29 * 1000,
   },
@@ -64,6 +66,7 @@ const mock = [
     fingerprint_short: "bbbbbbbbbbbbbbbb",
     parent_run_id: null,
     session_id: null,
+    resumed_from_snapshot: null,
     started_at_ms: now - 5 * 1000,
     ended_at_ms: null,
   },
@@ -75,6 +78,7 @@ const mock = [
     fingerprint_short: "cccccccccccccccc",
     parent_run_id: null,
     session_id: null,
+    resumed_from_snapshot: null,
     started_at_ms: now - 4 * 60 * 60 * 1000,
     ended_at_ms: null,
   },
@@ -91,6 +95,17 @@ check("status labels are human", rows[0].statusLabel === "进行中" && rows[1].
 check("the fingerprint is shown", rows[2].fingerprint === "3173d3e8532f632d");
 check("a restored run shows its parent", rows[1].parentLabel === "← run_old", rows[1].parentLabel);
 check("a plain run shows no parent", rows[0].parentLabel === "" && rows[2].parentLabel === "");
+// v0.5 batch 3: the run row names the snapshot it was restored from.
+check(
+  "a restored run names its source snapshot",
+  rows[1].snapshotLabel === "恢复自 s20c",
+  rows[1].snapshotLabel,
+);
+check(
+  "a run from scratch names no snapshot",
+  rows[0].snapshotLabel === "" && rows[2].snapshotLabel === "" && rows[3].snapshotLabel === "",
+);
+check("the snapshot label helper is the shipped one", runs.snapshotLabel(null) === "" && runs.snapshotLabel("s1c") === "恢复自 s1c");
 check("recent runs read as recent", rows[0].whenLabel === "5 秒前", rows[0].whenLabel);
 check("older runs read as hours", rows[2].whenLabel === "3 小时前", rows[2].whenLabel);
 check("an unknown status is passed through", runs.statusLabel("weird") === "weird");
@@ -165,6 +180,11 @@ check(
   "compare drops an id that is no longer listed",
   runs.toCompareRows(mock, ["run_new", "run_gone"]).length === 1,
 );
+check(
+  "a compare column names the source snapshot too",
+  compare[0].snapshotLabel === "恢复自 s20c" && compare[1].snapshotLabel === "",
+  `${compare[0].snapshotLabel}/${compare[1].snapshotLabel}`,
+);
 
 // Wiring: the tab uses the shipped rule, and the calls resolve to real commands.
 const tab = readFileSync(TAB, "utf8");
@@ -222,6 +242,14 @@ check(
 check(
   "AuditTab offers a selection per run",
   /type="checkbox"/.test(tab) && /store\.toggleRunSelection\(r\.runId\)/.test(tab),
+);
+check(
+  "AuditTab renders the run's source snapshot",
+  /r\.snapshotLabel/.test(tab) && /c\.snapshotLabel/.test(tab),
+);
+check(
+  "the RunView shape carries the source snapshot",
+  /resumed_from_snapshot:\s*string\s*\|\s*null/.test(api),
 );
 
 console.log(`\n${failures === 0 ? "OK" : `${failures} failing check(s)`}`);

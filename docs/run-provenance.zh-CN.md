@@ -155,10 +155,13 @@ sha256(prev_hash | "|" | timestamp_ms | "|" | actor | "|" | action | "|" | detai
 
    ```sql
    -- 下列每一列都派生自链上事件；不存在只在索引里才有的字段。
+   -- `resumed_from_snapshot` 于 v0.5 批次 3 加入；旧库通过 `ALTER TABLE runs ADD COLUMN`
+   -- 迁移得到该列，重建时从链上填充。
    CREATE TABLE IF NOT EXISTS runs (
        run_id            TEXT PRIMARY KEY,
        session_id        TEXT,
        parent_run_id     TEXT,
+       resumed_from_snapshot TEXT,
        fingerprint       TEXT NOT NULL,
        fingerprint_schema TEXT NOT NULL,
        started_at_ms     INTEGER NOT NULL,
