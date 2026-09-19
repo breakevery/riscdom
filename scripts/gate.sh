@@ -94,6 +94,9 @@ node ui/scripts/probe-ui-theme.mjs || fail "ui probe (theme)"
 echo "==> mirrored constants (host/src)"
 node scripts/check-mirrored-constants.mjs || fail "mirrored constants"
 
+echo "==> wix version guard"
+node scripts/check-wix-version.mjs || fail "wix version guard"
+
 echo "==> bilingual doc links"
 sh scripts/check-bilingual.sh || fail "bilingual links"
 

@@ -1,0 +1,113 @@
+[English](handoff.md) | 中文
+
+# 交接 —— 把 RiscDom 带进下一个对话
+
+**本文件是跨对话交接文档。** 第 1 节是易变快照，正式版发布时更新；第 2–12 节是稳定约束：它们在各批次
+之间没有变过，也是新对话必须守住的东西。
+
+仓库 `D:\codeagent\breakevery\riscdom`，远端 `https://github.com/breakevery/riscdom.git`，分支
+`main`。每个批次的收尾流程一致：gate 全绿 → `scripts\commit.ps1 "<msg>"`（它自己会跑 gate）→ push ——
+而这些面向远端的动作，只在当轮请求明确授权时才做（见 §2）。
+
+## 1. 快照 —— 截至 v0.5.0-preview.1（正式版发布时更新本节）
+
+- **`v0.5.0-preview.1` 已作为预发布版发布**，且刻意**不是** Latest：它存在的目的是让另一个人在干净
+  机器上走一遍黄金路径。<https://github.com/breakevery/riscdom/releases/tag/v0.5.0-preview.1> ——
+  附件为 `RiscDom_0.5.0-preview.1_x64_en-US.msi`（6,332,416 字节）与
+  `RiscDom_0.5.0-preview.1_x64-setup.exe`（4,463,424 字节）。
+- **Latest 仍是 `v0.4.0`。**
+- **`v0.5.0` 正式版等测试者反馈**：干净机器上第 1–2 步的真实走查（按
+  [golden-path-checklist.zh-CN.md](golden-path-checklist.zh-CN.md) 记录），加上真实 API key 的两次 run。
+- 近期提交（新→旧）：`287ffdb`（发布 bump）← `2a5d296`（README/CLA 措辞）← `993e5d1`（CLA）←
+  `f662ad7`（自足导出）← `20a7c6d`（索引里的来源快照）← `a22112f`（abandoned 导出、工作区默认路径、
+  两 run 对比）← `26ad597`（run 区间导出）← `e70457f`（黄金路径设计）。
+- tag：`v0.5.0-preview.1` = `cea44f7b9920a079422217f811afb49350e08477` →
+  `287ffdb095e1659b89a8cafe040647ada64d0026`；`v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d`
+  → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`；`v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c`
+  → `b9be9111c620faad686c7a9d095e0ebc04b31225`。
+- 该提交处的测试总况：**281 passed / 0 failed / 8 ignored / 79 suites**；CI 全绿（`ubuntu-latest` 上跑
+  `scripts/gate.sh`，另加 gitleaks）。
+- 未完成项：`%TEMP%` 下的临时目录仍未清理（删除确认未被放行）；CLA.md 待律师过目；不支持 macOS/Linux；
+  真实首跑尚未发生。
+
+## 2. 远端操作按轮授权，且必须有明确文字
+
+push、打 tag、创建或删除 Release、移动或删除远端 tag，以及任何其他远端写操作，**仅当当轮请求用文字
+明确说出时**才执行。对话框里的选项、推断出的意图、上一批次的授权、或「这显然是下一步」都不构成授权。
+固定的收尾（gate → commit → push）属于「请求里写了它」的批次，而不是默认动作。
+
+## 3. 提交信息：ASCII，否则 `git commit -F`
+
+在 Windows 上 `git commit -m "…"` 会把信息经控制台 ANSI 代码页传递，因此非 ASCII 文本**在 git 看到它
+之前**就被替换成 `?`（`0x3F`）—— 本机 2026-09-18 实测：探针标题 `test: 中文正文测试` 被存成
+`test: ?????????`。因此：
+
+- `-m` 的信息一律用 ASCII（英文）书写；
+- 必须含非 ASCII 时，把信息写成 **UTF-8（无 BOM）** 的文件，用 `git commit -F <file>`；
+- `scripts/commit.ps1 "<msg>"` 以参数接收信息，同样受此约束。
+
+## 4. gate 是「绿」的唯一清单
+
+`scripts/gate.sh` 按顺序持有每一项检查。`scripts/gate.ps1` 与 `scripts/commit.ps1` 只是薄包装：它们
+定位 Git 的 `sh.exe` 并运行那个文件，绝不保留第二份命令清单。CI 跑的是同一个 `sh scripts/gate.sh`。
+**新增检查写进 `gate.sh`**（并同步 `CONTRIBUTING.md` 里的那份简短清单），不要写进工作流、README 或
+某个人的记忆里。
+
+## 5. 审计不变量
+
+以下冻结、永不更改：链结构（`audit_events` 及其 append-only 触发器）、哈希公式、历史行，以及
+`audit-verify` 与 `audit-rebuild` 的语义。只读面可以扩展 —— 导出、过滤、带迁移的派生索引加列 —— 前提是
+不碰链，且校验器不持有任何写路径。
+
+## 6. CLA 处于待命状态，不是活跃流程
+
+- `CLA.md`（以英文为准）与 `CLA.zh-CN.md`；`CONTRIBUTING.md` 里的条件式 CLA 章节；
+  `.github/workflows/cla.yml` 运行**自托管**的 CLA Assistant action（无需安装 GitHub App），触发器为
+  `pull_request_target` 且**不检出 PR 代码**；`signatures/version1/cla.json` 已预创建。
+- 第 3 条（双许可与再许可）是商业化的关键授权，在任何人依赖它之前**需要律师过目**。文件本身写明：
+  只有项目所有者确认后才生效。
+- 签署句**不翻译** —— 机器人按 `I have read the CLA Document and I hereby sign the CLA` 精确匹配。
+- 未来贡献可能被接收到本仓库以外，所以 CONTRIBUTING 的措辞是条件式。
+
+## 7. QEMU：引导安装，绝不下载或捆绑
+
+v0.4 定案：应用只告诉用户装什么（`winget install SoftwareFreedomConservancy.QEMU`，或官网页面），然后
+找到并记住、验证它。理由 —— 上游没有可钉的 Windows 二进制、第三方打包者会变成没被点名的供应链环节、
+以及不让自己成为 GPL-2.0 二进制的分发者 —— 见 [qemu-distribution.zh-CN.md](qemu-distribution.zh-CN.md) §5。
+
+## 8. v0.5 的发布门槛是「走查」，不是「代码写完」
+
+v0.5 的发布条件是：有人在干净机器上用真实 API key 走完第 1–2 步，并对照
+[golden-path-checklist.zh-CN.md](golden-path-checklist.zh-CN.md) 记录 —— 机器、操作系统版本、QEMU/GCC
+版本**及其来源**、服务商与模型、预检四步、两次 run 的短指纹、导出文件与其 `audit-verify` 结论，以及
+任何失败的原样错误。第 3–7 步由 `cargo test -p host --test golden_path -- --ignored` 覆盖。「实现完成」
+不是门槛。
+
+## 9. v0.6 从黄金路径第 8 步开始
+
+v0.6 是两次 run 的自动比较 —— 它们的指纹差在哪些字段 —— 这正是 v0.5 刻意不做完的那一步。
+`PROJECT_CONSTITUTION.md` §10 的 v0.5 路线图里那些并行项（QEMU stdio、macOS/Linux、多 VM、增量快照、
+会话加密、多 AI、双语界面）**不是** v0.6 的内容：它们是待选项，可挑可弃。
+
+## 10. 文档双语，且有门禁
+
+仓库里每个 `*.md` 都要有成对的另一语言版本与首行精确的语言切换行（`X.md` ↔ `X.zh-CN.md`）；
+`scripts/check-bilingual.sh` 只报告、绝不改文件。新增文档即新增一对，且在同一个提交里。
+
+## 11. 在本机构建安装包需要真实 Node
+
+本工作区 `PATH` 上的 `node` 是 LobsterAI 的 Electron-as-node 垫片
+（`…\LobsterAI\cowork\bin\node.cmd` → `ELECTRON_RUN_AS_NODE=1 "<electron>" %*`）。在它之下，Tauri CLI
+的原生插件会读错 `argv`，所有打包命令都以
+`error: unrecognized subcommand '<…>\LobsterAI.exe'` 失败。绕过方式：用真实 Node 运行 CLI —— 例如
+`C:\Users\cloud_user\AppData\Local\Programs\Tuanjie Cowork\cli\bin\win32-x64\node.exe`（v24.16.0）——
+在 `ui/` 下执行 `node node_modules\@tauri-apps\cli\tauri.js build`。WiX 3.14 与 NSIS 已缓存在
+`%LOCALAPPDATA%\tauri`，打包不需要网络。
+
+## 12. `wix.version` 是预览版专用覆盖，且有守卫
+
+带预发布后缀的包版本**不是**合法的 MSI `ProductVersion`（WiX 只接受 `major.minor.patch.build`，纯数字），
+因此 `ui/src-tauri/tauri.conf.json` 里带着 `bundle.windows.wix.version = "0.5.0.1"`，而包版本 —— 也就是
+产物名 —— 仍是 `0.5.0-preview.1`。**包版本重新变成纯数字后立即删除该字段**；残留的值会让 MSI 的
+ProductVersion 与其他所有产物、tag、文档悄悄不一致，而且不会报任何构建错误。
+`scripts/check-wix-version.mjs`（在 gate 里，带自测）正是在这种情况下让构建失败。

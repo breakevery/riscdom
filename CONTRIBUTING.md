@@ -35,7 +35,8 @@ developer machine. In order: `cargo fmt --all -- --check` → `cargo clippy -D w
 workspace crates `audit` / `sandbox` / `agent` / `host`, and `ui/src-tauri`) → `cargo check` →
 `cargo test` → `cargo check` for `ui/src-tauri` → `npm run build` →
 the ui regression probes (`node ui/scripts/probe-ui-*.mjs`) → the mirror guard
-(`node scripts/check-mirrored-constants.mjs`) → the bilingual-link check
+(`node scripts/check-mirrored-constants.mjs`) → the wix-version guard
+(`node scripts/check-wix-version.mjs`) → the bilingual-link check
 (`scripts/check-bilingual.ps1` / `.sh`).
 
 Platform differences are **printed, never skipped silently**: on non-Windows the `host` /
@@ -131,8 +132,6 @@ The [CLA Assistant](.github/workflows/cla.yml) bot verifies the signature and re
 `.gitignore` already covers most of this; CI also runs secret scanning (gitleaks, full
 history).
 
-## Documentation
-
 ## Debugging flaky tests
 
 Flaky tests cost real time, so diagnose the **layer** before adding any defence.
@@ -162,6 +161,8 @@ Flaky tests cost real time, so diagnose the **layer** before adding any defence.
    system temp directory, and they are never removed. `scripts/clean-temp.ps1` /
    `scripts/clean-temp.sh` clear RiscDom's entries (dry run by default; `-Force` / `--force`
    deletes). Only the `riscdom-` prefix is ever matched.
+
+## Documentation
 
 Docs are bilingual: the English file is the main document (for example `README.md`) and the
 Chinese translation lives alongside it as `*.zh-CN.md`, with a language switcher on the first
