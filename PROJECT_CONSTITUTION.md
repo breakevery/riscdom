@@ -263,7 +263,8 @@ and the temp-directory cleanup.
 ### v0.5 roadmap
 
 1. **The golden path — the main line for v0.5–v0.6.** A developer who has never seen this repository
-   gets from a fresh machine to a compared re-run:
+   gets from a fresh machine to a compared re-run (proposal and reconnaissance:
+   [docs/golden-path.md](docs/golden-path.md)):
 
    install → create an environment → run an agent task → save a snapshot → get an audit record →
    roll back → change the configuration and run again → **compare the two runs**
