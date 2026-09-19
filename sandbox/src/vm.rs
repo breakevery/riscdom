@@ -212,6 +212,19 @@ impl RiscVVirtualMachine {
             .stdout(Stdio::null())
             .stderr(Stdio::null());
 
+        // Windows only (v0.5 batch 12, the walkthrough's G-4). QEMU for Windows is a
+        // console-subsystem program, so a child started the ordinary way opens a
+        // console window of its own — a stray window that appears over the app and
+        // takes focus. `-display none` (see `qemu_args`) hides the *guest* display and
+        // does nothing about that console. CREATE_NO_WINDOW gives the child a
+        // console-less creation; stdio is already null, and nothing else changes.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+
         // Last moment: let go of the listeners so QEMU can bind the ports. The
         // numbers stay reserved here until this VM is dropped.
         for lease in &mut self.port_leases {

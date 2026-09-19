@@ -7,6 +7,11 @@ Evidence for the v0.5 release gate: one file per walk of the golden path, record
 - **Why it is not in `docs/`.** These are records, not documentation. `check-bilingual.sh` requires
   every document to exist in both languages; a record of what one person saw on one machine cannot
   be translated without inventing a second one, so this directory is excluded from that check.
+- **This directory is outside the bilingual gate.** `scripts/check-bilingual.sh` skips
+  `./walkthroughs/*` explicitly (nothing else is excluded by that rule — `docs/` and the repository
+  root are still checked). So a file here is **not** verified at all: if you ever put a translated
+  document in this directory, you maintain it by hand, and the gate will neither see the file nor
+  check that its language switcher points at anything.
 - **What the gate needs.** `docs/handoff.md` §8: v0.5 ships when steps 1–2 have been walked on a
   clean machine with a real API key and recorded against the checklist. A walk nobody wrote down is
   a walk nobody can check.
