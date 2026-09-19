@@ -7,6 +7,49 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)。
 
+## [0.5.0-preview.1] - 2026-09-19
+
+**这是预览版，给准备在干净机器上走黄金路径的人。** 预览版尚未在干净环境验证过：测试者需要什么、
+如何回报，写在 [RELEASE_NOTES.zh-CN.md](RELEASE_NOTES.zh-CN.md)。
+
+### 新增
+
+- **黄金路径全部七步**（v0.5）：安装 → 创建环境 → 跑任务 → 存快照 → 得审计记录 → rollback →
+  改一个配置字段再跑。设计、已拍板的决定与最小诚实范围见
+  [docs/golden-path.zh-CN.md](docs/golden-path.zh-CN.md)。
+- **一次 run 的记录可自足导出**（v0.5 批次 1–4）：*设置 → 审计* 把一次 run 导成 JSONL，从链的
+  **第一条事件**写到**收束该 run 的那条事件**，因此首行锚定 genesis，空库 + `audit-verify` 即可判定
+  它，无需从产出它的机器上带任何东西。abandoned 的 run，其文件以 `host.run.abandoned` 标记结尾；
+  进行中的 run 会被拒绝，而不是导出到链恰好停下的地方。链中间的「切片」形式被移除而非并列保留
+  （批次 4）：「导出」有两种含义就是一种太多。
+- **run 显示它来自哪个快照**（v0.5 批次 3）：`resumed_from_snapshot` 进入派生 `runs` 索引 ——
+  与其他列一样从链重建 —— 经 `RunView` 到 run 列表，并在审计页与两 run 对比面板中显示。更早写入的
+  数据库通过 `ALTER TABLE runs ADD COLUMN` 迁移获得该列。
+- **两个 run 并排对照**（v0.5 批次 2）：审计页的 run 列表可选两条，并排显示短指纹、全量指纹、开始
+  时间、状态与来源快照。逐字段指纹差异仍属 v0.6。
+- **贡献者许可协议**（v0.5 批次 5）：[CLA.zh-CN.md](CLA.zh-CN.md)（以英文版为准）、
+  [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md) 的 CLA 章节、在 `pull_request_target` 上运行且
+  **不检出 PR 代码**的 [`.github/workflows/cla.yml`](.github/workflows/cla.yml)，以及预创建的
+  `signatures/version1/cla.json`。
+- **黄金路径人工清单**（v0.5 批次 3）：[docs/golden-path-checklist.zh-CN.md](docs/golden-path-checklist.zh-CN.md)
+  —— 在干净机器上走第 1–2 步时要填的字段，附填写示例。
+- **第 3–7 步的 `--ignored` 走查**（`host/tests/golden_path.rs`）：真实 QEMU guest + mock LLM，依次
+  跑任务 → 存快照 → 导出 → 恢复 → 改一个字段 → 再跑，最后对导出文件跑 `audit-verify`。
+
+### 变更
+
+- **README 的许可证说明又变短**（v0.5 批次 6）：代码为 Apache-2.0；提交贡献需 [CLA](CLA.md)。
+  「开放核心」的措辞已从公开 README 撤下；授权条款本身留在 CLA.md 里，那才是贡献者真正签署的东西。
+- **CONTRIBUTING 的 CLA 章节改为条件式**（v0.5 批次 6）：「若您向本仓库提交贡献」，因为贡献流程
+  日后可能迁往别处。
+
+### 备注
+
+- **本预览版的 MSI 单独钉了一个安装器版本号。** `0.5.0-preview.1` 是合法的语义化版本，但不是合法的
+  MSI `ProductVersion`（WiX 只接受 `major.minor.patch.build`，纯数字），因此 `tauri.conf.json` 里的
+  `bundle.windows.wix.version = "0.5.0.1"` 提供数字形式，而包版本 —— 也就是产物名 —— 仍是
+  `0.5.0-preview.1`。待包版本重新变成纯数字时，请删除或更新该字段。
+
 ## [0.4.0] - 2026-09-19
 
 ### 新增

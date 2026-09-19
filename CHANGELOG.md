@@ -7,6 +7,60 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0-preview.1] - 2026-09-19
+
+**A preview, for people who will walk the golden path on a clean machine.** A preview has not been
+verified on a clean environment yet: what a tester needs, and how to report back, is in
+[RELEASE_NOTES.md](RELEASE_NOTES.md).
+
+### Added
+
+- **The golden path, all seven steps** (v0.5): install → create an environment → run a task → save a
+  snapshot → get the audit record → roll back → change one configuration field and run again. The
+  design, the settled decisions and the smallest honest scope are in
+  [docs/golden-path.md](docs/golden-path.md).
+- **A run's record exports self-contained** (v0.5 batches 1–4): *Settings → Audit* exports one run as
+  JSONL, written from the chain's **first event** to the event that **closes the run**, so the file's
+  first line is anchored at genesis and an empty database plus `audit-verify` judges it with nothing
+  carried over from the machine that produced it. An abandoned run's file ends on its
+  `host.run.abandoned` marker; an open run is refused rather than exported to wherever the chain
+  happens to stop. The mid-chain slice form was removed rather than kept beside it (batch 4): two
+  meanings of "export" is one meaning too many.
+- **A run names the snapshot it came from** (v0.5 batch 3): `resumed_from_snapshot` joined the derived
+  `runs` index — rebuilt from the chain like every other column — travels through `RunView` to the run
+  list, and is shown in the audit tab and in the two-run comparison. A database written earlier picks
+  the column up through an `ALTER TABLE runs ADD COLUMN` migration.
+- **Two runs side by side** (v0.5 batch 2): the audit tab's run list takes two selections and shows
+  their short and full fingerprints, start time, status and source snapshot. A field-by-field
+  fingerprint diff stays v0.6 work.
+- **A contributor licence agreement** (v0.5 batch 5): [CLA.md](CLA.md) with a Chinese reference
+  translation, a CLA section in [CONTRIBUTING.md](CONTRIBUTING.md), a
+  [`.github/workflows/cla.yml`](.github/workflows/cla.yml) that runs the CLA Assistant on
+  `pull_request_target` **without checking out the pull request's code**, and a pre-created
+  `signatures/version1/cla.json`.
+- **A manual checklist for the golden path** (v0.5 batch 3):
+  [docs/golden-path-checklist.md](docs/golden-path-checklist.md) — the fields a person fills in while
+  walking steps 1–2 on a clean machine, with a worked example.
+- **An `--ignored` walk of steps 3–7** (`host/tests/golden_path.rs`): a real QEMU guest driven by a
+  mock LLM through run → snapshot → export → restore → change one field → run again, ending in
+  `audit-verify` over the exported file.
+
+### Changed
+
+- **The README's licence note is short again** (v0.5 batch 6): the code is Apache-2.0, and a
+  contribution needs the [CLA](CLA.md). The open-core wording left the public README; the licence
+  grants themselves stay in CLA.md, which is what a contributor actually signs.
+- **The CLA section of CONTRIBUTING is conditional** (v0.5 batch 6): "if you contribute to this
+  repository", because the contribution flow may move elsewhere later.
+
+### Notes
+
+- **This preview's MSI carries a separately pinned installer version.** `0.5.0-preview.1` is a valid
+  semantic version but not a valid MSI `ProductVersion` (WiX takes `major.minor.patch.build`, numeric
+  only), so `bundle.windows.wix.version = "0.5.0.1"` in `tauri.conf.json` supplies the numeric form
+  while the package version — and therefore the artifact names — stays `0.5.0-preview.1`. Remove or
+  update that field once the package version is numeric again.
+
 ## [0.4.0] - 2026-09-19
 
 ### Added
