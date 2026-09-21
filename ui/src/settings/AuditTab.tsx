@@ -2,6 +2,7 @@ import type { AppStore } from "../state/appStore";
 import {
   comparePanelVisible,
   diffEmptyText,
+  diffFailedText,
   diffLoadingText,
   diffRowState,
   diffTitle,
@@ -18,10 +19,14 @@ export default function AuditTab({ store }: { store: AppStore }) {
   const compareRows = toCompareRows(store.runs, store.selectedRuns);
   // The collapsed header of the field-level diff (v0.6 batch 1): the host's count
   // once it has answered, its refusal when it refused, and a loading line before
-  // either. Never a count of rows the UI made up.
+  // either. Never a count of rows the UI made up. The refusal is built here, from
+  // the raw reason the store keeps, so switching the language re-renders it
+  // instead of leaving the old sentence in place (v0.7 batch 2).
   const diffHeadline = store.diffRows
     ? diffTitle(store.diffRows)
-    : (store.diffNote ?? diffLoadingText());
+    : store.diffError
+      ? diffFailedText(store.diffError)
+      : diffLoadingText();
 
   return (
     <>

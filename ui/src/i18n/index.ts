@@ -1,13 +1,14 @@
 /**
- * The self-built i18n facility (v0.7 batch 1): the current language and the one
- * place that turns a registry key into text.
+ * The self-built i18n facility (v0.7 batches 1-2): the language the interface is
+ * showing, the preference behind it, and the one place that turns a registry key
+ * into text.
  *
  * Dependency-free on purpose, like `lib/theme.ts` and `lib/runView.ts`: the node
  * probes and `scripts/check-ui-strings.mjs` import the shipped module directly
  * (Node strips the types), so nothing here may pull in React or the DOM. The
- * language the user chose lives in `appStore` (a manual override gets the last
- * word); this module holds what `t()` reads, so a non-React caller — `runView.ts`,
- * a probe — gets the same answer as the panel does.
+ * preference's storage and the `lang` attribute live in `appStore` (a manual
+ * choice gets the last word); this module holds what `t()` reads and the rules
+ * that turn a preference into a language.
  */
 import { LANGUAGES, STRINGS } from "./strings.ts";
 import type { Language, StringKey } from "./strings.ts";
@@ -18,6 +19,19 @@ export type { Language, StringKey } from "./strings.ts";
 /** The language used when the system says nothing we recognise. */
 export const DEFAULT_LANGUAGE: Language = "en";
 
+/** What the user chooses: follow the system, or pin one language (v0.7 batch 2). */
+export type LanguageChoice = "system" | Language;
+
+/** The choices the settings page offers, in order. */
+export const LANGUAGE_CHOICES: readonly LanguageChoice[] = ["system", "en", "zh"];
+
+/** Parse a stored preference; anything unknown means "follow the system". */
+export function parseLanguageChoice(raw: unknown): LanguageChoice {
+  return typeof raw === "string" && (LANGUAGES as readonly string[]).includes(raw)
+    ? (raw as Language)
+    : "system";
+}
+
 /** A BCP-47 tag ("zh-CN", "en-US", …) as one of the registry's languages. */
 export function detectLanguage(tag: unknown): Language {
   return typeof tag === "string" && tag.toLowerCase().startsWith("zh")
@@ -25,13 +39,35 @@ export function detectLanguage(tag: unknown): Language {
     : DEFAULT_LANGUAGE;
 }
 
-/** The system's language as the browser reports it; DOM-free callers get the default. */
-function systemLanguage(): Language {
-  const nav = (globalThis as { navigator?: { language?: unknown } }).navigator;
-  return detectLanguage(nav?.language);
+/** What the system reports, or `undefined` outside a browser. */
+export function navigatorLanguage(): unknown {
+  return (globalThis as { navigator?: { language?: unknown } }).navigator?.language;
 }
 
-let current: Language = systemLanguage();
+/** The language a preference means right now: `system` follows `tag`. */
+export function resolveLanguage(choice: LanguageChoice, tag: unknown): Language {
+  const parsed = parseLanguageChoice(choice);
+  return parsed === "system" ? detectLanguage(tag) : parsed;
+}
+
+/** The `lang` attribute a language writes (`zh` becomes `zh-CN`). */
+export function langAttribute(language: Language): string {
+  return language === "zh" ? "zh-CN" : "en";
+}
+
+/** The registry key for a choice's label. */
+export function languageChoiceKey(choice: LanguageChoice): StringKey {
+  switch (parseLanguageChoice(choice)) {
+    case "en":
+      return "language.english";
+    case "zh":
+      return "language.chinese";
+    default:
+      return "language.system";
+  }
+}
+
+let current: Language = resolveLanguage("system", navigatorLanguage());
 const listeners = new Set<() => void>();
 
 /** The language `t()` reads right now. */
@@ -39,7 +75,7 @@ export function getLanguage(): Language {
   return current;
 }
 
-/** Choose a language by hand; it wins over the system from here on. */
+/** Make `t()` read `next`; subscribers (the store) re-render on the change. */
 export function setLanguage(next: Language): void {
   if (!LANGUAGES.includes(next) || next === current) return;
   current = next;

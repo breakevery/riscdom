@@ -2121,6 +2121,33 @@ impl AppState {
         Ok(())
     }
 
+    /// The stored UI language preference; `system` when the user never chose one
+    /// (v0.7 batch 2).
+    pub fn language(&self) -> String {
+        self.settings
+            .lock()
+            .ok()
+            .and_then(|settings| settings.language.clone())
+            .unwrap_or_else(|| "system".to_string())
+    }
+
+    /// Store the UI language preference (`system` / `en` / `zh`).
+    pub fn set_language(&self, language: &str) -> Result<(), HostError> {
+        let language = language.trim().to_lowercase();
+        if !matches!(language.as_str(), "system" | "en" | "zh") {
+            return Err(HostError::Other(format!("unknown language: {language}")));
+        }
+        if let Ok(mut settings) = self.settings.lock() {
+            settings.language = Some(language.clone());
+        }
+        self.save_settings();
+        self.emit_host(
+            "host.language.set",
+            serde_json::json!({ "language": language }),
+        );
+        Ok(())
+    }
+
     // ----- Audit ------------------------------------------------------------
 
     /// Event count + chain status.

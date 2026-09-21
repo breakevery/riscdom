@@ -37,6 +37,7 @@ fn save_then_load_round_trips() {
         ),
         preflight: None,
         theme: None,
+        language: None,
     };
     settings.save(&path).expect("save");
     assert!(path.is_file(), "{path:?}");
@@ -123,6 +124,38 @@ fn the_theme_preference_round_trips_and_rejects_nonsense() {
     restarted.set_theme("system").expect("set system");
     assert_eq!(
         AppState::in_memory(&workspace).expect("state").theme(),
+        "system"
+    );
+}
+
+#[test]
+fn the_language_preference_round_trips_and_rejects_nonsense() {
+    let workspace = unique_dir("language");
+    let state = AppState::in_memory(&workspace).expect("state");
+
+    // Unset means "follow the system", like the theme's default.
+    assert_eq!(state.language(), "system");
+
+    state.set_language("zh").expect("set zh");
+    assert_eq!(state.language(), "zh");
+    // It is normalised, so a sloppy caller cannot store junk.
+    state.set_language("  EN ").expect("set en");
+    assert_eq!(state.language(), "en");
+    assert!(
+        state.set_language("fr").is_err(),
+        "unknown languages are refused"
+    );
+    assert_eq!(state.language(), "en", "a refused value changes nothing");
+
+    // "restart": the preference comes back from settings.json.
+    let restarted = AppState::in_memory(&workspace).expect("state");
+    assert_eq!(restarted.language(), "en");
+    let text = std::fs::read_to_string(restarted.settings_path()).expect("settings.json");
+    assert!(text.contains("\"language\": \"en\""), "{text}");
+
+    restarted.set_language("system").expect("set system");
+    assert_eq!(
+        AppState::in_memory(&workspace).expect("state").language(),
         "system"
     );
 }

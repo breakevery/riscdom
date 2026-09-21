@@ -28,6 +28,9 @@ pub struct LocalSettings {
     /// UI theme preference: `light`, `dark` or `system` (v0.4 #11a).
     #[serde(default)]
     pub theme: Option<String>,
+    /// UI language preference: `system`, `en` or `zh` (v0.7 batch 2).
+    #[serde(default)]
+    pub language: Option<String>,
 }
 
 impl Default for LocalSettings {
@@ -38,6 +41,7 @@ impl Default for LocalSettings {
             qemu_path: None,
             preflight: None,
             theme: None,
+            language: None,
         }
     }
 }

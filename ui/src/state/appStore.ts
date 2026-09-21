@@ -1,15 +1,23 @@
 // A tiny store built on useState/useReducer — no state library.
 // API key is NOT kept here: it lives only in the Settings form until saved.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import * as api from "../api/tauri";
 import { executableFilters, pickedPath } from "../lib/pathPick";
-import { defaultExportPath, diffFailedText, MAX_COMPARED_RUNS, toggleRunSelection as nextRunSelection } from "../lib/runView";
+import { defaultExportPath, MAX_COMPARED_RUNS, toggleRunSelection as nextRunSelection } from "../lib/runView";
 import { applyTheme, nextTheme, parseTheme, systemPrefersDark } from "../lib/theme";
 import type { ResolvedTheme, Theme } from "../lib/theme";
-import { getLanguage, setLanguage as applyLanguage } from "../i18n/index.ts";
-import type { Language } from "../i18n/index.ts";
+import {
+  getLanguage,
+  langAttribute,
+  navigatorLanguage,
+  parseLanguageChoice,
+  resolveLanguage,
+  setLanguage as setUiLanguage,
+  subscribe as subscribeLanguage,
+} from "../i18n/index.ts";
+import type { Language, LanguageChoice } from "../i18n/index.ts";
 
 export type Role = "user" | "assistant" | "tool" | "system";
 
@@ -66,10 +74,12 @@ export interface AppStore {
   /**
    * The two runs' fingerprints, field by field (v0.6 batch 1): the host's rows in
    * the host's order, or `null` while there is nothing to show — no pair selected,
-   * or the question still in flight. `diffNote` carries the host's refusal.
+   * or the question still in flight. `diffError` carries the host's refusal
+   * verbatim (v0.7 batch 2), so the panel builds the sentence at render time and a
+   * language change reaches it.
    */
   diffRows: api.FingerprintFieldDiff[] | null;
-  diffNote: string | null;
+  diffError: string | null;
   /** Native file pickers (v0.4 batch 2); the manual text entry stays available. */
   pickToolchainPath: () => Promise<void>;
   pickQemuPath: () => Promise<void>;
@@ -85,11 +95,13 @@ export interface AppStore {
   setTheme: (theme: Theme) => Promise<void>;
   cycleTheme: () => Promise<void>;
   /**
-   * Language (v0.7 batch 1). It follows the system until `setLanguage` overrides
-   * it by hand; the i18n registry's `t()` reads whatever this holds.
+   * Language (v0.7 batches 1-2). `languageChoice` is the stored preference
+   * (`system` follows the OS); `language` is what the registry is showing right
+   * now, and the store re-renders when it changes.
    */
+  languageChoice: LanguageChoice;
   language: Language;
-  setLanguage: (language: Language) => void;
+  setLanguage: (choice: LanguageChoice) => Promise<void>;
   workspaceFiles: string[];
   refreshWorkspace: () => Promise<void>;
   // serial / vm (consumed by the canvas in stage 6c)
@@ -204,7 +216,7 @@ export function useAppStore(): AppStore {
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
   const [selectedRuns, setSelectedRuns] = useState<string[]>([]);
   const [diffRows, setDiffRows] = useState<api.FingerprintFieldDiff[] | null>(null);
-  const [diffNote, setDiffNote] = useState<string | null>(null);
+  const [diffError, setDiffError] = useState<string | null>(null);
   const [preflight, setPreflight] = useState<api.PreflightView | null>(null);
   const [preflightStep, setPreflightStep] = useState<{
     step: string;
@@ -213,10 +225,14 @@ export function useAppStore(): AppStore {
   const [theme, setThemeChoice] = useState<Theme>("system");
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>("dark");
   const [systemDark, setSystemDark] = useState<boolean>(() => systemPrefersDark(window));
-  // Language (v0.7 batch 1): the registry's starting point is the system language,
-  // and the choice made here is what `t()` reads. In-memory for now — a settings
-  // entry is a later batch; this pilot only has to reach the four diff strings.
-  const [language, setLanguageChoice] = useState<Language>(() => getLanguage());
+  // Language (v0.7 batches 1-2). `languageChoice` is the preference, stored in
+  // settings.json like the theme; `language` is what the registry shows right
+  // now. The store subscribes to the registry (useSyncExternalStore), so a
+  // language change re-renders the tree instead of leaving already-rendered text
+  // in the old language.
+  const [languageChoice, setLanguageChoice] = useState<LanguageChoice>("system");
+  const language = useSyncExternalStore(subscribeLanguage, getLanguage);
+  const languageChoiceRef = useRef<LanguageChoice>(languageChoice);
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
   const [serial, setSerial] = useState("");
   const [vmState, setVmState] = useState("idle");
@@ -321,10 +337,12 @@ export function useAppStore(): AppStore {
   // answer — both fingerprint documents are read off the chain there — and the UI
   // renders the rows in exactly the order they arrive: no re-sorting, no diffing
   // JSON here. Changing the pair, or clearing it, supersedes the answer in flight.
+  // `diffError` keeps the host's refusal **verbatim**: the sentence is built at
+  // render time, so a language change reaches it too (v0.7 batch 2).
   useEffect(() => {
     if (selectedRuns.length !== MAX_COMPARED_RUNS) {
       setDiffRows(null);
-      setDiffNote(null);
+      setDiffError(null);
       return;
     }
     let cancelled = false;
@@ -334,12 +352,12 @@ export function useAppStore(): AppStore {
       .then((rows) => {
         if (cancelled) return;
         setDiffRows(rows);
-        setDiffNote(null);
+        setDiffError(null);
       })
       .catch((e) => {
         if (cancelled) return;
         setDiffRows(null);
-        setDiffNote(diffFailedText(String(e)));
+        setDiffError(String(e));
       });
     return () => {
       cancelled = true;
@@ -387,11 +405,44 @@ export function useAppStore(): AppStore {
     setResolvedTheme(applyTheme(theme, document.documentElement, systemDark));
   }, [theme, systemDark]);
 
-  // Hand the current language to the i18n registry: `t()` is what runView and the
-  // panel read, and it holds no React state of its own.
+  // Language (v0.7 batches 1-2): the preference lives in settings.json (like the
+  // theme), the registry shows the resolved language and `lang` follows it. The
+  // registry write comes first, so the re-render it triggers already reads the new
+  // language — no reload, and never a frame in the previous language.
+  const applyLanguageChoice = useCallback((choice: LanguageChoice, tag: unknown) => {
+    const resolved = resolveLanguage(choice, tag);
+    setUiLanguage(resolved);
+    document.documentElement.lang = langAttribute(resolved);
+  }, []);
+
   useEffect(() => {
-    applyLanguage(language);
-  }, [language]);
+    languageChoiceRef.current = languageChoice;
+  }, [languageChoice]);
+
+  // While the choice is `system`, follow the OS language the way the theme follows
+  // the colour scheme.
+  useEffect(() => {
+    if (!window.addEventListener) return;
+    const onLanguageChange = () => {
+      if (languageChoiceRef.current === "system") {
+        applyLanguageChoice("system", navigatorLanguage());
+      }
+    };
+    window.addEventListener("languagechange", onLanguageChange);
+    return () => window.removeEventListener("languagechange", onLanguageChange);
+  }, [applyLanguageChoice]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const stored = parseLanguageChoice(await api.getLanguage());
+        setLanguageChoice(stored);
+        applyLanguageChoice(stored, navigatorLanguage());
+      } catch (e) {
+        setLastError(String(e));
+      }
+    })();
+  }, [applyLanguageChoice]);
 
   useEffect(() => {
     void (async () => {
@@ -416,11 +467,20 @@ export function useAppStore(): AppStore {
     await setTheme(nextTheme(theme));
   }, [setTheme, theme]);
 
-  // A manual override (v0.7 batch 1). Reserved: nothing in the pilot's UI calls it
-  // yet, the language otherwise follows the system.
-  const setLanguage = useCallback((next: Language) => {
-    setLanguageChoice(next);
-  }, []);
+  // The settings page's language choice (v0.7 batch 2): apply it first, then
+  // store it, then persist it, so the visible language never waits on disk.
+  const setLanguage = useCallback(
+    async (next: LanguageChoice) => {
+      applyLanguageChoice(next, navigatorLanguage());
+      setLanguageChoice(next);
+      try {
+        await api.setLanguage(next);
+      } catch (e) {
+        setLastError(String(e));
+      }
+    },
+    [applyLanguageChoice],
+  );
 
   // ---- sessions (declared before the event subscription that uses them) ----
 
@@ -849,7 +909,7 @@ export function useAppStore(): AppStore {
     toggleRunSelection,
     clearRunSelection,
     diffRows,
-    diffNote,
+    diffError,
     workspaceFiles,
     refreshWorkspace,
     serial,
@@ -882,6 +942,7 @@ export function useAppStore(): AppStore {
     resolvedTheme,
     setTheme,
     cycleTheme,
+    languageChoice,
     language,
     setLanguage,
     clearToolchain,

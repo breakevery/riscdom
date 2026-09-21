@@ -24,6 +24,10 @@ const EN = {
   "diff.loading": "reading the differences…",
   "diff.failed": "could not read the fingerprint diff: {reason}",
   "diff.empty": "these two runs' fingerprints share no field to compare.",
+  "language.heading": "Language",
+  "language.system": "Follow the system",
+  "language.english": "English",
+  "language.chinese": "中文",
 } as const;
 
 /** A key of the registry. */
@@ -35,6 +39,10 @@ const ZH: Record<StringKey, string> = {
   "diff.loading": "差异读取中…",
   "diff.failed": "指纹差异读取失败：{reason}",
   "diff.empty": "这两个 run 的指纹里没有可比字段。",
+  "language.heading": "语言",
+  "language.system": "跟随系统",
+  "language.english": "English",
+  "language.chinese": "中文",
 };
 
 /** The registry itself: language -> key -> template. */

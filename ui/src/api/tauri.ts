@@ -91,6 +91,11 @@ export const getTheme = () => invoke<string>("get_theme");
 
 export const setTheme = (theme: string) => invoke<void>("set_theme", { theme });
 
+/** UI language preference (v0.7 batch 2): `system` / `en` / `zh`. */
+export const getLanguage = () => invoke<string>("get_language");
+
+export const setLanguage = (language: string) => invoke<void>("set_language", { language });
+
 /** Environment preflight (v0.4 batch 3). */
 export interface PreflightRow {
   step: string;

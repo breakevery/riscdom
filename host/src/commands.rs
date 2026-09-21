@@ -244,6 +244,18 @@ pub async fn set_theme(state: State<'_, AppState>, theme: String) -> Result<(), 
     state.set_theme(&theme).map_err(|e| e.user_message())
 }
 
+/// The stored UI language preference: `system` / `en` / `zh` (v0.7 batch 2).
+#[tauri::command]
+pub async fn get_language(state: State<'_, AppState>) -> Result<String, String> {
+    Ok(state.language())
+}
+
+/// Store the UI language preference.
+#[tauri::command]
+pub async fn set_language(state: State<'_, AppState>, language: String) -> Result<(), String> {
+    state.set_language(&language).map_err(|e| e.user_message())
+}
+
 /// The environment preflight result for the current configuration (v0.4 batch 3).
 #[tauri::command]
 pub async fn preflight_status(state: State<'_, AppState>) -> Result<PreflightView, String> {
