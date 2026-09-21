@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS audit_events (
     action       TEXT    NOT NULL,
     detail_json  TEXT    NOT NULL,
     prev_hash    TEXT    NOT NULL,
-    hash         TEXT    NOT NULL UNIQUE
+    hash         TEXT    NOT NULL UNIQUE,
+    agent_id     TEXT
 );
 
 CREATE TRIGGER IF NOT EXISTS audit_no_update
@@ -56,7 +57,8 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 "#;
 
-const SELECT_COLUMNS: &str = "id, timestamp_ms, actor, action, detail_json, prev_hash, hash";
+const SELECT_COLUMNS: &str =
+    "id, timestamp_ms, actor, action, detail_json, prev_hash, hash, agent_id";
 
 /// Filter for [`AuditStore::list`]. All fields are optional (ANDed together).
 #[derive(Debug, Clone, Default)]
@@ -89,6 +91,9 @@ pub(crate) struct RawRow {
     pub detail_json: String,
     pub prev_hash: String,
     pub hash: String,
+    /// `NULL` on rows written before v0.8 (the honest state: those events had no
+    /// agent identity to record).
+    pub agent_id: Option<String>,
 }
 
 impl RawRow {
@@ -101,6 +106,7 @@ impl RawRow {
                 actor: self.actor,
                 action: self.action,
                 detail,
+                agent_id: self.agent_id,
             },
             prev_hash: self.prev_hash,
             hash: self.hash,
@@ -116,6 +122,7 @@ impl RawRow {
             detail_json: row.get(4)?,
             prev_hash: row.get(5)?,
             hash: row.get(6)?,
+            agent_id: row.get(7)?,
         })
     }
 }
@@ -144,8 +151,39 @@ impl AuditStore {
 
     fn init_schema(&self) -> Result<(), AuditError> {
         self.conn.execute_batch(SCHEMA)?;
+        self.migrate_events_table()?;
         self.migrate_runs_table()?;
         Ok(())
+    }
+
+    /// Add the `agent_id` column an older database lacks (v0.8 technical debt).
+    ///
+    /// `CREATE TABLE IF NOT EXISTS` cannot alter a table that already exists, so a
+    /// log written before the multi-agent work keeps the old shape until this
+    /// runs. Existing rows are left `NULL` — the honest state, since those events
+    /// carried no agent identity — and nothing is rewritten.
+    ///
+    /// This adds a **column beside the chain**: the hash formula, the `prev_hash`
+    /// linkage and every existing row's `hash` are untouched, so a pre-v0.8 chain
+    /// verifies exactly as it did before.
+    fn migrate_events_table(&self) -> Result<(), AuditError> {
+        if !self.column_exists("audit_events", "agent_id")? {
+            self.conn
+                .execute("ALTER TABLE audit_events ADD COLUMN agent_id TEXT", [])?;
+        }
+        Ok(())
+    }
+
+    /// Does `table` already have `column`?
+    fn column_exists(&self, table: &str, column: &str) -> Result<bool, AuditError> {
+        let mut stmt = self.conn.prepare(&format!("PRAGMA table_info({table})"))?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            if row.get::<_, String>(1)? == column {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Add a derived-index column an older database lacks (v0.5 batch 3).
@@ -156,8 +194,10 @@ impl AuditStore {
     /// earlier — the honest state, since those rows were derived without it — and
     /// the next `rebuild_run_index` (or `audit-rebuild`) fills it from the chain.
     ///
-    /// This touches the **derived index only**. `audit_events`, its triggers and
-    /// the hash formula are never altered.
+    /// This touches the **derived index only**: the `audit_events` chain — its
+    /// triggers, its hash formula and every existing row's `hash` — is never
+    /// altered. (The `agent_id` column that [`Self::migrate_events_table`] adds
+    /// sits *beside* the chain: it changes no hash and no historical record.)
     fn migrate_runs_table(&self) -> Result<(), AuditError> {
         let has_column = {
             let mut stmt = self.conn.prepare("PRAGMA table_info(runs)")?;
@@ -187,15 +227,16 @@ impl AuditStore {
 
         self.conn.execute(
             "INSERT INTO audit_events \
-             (timestamp_ms, actor, action, detail_json, prev_hash, hash) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             (timestamp_ms, actor, action, detail_json, prev_hash, hash, agent_id) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 event.timestamp_ms,
                 event.actor,
                 event.action,
                 detail_json,
                 prev_hash,
-                hash
+                hash,
+                event.agent_id
             ],
         )?;
 
@@ -553,6 +594,7 @@ fn write_events_jsonl(events: &[StoredEvent], path: &Path) -> Result<usize, Audi
             "detail": e.event.detail,
             "prev_hash": e.prev_hash,
             "hash": e.hash,
+            "agent_id": e.event.agent_id,
         });
         writeln!(file, "{}", serde_json::to_string(&line)?)?;
     }

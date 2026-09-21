@@ -72,6 +72,7 @@ fn stored(id: i64, action: &str, detail: serde_json::Value) -> StoredEventView {
         detail,
         prev_hash: "0".repeat(64),
         hash: format!("{id:064}"),
+        agent_id: None,
     }
 }
 

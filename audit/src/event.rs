@@ -13,6 +13,14 @@ pub struct AuditEvent {
     pub action: String,
     /// Free-form structured detail. Must never contain secrets (API keys, tokens).
     pub detail: serde_json::Value,
+    /// Which agent caused the event (v0.8 technical debt).
+    ///
+    /// `None` until a producer sets it: the field is reserved for the
+    /// multi-agent runtime, where one chain has to say "who made whom do what".
+    /// It is deliberately **not** part of the hash formula — adding it changed
+    /// no row's hash and no historical record (the chain structure and the hash
+    /// formula are untouched).
+    pub agent_id: Option<String>,
 }
 
 impl AuditEvent {
@@ -27,7 +35,17 @@ impl AuditEvent {
             actor: actor.into(),
             action: action.into(),
             detail,
+            agent_id: None,
         }
+    }
+
+    /// Stamp the event with the agent that caused it.
+    ///
+    /// A builder, so the existing three-argument [`Self::new`] call sites are
+    /// untouched: producers that know their agent identity opt in.
+    pub fn with_agent(mut self, agent_id: impl Into<String>) -> Self {
+        self.agent_id = Some(agent_id.into());
+        self
     }
 }
 

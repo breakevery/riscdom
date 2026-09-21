@@ -9,6 +9,7 @@ fn ev(ts: i64, actor: &str, action: &str) -> AuditEvent {
         actor: actor.into(),
         action: action.into(),
         detail: serde_json::json!({ "ts": ts }),
+        agent_id: None,
     }
 }
 

@@ -308,6 +308,8 @@ pub struct StoredEventView {
     pub detail: serde_json::Value,
     pub prev_hash: String,
     pub hash: String,
+    /// Which agent caused the event (v0.8); `null` on rows written before it.
+    pub agent_id: Option<String>,
 }
 
 impl From<StoredEvent> for StoredEventView {
@@ -320,6 +322,7 @@ impl From<StoredEvent> for StoredEventView {
             detail: e.event.detail,
             prev_hash: e.prev_hash,
             hash: e.hash,
+            agent_id: e.event.agent_id,
         }
     }
 }
@@ -387,6 +390,12 @@ pub struct AppState {
     settings: Mutex<LocalSettings>,
     /// Where `settings.json` lives.
     settings_path: PathBuf,
+    /// The data directory this instance owns (v0.8). The sessions DB and the
+    /// downloaded toolchains live here too. Injecting it is what lets two
+    /// `AppState`s in one process keep their own data — before v0.8 it was
+    /// resolved from a process-wide `OnceLock`, so only the first instance's
+    /// directory ever took effect.
+    data_dir: PathBuf,
     pub llm_config: Mutex<Option<LlmConfigInput>>,
     pub workspace_root: PathBuf,
     pub compiler: agent::CompilerConfig,
@@ -537,6 +546,34 @@ impl AppState {
         Ok(state)
     }
 
+    /// Build state whose data directory is **injected** rather than taken from
+    /// the process-wide default (v0.8 technical debt).
+    ///
+    /// `settings.json`, the sessions DB and the toolchain download directory all
+    /// resolve inside `data_dir`, so two instances built this way never share
+    /// state — the multi-agent runtime's precondition. The audit DB still lives
+    /// under the workspace (`<workspace>/.riscdom/audit.db`), as it always has.
+    pub fn with_data_dir(
+        workspace_root: impl Into<PathBuf>,
+        data_dir: impl Into<PathBuf>,
+    ) -> Result<Self, HostError> {
+        let root = workspace_root.into();
+        let data_dir = data_dir.into();
+        std::fs::create_dir_all(&root)?;
+        let db_dir = root.join(".riscdom");
+        std::fs::create_dir_all(&db_dir)?;
+        std::fs::create_dir_all(&data_dir)?;
+        let store = AuditStore::open(&db_dir.join("audit.db"))?;
+        let sessions = SessionStore::open(&crate::paths::sessions_db_path_in(&data_dir))
+            .map_err(|e| HostError::Other(format!("session store: {e}")))?;
+        let mut state = Self::from_store(root, store, Arc::new(OsKeyring::new()), sessions);
+        state.data_dir = data_dir;
+        state.settings_path = crate::paths::settings_path_in(&state.data_dir);
+        state.init_from_env();
+        state.load_settings();
+        Ok(state)
+    }
+
     /// Build state with a private in-memory audit DB and keyring (tests).
     pub fn in_memory(workspace_root: impl Into<PathBuf>) -> Result<Self, HostError> {
         let root = workspace_root.into();
@@ -614,6 +651,7 @@ impl AppState {
             toolchain_download_last: Mutex::new(None),
             settings: Mutex::new(LocalSettings::default()),
             settings_path: crate::paths::settings_path(),
+            data_dir: crate::paths::default_data_dir(),
             llm_config: Mutex::new(None),
             workspace_root: root,
             compiler: agent::CompilerConfig::from_env(),
@@ -1174,6 +1212,19 @@ impl AppState {
     /// Where the local settings file lives (tests / diagnostics).
     pub fn settings_path(&self) -> &Path {
         &self.settings_path
+    }
+
+    /// The data directory this instance owns (v0.8).
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
+    }
+
+    /// Directory for downloaded toolchains, resolved against **this instance's**
+    /// data directory (v0.8). Commands that install a toolchain use this rather
+    /// than the process-wide default, so two hosts in one process cannot
+    /// overwrite each other's downloads.
+    pub fn toolchain_dir(&self) -> PathBuf {
+        crate::paths::toolchain_dir_in(&self.data_dir)
     }
 
     /// Read settings from disk and apply them (missing/corrupt → defaults).

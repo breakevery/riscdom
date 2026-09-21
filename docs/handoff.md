@@ -86,6 +86,15 @@ section when the next release ships)
   split, the settled decisions (Tauri decoupling A3 → A1, the B2 multi-process model, the audit chain as
   a single chain + agent_id), the seams left open for multi-device, and the milestone path to the v1.0
   kernel-API freeze. Documentation only: no code changed.
+- **The v0.8 technical-debt batch has landed** (v0.8 batch 1): the three dead-ends the
+  [architecture-evolution note](architecture-evolution.md) §8 listed as debt are cleared. The app-data
+  directory is **injected** — `AppState::with_data_dir(workspace, data_dir)` replaces the process-wide
+  `OnceLock` in `host::paths`, so two instances in one process keep their own `settings.json`, sessions
+  DB and toolchain directory. The audit chain gains an **`agent_id`** column, sitting *beside* the
+  chain: the hash formula, the `prev_hash` linkage and every existing row's `hash` are untouched, so a
+  pre-v0.8 chain still verifies. And **one VM slot per `AppState`** is pinned by a test rather than
+  assumed. Code, not documentation: two new audit tests and one new host test (`multi_instance.rs`),
+  and no change on the golden path.
 - Open items: the temp directories under `%TEMP%` have not been cleaned (the deletion confirmation
   was never granted; 144 `riscdom-*` entries were counted on 2026-09-21); CLA.md awaits a lawyer's
   eye; **the clean-machine walk by someone else has not happened** — still a v0.5.x strengthening item

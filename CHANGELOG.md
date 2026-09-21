@@ -7,6 +7,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the
+architecture re-assessment named are cleared. Nothing on the golden path changes.
+
+### Changed
+
+- **The app-data directory is injected, not global** (v0.8 batch 1): `host::paths` kept its default
+data directory in a `OnceLock`, so the first caller won and every later caller was silently ignored —
+a second `AppState` in one process could not have its own data directory. The default is now a
+re-settable `RwLock`, and `AppState::with_data_dir(workspace, data_dir)` resolves `settings.json`,
+the sessions DB and the toolchain download directory inside a directory the instance owns. The Tauri
+shell uses it, and a host test pins two instances writing to two different files.
+- **One VM slot per `AppState`** (v0.8 batch 1): the host-owned slot was already a per-instance field
+(`AppState::vm_slot`), not a process-wide singleton. The batch records that with a test — two
+instances keep separate chains and separate slots — so nothing re-shares them by accident.
+
+### Added
+
+- **`agent_id` on every audit event** (v0.8 batch 1): `AuditEvent` gains an optional `agent_id` (set
+with the `with_agent` builder), stored in a new `audit_events.agent_id` column that an older database
+picks up on the next open. It sits **beside** the chain: the hash formula, the `prev_hash` linkage
+and every existing row's `hash` are untouched, so a pre-v0.8 chain verifies exactly as it did before.
+Producers leave it `None` until the multi-agent runtime gives them an identity. The JSONL export and
+`list_audit_events` carry it.
+
 ## [0.7.0] - 2026-09-21
 
 **v0.7 is on `main` and unreleased: a self-built i18n facility, a language switch, and macOS/Linux

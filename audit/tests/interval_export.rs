@@ -174,6 +174,7 @@ fn every_exported_line_still_verifies_on_its_own() {
             actor: line["actor"].as_str().unwrap().to_string(),
             action: line["action"].as_str().unwrap().to_string(),
             detail: line["detail"].clone(),
+            agent_id: line["agent_id"].as_str().map(str::to_string),
         };
         let stored_prev = line["prev_hash"].as_str().unwrap();
         let recomputed = compute_hash(

@@ -20,6 +20,7 @@ fn ev(ts: i64) -> AuditEvent {
         actor: "sandbox".into(),
         action: "vm.start".into(),
         detail: serde_json::json!({ "n": ts }),
+        agent_id: None,
     }
 }
 
@@ -71,6 +72,65 @@ fn tampered_event_is_detected_at_its_id() {
         }
         other => panic!("expected Broken at id 2, got {other:?}"),
     }
+}
+
+#[test]
+fn a_pre_v08_database_gains_agent_id_without_touching_the_chain() {
+    let path = tmp_db("agent_id_migration");
+
+    // A database written before v0.8: the event table has no `agent_id` column.
+    {
+        let conn = Connection::open(&path).expect("raw connection");
+        conn.execute_batch(
+            "CREATE TABLE audit_events (\n                 id           INTEGER PRIMARY KEY AUTOINCREMENT,\n                 timestamp_ms INTEGER NOT NULL,\n                 actor        TEXT    NOT NULL,\n                 action       TEXT    NOT NULL,\n                 detail_json  TEXT    NOT NULL,\n                 prev_hash    TEXT    NOT NULL,\n                 hash         TEXT    NOT NULL UNIQUE\n             );",
+        )
+        .expect("old schema");
+    }
+
+    // One event, hashed with the *unchanged* formula.
+    let prev = audit::GENESIS_PREV_HASH.to_string();
+    let detail_json = "{\"n\":1}";
+    let event = AuditEvent {
+        timestamp_ms: 1,
+        actor: "sandbox".into(),
+        action: "vm.start".into(),
+        detail: serde_json::json!({ "n": 1 }),
+        agent_id: None,
+    };
+    let hash = audit::compute_hash(&prev, &event, detail_json);
+    {
+        let conn = Connection::open(&path).expect("raw connection");
+        conn.execute(
+            "INSERT INTO audit_events (timestamp_ms, actor, action, detail_json, prev_hash, hash) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![1i64, "sandbox", "vm.start", detail_json, prev, hash],
+        )
+        .expect("insert old row");
+    }
+
+    // Opening it through the store runs the migration; the old chain still verifies.
+    let store = AuditStore::open(&path).expect("open store");
+    assert_eq!(
+        verify_chain(&store).expect("verify"),
+        ChainStatus::Intact { length: 1 }
+    );
+    let row = store.get(1).expect("get").expect("present");
+    assert_eq!(row.event.agent_id, None, "an old row has no agent identity");
+
+    let conn = Connection::open(&path).expect("raw connection");
+    let cols: Vec<String> = {
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(audit_events)")
+            .expect("pragma");
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(1))
+            .expect("query");
+        rows.map(|r| r.expect("col")).collect()
+    };
+    assert!(
+        cols.iter().any(|c| c == "agent_id"),
+        "column added: {cols:?}"
+    );
 }
 
 #[test]

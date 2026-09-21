@@ -42,6 +42,8 @@ export interface AuditEvent {
   detail: unknown;
   prev_hash: string;
   hash: string;
+  // v0.8: which agent caused the event; null on rows written before it.
+  agent_id?: string | null;
 }
 
 export interface AgentOutcomeView {

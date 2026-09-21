@@ -7,6 +7,29 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)。
 
+## [未发布]
+
+**v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见
+行为变化。
+
+### 变更
+
+- **app data 目录改为注入，不再是全局**（v0.8 批次 1）：`host::paths` 此前把默认 data 目录存在
+  `OnceLock` 里，谁先调用谁生效，之后的调用被静默忽略 —— 同一进程里的第二个 `AppState` 无法拥有自己的
+  data 目录。默认值现为可重复设置的 `RwLock`，并且 `AppState::with_data_dir(workspace, data_dir)` 把
+  `settings.json`、会话 DB 与工具链下载目录都解析到实例自己的目录下。Tauri 外壳已改用它；一条 host 测试
+  钉住两个实例各自写入不同文件。
+- **每个 `AppState` 一个 VM 槽**（v0.8 批次 1）：host 持有的 VM 槽本来就已是 per-instance 字段
+  （`AppState::vm_slot`），而非进程级单例。本批次用一条测试把它钉住 —— 两个实例各自独立的链、各自独立
+  的槽 —— 不会有东西悄悄把它们重新共享。
+
+### 新增
+
+- **每条审计事件带 `agent_id`**（v0.8 批次 1）：`AuditEvent` 增加可选字段 `agent_id`（用 builder
+  `with_agent` 设置），存入新增的 `audit_events.agent_id` 列，旧库在下次打开时自动补上。它位于链**旁边**：
+  哈希公式、`prev_hash` 链接、以及每一行既有的 `hash` 全部不动，因此 v0.8 之前的链仍按原样通过校验。
+  在多 Agent 运行时给生产者身份之前，生产者一律留 `None`。JSONL 导出与 `list_audit_events` 都会带上它。
+
 ## [0.7.0] - 2026-09-21
 
 **v0.7 已在 `main` 上、尚未发布：自建 i18n 设施、语言切换，以及 macOS/Linux 构建。** Latest 正式版

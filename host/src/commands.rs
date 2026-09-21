@@ -38,7 +38,9 @@ pub async fn start_toolchain_download(
                 emitter.emit(TOOLCHAIN_DOWNLOAD, payload);
             }
         };
-        let dest_root = crate::paths::toolchain_dir();
+        // v0.8: the destination belongs to the instance, not to a process-wide
+        // default, so two hosts in one process cannot overwrite each other.
+        let dest_root = state.toolchain_dir();
         if let Err(e) = state.download_toolchain_now(&spec, &dest_root, cancel, &mut on_event) {
             eprintln!("toolchain download failed: {e}");
         }

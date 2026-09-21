@@ -69,6 +69,12 @@
   [architecture-evolution.zh-CN.md](architecture-evolution.zh-CN.md) 成对）记录了 v0.7.0 之后做的架构重估 ——
   四层分层与 syscall 层的「机制/策略」划分、已定决策（Tauri 解耦 A3 → A1、B2 多进程模型、审计单链 +
   agent_id）、为多设备预留的缝，以及通往 v1.0 内核 API 冻结的里程碑路径。只写文档：未改代码。
+- **v0.8 技术债批次已落地**（v0.8 批次 1）：[架构演进文档](architecture-evolution.md) §8 列为债务的三个
+  堵死点已清除。app data 目录改为**注入** —— `AppState::with_data_dir(workspace, data_dir)` 取代了
+  `host::paths` 里进程级的 `OnceLock`，于是同一进程内的两个实例各自拥有 `settings.json`、会话 DB 与工具链
+  目录。审计链新增 **`agent_id`** 列，位于链**旁边**：哈希公式、`prev_hash` 链接与每一行既有的 `hash`
+  全不动，因此 v0.8 之前的链仍能通过校验。以及**每个 `AppState` 一个 VM 槽**，以测试钉住而非假定。改的是
+  代码不是文档：审计侧两条新测试、host 侧一条新测试（`multi_instance.rs`），黄金路径无变化。
 - 未完成项：`%TEMP%` 下的临时目录仍未清理（删除确认始终未被放行；2026-09-21 统计到 144 个
   `riscdom-*` 条目）；CLA.md 待律师过目；**由他人进行的干净机器走查尚未发生** —— 仍是 v0.5.x 的补强项，
   而不是阻塞项；**macOS/Linux 的安装包从未被启动过**且未签名（签名属商业化层）；v0.5 走查留给真人的两项

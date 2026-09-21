@@ -60,6 +60,7 @@ pub fn verify_chain(store: &AuditStore) -> Result<ChainStatus, AuditError> {
                 actor: row.actor.clone(),
                 action: row.action.clone(),
                 detail: serde_json::Value::Null, // unused by compute_hash
+                agent_id: None,                  // unused by compute_hash
             },
             &row.detail_json,
         );
@@ -87,6 +88,7 @@ mod tests {
             actor: actor.into(),
             action: action.into(),
             detail: serde_json::json!({ "n": ts }),
+            agent_id: None,
         }
     }
 

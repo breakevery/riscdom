@@ -20,7 +20,9 @@ pub fn run() {
             let workspace = base.join("workspace");
             // Session data lives next to it, in app data (never in the repo).
             host::paths::set_app_data_dir(base.clone());
-            let state = host::AppState::new(&workspace)
+            // v0.8: pass the data directory in, so this instance owns it rather
+            // than sharing one process-wide default.
+            let state = host::AppState::with_data_dir(&workspace, base.clone())
                 .map_err(|e| format!("failed to init host state: {e}"))?;
             // Long-lived serial forwarder: outlives individual runs so the UI
             // keeps receiving serial output across runs.

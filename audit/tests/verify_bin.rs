@@ -20,6 +20,7 @@ fn ev(ts: i64) -> AuditEvent {
         actor: "sandbox".into(),
         action: "vm.start".into(),
         detail: serde_json::json!({ "n": ts }),
+        agent_id: None,
     }
 }
 
