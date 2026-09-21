@@ -383,6 +383,20 @@ fn extract_zip(
     Ok(())
 }
 
+/// Zip archives are a Windows asset kind here, and `zip` is a Windows-only
+/// dependency: on every other platform the match arm still exists, so it reports
+/// that instead of failing to compile.
+#[cfg(not(target_os = "windows"))]
+fn extract_zip(
+    _archive: &Path,
+    _dest: &Path,
+    _cancel: &AtomicBool,
+) -> Result<(), ToolchainDownloadError> {
+    Err(ToolchainDownloadError::Archive(
+        "zip archives are not supported on this platform".to_string(),
+    ))
+}
+
 #[cfg(not(target_os = "windows"))]
 fn extract_tar_gz(
     archive: &Path,
