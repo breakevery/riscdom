@@ -34,7 +34,15 @@ name: CI
 on:
   push:
     branches: [main]
+    # A version tag is another way in. YAML allows a single `push` key, so the tags
+    # are listed beside the branch rather than in a second block; the `bundle` job
+    # below is the reason they are listed at all (its `if` admits a manual dispatch
+    # or a `v*` tag, and nothing else). Consequence worth knowing: `secrets` and
+    # `gate` see tag pushes too, which is harmless (a release tag should pass the
+    # gate anyway) and is what keeping one `push` key costs.
+    tags: ["v*"]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   secrets:
@@ -99,3 +107,85 @@ jobs:
 
       - name: gate
         run: sh scripts/gate.sh
+
+  # macOS and Linux bundles (v0.7 batch B).
+  #
+  # This job **builds only**: no `cargo test`, no UI probe, no `cargo clippy`. The
+  # one list of what "green" means is still `scripts/gate.sh` (see ONE SOURCE OF
+  # TRUTH at the top of this file), and this job keeps no second command list of
+  # its own -- a build is not a check. What it is for is the one thing the gate
+  # cannot do: produce a `dmg` on macOS and a `deb` / `rpm` / `AppImage` on Linux.
+  #
+  # It runs on a manual dispatch and on a `v*` tag, never on an ordinary push or a
+  # pull request: a macOS runner bills at ten times a Linux one, and bundles are
+  # wanted when a release is being cut, not on every commit.
+  bundle:
+    name: bundle (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri's Linux build needs WebKitGTK and its neighbours; macOS needs nothing
+      # beyond the runner's Xcode command line tools.
+      - name: install linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libssl-dev \
+            libxdo-dev \
+            build-essential \
+            pkg-config \
+            patchelf \
+            file \
+            wget \
+            curl
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # Same reason as the gate job: the build runs `npm run build` first, so the
+      # frontend dependencies have to be there before it starts.
+      - name: install frontend dependencies
+        working-directory: ui
+        run: npm ci
+
+      # The repository's own build command (`ui/README.md`, CHANGELOG). `node` on a
+      # Linux or macOS runner is a real Node, so the Windows-only launcher
+      # workaround in `ENVIRONMENT.md` §11 does not apply here; GitHub sets `CI=true`,
+      # which the Tauri CLI reads to skip its prompts.
+      - name: build bundles
+        working-directory: ui
+        run: npm run tauri build
+
+      # The bundles only: `target/release/bundle/{dmg,macos,deb,rpm,appimage}/`.
+      - name: upload bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: riscdom-bundles-${{ matrix.os }}
+          path: ui/src-tauri/target/release/bundle/**
+          if-no-files-found: error
+          retention-days: 14
