@@ -28,6 +28,15 @@ const EN = {
   "language.system": "Follow the system",
   "language.english": "English",
   "language.chinese": "中文",
+  "qemu.missing": "QEMU (qemu-system-riscv64) was not found.",
+  "qemu.install.windows":
+    "On Windows, run `winget install SoftwareFreedomConservancy.QEMU` or install from https://www.qemu.org/download/#windows; you can also set the full path by hand.",
+  "qemu.install.macos":
+    "On macOS, run `brew install qemu` or install from https://www.qemu.org/download/; you can also set the full path by hand.",
+  "qemu.install.linux":
+    "On Linux, install your distribution's package (`qemu-system-misc` on Debian/Ubuntu, `qemu` on Arch/Fedora), or build from https://www.qemu.org/download/; you can also set the full path by hand.",
+  "qemu.install.other":
+    "Install QEMU from https://www.qemu.org/download/; you can also set the full path by hand.",
 } as const;
 
 /** A key of the registry. */
@@ -43,6 +52,15 @@ const ZH: Record<StringKey, string> = {
   "language.system": "跟随系统",
   "language.english": "English",
   "language.chinese": "中文",
+  "qemu.missing": "未找到 QEMU（qemu-system-riscv64）。",
+  "qemu.install.windows":
+    "Windows 可运行 `winget install SoftwareFreedomConservancy.QEMU`，或从 https://www.qemu.org/download/#windows 安装；也可手动指定完整路径。",
+  "qemu.install.macos":
+    "macOS 可运行 `brew install qemu`，或从 https://www.qemu.org/download/ 安装；也可手动指定完整路径。",
+  "qemu.install.linux":
+    "Linux 可用发行版包（Debian/Ubuntu 为 `qemu-system-misc`，Arch/Fedora 为 `qemu`），或从 https://www.qemu.org/download/ 自行构建；也可手动指定完整路径。",
+  "qemu.install.other":
+    "从 https://www.qemu.org/download/ 安装 QEMU；也可手动指定完整路径。",
 };
 
 /** The registry itself: language -> key -> template. */

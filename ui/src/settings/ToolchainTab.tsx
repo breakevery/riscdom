@@ -6,6 +6,8 @@ import {
   shouldOfferOverride,
   stepLabel,
 } from "../lib/preflightView";
+import { navigatorPlatform, qemuInstallKey } from "../lib/platform";
+import { t } from "../i18n/index.ts";
 
 /** Human-readable state line for the download area. */
 function statusText(store: AppStore): string {
@@ -115,9 +117,7 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
       <h3>QEMU</h3>
       {store.qemu && !store.qemu.found ? (
         <div className="banner warn">
-          未找到 QEMU（qemu-system-riscv64）。Windows 可运行
-          winget install SoftwareFreedomConservancy.QEMU，或从 https://www.qemu.org/download/#windows
-          安装；也可点“手动指定”填入完整路径。
+          {t("qemu.missing")} {t(qemuInstallKey(navigatorPlatform()))}
         </div>
       ) : null}
       <div className="status-line">

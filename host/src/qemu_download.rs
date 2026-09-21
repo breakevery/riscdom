@@ -157,23 +157,13 @@ pub fn winget_available() -> bool {
 
 /// What to tell the user to do instead — the decision in `docs/qemu-distribution.md` §5 is to guide,
 /// not to download.
-pub fn install_guidance() -> String {
-    install_guidance_with(winget_available())
-}
-
-/// [`install_guidance`] with the `winget` detection decided by the caller.
 ///
-/// Both branches are reachable on one machine only through this entry point, so the branch that this
-/// machine does *not* take is still tested (`host/tests/qemu_spec.rs`).
-pub fn install_guidance_with(winget: bool) -> String {
-    if winget {
-        format!("run `{}`", sandbox::qemu_discover::QEMU_WINGET_HINT)
-    } else {
-        format!(
-            "download an installer from {}",
-            sandbox::qemu_discover::QEMU_DOWNLOAD_URL
-        )
-    }
+/// The platform picks the route (winget/page on Windows, Homebrew on macOS, the
+/// distribution's package on Linux); only the Windows branch needs the `winget`
+/// probe, which cannot leave this crate. The wording itself lives in `sandbox`,
+/// next to the constants it names.
+pub fn install_guidance() -> String {
+    sandbox::qemu_discover::install_hint_for(std::env::consts::OS, winget_available())
 }
 
 /// The download that matches this machine.

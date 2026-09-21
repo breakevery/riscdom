@@ -7,12 +7,17 @@
 //!
 //! Platform policy:
 //! - **Windows**: use TCP (`127.0.0.1:<port>`). Unix sockets are unavailable.
-//! - **Unix**: prefer Unix sockets for QMP. The MVP is developed and tested on
-//!   Windows, so only the TCP path is exercised by the test suite.
+//! - **Unix**: prefer Unix sockets for QMP.
+//!
+//! Testing (v0.7 batch A): the Unix arm's *rendering* is a pure function
+//! ([`unix_qmp_arg`]) and is unit-tested on every platform, Windows included. What
+//! is **not** exercised here is a real Unix socket end to end 鈥?that needs macOS or
+//! Linux and a QEMU build, and is listed as an untested path in `docs/handoff.md`.
+//! The TCP path, meanwhile, is what the suite drives on Windows.
 
 use serde::{Deserialize, Serialize};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// QMP (QEMU Machine Protocol) endpoint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,11 +74,18 @@ impl QmpEndpoint {
                 format!("tcp:{host}:{port},server=on,wait=off")
             }
             #[cfg(unix)]
-            QmpEndpoint::UnixSocket { path } => {
-                format!("unix:{},server=on,wait=off", path.display())
-            }
+            QmpEndpoint::UnixSocket { path } => unix_qmp_arg(path),
         }
     }
+}
+
+/// The `-qmp` value for a Unix socket (`unix:<path>,server=on,wait=off`).
+///
+/// Pure, so it is unit-tested on every platform 鈥?including Windows, which cannot
+/// bind the socket but can still check the argument QEMU would be handed.
+/// `wait=off` for the same reason as the TCP arm above.
+pub fn unix_qmp_arg(path: &Path) -> String {
+    format!("unix:{},server=on,wait=off", path.display())
 }
 
 impl SerialEndpoint {
@@ -149,5 +161,25 @@ mod tests {
     fn serial_file_arg_shape() {
         let e = SerialEndpoint::file(PathBuf::from("/tmp/serial.log"));
         assert!(e.to_qemu_arg().starts_with("file:"));
+    }
+
+    /// The Unix QMP argument is pinned on every platform; only the socket itself is
+    /// Unix-only.
+    #[test]
+    fn unix_qmp_arg_shape() {
+        assert_eq!(
+            unix_qmp_arg(Path::new("/tmp/qmp.sock")),
+            "unix:/tmp/qmp.sock,server=on,wait=off"
+        );
+    }
+
+    /// The Unix endpoint renders exactly what the helper produces, so the two cannot
+    /// drift apart on a Unix host.
+    #[cfg(unix)]
+    #[test]
+    fn the_unix_socket_endpoint_uses_the_helper() {
+        let path = PathBuf::from("/tmp/qmp.sock");
+        let endpoint = QmpEndpoint::UnixSocket { path: path.clone() };
+        assert_eq!(endpoint.to_qemu_arg(), unix_qmp_arg(&path));
     }
 }

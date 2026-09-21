@@ -81,8 +81,12 @@ pub const SUGGEST_GCC_RUNS: &str =
 pub const SUGGEST_GCC_COMPILES: &str =
     "看上面的编译器输出：路径过长/含特殊字符、缺 -march 支持、或二进制损毁都可能。可一键下载一份工具链，或手动换路径。";
 /// What to suggest when QEMU cannot be run.
+///
+/// Platform-neutral on purpose (v0.7 batch A): the app runs on Windows / macOS / Linux
+/// now, so the suggestion names the download page and each platform's route instead of
+/// assuming `winget`.
 pub const SUGGEST_QEMU_RUNS: &str =
-    "装 QEMU（winget install SoftwareFreedomConservancy.QEMU），或在「设置 → 工具链」里指定 qemu-system-riscv64 的完整路径。";
+    "装 QEMU（官方下载页 https://www.qemu.org/download/：Windows 可用 winget，macOS 可用 brew，Linux 用发行版包），或在「设置 → 工具链」里指定 qemu-system-riscv64 的完整路径。";
 /// What to suggest when the guest never printed its banner.
 pub const SUGGEST_GUEST_BOOTS: &str =
     "这对「工具链 × QEMU」能编译但跑不起来。可以换一个已知可用的组合（例如 QEMU 11.1.0 + xPack 15.2.0），或先「仍要继续」自行确认。";

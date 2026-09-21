@@ -23,6 +23,8 @@ const MODULE = path.join(REPO, "ui", "src", "i18n", "index.ts");
 const RUNS = path.join(REPO, "ui", "src", "lib", "runView.ts");
 const TAB = path.join(REPO, "ui", "src", "settings", "AppearanceTab.tsx");
 const AUDIT = path.join(REPO, "ui", "src", "settings", "AuditTab.tsx");
+const TOOLCHAIN = path.join(REPO, "ui", "src", "settings", "ToolchainTab.tsx");
+const PLATFORM = path.join(REPO, "ui", "src", "lib", "platform.ts");
 const STORE = path.join(REPO, "ui", "src", "state", "appStore.ts");
 const API = path.join(REPO, "ui", "src", "api", "tauri.ts");
 const SHELL = path.join(REPO, "ui", "src-tauri", "src", "lib.rs");
@@ -36,6 +38,7 @@ function check(name, ok, detail) {
 
 const i18n = await import(pathToFileURL(MODULE).href);
 const runs = await import(pathToFileURL(RUNS).href);
+const platform = await import(pathToFileURL(PLATFORM).href);
 console.log(`# language rules (${path.relative(REPO, MODULE)})\n`);
 
 check("the choice is three-state", i18n.LANGUAGE_CHOICES.join(",") === "system,en,zh");
@@ -116,6 +119,54 @@ check(
 check(
   "the panel builds the refusal at render time",
   /diffFailedText\(store\.diffError\)/.test(readFileSync(AUDIT, "utf8")),
+);
+
+// Platform wording (v0.7 batch A): the QEMU "not found" banner follows the platform
+// and reads from the registry, instead of hard-coding the Windows route.
+check(
+  "the platform classifies what the webview reports",
+  platform.parsePlatform("Win32") === "windows" &&
+    platform.parsePlatform("MacIntel") === "macos" &&
+    platform.parsePlatform("Linux x86_64") === "linux" &&
+    platform.parsePlatform("Darwin") === "macos" &&
+    platform.parsePlatform(undefined) === "other",
+);
+check(
+  "each platform picks its own install key",
+  platform.qemuInstallKey("Win32") === "qemu.install.windows" &&
+    platform.qemuInstallKey("MacIntel") === "qemu.install.macos" &&
+    platform.qemuInstallKey("Linux x86_64") === "qemu.install.linux" &&
+    platform.qemuInstallKey("FreeBSD") === "qemu.install.other",
+);
+const installKeys = [
+  "qemu.missing",
+  "qemu.install.windows",
+  "qemu.install.macos",
+  "qemu.install.linux",
+  "qemu.install.other",
+];
+i18n.setLanguage("en");
+const installEn = installKeys.map((key) => i18n.t(key));
+i18n.setLanguage("zh");
+const installZh = installKeys.map((key) => i18n.t(key));
+i18n.setLanguage("en");
+check(
+  "every install hint has text in both languages",
+  installKeys.every(
+    (key, index) =>
+      installEn[index].length > 0 &&
+      installZh[index].length > 0 &&
+      installEn[index] !== key &&
+      installZh[index] !== key,
+  ),
+  `${installEn[0]} / ${installZh[0]}`,
+);
+const toolchain = readFileSync(TOOLCHAIN, "utf8");
+check(
+  "the QEMU banner follows the platform and the registry",
+  /t\(qemuInstallKey\(navigatorPlatform\(\)\)\)/.test(toolchain) &&
+    !/winget install/.test(toolchain),
+  "ToolchainTab must not hard-code the Windows route",
 );
 
 const api = readFileSync(API, "utf8");

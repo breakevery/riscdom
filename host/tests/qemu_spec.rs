@@ -5,8 +5,7 @@
 //! these checks need no I/O at all.
 
 use host::qemu_download::{
-    install_guidance, install_guidance_with, spec_for_current_platform, winget_available,
-    QemuDownloadError, QEMU_VERSION,
+    install_guidance, spec_for_current_platform, winget_available, QemuDownloadError, QEMU_VERSION,
 };
 
 /// **The repository pins no QEMU build, and this test says so out loud.**
@@ -40,39 +39,70 @@ fn no_qemu_spec_is_invented_for_this_platform() {
     );
 }
 
-/// Both guidance branches name their source, whether or not this machine has `winget`.
+/// Every platform's install line names its own route — and every branch is reachable
+/// on any one machine, because the platform and the `winget` flag are arguments.
 #[test]
-fn both_guidance_branches_name_their_source() {
-    let with = install_guidance_with(true);
-    let without = install_guidance_with(false);
-    println!("with winget: {with}");
-    println!("without winget: {without}");
+fn every_install_hint_names_its_own_route() {
+    use sandbox::qemu_discover::{
+        install_hint_for, QEMU_BREW_HINT, QEMU_DOWNLOAD_URL, QEMU_DOWNLOAD_URL_WINDOWS,
+        QEMU_LINUX_PACKAGES, QEMU_WINGET_HINT,
+    };
+
+    let windows_with_winget = install_hint_for("windows", true);
+    let windows_without = install_hint_for("windows", false);
+    let macos = install_hint_for("macos", false);
+    let linux = install_hint_for("linux", false);
+    let other = install_hint_for("freebsd", false);
+    println!("{windows_with_winget}\n{windows_without}\n{macos}\n{linux}\n{other}");
+
     assert!(
-        with.contains(sandbox::qemu_discover::QEMU_WINGET_HINT),
-        "{with}"
+        windows_with_winget.contains(QEMU_WINGET_HINT),
+        "{windows_with_winget}"
     );
     assert!(
-        without.contains(sandbox::qemu_discover::QEMU_DOWNLOAD_URL),
-        "{without}"
+        windows_without.contains(QEMU_DOWNLOAD_URL_WINDOWS)
+            && windows_without.contains(QEMU_WINGET_HINT),
+        "{windows_without}"
     );
+    assert!(
+        macos.contains(QEMU_BREW_HINT) && !macos.contains(QEMU_WINGET_HINT),
+        "{macos}"
+    );
+    assert!(
+        linux.contains(QEMU_LINUX_PACKAGES) && !linux.contains(QEMU_WINGET_HINT),
+        "{linux}"
+    );
+    assert!(other.contains(QEMU_DOWNLOAD_URL), "{other}");
 }
 
-/// The live guidance is one of exactly the two documented things.
+/// The live guidance names the route this platform actually has.
 ///
-/// It does **not** pin which one: detection is a property of the machine at that instant, and a test
-/// that detects twice can disagree with itself (it did — `winget --version` returned success and
-/// then failure back to back under load). The branches themselves are pinned deterministically by
-/// [`both_guidance_branches_name_their_source`].
+/// It does **not** pin *which* Windows branch is taken: detection is a property of the machine at
+/// that instant, and a test that detects twice can disagree with itself (it did — `winget
+/// --version` returned success and then failure back to back under load). The branches themselves
+/// are pinned deterministically by [`every_install_hint_names_its_own_route`].
 #[test]
-fn the_guidance_names_winget_or_the_download_page() {
+fn the_guidance_names_this_platforms_route() {
+    use sandbox::qemu_discover::{
+        QEMU_BREW_HINT, QEMU_DOWNLOAD_URL, QEMU_DOWNLOAD_URL_WINDOWS, QEMU_LINUX_PACKAGES,
+        QEMU_WINGET_HINT,
+    };
+
     let guidance = install_guidance();
     println!("winget available: {}", winget_available());
     println!("guidance: {guidance}");
     assert!(!guidance.is_empty());
     assert!(
-        guidance.contains(sandbox::qemu_discover::QEMU_WINGET_HINT)
-            || guidance.contains(sandbox::qemu_discover::QEMU_DOWNLOAD_URL),
-        "the guidance must name winget or the download page: {guidance}"
+        [
+            QEMU_WINGET_HINT,
+            QEMU_DOWNLOAD_URL_WINDOWS,
+            QEMU_BREW_HINT,
+            QEMU_LINUX_PACKAGES,
+            QEMU_DOWNLOAD_URL,
+        ]
+        .iter()
+        .any(|marker| guidance.contains(marker)),
+        "the guidance must name a route: {guidance}"
     );
 }
 

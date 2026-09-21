@@ -11,6 +11,19 @@
 
 ## 1. 快照 —— `v0.6.0-preview.1` 已作为预发布版发出；Latest 仍是 `v0.5.0`（下次发布时更新本节）
 
+- **v0.7 已开工，但尚未发布。** 两条线并行：**自建 i18n 设施**（v0.7 批次 1–2 —— `ui/src/i18n/`、
+  gate 里的注册表检查、以及*设置 → 外观*里会写入 `settings.json` 并把 `<html>` 的 `lang` 跟着改的
+  语言切换），和 **macOS/Linux 支持**（批次 3 只做侦察，批次 A 是第一批代码）。**用注册表铺开其余界面
+  字符串这件事挂起了**：设施与那 4 条 diff 字符串保留，190 行的全量翻译不做 —— 价值在设施，而不在把
+  一个内核形态的工具翻一遍。工作提交：`06fef0a`（可用的语言切换）← `6abcb44`（i18n 试点）← `fff3b7c`
+  （快照指向）。
+- **macOS 与 Linux：已决定，本地能做的部分已完成。** macOS **不签名** —— Developer ID 签名与公证属于
+  商业化层，不属于 v0.7 —— 因此 Gatekeeper 会拦下首次运行，发布说明必须写清如何照常打开。目标形态是
+  *能构建、能启动、golden path 手动跑一次*。批次 A（本地、Windows）新增 `icons/icon.icns`，让 QEMU 安装
+  指引随平台变化（`winget` / Homebrew / 发行版包，见 `sandbox::qemu_discover::install_hint_for`），为
+  Unix 的 `-qmp unix:` 参数加了跨平台单测，并把 QEMU 预检里的建议改成不再指向单一平台。仍未做：多 OS
+  CI matrix（macOS 只在 release / 手动触发）、macOS 构建本身、以及真实 Unix socket 的 QEMU 运行 ——
+  后两项需要一台 Mac 或 Linux 机器。
 - **`v0.6.0-preview.1` 已作为预发布版发布**（v0.6 批次 1–2，批次 4 发布）：两次 run 逐字段对比 —— 数据层
   与 API（[../host/src/run_diff.rs](../host/src/run_diff.rs)、`AppState::compare_run_fingerprints`、
   `compare_run_fingerprints` 命令）以及审计页两 run 面板下方那个默认折叠的区块。预发布版**不持有 Latest
@@ -43,10 +56,11 @@
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`；
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`。
 - 发布提交 `b0efeb8` 处的测试总况：**291 passed / 0 failed / 8 ignored / 80 suites**
-  （v0.5.0 为 281 / 0 / 8 / 79）。gate 共 12 步，本地与 CI 均全绿（`ubuntu-latest` 上跑
-  `scripts/gate.sh`，另加 gitleaks）。
-- 未完成项：`%TEMP%` 下的临时目录仍未清理（删除确认始终未被放行）；CLA.md 待律师过目；不支持
-  macOS/Linux；**由他人进行的干净机器走查尚未发生** —— 仍是 v0.5.x 的补强项，而不是阻塞项；
+  （v0.5.0 为 281 / 0 / 8 / 79）。gate 共 13 步（v0.7 批次 1 新增了 UI 字符串注册表；UI 探针无论跑多少个
+  文件都算一步），本地与 CI 均全绿（`ubuntu-latest` 上跑 `scripts/gate.sh`，另加 gitleaks）。
+- 未完成项：`%TEMP%` 下的临时目录仍未清理（删除确认始终未被放行；2026-09-21 统计到 144 个
+  `riscdom-*` 条目）；CLA.md 待律师过目；macOS/Linux 已决定但只做了一半（见上面的批次 A）；**由他人进行的
+  干净机器走查尚未发生** —— 仍是 v0.5.x 的补强项，而不是阻塞项；
   **预览版的界面尚未经人工走查** —— 已在 [RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) 披露，
   也是第 8 步走查要做的第一件事。
 

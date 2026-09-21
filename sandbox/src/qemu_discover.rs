@@ -79,11 +79,38 @@ impl QemuDiscoverError {
 /// Environment variables consulted, in priority order.
 const QEMU_ENV_VARS: [&str; 2] = ["RISCDOM_QEMU", "QEMU_SYSTEM_RISCV64"];
 
-/// Where to tell users to get QEMU.
-pub const QEMU_DOWNLOAD_URL: &str = "https://www.qemu.org/download/#windows";
+/// The official QEMU download page, with no platform anchor (macOS / Linux / other).
+pub const QEMU_DOWNLOAD_URL: &str = "https://www.qemu.org/download/";
 
-/// Suggested Windows install command.
+/// The Windows-anchored download page 鈥?the route for a Windows machine without `winget`.
+pub const QEMU_DOWNLOAD_URL_WINDOWS: &str = "https://www.qemu.org/download/#windows";
+
+/// Suggested Windows install command (the route when `winget` is present).
 pub const QEMU_WINGET_HINT: &str = "winget install SoftwareFreedomConservancy.QEMU";
+
+/// Suggested macOS install command.
+pub const QEMU_BREW_HINT: &str = "brew install qemu";
+
+/// Suggested Linux packages (the RISC-V system emulator lives in these).
+pub const QEMU_LINUX_PACKAGES: &str = "qemu-system-misc (Debian/Ubuntu) or qemu (Arch/Fedora)";
+
+/// How to install QEMU on `os` (`"windows"` / `"macos"` / `"linux"`), as one
+/// actionable line. `winget` picks the Windows branch 鈥?the command when it is
+/// present, the download page otherwise (which still names the command, because a
+/// caller that cannot detect `winget` must not hide it).
+///
+/// Pure and total, so every branch is testable on any one machine.
+pub fn install_hint_for(os: &str, winget: bool) -> String {
+    match os {
+        "windows" if winget => format!("run `{QEMU_WINGET_HINT}`"),
+        "windows" => format!(
+            "download an installer from {QEMU_DOWNLOAD_URL_WINDOWS}, or run `{QEMU_WINGET_HINT}`"
+        ),
+        "macos" => format!("run `{QEMU_BREW_HINT}`"),
+        "linux" => format!("install your distribution's package: {QEMU_LINUX_PACKAGES}"),
+        other => format!("install QEMU yourself ({other}); see {QEMU_DOWNLOAD_URL}"),
+    }
+}
 
 /// `qemu-system-riscv64` (+ `.exe` on Windows).
 pub fn exe_name() -> String {
@@ -278,16 +305,61 @@ fn search() -> (Option<(PathBuf, QemuSource)>, Vec<String>) {
 
 /// Actionable multi-line message shown when nothing was found.
 fn not_found_message(log: &[String]) -> String {
+    let exe = exe_name();
     let mut msg = String::from("QEMU (qemu-system-riscv64) not found.\nSearched:\n");
     for line in log {
         msg.push_str("  - ");
         msg.push_str(line);
         msg.push('\n');
     }
+    // `false` because the sandbox cannot detect `winget` (that lives in the host);
+    // the Windows branch it selects names both the page and the command.
     msg.push_str(&format!(
-        "Install QEMU from {QEMU_DOWNLOAD_URL}\n\
-         or on Windows run: {QEMU_WINGET_HINT}\n\
-         then set RISCDOM_QEMU to the full path of qemu-system-riscv64.exe and restart RiscDom."
+        "Install QEMU: {}\n\
+         then set RISCDOM_QEMU to the full path of {exe} and restart RiscDom.",
+        install_hint_for(std::env::consts::OS, false)
     ));
     msg
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The install line follows the platform, and the Windows branch follows `winget`.
+    ///
+    /// The branches are decided by an argument rather than by the machine, so all of
+    /// them run wherever the gate runs.
+    #[test]
+    fn the_install_hint_follows_the_platform() {
+        let win_cmd = install_hint_for("windows", true);
+        let win_page = install_hint_for("windows", false);
+        assert!(win_cmd.contains(QEMU_WINGET_HINT), "{win_cmd}");
+        assert!(!win_cmd.contains(QEMU_DOWNLOAD_URL_WINDOWS), "{win_cmd}");
+        assert!(win_page.contains(QEMU_DOWNLOAD_URL_WINDOWS), "{win_page}");
+        assert!(win_page.contains(QEMU_WINGET_HINT), "{win_page}");
+
+        let macos = install_hint_for("macos", false);
+        assert!(macos.contains(QEMU_BREW_HINT), "{macos}");
+        assert!(!macos.contains(QEMU_WINGET_HINT), "{macos}");
+
+        let linux = install_hint_for("linux", false);
+        assert!(linux.contains(QEMU_LINUX_PACKAGES), "{linux}");
+        assert!(!linux.contains(QEMU_WINGET_HINT), "{linux}");
+
+        let other = install_hint_for("freebsd", false);
+        assert!(other.contains(QEMU_DOWNLOAD_URL), "{other}");
+    }
+
+    /// The not-found message carries the platform hint and the variable to set.
+    #[test]
+    fn the_not_found_message_is_actionable() {
+        let message = not_found_message(&["RISCDOM_QEMU (not set)".to_string()]);
+        assert!(message.contains("RISCDOM_QEMU (not set)"), "{message}");
+        assert!(
+            message.contains(&install_hint_for(std::env::consts::OS, false)),
+            "{message}"
+        );
+        assert!(message.contains(exe_name().as_str()), "{message}");
+    }
 }

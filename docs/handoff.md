@@ -14,6 +14,23 @@ current request authorising it (§2).
 ## 1. Snapshot — `v0.6.0-preview.1` is out as a pre-release; `v0.5.0` is still Latest (update this
 section when the next release ships)
 
+- **v0.7 has started and is not released.** Two lines run side by side: the **self-built i18n
+  facility** (v0.7 batches 1–2 — `ui/src/i18n/`, a registry check in the gate, and a language switch
+  in *Settings → Appearance* that persists to `settings.json` and moves `lang` on `<html>`) and
+  **macOS/Linux support** (batch 3 was reconnaissance only; batch A is the first code). **The i18n
+  rollout over the remaining interface strings is suspended**: the facility and the four diff strings
+  stay, the 190-line translation does not — the value is the facility, not translating a
+  kernel-shaped tool. Working commits: `06fef0a` (the usable language switch) ← `6abcb44` (the i18n
+  pilot) ← `fff3b7c` (the snapshot pointer).
+- **macOS and Linux: decided, and the local half is done.** macOS ships **unsigned** — Developer ID
+  signing and notarization belong to the commercialisation layer, not to v0.7 — so Gatekeeper blocks
+  a first run and the release notes have to say how to open it anyway. The target shape is *build,
+  launch, and one hand-run golden path*. Batch A (local, Windows) added `icons/icon.icns`, made the
+  QEMU install guidance follow the platform (`winget` / Homebrew / the distribution's package, via
+  `sandbox::qemu_discover::install_hint_for`), pinned the Unix `-qmp unix:` argument with a
+  cross-platform unit test, and rewrote the QEMU preflight suggestion so it names no single platform.
+  Still open: the multi-OS CI matrix (macOS on release / manual runs only), a macOS build itself, and
+  a real Unix-socket QEMU run — the last two need a Mac or a Linux machine.
 - **`v0.6.0-preview.1` is released as a pre-release** (v0.6 batches 1–2, released in batch 4): two
   runs are compared field by field — the data layer and the API ([../host/src/run_diff.rs](../host/src/run_diff.rs),
   `AppState::compare_run_fingerprints`, the `compare_run_fingerprints` command) and the collapsed
@@ -50,10 +67,12 @@ section when the next release ships)
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`;
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`.
 - Test totals at the release commit `b0efeb8`: **291 passed / 0 failed / 8 ignored / 80 suites**
-  (v0.5.0 was 281 / 0 / 8 / 79). The gate is 12 steps, green locally and in CI (`scripts/gate.sh` on
+  (v0.5.0 was 281 / 0 / 8 / 79). The gate is 13 steps (v0.7 batch 1 added the UI string registry;
+  the UI probes count as one step however many files they run), green locally and in CI (`scripts/gate.sh` on
   `ubuntu-latest` plus gitleaks).
 - Open items: the temp directories under `%TEMP%` have not been cleaned (the deletion confirmation
-  was never granted); CLA.md awaits a lawyer's eye; no macOS/Linux support; **the clean-machine walk
+  was never granted; 144 `riscdom-*` entries were counted on 2026-09-21); CLA.md awaits a lawyer's
+  eye; macOS/Linux is decided but only half-built (batch A above); **the clean-machine walk
   by someone else has not happened** — still a v0.5.x strengthening item rather than a blocker;
   **the preview's interface has not been walked by a person** — disclosed in [RELEASE_NOTES.md](../RELEASE_NOTES.md),
   and the first thing a walk of step 8 should cover.
