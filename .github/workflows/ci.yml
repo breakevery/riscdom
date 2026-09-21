@@ -148,6 +148,7 @@ jobs:
             build-essential \
             pkg-config \
             patchelf \
+            rpm \
             file \
             wget \
             curl
