@@ -7,8 +7,10 @@
  * (a typo there fails silently at runtime, which is exactly the kind of thing a
  * probe should catch).
  *
- * The rendering rules live in `ui/src/lib/runView.ts` — a dependency-free module —
- * so this imports the **shipped** code directly (Node strips the types).
+ * The rendering rules live in `ui/src/lib/runView.ts` — a module whose one import is
+ * the dependency-free i18n registry — so this imports the **shipped** code directly
+ * (Node strips the types). The four v0.6 diff strings are registry keys as of
+ * v0.7 batch 1, so they are matched through the shipped `t()` rather than a literal.
  *
  *   node ui/scripts/probe-ui-runs.mjs
  */
@@ -19,6 +21,7 @@ import path from "node:path";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..");
 const MODULE = path.join(REPO, "ui", "src", "lib", "runView.ts");
+const I18N = path.join(REPO, "ui", "src", "i18n", "index.ts");
 const TAB = path.join(REPO, "ui", "src", "settings", "AuditTab.tsx");
 const API = path.join(REPO, "ui", "src", "api", "tauri.ts");
 const SHELL = path.join(REPO, "ui", "src-tauri", "src", "lib.rs");
@@ -32,6 +35,7 @@ function check(name, ok, detail) {
 }
 
 const runs = await import(pathToFileURL(MODULE).href);
+const i18n = await import(pathToFileURL(I18N).href);
 console.log(`# run list (${path.relative(REPO, MODULE)})\n`);
 
 const now = 1_700_000_000_000;
@@ -191,22 +195,38 @@ check(
 // The host returns the rows in the fingerprint's declaration order, and the panel
 // renders exactly that: the probe pins the presentation the panel owes the
 // operator — a complete list, a header that counts, and no truncation.
+//
+// Since v0.7 batch 1 the four strings this block renders are i18n registry keys, so
+// each assertion below matches the key through the shipped `t()` instead of the old
+// Chinese literal: it stays red if `runView` stops reading the registry, whatever
+// the machine's locale is (the probe pins the language itself).
 const diffRows = [
   { field: "schema", a: { app_version: "0.6.0" }, b: { app_version: "0.6.0" }, is_different: false },
   { field: "llm", a: { model: "deepseek-chat" }, b: { model: "deepseek-reasoner" }, is_different: true },
   { field: "vm", a: { memory_mb: 256 }, b: null, is_different: true },
 ];
+i18n.setLanguage("en");
+const diffHeadlineEn = runs.diffTitle(diffRows);
 check(
   "the header counts the fields and the differences",
-  runs.diffTitle(diffRows) === "字段级差异 · 3 个字段 · 2 处不同",
-  runs.diffTitle(diffRows),
+  diffHeadlineEn === i18n.t("diff.headline", { fields: 3, different: 2 }),
+  diffHeadlineEn,
 );
 check(
   "an all-equal diff still counts every field",
   runs.diffTitle(diffRows.map((row) => ({ ...row, is_different: false }))) ===
-    "字段级差异 · 3 个字段 · 0 处不同",
+    i18n.t("diff.headline", { fields: 3, different: 0 }),
   runs.diffTitle(diffRows.map((row) => ({ ...row, is_different: false }))),
 );
+i18n.setLanguage("zh");
+const diffHeadlineZh = runs.diffTitle(diffRows);
+check(
+  "the header follows the registry's language, not a hard-coded literal",
+  diffHeadlineZh !== diffHeadlineEn &&
+    diffHeadlineZh === i18n.t("diff.headline", { fields: 3, different: 2 }),
+  `${diffHeadlineEn} / ${diffHeadlineZh}`,
+);
+i18n.setLanguage("en");
 check(
   "a changed field is marked and an equal one is not",
   runs.diffRowState(diffRows[1]) === "different" && runs.diffRowState(diffRows[0]) === "same",
@@ -218,11 +238,22 @@ check(
   runs.valueText({ memory_mb: 256 }),
 );
 check("a value one run does not carry reads as null", runs.valueText(null) === "null");
-check("the loading line says something", runs.diffLoadingText().length > 0);
-check("the empty state says something", runs.diffEmptyText().length > 0);
+check(
+  "the loading line comes from the registry",
+  runs.diffLoadingText() === i18n.t("diff.loading"),
+  runs.diffLoadingText(),
+);
+check(
+  "the empty state comes from the registry",
+  runs.diffEmptyText() === i18n.t("diff.empty"),
+  runs.diffEmptyText(),
+);
+const diffRefusal = runs.diffFailedText("no run run_x in this log");
 check(
   "a refusal quotes the host",
-  runs.diffFailedText("no run run_x in this log").includes("no run run_x in this log"),
+  diffRefusal === i18n.t("diff.failed", { reason: "no run run_x in this log" }) &&
+    diffRefusal.includes("no run run_x in this log"),
+  diffRefusal,
 );
 
 // Wiring: the tab uses the shipped rule, and the calls resolve to real commands.

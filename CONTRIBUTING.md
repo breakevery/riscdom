@@ -36,7 +36,8 @@ workspace crates `audit` / `sandbox` / `agent` / `host`, and `ui/src-tauri`) →
 `cargo test` → `cargo check` for `ui/src-tauri` → `npm run build` →
 the ui regression probes (`node ui/scripts/probe-ui-*.mjs`) → the mirror guard
 (`node scripts/check-mirrored-constants.mjs`) → the wix-version guard
-(`node scripts/check-wix-version.mjs`) → the bilingual-link check
+(`node scripts/check-wix-version.mjs`) → the ui string registry guard
+(`node scripts/check-ui-strings.mjs`) → the bilingual-link check
 (`scripts/check-bilingual.ps1` / `.sh`).
 
 Platform differences are **printed, never skipped silently**: on non-Windows the `host` /

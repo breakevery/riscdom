@@ -35,7 +35,8 @@ gate 就是**「全绿」的唯一清单**：CI 跑的是同一个文件（`.git
 `cargo check` → `cargo test` → `ui/src-tauri` 的 `cargo check` → `npm run build` →
 UI 回归探针（`node ui/scripts/probe-ui-*.mjs`）→ 镜像常量守卫
 （`node scripts/check-mirrored-constants.mjs`）→ wix 版本守卫
-（`node scripts/check-wix-version.mjs`）→ 双语文档链接检查（`scripts/check-bilingual.ps1` /
+（`node scripts/check-wix-version.mjs`）→ UI 字符串注册表守卫
+（`node scripts/check-ui-strings.mjs`）→ 双语文档链接检查（`scripts/check-bilingual.ps1` /
 `.sh`）。
 
 平台差异一律**打印出来，绝不静默跳过**：非 Windows 上会跳过 `host` / `ui/src-tauri` 的 lint 与 check

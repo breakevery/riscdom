@@ -8,6 +8,8 @@ import { executableFilters, pickedPath } from "../lib/pathPick";
 import { defaultExportPath, diffFailedText, MAX_COMPARED_RUNS, toggleRunSelection as nextRunSelection } from "../lib/runView";
 import { applyTheme, nextTheme, parseTheme, systemPrefersDark } from "../lib/theme";
 import type { ResolvedTheme, Theme } from "../lib/theme";
+import { getLanguage, setLanguage as applyLanguage } from "../i18n/index.ts";
+import type { Language } from "../i18n/index.ts";
 
 export type Role = "user" | "assistant" | "tool" | "system";
 
@@ -82,6 +84,12 @@ export interface AppStore {
   resolvedTheme: ResolvedTheme;
   setTheme: (theme: Theme) => Promise<void>;
   cycleTheme: () => Promise<void>;
+  /**
+   * Language (v0.7 batch 1). It follows the system until `setLanguage` overrides
+   * it by hand; the i18n registry's `t()` reads whatever this holds.
+   */
+  language: Language;
+  setLanguage: (language: Language) => void;
   workspaceFiles: string[];
   refreshWorkspace: () => Promise<void>;
   // serial / vm (consumed by the canvas in stage 6c)
@@ -205,6 +213,10 @@ export function useAppStore(): AppStore {
   const [theme, setThemeChoice] = useState<Theme>("system");
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>("dark");
   const [systemDark, setSystemDark] = useState<boolean>(() => systemPrefersDark(window));
+  // Language (v0.7 batch 1): the registry's starting point is the system language,
+  // and the choice made here is what `t()` reads. In-memory for now — a settings
+  // entry is a later batch; this pilot only has to reach the four diff strings.
+  const [language, setLanguageChoice] = useState<Language>(() => getLanguage());
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
   const [serial, setSerial] = useState("");
   const [vmState, setVmState] = useState("idle");
@@ -375,6 +387,12 @@ export function useAppStore(): AppStore {
     setResolvedTheme(applyTheme(theme, document.documentElement, systemDark));
   }, [theme, systemDark]);
 
+  // Hand the current language to the i18n registry: `t()` is what runView and the
+  // panel read, and it holds no React state of its own.
+  useEffect(() => {
+    applyLanguage(language);
+  }, [language]);
+
   useEffect(() => {
     void (async () => {
       try {
@@ -397,6 +415,12 @@ export function useAppStore(): AppStore {
   const cycleTheme = useCallback(async () => {
     await setTheme(nextTheme(theme));
   }, [setTheme, theme]);
+
+  // A manual override (v0.7 batch 1). Reserved: nothing in the pilot's UI calls it
+  // yet, the language otherwise follows the system.
+  const setLanguage = useCallback((next: Language) => {
+    setLanguageChoice(next);
+  }, []);
 
   // ---- sessions (declared before the event subscription that uses them) ----
 
@@ -858,6 +882,8 @@ export function useAppStore(): AppStore {
     resolvedTheme,
     setTheme,
     cycleTheme,
+    language,
+    setLanguage,
     clearToolchain,
     qemu,
     refreshQemu,

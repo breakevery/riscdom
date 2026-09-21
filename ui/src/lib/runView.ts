@@ -3,8 +3,11 @@
  *
  * Kept dependency-free so `ui/scripts/probe-ui-runs.mjs` can import the shipped
  * module directly and check what the settings tab renders — there is no JS test
- * harness in this repository and new dependencies are off the table.
+ * harness in this repository and new dependencies are off the table. Its one
+ * import is the i18n registry (`../i18n/index.ts`), itself dependency-free and
+ * probe-importable (v0.7 batch 1): the four diff strings below are keys there now.
  */
+import { t } from "../i18n/index.ts";
 
 /** The fields of a run the list needs (a subset of the backend `RunView`). */
 export interface RunLike {
@@ -216,7 +219,7 @@ export function valueText(value: unknown): string {
 /** The collapsed header: how many fields there are, and how many differ. */
 export function diffTitle(rows: FingerprintFieldDiff[]): string {
   const different = rows.filter((row) => row.is_different).length;
-  return `字段级差异 · ${rows.length} 个字段 · ${different} 处不同`;
+  return t("diff.headline", { fields: rows.length, different });
 }
 
 /** The row's state as a CSS hook. Never carries an order — the host's is kept. */
@@ -226,15 +229,15 @@ export function diffRowState(row: FingerprintFieldDiff): string {
 
 /** What the diff area says while the host has not answered yet. */
 export function diffLoadingText(): string {
-  return "差异读取中…";
+  return t("diff.loading");
 }
 
 /** What it says when there is no field to compare at all. */
 export function diffEmptyText(): string {
-  return "这两个 run 的指纹里没有可比字段。";
+  return t("diff.empty");
 }
 
 /** What it says when the host refused to produce the diff. */
 export function diffFailedText(reason: string): string {
-  return `指纹差异读取失败：${reason}`;
+  return t("diff.failed", { reason });
 }
