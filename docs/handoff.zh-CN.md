@@ -9,16 +9,17 @@
 `main`。每个批次的收尾流程一致：gate 全绿 → `scripts\commit.ps1 "<msg>"`（它自己会跑 gate）→ push ——
 而这些面向远端的动作，只在当轮请求明确授权时才做（见 §2）。
 
-## 1. 快照 —— `v0.6.0-preview.1` 已作为预发布版发出；Latest 仍是 `v0.5.0`（下次发布时更新本节）
+## 1. 快照 —— `v0.7.0` 已在本地准备好；`v0.6.0-preview.1` 是最新的发行版（下次正式发布时更新本节）
 
-- **v0.7 已在 `main` 上，但尚未发布。** 落地的有三块：**自建 i18n 设施**（v0.7 批次 1–2 ——
-  `ui/src/i18n/`、gate 里的 `scripts/check-ui-strings.mjs`、以及*设置 → 外观*里会写入 `settings.json`
-  并把 `<html>` 的 `lang` 跟着改的语言切换）、**macOS/Linux 构建**（批次 A 的平台工作 + 批次 B 的
-  `bundle` CI job，见下一条），以及让 `host` 在非 Windows 上能编译的修复（批次 8）。**用注册表铺开其余
-  约 190 条界面字符串这件事有意不做**：设施与那 4 条 diff 字符串保留，全量翻译不做 —— 价值在设施，而不在
-  把一个内核形态的工具翻一遍。工作提交：`202dd75`（非 Windows 的 `extract_zip` 存根）← `344fd2b`
-  （Linux 包需要的 rpm）← `0633bdc`（bundle CI job）← `833f9c3`（随平台变化的 QEMU 指引、icon.icns）←
-  `06fef0a`（可用的语言切换）← `6abcb44`（i18n 试点）。
+- **`v0.7.0` 已准备好，但尚未发布。** 版本已 bump 到 `0.7.0`（7 文件 / 15 处 —— 与 v0.6.0-preview.1 相同
+  的落点），预览版专用的 `bundle.windows.wix.version` 覆盖再次**删除**（包版本已是纯数字，wix 守卫要求
+  如此），`CHANGELOG` 与 `RELEASE_NOTES` 已按正式发布重写，Windows 安装包已构建：
+  `RiscDom_0.7.0_x64_en-US.msi` 与 `RiscDom_0.7.0_x64-setup.exe`。等的是 **push、tag 与 Release** —— 以及
+  一次重新 dispatch 的 `bundle`，因为手头的 CI 包名字是 `0.6.0-preview.1`。v0.7 落地了三块：**自建 i18n
+  设施**（批次 1–2 —— `ui/src/i18n/`、gate 里的 `scripts/check-ui-strings.mjs`、以及*设置 → 外观*里写入
+  `settings.json` 并把 `<html>` 的 `lang` 跟着改的语言切换）、**macOS/Linux 构建**（批次 A 的平台工作 +
+  批次 B 的 `bundle` job，见下一条），以及让 `host` 在非 Windows 上能编译的修复（批次 8）。**用注册表铺开
+  其余约 190 条界面字符串这件事有意不做**：设施与那 4 条 diff 字符串保留，全量翻译不做。
 - **macOS 与 Linux：CI 能出包，但尚未人工走查。** `ci.yml` 有 `bundle` job（dispatch 或 `v*` tag；
   macOS + Linux 两个 runner），执行 `npm run tauri build` 并把安装包作为 artifact 上传 —— macOS aarch64
   的 `.app` + `.dmg`，Linux amd64 的 `.deb` + `.rpm` + `.AppImage` —— 在 run `35572294916` 全绿。批次 A
@@ -26,7 +27,8 @@
   `sandbox::qemu_discover::install_hint_for`），并用一条跨平台单测钉住 Unix 的 `-qmp unix:` 参数。
   **尚未做**：没有人启动过这些安装包；它们**未签名**（macOS Gatekeeper 会拦下首次运行；Developer ID
   签名与公证属于商业化层）；真实 Unix socket 的 QEMU 运行仍需一台 Mac 或 Linux 机器。Windows 仍是黄金
-  路径验证过的平台。
+  路径验证过的平台。**手头的 CI 包是在 `0.6.0-preview.1` 名字下构建的**，所以发布批次会重新 dispatch
+  `bundle` 以产出 `0.7.0` 名字的包。
 - **`v0.6.0-preview.1` 已作为预发布版发布**（v0.6 批次 1–2，批次 4 发布）：两次 run 逐字段对比 —— 数据层
   与 API（[../host/src/run_diff.rs](../host/src/run_diff.rs)、`AppState::compare_run_fingerprints`、
   `compare_run_fingerprints` 命令）以及审计页两 run 面板下方那个默认折叠的区块。预发布版**不持有 Latest
@@ -54,19 +56,20 @@
   `0633bdc`（macOS/Linux 的 bundle CI job）← `833f9c3`（随平台变化的 QEMU 指引、icon.icns、Unix QMP
   单测）← `06fef0a`（语言切换）← `6abcb44`（i18n 试点）← `b0efeb8`（v0.6.0-preview.1 发布）←
   `6c5ddb65`（变更日志与快照）。
-- tag：`v0.6.0-preview.1` 即本次预览（给本文件定版的那个提交）；`v0.5.0` 是它之前的正式版，也是持有
-  Latest 标记的那个；`v0.5.0-preview.1` =
+- tag：`v0.6.0-preview.1` 是最新的 tag（预发布版，也是手头 `bundle` 包的命名来源）；**`v0.7.0` 尚未打
+  tag** —— 由发布批次完成；`v0.5.0` 是持有 Latest 标记的正式版；`v0.5.0-preview.1` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`；
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`；
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`。
-- `main`（`202dd75`，未发布）处的测试总况：**295 passed / 0 failed / 8 ignored / 80 suites**
+- `main`（发布提交，未发布）处的测试总况：**295 passed / 0 failed / 8 ignored / 80 suites**
   —— `v0.6.0-preview.1` 发布提交处为 291 / 0 / 8 / 80，`v0.5.0` 处为 281 / 0 / 8 / 79。gate 共 13 步
   （v0.7 批次 1 新增了 UI 字符串注册表；UI 探针无论跑多少个文件都算一步），本地与 CI 均全绿
   （`ubuntu-latest` 上跑 `scripts/gate.sh`，另加 gitleaks）。
 - 未完成项：`%TEMP%` 下的临时目录仍未清理（删除确认始终未被放行；2026-09-21 统计到 144 个
   `riscdom-*` 条目）；CLA.md 待律师过目；**由他人进行的干净机器走查尚未发生** —— 仍是 v0.5.x 的补强项，
   而不是阻塞项；**macOS/Linux 的安装包从未被启动过**且未签名（签名属商业化层）；v0.5 走查留给真人的两项
-  （G-2、真实键盘输入中文）仍未做。
+  （G-2、真实键盘输入中文）仍未做。**v0.7.0 的发布本身就是下一批**：push、tag、Release，以及一次重新
+  dispatch 的 `bundle`（产出 `0.7.0` 名字的 macOS/Linux 包）。
 
 ## 2. 远端操作按轮授权，且必须有明确文字
 

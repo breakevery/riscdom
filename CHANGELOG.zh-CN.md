@@ -7,7 +7,7 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)。
 
-## [未发布]
+## [0.7.0] - 2026-09-21
 
 **v0.7 已在 `main` 上、尚未发布：自建 i18n 设施、语言切换，以及 macOS/Linux 构建。** Latest 正式版
 仍是 `v0.6.0-preview.1`。
@@ -403,7 +403,8 @@
   `agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
 - 真实 DeepSeek API 端到端：**已执行通过**（2026-09-14，`iterations = 6`，串口捕获 `HELLO RISCV`；结果见 `host/README.md`）。
 
-[未发布]: https://github.com/breakevery/riscdom/compare/v0.5.0...HEAD
+[未发布]: https://github.com/breakevery/riscdom/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/breakevery/riscdom/compare/v0.6.0-preview.1...v0.7.0
 [0.5.0]: https://github.com/breakevery/riscdom/compare/v0.5.0-preview.1...v0.5.0
 [0.4.0]: https://github.com/breakevery/riscdom/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/breakevery/riscdom/compare/v0.3.0...v0.3.1

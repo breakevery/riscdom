@@ -1,76 +1,96 @@
 [English](RELEASE_NOTES.md) | 中文
 
-# RiscDom v0.6.0-preview.1
+# RiscDom v0.7.0
 
-> **这是预览版，其中没有任何部分经过人工走查。** 它未在干净环境验证过，而且**界面在任何机器上都没被人工
-> 走过** —— 下面的新区块由自动化测试与源码级探针覆盖，而不是有人点着走了一遍。安装包**未签名**，因此
-> Windows SmartScreen 第一次运行时会提示（「更多信息 → 仍要运行」）。版本里的 `preview.1` 就是这个意思。
+> **这是正式版，不是预览版 —— 但带两条限制。** **macOS 与 Linux 的安装包由 CI 构建，从未在真机上启动过**，
+> 而且**未签名**（macOS 的 Gatekeeper 会拦下首次启动；Windows 的 SmartScreen 会对安装包告警）。另外，
+> **黄金路径验证过的平台仍是 Windows**：由他人进行的干净机器走查尚未发生。两条限制的细节见下文。
 
-**黄金路径第 8 步，一句话说：** 改一个配置字段，把任务再跑一次，在 *设置 → 审计* 里勾选这两次 run，
-然后逐个字段、按指纹自己的顺序，读出到底哪些配置值不同。v0.5 让前七步成真；这个预览版补上了原本留给
-v0.6 的那次比较。
+**v0.7 一句话说：** 界面现在能说两种语言（自建字符串注册表 + *设置 → 外观*里的语言切换），同一份源码现在
+能在 Windows、macOS 与 Linux 上构建 —— 而 QEMU 指引随平台变化，并告诉你应用不打包的那些东西该怎么装。
 
 ## 本版新增
 
-- **两次 run，逐字段对比**（*设置 → 审计*）：勾选两条 run 本来就会并排显示它们的指纹；现在**在它们
-  下方**多了一个默认折叠的区块，标题给出字段数与差异数 —— `字段级差异 · 7 个字段 · 3 处不同`，两次 run
-  配置完全相同时为 `· 0 处不同`。展开后列出**两份指纹携带的每一个字段** —— 字段名、第一个 run 的值、
-  第二个 run 的值 —— 不同的行高亮、相同的行灰显。值完整显示（等宽字体、自动换行、绝不截断），行序即
-  指纹声明字段的顺序；面板不做任何重排。
-- **这次比较是宿主的，不是界面的。** 两份配置文档取自审计链上 `run.start` 事件，按**顶层字段整体**比较，
-  并且用与指纹摘要同一套规范化 JSON 判定相等 —— 因此值内部的键序不构成差异。链本身未被触碰：这是只读
-  比较，不写入任何事件。
+- **自建 i18n 设施与语言切换**（v0.7 批次 1–2）：`ui/src/i18n/` 是一套双语字符串注册表，**不引任何第三方
+  库**；`scripts/check-ui-strings.mjs`（在 gate 里，带自测）在任一语言缺键时让构建失败；*设置 → 外观*提供
+  **跟随系统 / 中文 / English**，写入 `settings.json`、改写 `<html>` 的 `lang`，并即时重渲染。v0.6 那四条
+  diff 字符串是试点，而**把其余约 190 条界面字符串一并翻译这件事有意不做**：价值在设施，而不在把一个内核
+  形态的工具翻一遍。
+- **macOS 与 Linux 构建**（v0.7 批次 A–B）：同一份源码能在 macOS（aarch64）与 Linux（amd64）上构建。
+  CI 的 `bundle` job 在两个 runner 上执行 `npm run tauri build`，并把结果作为 workflow artifact 上传 ——
+  `.app` + `.dmg`，以及 `.deb` + `.rpm` + `.AppImage`。QEMU 安装指引随平台变化（`winget` / Homebrew /
+  发行版包，见 `sandbox::qemu_discover::install_hint_for`），macOS 打包所需的 `icons/icon.icns` 已补齐，
+  Unix 的 `-qmp unix:` 参数由一条跨平台单测钉住。
+- **`host` 在非 Windows 上重新能编译**（v0.7 批次 8）：一个 Windows 专属的 `extract_zip` 被一段与平台无关的
+  `match` 调用了，于是所有 macOS/Linux 构建都死在 `error[E0425]`。现在非 Windows 平台得到一个同名存根，
+  返回 “zip archives are not supported on this platform”。这个缺陷是新 `bundle` job 发现的 —— 那是 `host`
+  第一次在非 Windows 上被编译。
+
+## 按平台安装
+
+- **Windows 10/11** —— 从 Release 附件取 `RiscDom_0.7.0_x64_en-US.msi` 或
+  `RiscDom_0.7.0_x64-setup.exe`。安装包**未签名**，因此 SmartScreen 首次运行会告警（「更多信息 → 仍要
+  运行」）。QEMU 与 RISC-V 裸机 GCC 都不打包：*设置 → 工具链*会引导你执行
+  `winget install SoftwareFreedomConservancy.QEMU`（或官网），并可自行下载 xPack GCC。
+- **macOS** —— CI 的 `bundle` job 产出 `RiscDom_0.7.0_aarch64.dmg`（Apple Silicon）及其中的 `.app`；
+  在对应 workflow run 的 *Artifacts* 里下载。它们**未签名**，因此 Gatekeeper 会拦下首次启动：右键应用 →
+  *打开*，或执行一次 `xattr -dr com.apple.quarantine /Applications/RiscDom.app`。**QEMU 不打包**：
+  `brew install qemu`。**这些安装包尚未在真 Mac 上启动过。**
+- **Linux** —— 同一个 job 产出 `RiscDom_0.7.0_amd64.deb`、`RiscDom-0.7.0-1.x86_64.rpm` 或
+  `RiscDom_0.7.0_amd64.AppImage`。**QEMU 不打包**：安装发行版提供的 `qemu-system-riscv64`（例如
+  `sudo apt install qemu-system-misc`、`sudo dnf install qemu-system-riscv`）。**这些安装包尚未在真
+  Linux 机器上启动过。**
 
 ## 验证了什么 —— 以及没验证什么
 
 **已验证**
 
-- gate：`cargo fmt`、`cargo clippy -D warnings`、`cargo check`、完整 `cargo test`
-  （**291 passed / 0 failed / 8 ignored**，80 个套件）、`npm run build`、七个 UI 探针、镜像常量守卫、
-  wix 版本守卫与双语文档检查。本地与 CI 均全绿。
-- 比较能力的**数据层与 API**：6 个单元测试 + 4 个集成测试 —— 全同、单字段不同、多字段不同、单侧独有的
-  字段、嵌套值整体比较、「值内部键序」以及「声明字段表不得与宿主真实指纹漂移」的守卫。
-- 比较能力的**展示规则**（探针能钉住的部分）：标题计数、行状态、值的渲染方式、区块默认折叠，以及 CSS
-  契约（高亮、灰显、等宽、换行而非截断）。
+- gate（13 步）：`cargo fmt`、`cargo clippy -D warnings`、`cargo check`、完整 `cargo test`
+  （**295 passed / 0 failed / 8 ignored**，80 个套件）、`npm run build`、八个 UI 探针、镜像常量守卫、
+  wix 版本守卫、UI 字符串注册表检查与双语文档检查。本地与 CI 均全绿。
+- **macOS/Linux 构建路径**，端到端：`bundle` job 在 run `35572294916` 里产出并上传了
+  `.app`/`.dmg` 与 `.deb`/`.rpm`/`.AppImage` —— 也正是它证明了 `host` 现在能在非 Windows 上编译。
+- **i18n 设施**：注册表的完整性检查（每个键两种语言都有）在 gate 里、带自测；语言切换的规则 —— 三态选择、
+  `lang` 属性、即时重渲染、持久化 —— 由语言探针钉住。
+- **第 8 步的界面已人工走查**（由项目所有者走查；结论通过）。v0.6 那次比较的数据层与 API 仍保留 6 个单元
+  测试 + 4 个集成测试。
 - **第 3–7 步**对真实 QEMU guest 的端到端走查，自 v0.5.0 起未变
   （`cargo test -p host --test golden_path -- --ignored`）。
 
 **未验证**
 
-- **界面本身。** 没有任何人在这台或任何机器上走过新区块。它有自动化覆盖（单元与集成测试，以及钉住源码级
-  规则的探针），但还没有人打开应用、跑出两次有差异的 run、勾选它们并读出差异。**这是走查要做的第一件事。**
+- **macOS 与 Linux 的安装包本身。** 它们能编译、能打包；但没有人真 Mac / 真 Linux 机器上安装、启动或走查过。
+  那是下一轮走查。
 - **干净机器走查。** 仍是原来的 v0.5.x 补强项：[docs/golden-path-checklist.zh-CN.md](docs/golden-path-checklist.zh-CN.md)
   是表单，填好的放 `walkthroughs/`。
-- **第 8 步对真实 guest 的验证。** `compare_run_fingerprints` 只被合成配置覆盖；没有「跑两个真实 guest
-  再比较」的 `--ignored` 走查。
-- **macOS 与 Linux。** 仅 Windows；QMP 与串口走 TCP。
-- **安装包未签名。** Windows SmartScreen 第一次运行时会提示；「更多信息 → 仍要运行」属预期。没有任何
-  下载行为；应用不携带任何密钥。
+- **界面大部分仍是中文。** 注册表与切换器已经有了；其余约 190 条字符串在本版中有意未翻译。
+- **Unix socket 的 QMP 仍未实现**（比较等一切都走 TCP）。
+- **安装包与各平台包均未签名** —— Windows 上是 SmartScreen，macOS 上是 Gatekeeper。签名与公证属于
+  商业化层的工作。
 - 界面里的中文输入仍只是间接验证过。
 
 ## 测试者需要什么
 
-- **Windows 10/11**、**QEMU**（`qemu-system-riscv64`，由你自行安装 —— RiscDom 只引导你去 `winget` 或
-  官网，绝不捆绑或下载它）、**一份 RISC-V 裸机 GCC**（xPack `riscv-none-elf-gcc` 或等价的
-  `riscv64-unknown-elf-gcc`），以及你所选服务商的 **API key**（或 Ollama / LM Studio 之类的本地服务）。
-- 对差异视图而言：**两次已结束、且指纹互不相同的 run** —— 最简单的做法是在两次之间改一个配置字段
-  （比如模型）。尚未结束的 run 同样有指纹、同样可以比较；只有导出会拒绝它们。
+- 自备**模型服务商**与 **API key**（或用 Ollama / LM Studio 之类的本地服务）、**QEMU**
+  （`qemu-system-riscv64`，由你自行安装 —— 见上面的平台说明），以及**一份 RISC-V 裸机 GCC**
+  （xPack `riscv-none-elf-gcc` 或等价的 `riscv64-unknown-elf-gcc`；应用可以帮你下载 xPack 那份）。
+- 对比较功能：**两次已结束、且指纹互不相同的 run** —— 在两次之间改一个配置字段（比如模型）。尚未结束的
+  run 同样有指纹、同样能比较；只有导出会拒绝它们。
 
 ## 如何回报
 
-1. 对照 **[docs/golden-path-checklist.zh-CN.md](docs/golden-path-checklist.zh-CN.md)** 走，边走边填。
-   针对本预览版，请补上差异视图的表现：区块是否展开、是否列出每一个字段、被标出的不同行是否正是你改过的
-   那些、标题统计出的数字是多少。
+1. 对照 **[docs/golden-path-checklist.zh-CN.md](docs/golden-path-checklist.zh-CN.md)** 走，边走边填 ——
+   并补上差异视图的表现：区块是否展开、是否列出每一个字段、被标出的不同行是否正是你改过的那些、标题统计出
+   的数字是多少。在 macOS / Linux 上，请说明你用的是哪个包、以及它能否打开。
 2. 在 <https://github.com/breakevery/riscdom/issues> 开 issue 并**粘贴填好的清单**；若你偏好放进仓库，
    就放到 `walkthroughs/`。
 3. 没人写下来的走查，就是没人能核对的走查 —— 填好的模板就是报告。
 
 ## 已知限制
 
-- **预发布版不持有 Latest 标记**：GitHub 仍把 `v0.5.0` 显示为 Latest 正式版，因此下载「最新版本」得到的是
-  v0.5.0，而不是本版。
-- **界面只有中文**（尚无语言切换），且差异区只做一层：它把指纹的顶层字段作为整体值比较，不进入字段内部。
-- **仅 Windows**，且界面里的中文输入尚未用真实键盘验证过。
+- **验证过的平台是 Windows。** macOS/Linux 能构建，但黄金路径尚未在那里走过；它们的安装包未签名、也未启动过。
+- **界面大部分仍是中文**：双语注册表与切换器已就位，但只有少数几条字符串注册了两种语言。
+- **差异区只做一层**：它把指纹的顶层字段作为整体值比较，不进入字段内部。
 - **没有增量快照或加密快照**；会话存储是本地明文 SQLite。
 - **同时只支持一台 VM。**
 - **审计日志暂无保留策略**：它随使用增长，永不清理。

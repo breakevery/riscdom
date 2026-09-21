@@ -11,19 +11,21 @@ branch `main`. The close-out of every batch is the same: gate green → `scripts
 (which runs the gate itself) → push — and none of those remote-facing steps happens without the
 current request authorising it (§2).
 
-## 1. Snapshot — `v0.6.0-preview.1` is out as a pre-release; `v0.5.0` is still Latest (update this
+## 1. Snapshot — `v0.7.0` is prepared locally; `v0.6.0-preview.1` is the newest release (update this
 section when the next release ships)
 
-- **v0.7 is on `main` and is not released.** Three pieces landed: the **self-built i18n facility**
-  (v0.7 batches 1–2 — `ui/src/i18n/`, `scripts/check-ui-strings.mjs` in the gate, and a language
-  switch in *Settings → Appearance* that persists to `settings.json` and moves `lang` on `<html>`),
-  **macOS/Linux builds** (batch A's platform work plus batch B's `bundle` CI job — the next bullet),
-  and the fix that made `host` compile off Windows (batch 8). **The i18n rollout over the remaining
-  ~190 interface strings is deliberately not done**: the facility and the four diff strings stay, the
-  translation does not — the value is the facility, not translating a kernel-shaped tool. Working
-  commits: `202dd75` (the non-Windows `extract_zip` stub) ← `344fd2b` (rpm for the Linux bundle) ←
-  `0633bdc` (the bundle CI job) ← `833f9c3` (platform-aware QEMU guidance, icon.icns) ← `06fef0a`
-  (the usable language switch) ← `6abcb44` (the i18n pilot).
+- **`v0.7.0` is prepared, and not yet released.** The version is bumped to `0.7.0` (7 files / 15
+  places — the same sites as v0.6.0-preview.1), the preview-only `bundle.windows.wix.version` override
+  is **deleted** again (the package version is numeric, which the wix guard requires), `CHANGELOG` and
+  `RELEASE_NOTES` are rewritten for the release, and the Windows installers are built:
+  `RiscDom_0.7.0_x64_en-US.msi` and `RiscDom_0.7.0_x64-setup.exe`. It is waiting on a **push, a tag
+  and a release** — and on a fresh `bundle` dispatch, because the CI packages on hand are named
+  `0.6.0-preview.1`. Three pieces landed in v0.7: the **self-built i18n facility** (batches 1–2 —
+  `ui/src/i18n/`, `scripts/check-ui-strings.mjs` in the gate, and a language switch in *Settings →
+  Appearance* that persists to `settings.json` and moves `lang` on `<html>`), **macOS/Linux builds**
+  (batch A's platform work plus batch B's `bundle` CI job — the next bullet), and the fix that made
+  `host` compile off Windows (batch 8). **The i18n rollout over the remaining ~190 interface strings
+  is deliberately not done**: the facility and the four diff strings stay, the translation does not.
 - **macOS and Linux: built by CI, and not yet walked.** `ci.yml` has a `bundle` job (dispatch or a
   `v*` tag; macOS and Linux runners) that runs `npm run tauri build` and uploads the packages as
   artifacts — macOS aarch64 `.app` + `.dmg`, Linux amd64 `.deb` + `.rpm` + `.AppImage` — green in run
@@ -33,7 +35,9 @@ section when the next release ships)
   cross-platform unit test. What is **not** done: nobody has launched those packages, they are
   **unsigned** (macOS Gatekeeper blocks a first run; Developer ID signing and notarization belong to
   the commercialisation layer), and a real Unix-socket QEMU run still needs a Mac or a Linux machine.
-  Windows remains the platform the golden path is verified on.
+  Windows remains the platform the golden path is verified on. **The CI packages on hand are built
+  under the `0.6.0-preview.1` name**, so the release batch dispatches `bundle` again to produce
+  `0.7.0`-named ones.
 - **`v0.6.0-preview.1` is released as a pre-release** (v0.6 batches 1–2, released in batch 4): two
   runs are compared field by field — the data layer and the API ([../host/src/run_diff.rs](../host/src/run_diff.rs),
   `AppState::compare_run_fingerprints`, the `compare_run_fingerprints` command) and the collapsed
@@ -64,21 +68,25 @@ section when the next release ships)
   the Linux bundle) ← `0633bdc` (the macOS/Linux bundle CI job) ← `833f9c3` (platform-aware QEMU
   guidance, icon.icns, Unix QMP arg test) ← `06fef0a` (the language switch) ← `6abcb44` (the i18n
   pilot) ← `b0efeb8` (the v0.6.0-preview.1 release) ← `6c5ddb65` (the changelog and the snapshot).
-- Tags: `v0.6.0-preview.1` is this preview (the commit that versions this file); `v0.5.0` is the
-  release before it and the one holding the Latest marker; `v0.5.0-preview.1` =
+- Tags: `v0.6.0-preview.1` is the newest tag (a pre-release, and the one the `bundle` packages on
+  hand are named after); **`v0.7.0` is not tagged yet** — the release batch does that; `v0.5.0` is the
+  release holding the Latest marker; `v0.5.0-preview.1` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`;
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`;
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`.
-- Test totals at `main` (`202dd75`, unreleased): **295 passed / 0 failed / 8 ignored / 80 suites**
-  — 291 / 0 / 8 / 80 at the `v0.6.0-preview.1` release commit, and 281 / 0 / 8 / 79 at `v0.5.0`. The
-  gate is 13 steps (v0.7 batch 1 added the UI string registry; the UI probes count as one step however
-  many files they run), green locally and in CI (`scripts/gate.sh` on `ubuntu-latest` plus gitleaks).
+- Test totals at `main` (the release commit, unreleased): **295 passed / 0 failed / 8 ignored / 80
+  suites** — 291 / 0 / 8 / 80 at the `v0.6.0-preview.1` release commit, and 281 / 0 / 8 / 79 at
+  `v0.5.0`. The gate is 13 steps (v0.7 batch 1 added the UI string registry; the UI probes count as one
+  step however many files they run), green locally and in CI (`scripts/gate.sh` on `ubuntu-latest`
+  plus gitleaks).
 - Open items: the temp directories under `%TEMP%` have not been cleaned (the deletion confirmation
   was never granted; 144 `riscdom-*` entries were counted on 2026-09-21); CLA.md awaits a lawyer's
   eye; **the clean-machine walk by someone else has not happened** — still a v0.5.x strengthening item
   rather than a blocker; **the macOS/Linux packages have never been launched** and are unsigned
   (signing is a commercialisation-layer item); the two items the v0.5 walk left for a human (G-2, and
-  typing Chinese with a real keyboard) are still open.
+  typing Chinese with a real keyboard) are still open. **The v0.7.0 release itself is the next
+  batch**: push, tag, release, and a fresh `bundle` dispatch for the `0.7.0`-named macOS/Linux
+  packages.
 
 ## 2. Remote operations are per-turn and authorised in words
 
