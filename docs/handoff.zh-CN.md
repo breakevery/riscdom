@@ -11,27 +11,31 @@
 
 ## 1. 快照 —— `v0.6.0-preview.1` 已作为预发布版发出；Latest 仍是 `v0.5.0`（下次发布时更新本节）
 
-- **v0.7 已开工，但尚未发布。** 两条线并行：**自建 i18n 设施**（v0.7 批次 1–2 —— `ui/src/i18n/`、
-  gate 里的注册表检查、以及*设置 → 外观*里会写入 `settings.json` 并把 `<html>` 的 `lang` 跟着改的
-  语言切换），和 **macOS/Linux 支持**（批次 3 只做侦察，批次 A 是第一批代码）。**用注册表铺开其余界面
-  字符串这件事挂起了**：设施与那 4 条 diff 字符串保留，190 行的全量翻译不做 —— 价值在设施，而不在把
-  一个内核形态的工具翻一遍。工作提交：`06fef0a`（可用的语言切换）← `6abcb44`（i18n 试点）← `fff3b7c`
-  （快照指向）。
-- **macOS 与 Linux：已决定，本地能做的部分已完成。** macOS **不签名** —— Developer ID 签名与公证属于
-  商业化层，不属于 v0.7 —— 因此 Gatekeeper 会拦下首次运行，发布说明必须写清如何照常打开。目标形态是
-  *能构建、能启动、golden path 手动跑一次*。批次 A（本地、Windows）新增 `icons/icon.icns`，让 QEMU 安装
-  指引随平台变化（`winget` / Homebrew / 发行版包，见 `sandbox::qemu_discover::install_hint_for`），为
-  Unix 的 `-qmp unix:` 参数加了跨平台单测，并把 QEMU 预检里的建议改成不再指向单一平台。仍未做：多 OS
-  CI matrix（macOS 只在 release / 手动触发）、macOS 构建本身、以及真实 Unix socket 的 QEMU 运行 ——
-  后两项需要一台 Mac 或 Linux 机器。
+- **v0.7 已在 `main` 上，但尚未发布。** 落地的有三块：**自建 i18n 设施**（v0.7 批次 1–2 ——
+  `ui/src/i18n/`、gate 里的 `scripts/check-ui-strings.mjs`、以及*设置 → 外观*里会写入 `settings.json`
+  并把 `<html>` 的 `lang` 跟着改的语言切换）、**macOS/Linux 构建**（批次 A 的平台工作 + 批次 B 的
+  `bundle` CI job，见下一条），以及让 `host` 在非 Windows 上能编译的修复（批次 8）。**用注册表铺开其余
+  约 190 条界面字符串这件事有意不做**：设施与那 4 条 diff 字符串保留，全量翻译不做 —— 价值在设施，而不在
+  把一个内核形态的工具翻一遍。工作提交：`202dd75`（非 Windows 的 `extract_zip` 存根）← `344fd2b`
+  （Linux 包需要的 rpm）← `0633bdc`（bundle CI job）← `833f9c3`（随平台变化的 QEMU 指引、icon.icns）←
+  `06fef0a`（可用的语言切换）← `6abcb44`（i18n 试点）。
+- **macOS 与 Linux：CI 能出包，但尚未人工走查。** `ci.yml` 有 `bundle` job（dispatch 或 `v*` tag；
+  macOS + Linux 两个 runner），执行 `npm run tauri build` 并把安装包作为 artifact 上传 —— macOS aarch64
+  的 `.app` + `.dmg`，Linux amd64 的 `.deb` + `.rpm` + `.AppImage` —— 在 run `35572294916` 全绿。批次 A
+  还补齐了 `icons/icon.icns`、让 QEMU 安装指引随平台变化（`winget` / Homebrew / 发行版包，见
+  `sandbox::qemu_discover::install_hint_for`），并用一条跨平台单测钉住 Unix 的 `-qmp unix:` 参数。
+  **尚未做**：没有人启动过这些安装包；它们**未签名**（macOS Gatekeeper 会拦下首次运行；Developer ID
+  签名与公证属于商业化层）；真实 Unix socket 的 QEMU 运行仍需一台 Mac 或 Linux 机器。Windows 仍是黄金
+  路径验证过的平台。
 - **`v0.6.0-preview.1` 已作为预发布版发布**（v0.6 批次 1–2，批次 4 发布）：两次 run 逐字段对比 —— 数据层
   与 API（[../host/src/run_diff.rs](../host/src/run_diff.rs)、`AppState::compare_run_fingerprints`、
   `compare_run_fingerprints` 命令）以及审计页两 run 面板下方那个默认折叠的区块。预发布版**不持有 Latest
   标记**，因此 `v0.5.0` 仍是 Latest 正式版。附件：`RiscDom_0.6.0-preview.1_x64_en-US.msi` 与
   `RiscDom_0.6.0-preview.1_x64-setup.exe`，构建时带 `bundle.windows.wix.version = "0.6.0"`（WiX 不接受
   预发布版 `ProductVersion`），所以「应用和功能」里显示 `0.6.0`，而产物名保留包版本。它证明了什么、
-  没证明什么写在 [RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) —— 缺口中的第一条：**没有任何人
-  走过新界面**，这就是它是预览版的原因。
+  没证明什么写在 [RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) —— 它所点的第一条缺口如今已闭环：
+  **第 8 步的界面已经人工走查、结论通过**（由项目所有者走查；没有单独归档记录文件，因此
+  `walkthroughs/` 里仍只有 v0.5 那次本地走查）。
 - **`v0.5.0` 已发布，它就是 Latest。**
   <https://github.com/breakevery/riscdom/releases/tag/v0.5.0> —— 附件为 `RiscDom_0.5.0_x64_en-US.msi`
   与 `RiscDom_0.5.0_x64-setup.exe`，构建时已去掉预览版的 MSI 版本覆盖（因此「应用和功能」里显示
@@ -46,23 +50,23 @@
 - **外部走查仍未发生。** 它本是本版的计划，但没有发生，因此「干净机器走查」现在是 **v0.5.x 的补强项**
   （§8），而不是阻塞项：[golden-path-checklist.zh-CN.md](golden-path-checklist.zh-CN.md) 是测试者要填的
   表单，`walkthroughs/` 是它该去的地方。
-- 近期提交（新→旧）：`b0efeb8`（v0.6.0-preview.1 发布：版本 bump、变更日志、发布说明）← `6c5ddb65`
-  （变更日志与交接快照）← `b5aac541`（审计页里的字段级差异）← `4d407cea`（指纹 diff：数据层 + API）←
-  `287ffdb`（v0.5.0-preview.1 发布 bump）← `2a5d296`（README/CLA 措辞）← `993e5d1`（CLA）←
-  `f662ad7`（自足导出）。
+- 近期提交（新→旧）：`202dd75`（非 Windows 的 `extract_zip` 存根）← `344fd2b`（Linux 包需要的 rpm）←
+  `0633bdc`（macOS/Linux 的 bundle CI job）← `833f9c3`（随平台变化的 QEMU 指引、icon.icns、Unix QMP
+  单测）← `06fef0a`（语言切换）← `6abcb44`（i18n 试点）← `b0efeb8`（v0.6.0-preview.1 发布）←
+  `6c5ddb65`（变更日志与快照）。
 - tag：`v0.6.0-preview.1` 即本次预览（给本文件定版的那个提交）；`v0.5.0` 是它之前的正式版，也是持有
   Latest 标记的那个；`v0.5.0-preview.1` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`；
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`；
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`。
-- 发布提交 `b0efeb8` 处的测试总况：**291 passed / 0 failed / 8 ignored / 80 suites**
-  （v0.5.0 为 281 / 0 / 8 / 79）。gate 共 13 步（v0.7 批次 1 新增了 UI 字符串注册表；UI 探针无论跑多少个
-  文件都算一步），本地与 CI 均全绿（`ubuntu-latest` 上跑 `scripts/gate.sh`，另加 gitleaks）。
+- `main`（`202dd75`，未发布）处的测试总况：**295 passed / 0 failed / 8 ignored / 80 suites**
+  —— `v0.6.0-preview.1` 发布提交处为 291 / 0 / 8 / 80，`v0.5.0` 处为 281 / 0 / 8 / 79。gate 共 13 步
+  （v0.7 批次 1 新增了 UI 字符串注册表；UI 探针无论跑多少个文件都算一步），本地与 CI 均全绿
+  （`ubuntu-latest` 上跑 `scripts/gate.sh`，另加 gitleaks）。
 - 未完成项：`%TEMP%` 下的临时目录仍未清理（删除确认始终未被放行；2026-09-21 统计到 144 个
-  `riscdom-*` 条目）；CLA.md 待律师过目；macOS/Linux 已决定但只做了一半（见上面的批次 A）；**由他人进行的
-  干净机器走查尚未发生** —— 仍是 v0.5.x 的补强项，而不是阻塞项；
-  **预览版的界面尚未经人工走查** —— 已在 [RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) 披露，
-  也是第 8 步走查要做的第一件事。
+  `riscdom-*` 条目）；CLA.md 待律师过目；**由他人进行的干净机器走查尚未发生** —— 仍是 v0.5.x 的补强项，
+  而不是阻塞项；**macOS/Linux 的安装包从未被启动过**且未签名（签名属商业化层）；v0.5 走查留给真人的两项
+  （G-2、真实键盘输入中文）仍未做。
 
 ## 2. 远端操作按轮授权，且必须有明确文字
 

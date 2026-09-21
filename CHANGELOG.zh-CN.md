@@ -7,6 +7,34 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)。
 
+## [未发布]
+
+**v0.7 已在 `main` 上、尚未发布：自建 i18n 设施、语言切换，以及 macOS/Linux 构建。** Latest 正式版
+仍是 `v0.6.0-preview.1`。
+
+### 新增
+
+- **自建 i18n 设施**（v0.7 批次 1–2）：`ui/src/i18n/` 是一套双语字符串注册表，**不引第三方库**；
+  `scripts/check-ui-strings.mjs`（在 gate 里，带自测）要求每个键都有两种语言；*设置 → 外观*里新增
+  语言选择器（跟随系统 / 中文 / English），写入 `settings.json`、改写 `<html>` 的 `lang`，并即时重渲染。
+  v0.6 那四条 diff 字符串是试点。**把注册表铺开到其余约 190 条界面字符串这件事有意不做** —— 价值在
+  设施，而不在把一个内核形态的工具翻一遍。
+- **macOS 与 Linux 构建**（v0.7 批次 B）：`ci.yml` 新增 `bundle` job（dispatch 或 `v*` tag；macOS + Linux
+  两个 runner），执行 `npm run tauri build` 并把产物作为 artifact 上传 —— macOS `.app` + `.dmg`，Linux
+  `.deb` + `.rpm` + `.AppImage`。已在 run `35572294916` 端到端验证。安装包**未签名**：Developer ID 签名
+  与公证属于商业化层，因此 macOS Gatekeeper 会拦下首次运行。
+- **随平台变化的 QEMU 指引**（v0.7 批次 A）：“未找到 QEMU”的指引随平台变化（`winget` / Homebrew /
+  发行版包，见 `sandbox::qemu_discover::install_hint_for`），macOS 打包所需的 `icons/icon.icns` 已补齐，
+  Unix 的 `-qmp unix:` 参数由一条跨平台单测钉住。
+
+### 修复
+
+- **`host` 在非 Windows 上编译不过**（v0.7 批次 8）：`fn extract_zip` 是 Windows 专属，但调用它的
+  `ArchiveKind::Zip` 分支没有加同样的 cfg，于是所有 macOS/Linux 构建都死在 `error[E0425]: cannot find
+  function 'extract_zip' in this scope`。现在非 Windows 平台得到一个同名存根，返回“zip archives are not
+  supported on this platform”，而 `zip` 仍是 Windows-only 依赖。这个缺陷是新 `bundle` job 发现的：那是
+  `host` 第一次在非 Windows 上被编译 —— Linux 的 gate 完全跳过 `host`。
+
 ## [0.6.0-preview.1] - 2026-09-19
 
 **黄金路径第 8 步以预览版发布：两次 run 逐字段对比。** 它尚未经人工走查 —— 既没在干净机器上，也没

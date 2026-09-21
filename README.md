@@ -171,7 +171,9 @@ disk / audit / logs, and status read-outs never contain it. Closing the app inva
 - **Serial source**: pushed by the sandbox's serial reader thread
   (`subscribe_serial` → `serial:chunk`), no longer derived from the audit log; subscribers
   only receive what arrives after they subscribe (see `host/README.md`).
-- **Platform**: Windows + TCP only; Unix sockets / macOS / Linux are not implemented.
+- **Platform**: Windows is the platform the golden path is verified on. macOS and Linux packages are
+  built by CI (`.app`/`.dmg`, `.deb`/`.rpm`/`.AppImage`) and are **unsigned and not yet walked**; QMP
+  over a Unix socket is still not implemented (TCP only).
 - **No streaming**: (superseded — streaming LLM output is implemented; see CHANGELOG).
 - **Sessions**: conversations are persisted (list / open / rename / delete); a restored
   session replays history messages only, never tool calls.

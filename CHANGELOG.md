@@ -7,6 +7,39 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**v0.7 is on `main` and unreleased: a self-built i18n facility, a language switch, and macOS/Linux
+builds.** `v0.6.0-preview.1` is still the Latest release.
+
+### Added
+
+- **A self-built i18n facility** (v0.7 batches 1–2): `ui/src/i18n/` holds a two-language string
+  registry with no third-party library; `scripts/check-ui-strings.mjs` (in the gate, with its own
+  self-test) requires every key in both languages; and *Settings → Appearance* has a language chooser
+  (follow the system / 中文 / English) that persists to `settings.json`, moves `lang` on `<html>` and
+  re-renders live. The four v0.6 diff strings are the pilot. **Rolling the registry out over the
+  remaining ~190 interface strings is deliberately not done** — the facility is the value, and a
+  kernel-shaped tool does not need a fully bilingual surface.
+- **macOS and Linux builds** (v0.7 batch B): a `bundle` job in `ci.yml` (dispatch or a `v*` tag;
+  macOS and Linux runners) runs `npm run tauri build` and uploads the results as artifacts — macOS
+  `.app` + `.dmg`, Linux `.deb` + `.rpm` + `.AppImage`. Verified end to end in run `35572294916`.
+  The packages are **unsigned**: Developer ID signing and notarization belong to the commercialisation
+  layer, so macOS Gatekeeper blocks a first run.
+- **Platform-aware QEMU guidance** (v0.7 batch A): the "QEMU not found" guidance follows the platform
+  (`winget` / Homebrew / the distribution's package, via `sandbox::qemu_discover::install_hint_for`),
+  `icons/icon.icns` exists for the macOS bundle, and the Unix `-qmp unix:` argument is pinned by a
+  cross-platform unit test.
+
+### Fixed
+
+- **`host` did not compile off Windows** (v0.7 batch 8): `fn extract_zip` is Windows-only, but the
+  `ArchiveKind::Zip` arm calling it was not, so every macOS/Linux build failed with `error[E0425]:
+  cannot find function 'extract_zip' in this scope`. Non-Windows platforms now get a same-named stub
+  that reports "zip archives are not supported on this platform", and `zip` stays a Windows-only
+  dependency. The new `bundle` job found this: it was the first time `host` was ever compiled off
+  Windows, because the Linux gate skips `host` entirely.
+
 ## [0.6.0-preview.1] - 2026-09-19
 
 **The golden path's eighth step ships as a preview: two runs compared field by field.** It has not

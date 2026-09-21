@@ -14,23 +14,26 @@ current request authorising it (§2).
 ## 1. Snapshot — `v0.6.0-preview.1` is out as a pre-release; `v0.5.0` is still Latest (update this
 section when the next release ships)
 
-- **v0.7 has started and is not released.** Two lines run side by side: the **self-built i18n
-  facility** (v0.7 batches 1–2 — `ui/src/i18n/`, a registry check in the gate, and a language switch
-  in *Settings → Appearance* that persists to `settings.json` and moves `lang` on `<html>`) and
-  **macOS/Linux support** (batch 3 was reconnaissance only; batch A is the first code). **The i18n
-  rollout over the remaining interface strings is suspended**: the facility and the four diff strings
-  stay, the 190-line translation does not — the value is the facility, not translating a
-  kernel-shaped tool. Working commits: `06fef0a` (the usable language switch) ← `6abcb44` (the i18n
-  pilot) ← `fff3b7c` (the snapshot pointer).
-- **macOS and Linux: decided, and the local half is done.** macOS ships **unsigned** — Developer ID
-  signing and notarization belong to the commercialisation layer, not to v0.7 — so Gatekeeper blocks
-  a first run and the release notes have to say how to open it anyway. The target shape is *build,
-  launch, and one hand-run golden path*. Batch A (local, Windows) added `icons/icon.icns`, made the
-  QEMU install guidance follow the platform (`winget` / Homebrew / the distribution's package, via
-  `sandbox::qemu_discover::install_hint_for`), pinned the Unix `-qmp unix:` argument with a
-  cross-platform unit test, and rewrote the QEMU preflight suggestion so it names no single platform.
-  Still open: the multi-OS CI matrix (macOS on release / manual runs only), a macOS build itself, and
-  a real Unix-socket QEMU run — the last two need a Mac or a Linux machine.
+- **v0.7 is on `main` and is not released.** Three pieces landed: the **self-built i18n facility**
+  (v0.7 batches 1–2 — `ui/src/i18n/`, `scripts/check-ui-strings.mjs` in the gate, and a language
+  switch in *Settings → Appearance* that persists to `settings.json` and moves `lang` on `<html>`),
+  **macOS/Linux builds** (batch A's platform work plus batch B's `bundle` CI job — the next bullet),
+  and the fix that made `host` compile off Windows (batch 8). **The i18n rollout over the remaining
+  ~190 interface strings is deliberately not done**: the facility and the four diff strings stay, the
+  translation does not — the value is the facility, not translating a kernel-shaped tool. Working
+  commits: `202dd75` (the non-Windows `extract_zip` stub) ← `344fd2b` (rpm for the Linux bundle) ←
+  `0633bdc` (the bundle CI job) ← `833f9c3` (platform-aware QEMU guidance, icon.icns) ← `06fef0a`
+  (the usable language switch) ← `6abcb44` (the i18n pilot).
+- **macOS and Linux: built by CI, and not yet walked.** `ci.yml` has a `bundle` job (dispatch or a
+  `v*` tag; macOS and Linux runners) that runs `npm run tauri build` and uploads the packages as
+  artifacts — macOS aarch64 `.app` + `.dmg`, Linux amd64 `.deb` + `.rpm` + `.AppImage` — green in run
+  `35572294916`. Batch A also added `icons/icon.icns`, made the QEMU install guidance follow the
+  platform (`winget` / Homebrew / the distribution's package, via
+  `sandbox::qemu_discover::install_hint_for`) and pinned the Unix `-qmp unix:` argument with a
+  cross-platform unit test. What is **not** done: nobody has launched those packages, they are
+  **unsigned** (macOS Gatekeeper blocks a first run; Developer ID signing and notarization belong to
+  the commercialisation layer), and a real Unix-socket QEMU run still needs a Mac or a Linux machine.
+  Windows remains the platform the golden path is verified on.
 - **`v0.6.0-preview.1` is released as a pre-release** (v0.6 batches 1–2, released in batch 4): two
   runs are compared field by field — the data layer and the API ([../host/src/run_diff.rs](../host/src/run_diff.rs),
   `AppState::compare_run_fingerprints`, the `compare_run_fingerprints` command) and the collapsed
@@ -39,8 +42,9 @@ section when the next release ships)
   `RiscDom_0.6.0-preview.1_x64-setup.exe`, built with `bundle.windows.wix.version = "0.6.0"` (WiX
   cannot take a pre-release `ProductVersion`), so *Apps & features* shows `0.6.0` while the artifact
   names keep the package version. What it proves and what it does not is in
-  [RELEASE_NOTES.md](../RELEASE_NOTES.md) — first among the gaps: **no human has walked the new
-  interface**, which is why this is a preview.
+  [RELEASE_NOTES.md](../RELEASE_NOTES.md) — and the gap it named first has since closed: **the
+  step-8 interface has been walked by eye and passed** (the operator's walk; no separate record file
+  was archived, so `walkthroughs/` still holds only the v0.5 local walk).
 - **`v0.5.0` is released, and it is the Latest release.**
   <https://github.com/breakevery/riscdom/releases/tag/v0.5.0> — assets `RiscDom_0.5.0_x64_en-US.msi`
   and `RiscDom_0.5.0_x64-setup.exe`, built without the preview's MSI version override (so *Apps &
@@ -56,26 +60,25 @@ section when the next release ships)
 - **An external walk is still outstanding.** It was this release's plan and it did not happen, so
   the clean-machine walk is now a **v0.5.x strengthening item** (§8), not a blocker: [golden-path-checklist.md](golden-path-checklist.md)
   is the form a tester fills in, and `walkthroughs/` is where it goes.
-- Recent commits (newest first): `b0efeb8` (the v0.6.0-preview.1 release: version bump, changelog,
-  release notes) ← `6c5ddb65` (the changelog and the handoff snapshot) ← `b5aac541` (the field-level diff
-  in the audit tab) ← `4d407cea` (the fingerprint diff: data layer + API) ← `287ffdb` (the
-  v0.5.0-preview.1 release bump) ← `2a5d296` (README/CLA wording) ← `993e5d1` (CLA) ← `f662ad7`
-  (self-contained export).
+- Recent commits (newest first): `202dd75` (the non-Windows `extract_zip` stub) ← `344fd2b` (rpm for
+  the Linux bundle) ← `0633bdc` (the macOS/Linux bundle CI job) ← `833f9c3` (platform-aware QEMU
+  guidance, icon.icns, Unix QMP arg test) ← `06fef0a` (the language switch) ← `6abcb44` (the i18n
+  pilot) ← `b0efeb8` (the v0.6.0-preview.1 release) ← `6c5ddb65` (the changelog and the snapshot).
 - Tags: `v0.6.0-preview.1` is this preview (the commit that versions this file); `v0.5.0` is the
   release before it and the one holding the Latest marker; `v0.5.0-preview.1` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`;
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`;
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`.
-- Test totals at the release commit `b0efeb8`: **291 passed / 0 failed / 8 ignored / 80 suites**
-  (v0.5.0 was 281 / 0 / 8 / 79). The gate is 13 steps (v0.7 batch 1 added the UI string registry;
-  the UI probes count as one step however many files they run), green locally and in CI (`scripts/gate.sh` on
-  `ubuntu-latest` plus gitleaks).
+- Test totals at `main` (`202dd75`, unreleased): **295 passed / 0 failed / 8 ignored / 80 suites**
+  — 291 / 0 / 8 / 80 at the `v0.6.0-preview.1` release commit, and 281 / 0 / 8 / 79 at `v0.5.0`. The
+  gate is 13 steps (v0.7 batch 1 added the UI string registry; the UI probes count as one step however
+  many files they run), green locally and in CI (`scripts/gate.sh` on `ubuntu-latest` plus gitleaks).
 - Open items: the temp directories under `%TEMP%` have not been cleaned (the deletion confirmation
   was never granted; 144 `riscdom-*` entries were counted on 2026-09-21); CLA.md awaits a lawyer's
-  eye; macOS/Linux is decided but only half-built (batch A above); **the clean-machine walk
-  by someone else has not happened** — still a v0.5.x strengthening item rather than a blocker;
-  **the preview's interface has not been walked by a person** — disclosed in [RELEASE_NOTES.md](../RELEASE_NOTES.md),
-  and the first thing a walk of step 8 should cover.
+  eye; **the clean-machine walk by someone else has not happened** — still a v0.5.x strengthening item
+  rather than a blocker; **the macOS/Linux packages have never been launched** and are unsigned
+  (signing is a commercialisation-layer item); the two items the v0.5 walk left for a human (G-2, and
+  typing Chinese with a real keyboard) are still open.
 
 ## 2. Remote operations are per-turn and authorised in words
 

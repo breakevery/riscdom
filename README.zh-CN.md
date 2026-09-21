@@ -162,7 +162,7 @@ Key 只存在后端内存：**不写** localStorage / sessionStorage / 磁盘 / 
   VM 状态（v0.2 换 QEMU `savevm`/`loadvm`）。
 - **串口来源**：由 sandbox 串口读取线程**主动推送**（`subscribe_serial` → `serial:chunk`），
   不再是审计派生；订阅只收到订阅之后的数据（见 `host/README.md`）。
-- **平台**：仅 Windows + TCP；Unix socket / macOS / Linux 未实现。
+- **平台**：黄金路径在 Windows 上验证过。macOS/Linux 的安装包由 CI 产出（`.app`/`.dmg`、`.deb`/`.rpm`/`.AppImage`），**未签名、也尚未人工走查**；QMP over Unix socket 仍未实现（仅 TCP）。
 - **无流式输出**：LLM 响应为整块返回。
 - **无会话持久化**：每轮 `run_agent` 是独立上下文。
 - **编译器注入 crt0**：AI 只需写 `int main(void)`（原因见 `agent/README.md`）。
