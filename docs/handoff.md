@@ -80,6 +80,12 @@ section when the next release ships)
   79 at `v0.5.0`. The gate is 13 steps (v0.7 batch 1 added the UI string registry; the UI probes count
   as one step however many files they run), green locally and in CI (`scripts/gate.sh` on
   `ubuntu-latest` plus gitleaks).
+- **The architecture-evolution note is finalized and on disk**: [architecture-evolution.md](architecture-evolution.md)
+  (bilingual, paired with [architecture-evolution.zh-CN.md](architecture-evolution.zh-CN.md)) records the
+  architecture re-assessment done after v0.7.0 — the four layers and the syscall-layer mechanism/policy
+  split, the settled decisions (Tauri decoupling A3 → A1, the B2 multi-process model, the audit chain as
+  a single chain + agent_id), the seams left open for multi-device, and the milestone path to the v1.0
+  kernel-API freeze. Documentation only: no code changed.
 - Open items: the temp directories under `%TEMP%` have not been cleaned (the deletion confirmation
   was never granted; 144 `riscdom-*` entries were counted on 2026-09-21); CLA.md awaits a lawyer's
   eye; **the clean-machine walk by someone else has not happened** — still a v0.5.x strengthening item
