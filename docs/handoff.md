@@ -64,21 +64,22 @@ section when the next release ships)
 - **An external walk is still outstanding.** It was this release's plan and it did not happen, so
   the clean-machine walk is now a **v0.5.x strengthening item** (§8), not a blocker: [golden-path-checklist.md](golden-path-checklist.md)
   is the form a tester fills in, and `walkthroughs/` is where it goes.
-- Recent commits (newest first): `202dd75` (the non-Windows `extract_zip` stub) ← `344fd2b` (rpm for
-  the Linux bundle) ← `0633bdc` (the macOS/Linux bundle CI job) ← `833f9c3` (platform-aware QEMU
-  guidance, icon.icns, Unix QMP arg test) ← `06fef0a` (the language switch) ← `6abcb44` (the i18n
-  pilot) ← `b0efeb8` (the v0.6.0-preview.1 release) ← `6c5ddb65` (the changelog and the snapshot).
+- Recent commits (newest first): `20f2052` (the v0.7.0 release preparation: version bump, changelog,
+  release notes) ← `57dd25e` (the v0.7 documentation snapshot) ← `202dd75` (the non-Windows
+  `extract_zip` stub) ← `344fd2b` (rpm for the Linux bundle) ← `0633bdc` (the macOS/Linux bundle CI
+  job) ← `833f9c3` (platform-aware QEMU guidance, icon.icns, Unix QMP arg test) ← `06fef0a` (the
+  language switch) ← `6abcb44` (the i18n pilot) ← `b0efeb8` (the v0.6.0-preview.1 release).
 - Tags: `v0.6.0-preview.1` is the newest tag (a pre-release, and the one the `bundle` packages on
   hand are named after); **`v0.7.0` is not tagged yet** — the release batch does that; `v0.5.0` is the
   release holding the Latest marker; `v0.5.0-preview.1` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`;
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`;
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`.
-- Test totals at `main` (the release commit, unreleased): **295 passed / 0 failed / 8 ignored / 80
-  suites** — 291 / 0 / 8 / 80 at the `v0.6.0-preview.1` release commit, and 281 / 0 / 8 / 79 at
-  `v0.5.0`. The gate is 13 steps (v0.7 batch 1 added the UI string registry; the UI probes count as one
-  step however many files they run), green locally and in CI (`scripts/gate.sh` on `ubuntu-latest`
-  plus gitleaks).
+- Test totals at `main` (the release commit `20f2052`, unreleased): **295 passed / 0 failed / 8
+  ignored / 80 suites** — 291 / 0 / 8 / 80 at the `v0.6.0-preview.1` release commit, and 281 / 0 / 8 /
+  79 at `v0.5.0`. The gate is 13 steps (v0.7 batch 1 added the UI string registry; the UI probes count
+  as one step however many files they run), green locally and in CI (`scripts/gate.sh` on
+  `ubuntu-latest` plus gitleaks).
 - Open items: the temp directories under `%TEMP%` have not been cleaned (the deletion confirmation
   was never granted; 144 `riscdom-*` entries were counted on 2026-09-21); CLA.md awaits a lawyer's
   eye; **the clean-machine walk by someone else has not happened** — still a v0.5.x strengthening item

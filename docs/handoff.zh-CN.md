@@ -52,16 +52,16 @@
 - **外部走查仍未发生。** 它本是本版的计划，但没有发生，因此「干净机器走查」现在是 **v0.5.x 的补强项**
   （§8），而不是阻塞项：[golden-path-checklist.zh-CN.md](golden-path-checklist.zh-CN.md) 是测试者要填的
   表单，`walkthroughs/` 是它该去的地方。
-- 近期提交（新→旧）：`202dd75`（非 Windows 的 `extract_zip` 存根）← `344fd2b`（Linux 包需要的 rpm）←
-  `0633bdc`（macOS/Linux 的 bundle CI job）← `833f9c3`（随平台变化的 QEMU 指引、icon.icns、Unix QMP
-  单测）← `06fef0a`（语言切换）← `6abcb44`（i18n 试点）← `b0efeb8`（v0.6.0-preview.1 发布）←
-  `6c5ddb65`（变更日志与快照）。
+- 近期提交（新→旧）：`20f2052`（v0.7.0 发布准备：版本 bump、变更日志、发布说明）← `57dd25e`（v0.7 文档
+  快照）← `202dd75`（非 Windows 的 `extract_zip` 存根）← `344fd2b`（Linux 包需要的 rpm）← `0633bdc`
+  （macOS/Linux 的 bundle CI job）← `833f9c3`（随平台变化的 QEMU 指引、icon.icns、Unix QMP 单测）←
+  `06fef0a`（语言切换）← `6abcb44`（i18n 试点）← `b0efeb8`（v0.6.0-preview.1 发布）。
 - tag：`v0.6.0-preview.1` 是最新的 tag（预发布版，也是手头 `bundle` 包的命名来源）；**`v0.7.0` 尚未打
   tag** —— 由发布批次完成；`v0.5.0` 是持有 Latest 标记的正式版；`v0.5.0-preview.1` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`；
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`；
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`。
-- `main`（发布提交，未发布）处的测试总况：**295 passed / 0 failed / 8 ignored / 80 suites**
+- `main`（发布提交 `20f2052`，未发布）处的测试总况：**295 passed / 0 failed / 8 ignored / 80 suites**
   —— `v0.6.0-preview.1` 发布提交处为 291 / 0 / 8 / 80，`v0.5.0` 处为 281 / 0 / 8 / 79。gate 共 13 步
   （v0.7 批次 1 新增了 UI 字符串注册表；UI 探针无论跑多少个文件都算一步），本地与 CI 均全绿
   （`ubuntu-latest` 上跑 `scripts/gate.sh`，另加 gitleaks）。
