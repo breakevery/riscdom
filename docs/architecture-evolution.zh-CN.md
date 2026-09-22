@@ -1,5 +1,7 @@
 [English](architecture-evolution.md) | 中文
 
+> **本文档为 v0.7.0 快照。** 此后的决策见 [decisions.zh-CN.md](decisions.zh-CN.md)。
+
 # RiscDom 架构演进：从单机沙箱到 AI 协同运行时
 
 版本：1.0 ｜ 日期：2026-09-21 ｜ 性质：架构演进说明，基于 v0.7.0 事实侦察

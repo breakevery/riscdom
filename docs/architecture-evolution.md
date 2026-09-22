@@ -1,5 +1,8 @@
 [中文](architecture-evolution.zh-CN.md) | English
 
+> **This document is the v0.7.0 snapshot.** Decisions taken since then are recorded in
+> [decisions.md](decisions.md).
+
 # RiscDom Architecture Evolution: From a Single-Machine Sandbox to an AI Collaborative Runtime
 
 Version: 1.0 ｜ Date: 2026-09-21 ｜ Nature: an architecture-evolution note, based on the v0.7.0 fact-finding
