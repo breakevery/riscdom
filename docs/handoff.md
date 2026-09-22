@@ -13,6 +13,17 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The control-plane protocol is designed** (v0.9 batch 1/N — design only, no code). Two
+  bilingual pairs fix the interface the management side codes against: the HTTP command/query
+  surface in [control-plane-api.md](control-plane-api.md) — 53 commands become 53 endpoints
+  (26 `GET` / 27 `POST`), and the four kernel-capability gaps are resolved explicitly — and the
+  push side in [control-plane-events.md](control-plane-events.md): SSE framing plus one envelope
+  all eleven events share (`version` / `kind` / `event` / `agent_id` / `task_id` / `ts` /
+  `payload`). Three of the eleven payloads change shape (`vm:state`, `audit:failed`,
+  `toolchain:download`); the other eight are the identity mapping. **The transport is HTTP + SSE,
+  not WebSocket**: the push is one-way (server to client), SSE is plain HTTP (no upgrade
+  handshake, no extra crate), and it reconnects with `Last-Event-ID` on its own. The design is
+  settled; no implementation is written yet.
 - **After the v0.8.0 release: the preflight directory is per agent as well** (follow-up A2 — the last
   write path a shared workspace still had). New artifacts go to
   `<workspace>/.riscdom/preflight/<agent_id>/`; the guest to boot is resolved from this agent's own

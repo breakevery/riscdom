@@ -11,6 +11,9 @@
 
 ## 1. 快照 —— `v0.8.0` 是最新的发行版（下次正式发布时更新本节）
 
+- **控制平面协议已定稿**（v0.9 批次 1/N，仅设计，无代码）。两份双语成对的文档固定了管理侧要照着实现的接口：HTTP 命令/查询面见
+  [control-plane-api.zh-CN.md](control-plane-api.zh-CN.md)——53 个命令变成 53 个端点（26 个 `GET` / 27 个 `POST`），四项内核能力缺口逐项明确处置；推送侧见
+  [control-plane-events.zh-CN.md](control-plane-events.zh-CN.md)——SSE 分帧，加一个十一个事件共用的 envelope（`version` / `kind` / `event` / `agent_id` / `task_id` / `ts` / `payload`）。十一个 payload 里有三个改了形状（`vm:state`、`audit:failed`、`toolchain:download`），其余八个是恒等映射。**传输选 HTTP + SSE，不用 WebSocket**：推送是单向（服务端到客户端），SSE 是纯 HTTP（无升级握手、无额外 crate），且自带 `Last-Event-ID` 重连。设计定稿，尚无任何实现。
 - **v0.8.0 发布之后：preflight 目录也改为 per-agent**（遗留项 A2 —— 共享 workspace 里最后一条写入路径）。
   新产物写入 `<workspace>/.riscdom/preflight/<agent_id>/`；要启动的 guest 先在 agent 自己的目录里找、再回退共享
   根目录，因此 A2 之前的 guest 仍然可用、不会被孤立。`settings.json` 里的缓存本就随实例隔离。v0.8.0 发布说明中
