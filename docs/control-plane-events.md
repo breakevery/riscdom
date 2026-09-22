@@ -53,7 +53,8 @@ as the host emits them.
   filters)` and the last id the client saw, sent as the `Last-Event-ID` header (browsers
   do this automatically; other clients must do it themselves).
 - **`id:` is the replay cursor.** The server emits `id: <ts>-<seq>`, where `ts` is the
-  event timestamp in epoch milliseconds and `seq` is a per-connection monotonic counter.
+  event timestamp in epoch milliseconds and `seq` is a **server-wide** monotonic frame
+  counter — server-wide because that is what makes the id usable after a reconnect.
   It is opaque to the client: store it, send it back, do not parse it.
 - **Replay is best-effort and bounded.** The server keeps a bounded ring buffer of recent
   frames. If a client's `Last-Event-ID` is newer than the buffer's oldest entry the
@@ -107,7 +108,7 @@ one meaning each.
   oldest id the server still holds. A client that sees a `gap` must re-sync from a
   query (§ the API document) rather than assume it missed nothing.
 
-**Not implemented in v0.9 batch 2.** The stream ships the `hello` and `event` kinds only: a subscriber that falls behind loses the frames it missed, and `Last-Event-ID` is read but not replayed. The `gap` name and shape are reserved here so they do not change when it lands.
+**Implemented in v0.9 batch 4.** A reconnecting client sends `Last-Event-ID` and the server replays what follows it from a bounded in-memory buffer (the last 1024 frames). If the cursor has fallen out of that buffer, the client gets a `gap` frame first — naming the oldest id still held — and then the frames from there on.
 
 ### 2.1 How `version` evolves
 

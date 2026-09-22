@@ -29,6 +29,8 @@ riscdom-server --bind 127.0.0.1:7821 --workspace ./my-workspace
 | `--workspace <dir>` | 当前目录 | 本宿主拥有的 workspace。其审计链位于 `<workspace>/.riscdom/audit.db`。 |
 | `--data-dir <dir>` | 本平台的宿主数据目录 | settings 与 sessions 所在处（v0.8 的注入式 data dir）。 |
 | `--heartbeat-ms <n>` | `15000` | SSE 心跳周期；`0` 关闭。 |
+| `--auth` | 开 | 要求 `<data-dir>/token` 里的 bearer token（默认）。 |
+| `--no-auth` | | 取消该要求并打印警告：仅用于本地调试。 |
 
 `--help` 打印同一张表。退出码：`0` 正常停止，`1` workspace 或 bind 失败，`2` 用法错误。用 `Ctrl+C` 停止。
 
@@ -40,7 +42,9 @@ riscdom-server --bind 127.0.0.1:7821 --workspace ./my-workspace
 |---|---|---|
 | `/v0/health` | GET | `{"status":"ok","version":"0.8.0","uptime_ms":N}` |
 | `/v0/status` | GET | `{"status","version","uptime_ms","connections","sse_subscribers","agents","agent_id"}` |
-| `/v0/events` | GET | SSE 事件流（`text/event-stream`）。 |
+| `/v0/events` | GET | SSE 事件流（`text/event-stream`，可用 `Last-Event-ID` 补发）。 |
+| `/v0/runs`、`/v0/sessions`、`/v0/snapshots`、`/v0/llm/…`、`/v0/preflight`、`/v0/serial` | GET | 查询面其余部分：见 API 文档 §5.1。 |
+| `/v0/sessions/create`、`/v0/settings/theme` 等 | POST | §5.2 的 27 个控制端点：会话、快照、VM、工具链、预检、LLM 配置、导出。 |
 
 其余路径一律以 API 文档定义的错误模型回 `404`：
 
@@ -79,12 +83,20 @@ data: {"version":1,"kind":"event","event":"agent:tool_call","agent_id":"local-17
 
 ## 认证
 
-请求携带 `Authorization: Bearer <token>`。钩子是 `Authn` trait；v0.9 默认实现为 `NoAuth`，它把所有请求都授权为匿名 actor 并忽略 token。token 只被读入请求元数据，**永不落日志**（其 `Debug` 会打码）。拒绝按错误模型映射：`401 unauthorized`、`403 forbidden`。
+**token 默认开启。** 首次启动时服务端生成 32 字节随机值写入 `<data-dir>/token`（仅属主可读：Unix 为 `600`，Windows 为仅属主 ACL——若平台无法限制，服务端拒绝启动），并要求每个请求出示它：
+
+```bash
+curl -sS http://127.0.0.1:7821/v0/health \
+  -H "Authorization: Bearer $(cat /path/to/data-dir/token)"
+```
+
+token **从不被打印或记入日志**；启动行只报文件路径，不报值。运维也可以自行放置该文件而不接受自动生成。`--no-auth` 取消该要求并打印警告——控制端点里含破坏性操作（删除会话、停止 VM、修改 LLM 配置）。
+
+钩子是 `Authn` trait，发行版可装入自己的实现。拒绝按错误模型映射：`401 unauthorized`、`403 forbidden`。
 
 把控制平面暴露到回环之外的分发方，自行负责传输安全：开源版只提供明文 HTTP 与该钩子，仅此而已。
 
 ## 尚未实现
 
-- **`gap` 帧与 `Last-Event-ID` 补放。** 落后的订阅者会丢掉它错过的那几帧，事件流不会说明。设计已为它预留 `gap` kind 与 `id` 游标——见 [docs/control-plane-events.zh-CN.md](../docs/control-plane-events.zh-CN.md) §2。
-- **API 表其余部分。** 53 个命令变 53 个端点属后续批次。
-- **payload 规范化。** 事件按宿主发射时的原样包裹；统一的 v1 payload 形状属后续改动。
+- **权限强制。** 每条路由都声明所需权限，服务端也把它交给认证钩子，但判断调用者**是否持有**该权限是权限中介的事，属后续批次。今天 token 就是全部的关卡。
+- **`POST /v0/vm/start`** 与 **`GET /v0/resources`** 回 `501`。

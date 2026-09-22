@@ -27,10 +27,20 @@ curl -sS http://127.0.0.1:7821/v0/health \
   -H 'Authorization: Bearer <token>'
 ```
 
-The v0.9 default hook (`NoAuth`) authorises everyone and ignores the header, so the call
-succeeds either way — but send the header from the start, so a deployment that installs a
-real hook does not surprise the client. `401` means the hook refused the credential;
-`403` means it accepted the caller but refused the action.
+**The token is required by default.** On first start the server writes 32 random bytes to
+`<data-dir>/token` (owner-readable only) and refuses every request without it, so read the
+file and send its contents:
+
+```bash
+export RISCDOM_TOKEN="$(cat /path/to/data-dir/token)"
+curl -sS http://127.0.0.1:7821/v0/health -H "Authorization: Bearer $RISCDOM_TOKEN"
+```
+
+The token is **never printed or logged** — the start-up line names the file, not the value
+— so the file is the only place to get it. A deployment may provision the file itself.
+`--no-auth` drops the requirement (a warning is printed): local debugging only, because the
+control endpoints include destructive ones. `401` means the credential was missing or
+wrong; `403` means the hook accepted the caller but refused the action.
 
 A liveness check and a summary are the two calls that need no parameters:
 
@@ -259,16 +269,79 @@ source.onmessage = (e) => {
 };
 ```
 
-**Not implemented yet:** `gap` frames and `Last-Event-ID` replay. A subscriber that falls
-behind loses what it missed and is not told; reconnect and re-read the state with the
-queries above rather than assuming the stream was complete.
+**Reconnecting.** Every frame carries `id: <ts>-<seq>`. Remember the last one you saw and
+send it back as `Last-Event-ID`; the server replays what follows it from its in-memory
+buffer (the last 1024 frames):
 
-## 6. What is not there yet
+```bash
+curl -sS -N http://127.0.0.1:7821/v0/events \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" \
+  -H 'Last-Event-ID: 1790074877033-7'
+```
 
-- **The controls** (`POST`, the API table's §5.2): no `agent:run`, no snapshot save,
-  no session writes over HTTP yet.
-- **`gap` and `Last-Event-ID`**, as above.
-- **Capability enforcement.** The server names each endpoint's capability and passes it to
-  the auth hook; deciding whether a caller *holds* it is a later batch, so v0.9 answers
-  `403` only when the hook refuses outright.
-- **`/v0/resources`** answers `501`.
+If your cursor has fallen out of that buffer the stream starts with a `gap` frame —
+`payload.lost_after` names the oldest id still held — and the frames from there on follow.
+Either way, re-read the state with the queries above rather than assuming the stream was
+complete.
+
+## 6. The control endpoints
+
+27 `POST` endpoints, the API table's §5.2. All of them need the token (that is the point
+of the batch that added them: they include destructive operations).
+
+```bash
+# Run one agent turn. Progress arrives as `agent:*` events on the stream.
+curl -sS -X POST http://127.0.0.1:7821/v0/agent/run \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_input":"compile the blink example"}'
+
+# Sessions.
+curl -sS -X POST http://127.0.0.1:7821/v0/sessions/create \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"title":"blink"}'
+# {"session_id":"sess-1a2b3c4d-0"}
+
+curl -sS -X POST http://127.0.0.1:7821/v0/sessions/clear \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' -d '{}'
+
+# Snapshots.
+curl -sS -X POST http://127.0.0.1:7821/v0/snapshots/save \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"after-blink"}'
+# {"bytes_written":1048576}
+
+curl -sS -X POST http://127.0.0.1:7821/v0/snapshots/resume \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"after-blink"}'
+
+# The VM, the settings, the exports.
+curl -sS -X POST http://127.0.0.1:7821/v0/vm/stop \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' -d '{}'
+
+curl -sS -X POST http://127.0.0.1:7821/v0/settings/theme \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"theme":"dark"}'
+
+curl -sS -X POST http://127.0.0.1:7821/v0/audit/export \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"path":"/abs/path/inside/the/workspace/audit.jsonl"}'
+```
+
+Notes a client should know:
+
+- **A `204` answers most controls** (nothing to say), `200` answers the ones that return a
+  value, and `202` answers the ones that start work in the background (`agent/run`,
+  `preflight/run`, `toolchain/download`) — watch the stream for those.
+- **Parameters are validated**: a missing or unusable one is `400` with `cause` naming it.
+- **State clashes are `409`** (`save` with no VM running, `resume` of an unknown snapshot is
+  `404`, `toolchain/download/cancel` with nothing running).
+- **`POST /v0/toolchain/download` really downloads** the pinned RISC-V GCC archive.
+- **`POST /v0/vm/start` answers `501`** (reserved: today the VM starts inside a run), and so
+  does `GET /v0/resources`.
+
+## 7. What is not there yet
+
+- **Capability enforcement.** Each route declares its capability and the server hands it to
+  the auth hook; deciding whether a caller *holds* it is the permission intermediary's job,
+  a later batch. In v0.9 the token is the whole gate.
+- **`POST /v0/vm/start`** and **`GET /v0/resources`** answer `501`.

@@ -21,7 +21,14 @@ curl -sS http://127.0.0.1:7821/v0/health \
   -H 'Authorization: Bearer <token>'
 ```
 
-v0.9 默认钩子（`NoAuth`）放行所有请求并忽略该头，所以不带也能成功——但从一开始就带上，部署了真钩子时才不会让客户端措手不及。`401` 表示钩子拒绝了凭证；`403` 表示它认了调用者但拒绝了动作。
+**token 默认必需。** 首次启动时服务端把 32 字节随机值写入 `<data-dir>/token`（仅属主可读），此后不带它的请求一律拒绝，所以请读出该文件并原样发出：
+
+```bash
+export RISCDOM_TOKEN="$(cat /path/to/data-dir/token)"
+curl -sS http://127.0.0.1:7821/v0/health -H "Authorization: Bearer $RISCDOM_TOKEN"
+```
+
+token **从不被打印或记入日志**——启动行只报文件路径，不报值——所以文件是拿到它的唯一地方。部署方也可以自行放置该文件。`--no-auth` 取消该要求（会打印警告）：仅用于本地调试，因为控制端点里含破坏性操作。`401` 表示凭证缺失或错误；`403` 表示钩子认了调用者但拒绝了动作。
 
 两个无需参数的调用是存活检查与概要：
 
@@ -232,11 +239,67 @@ source.onmessage = (e) => {
 };
 ```
 
-**尚未实现：**`gap` 帧与 `Last-Event-ID` 补放。落后的订阅者会丢掉错过的帧且不会被通知；请重连并用上面的查询重新读取状态，而不要假定事件流是完整的。
+**重连。** 每帧都带 `id: <ts>-<seq>`。记住你见过的最后一个，并把它作为 `Last-Event-ID` 回传；服务端会从内存缓冲（最近 1024 帧）补发其后的帧：
 
-## 6. 还没有的东西
+```bash
+curl -sS -N http://127.0.0.1:7821/v0/events \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" \
+  -H 'Last-Event-ID: 1790074877033-7'
+```
 
-- **控制类**（`POST`，API 表的 §5.2）：HTTP 上还没有 `agent:run`、没有保存快照、没有会话写入。
-- **`gap` 与 `Last-Event-ID`**，如上。
-- **权限强制。** 服务端标注每个端点的权限并交给认证钩子；判断调用者**是否持有**该权限属后续批次，因此 v0.9 只在钩子直接拒绝时回 `403`。
-- **`/v0/resources`** 回 `501`。
+若游标已掉出缓冲，事件流会先发一个 `gap` 帧——`payload.lost_after` 给出仍持有的最旧 id——随后是从那里起的帧。无论哪种情况，都请用上面的查询重新读取状态，而不要假定事件流是完整的。
+
+## 6. 控制端点
+
+27 个 `POST` 端点，即 API 表的 §5.2。它们全部需要 token（这正是引入它们的那一批的要点：其中包含破坏性操作）。
+
+```bash
+# 跑一轮 agent。进度以 `agent:*` 事件抵达事件流。
+curl -sS -X POST http://127.0.0.1:7821/v0/agent/run \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"user_input":"compile the blink example"}'
+
+# 会话。
+curl -sS -X POST http://127.0.0.1:7821/v0/sessions/create \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"title":"blink"}'
+# {"session_id":"sess-1a2b3c4d-0"}
+
+curl -sS -X POST http://127.0.0.1:7821/v0/sessions/clear \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' -d '{}'
+
+# 快照。
+curl -sS -X POST http://127.0.0.1:7821/v0/snapshots/save \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"after-blink"}'
+# {"bytes_written":1048576}
+
+curl -sS -X POST http://127.0.0.1:7821/v0/snapshots/resume \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"after-blink"}'
+
+# VM、设置、导出。
+curl -sS -X POST http://127.0.0.1:7821/v0/vm/stop \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' -d '{}'
+
+curl -sS -X POST http://127.0.0.1:7821/v0/settings/theme \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"theme":"dark"}'
+
+curl -sS -X POST http://127.0.0.1:7821/v0/audit/export \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"path":"/abs/path/inside/the/workspace/audit.jsonl"}'
+```
+
+客户端应当知道的几点：
+
+- **多数控制端点回 `204`**（无内容），返回值的回 `200`，而后台开工的（`agent/run`、`preflight/run`、`toolchain/download`）回 `202`——这些请盯事件流。
+- **参数会被校验**：缺失或不可用即 `400`，`cause` 指出参数名。
+- **状态冲突回 `409`**（没跑 VM 时 `save`、`resume` 未知快照回 `404`、没有下载在跑时 `toolchain/download/cancel`）。
+- **`POST /v0/toolchain/download` 会真的下载**固定的 RISC-V GCC 归档。
+- **`POST /v0/vm/start` 回 `501`**（预留：今天 VM 在运行内部启动），`GET /v0/resources` 同样。
+
+## 7. 还没有的东西
+
+- **权限强制。** 每条路由都声明所需权限，服务端也把它交给认证钩子；判断调用者**是否持有**该权限是权限中介的事，属后续批次。v0.9 里 token 就是全部的关卡。
+- **`POST /v0/vm/start`** 与 **`GET /v0/resources`** 回 `501`。

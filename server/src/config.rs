@@ -1,19 +1,16 @@
 //! How the server is configured: bind address, heartbeat, auth hook.
 
 use crate::auth::{Authn, NoAuth};
+use crate::cli::DEFAULT_HEARTBEAT_MS;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// The address `riscdom-server` binds when nothing says otherwise. The loopback
-/// default is deliberate: the open-source build ships plaintext HTTP, so it does
-/// not listen on a public interface unless told to.
-pub const DEFAULT_BIND: &str = "127.0.0.1:7821";
-
-/// The heartbeat period (15 s), as documented in `docs/control-plane-events.md` §1.
-pub const DEFAULT_HEARTBEAT_MS: u64 = 15_000;
-
 /// Everything `Server::new` needs.
+///
+/// The **served program** always installs [`crate::TokenAuth`] (unless
+/// `--no-auth`); this constructor's [`NoAuth`] default is for a library caller
+/// that wires its own hook, which is what the tests do.
 #[derive(Clone)]
 pub struct ServerConfig {
     /// Where to listen.

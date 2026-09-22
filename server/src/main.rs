@@ -1,82 +1,17 @@
 //! `riscdom-server`: start the control plane.
 //!
 //! ```text
-//! riscdom-server [--bind <addr>] [--workspace <dir>] [--data-dir <dir>] [--heartbeat-ms <n>]
+//! riscdom-server [--bind <addr>] [--workspace <dir>] [--data-dir <dir>]
+//!                [--heartbeat-ms <n>] [--auth | --no-auth]
 //! ```
 //!
-//! Exit codes: `0` after a clean stop, `1` when the workspace or the bind fails,
-//! `2` on a usage error.
+//! Exit codes: `0` after a clean stop, `1` when the workspace, the token or the
+//! bind fails, `2` on a usage error.
 
 use host::AppState;
-use server::{Server, ServerConfig, DEFAULT_BIND, DEFAULT_HEARTBEAT_MS};
-use std::net::SocketAddr;
-use std::path::PathBuf;
+use server::{cli, token, AuthMode, Cli, NoAuth, Server, ServerConfig, TokenAuth};
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::Duration;
-
-const USAGE: &str = "\
-usage: riscdom-server [--bind <addr>] [--workspace <dir>] [--data-dir <dir>] [--heartbeat-ms <n>]
-
-  --bind          address to listen on (default 127.0.0.1:7821, or $RISCDOM_BIND)
-  --workspace     the workspace this host owns (default: the current directory);
-                  its audit chain lives at <workspace>/.riscdom/audit.db
-  --data-dir      where settings and sessions live (default: this platform's host data dir)
-  --heartbeat-ms  SSE heartbeat period, 0 disables it (default 15000)
-";
-
-/// The command line.
-struct Cli {
-    bind: SocketAddr,
-    workspace: PathBuf,
-    data_dir: Option<PathBuf>,
-    heartbeat: Option<Duration>,
-}
-
-fn next_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {
-    args.next().ok_or_else(|| format!("{flag} needs a value"))
-}
-
-impl Cli {
-    fn parse(args: Vec<String>) -> Result<Self, String> {
-        let mut bind_raw =
-            std::env::var("RISCDOM_BIND").unwrap_or_else(|_| DEFAULT_BIND.to_string());
-        let mut workspace: Option<PathBuf> = None;
-        let mut data_dir: Option<PathBuf> = None;
-        let mut heartbeat_ms = DEFAULT_HEARTBEAT_MS;
-
-        let mut args = args.into_iter();
-        while let Some(flag) = args.next() {
-            match flag.as_str() {
-                "--bind" => bind_raw = next_value(&mut args, &flag)?,
-                "--workspace" => workspace = Some(PathBuf::from(next_value(&mut args, &flag)?)),
-                "--data-dir" => data_dir = Some(PathBuf::from(next_value(&mut args, &flag)?)),
-                "--heartbeat-ms" => {
-                    let raw = next_value(&mut args, &flag)?;
-                    heartbeat_ms = raw
-                        .parse()
-                        .map_err(|e| format!("--heartbeat-ms {raw:?} is not a number: {e}"))?;
-                }
-                other => return Err(format!("unknown argument {other:?}")),
-            }
-        }
-
-        let bind = bind_raw
-            .parse()
-            .map_err(|e| format!("--bind {bind_raw:?} is not an address: {e}"))?;
-        let heartbeat = if heartbeat_ms == 0 {
-            None
-        } else {
-            Some(Duration::from_millis(heartbeat_ms))
-        };
-        Ok(Self {
-            bind,
-            workspace: workspace.unwrap_or_else(|| PathBuf::from(".")),
-            data_dir,
-            heartbeat,
-        })
-    }
-}
 
 /// Open the host the control plane fronts.
 ///
@@ -90,8 +25,50 @@ fn build_state(cli: &Cli) -> Result<Arc<AppState>, String> {
     state.map(Arc::new).map_err(|e| e.to_string())
 }
 
+/// Build the authentication hook the server will install.
+///
+/// The token is never printed — not here, not in an error, not in a log line. The
+/// path it lives at is printed, because the operator needs to know where to read
+/// it from.
+fn build_auth(cli: &Cli, app: &AppState) -> Result<Arc<dyn server::Authn>, String> {
+    match cli.auth {
+        AuthMode::None => {
+            eprintln!(
+                "riscdom-server: WARNING --no-auth is on: anyone who can reach {} can use every \
+                 endpoint, including the destructive ones (delete a session, stop the VM, change \
+                 the LLM configuration)",
+                cli.bind
+            );
+            Ok(Arc::new(NoAuth))
+        }
+        AuthMode::Token => {
+            let file = token::load_or_create(app.data_dir()).map_err(|e| e.to_string())?;
+            println!(
+                "riscdom-server: bearer token required; the token file is {}",
+                file.path().display()
+            );
+            if file.was_created() {
+                println!(
+                    "riscdom-server: a new token was generated there; it is never printed or \
+                     logged, so read it from the file"
+                );
+            }
+            Ok(Arc::new(TokenAuth::new(file.token())))
+        }
+    }
+}
+
 async fn run(cli: Cli, app: Arc<AppState>) {
-    let config = ServerConfig::new(cli.bind).with_heartbeat(cli.heartbeat);
+    let authn = match build_auth(&cli, &app) {
+        Ok(authn) => authn,
+        Err(message) => {
+            eprintln!("riscdom-server: {message}");
+            std::process::exit(1);
+        }
+    };
+    let config = ServerConfig::new(cli.bind)
+        .with_heartbeat(cli.heartbeat)
+        .with_authn(authn);
     let server = Server::new(app, config);
     match server.start().await {
         Ok(running) => {
@@ -100,7 +77,8 @@ async fn run(cli: Cli, app: Arc<AppState>) {
                 server::VERSION,
                 running.local_addr()
             );
-            println!("  GET /v0/health   GET /v0/status   GET /v0/events (SSE)");
+            println!("  GET  /v0/health   /v0/status   /v0/events (SSE)");
+            println!("  POST /v0/…  the control endpoints of docs/control-plane-api.md");
             println!("  stop the server with Ctrl+C");
             std::future::pending::<()>().await;
         }
@@ -114,14 +92,14 @@ async fn run(cli: Cli, app: Arc<AppState>) {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        print!("{USAGE}");
+        print!("{}", cli::USAGE);
         return ExitCode::SUCCESS;
     }
     let cli = match Cli::parse(args) {
         Ok(cli) => cli,
         Err(message) => {
             eprintln!("riscdom-server: {message}");
-            eprintln!("{USAGE}");
+            eprint!("{}", cli::USAGE);
             return ExitCode::from(2);
         }
     };

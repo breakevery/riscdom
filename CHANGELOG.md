@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**The control plane can be driven, and it is guarded.** The 27 control endpoints of
+`docs/control-plane-api.md` §5.2 are live — run an agent, manage sessions, save and
+resume snapshots, stop the VM, set the toolchain and QEMU paths, run the preflight,
+configure the LLM, export the audit — and the server now requires a bearer token for
+every request unless it is started with `--no-auth`. The event stream gained its
+`Last-Event-ID` replay and `gap` frames.
+
+### Added
+
+- **The 27 controls** (`POST`), plus `POST /v0/runs/abandon-stale` (the reserved gap G4)
+  and the still-reserved `POST /v0/vm/start` (501). Bodies are JSON objects, validated
+  against the documented vocabularies, with `400`, `409` and `404` answers where the
+  request is the problem and the host's own errors mapped into the same model.
+- **`TokenAuth` as the default**: 32 random bytes (`getrandom`) written to
+  `<data-dir>/token` on first start, mode `600` on Unix and an owner-only ACL on Windows
+  (verified with `icacls`; the server refuses to start if it cannot be restricted),
+  compared in constant time (`subtle`). The token is never printed or logged. `--no-auth`
+  turns the requirement off and prints a warning; `--auth` is the default.
+- **`Last-Event-ID` replay and `gap` frames**: frames carry a server-wide ordinal, the hub
+  keeps the last 1024 in memory, and a cursor older than that gets a `gap` frame naming the
+  oldest id still held.
+
+### Changed
+
+- **A frame's `id` is minted per server, not per connection** (`<ts>-<seq>`): a cursor has
+  to mean the same thing after a reconnect. The document's description of `seq` was
+  updated to match.
+
 **The audit store's open path is no longer a concurrency hazard.** Opening one fresh
 `audit.db` from two processes at the same moment used to fail one of them: `PRAGMA
 journal_mode = WAL` needs exclusive access and answers `SQLITE_BUSY` *without* consulting

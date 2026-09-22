@@ -1,18 +1,20 @@
-//! The query surface: the 26 `GET` endpoints of `docs/control-plane-api.md` §5.1,
-//! the reserved `/v0/resources`, the route table that names them, and the
-//! dispatcher that calls `AppState` and serialises the result.
+//! The endpoint surface: the 26 `GET` queries, the 27 `POST` controls, the
+//! reserved `/v0/resources` and `/v0/vm/start`, the host-local endpoints, the
+//! route table that names them, and the dispatcher that calls `AppState`.
 //!
-//! Control endpoints (`POST`, §5.2) are a later batch, as are `gap` frames and
-//! `Last-Event-ID` replay.
+//! The tables are `docs/control-plane-api.md` §5.1 and §5.2.
 
-use crate::http::{error_response, json_response, RespBody};
-use host::{AppState, HostError};
+use crate::http::{error_response, json_response, no_content, RespBody};
+use crate::sse::{HttpEventSink, SseHub};
+use host::{AppState, EventSink, HostError};
 use hyper::{Response, StatusCode};
 use std::collections::HashMap;
+use std::sync::Arc;
 
-/// One query endpoint.
+/// One endpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Action {
+    // ---- queries (§5.1) ----
     AuditStatus,
     AuditEvents,
     Runs,
@@ -39,8 +41,38 @@ pub(crate) enum Action {
     WorkspaceFiles,
     WorkspaceFile,
     Serial,
-    /// The reserved aggregate (`docs/control-plane-api.md` §6, G3): answers 501.
+    /// The reserved aggregate (§6, G3): answers 501.
     Resources,
+    // ---- controls (§5.2) ----
+    AgentRun,
+    RunExport,
+    RunsAbandonStale,
+    VmStart,
+    VmStop,
+    SnapshotSave,
+    SnapshotResume,
+    SnapshotDelete,
+    SessionCreate,
+    SessionOpen,
+    SessionRename,
+    SessionDelete,
+    SessionClear,
+    ToolchainDownloadStart,
+    ToolchainDownloadCancel,
+    ToolchainPath,
+    ToolchainPathClear,
+    QemuPath,
+    QemuPathClear,
+    PreflightRun,
+    PreflightAck,
+    AuditAlert,
+    AuditExport,
+    SettingsThemeSet,
+    SettingsLanguageSet,
+    LlmConfigSet,
+    LlmStoredKeyLoad,
+    LlmConfigClear,
+    SerialExport,
 }
 
 /// What a request resolves to.
@@ -49,15 +81,18 @@ pub(crate) enum Resolution {
     Query {
         action: Action,
         capability: &'static str,
-        params: Params,
+        /// `/v0/runs/{run_id}` is the one path with a parameter.
+        path_param: Option<(&'static str, String)>,
     },
     /// An endpoint the server answers itself (it needs more than `AppState`).
     Local {
         kind: Local,
         capability: &'static str,
     },
-    /// The path is served, the method is not.
-    MethodNotAllowed { allowed: &'static str },
+    /// The path is served, the method is not. `allowed` lists the methods it is
+    /// served under (one path can have two: `/v0/toolchain/download` is a `GET`
+    /// status query and a `POST` start).
+    MethodNotAllowed { allowed: String },
     /// Nothing serves this path.
     NotFound,
 }
@@ -74,9 +109,10 @@ pub(crate) enum Local {
 ///
 /// The capability is declared here and handed to the [`Authn`](crate::Authn) hook
 /// through [`ReqMeta::capability`](crate::ReqMeta); enforcing it is the permission
-/// intermediary's job, which is a later batch, so `NoAuth` ignores it and every
-/// query is allowed in v0.9.
+/// intermediary's job, which is a later batch, so the check is *recorded* and the
+/// endpoint's authorisation today comes from the token alone.
 const ROUTES: &[(&str, &str, &str, Action)] = &[
+    // ---- queries ----
     ("GET", "/v0/audit/status", "audit.read", Action::AuditStatus),
     ("GET", "/v0/audit/events", "audit.read", Action::AuditEvents),
     ("GET", "/v0/runs", "runs.read", Action::Runs),
@@ -154,6 +190,158 @@ const ROUTES: &[(&str, &str, &str, Action)] = &[
     ("GET", "/v0/serial", "serial.read", Action::Serial),
     // Reserved (§6, G3): served, and answers 501 until the aggregate lands.
     ("GET", "/v0/resources", "vm.read", Action::Resources),
+    // ---- controls ----
+    ("POST", "/v0/agent/run", "agent.run", Action::AgentRun),
+    ("POST", "/v0/runs/export", "audit.export", Action::RunExport),
+    (
+        "POST",
+        "/v0/runs/abandon-stale",
+        "runs.control",
+        Action::RunsAbandonStale,
+    ),
+    // Reserved (§6, G1): served, and answers 501 until the kernel grows a
+    // standalone "start a VM" method.
+    ("POST", "/v0/vm/start", "vm.control", Action::VmStart),
+    ("POST", "/v0/vm/stop", "vm.control", Action::VmStop),
+    (
+        "POST",
+        "/v0/snapshots/save",
+        "snapshot.write",
+        Action::SnapshotSave,
+    ),
+    (
+        "POST",
+        "/v0/snapshots/resume",
+        "snapshot.write",
+        Action::SnapshotResume,
+    ),
+    (
+        "POST",
+        "/v0/snapshots/delete",
+        "snapshot.write",
+        Action::SnapshotDelete,
+    ),
+    (
+        "POST",
+        "/v0/sessions/create",
+        "session.write",
+        Action::SessionCreate,
+    ),
+    (
+        "POST",
+        "/v0/sessions/open",
+        "session.write",
+        Action::SessionOpen,
+    ),
+    (
+        "POST",
+        "/v0/sessions/rename",
+        "session.write",
+        Action::SessionRename,
+    ),
+    (
+        "POST",
+        "/v0/sessions/delete",
+        "session.write",
+        Action::SessionDelete,
+    ),
+    (
+        "POST",
+        "/v0/sessions/clear",
+        "session.write",
+        Action::SessionClear,
+    ),
+    (
+        "POST",
+        "/v0/toolchain/download",
+        "toolchain.install",
+        Action::ToolchainDownloadStart,
+    ),
+    (
+        "POST",
+        "/v0/toolchain/download/cancel",
+        "toolchain.install",
+        Action::ToolchainDownloadCancel,
+    ),
+    (
+        "POST",
+        "/v0/toolchain/path",
+        "toolchain.configure",
+        Action::ToolchainPath,
+    ),
+    (
+        "POST",
+        "/v0/toolchain/path/clear",
+        "toolchain.configure",
+        Action::ToolchainPathClear,
+    ),
+    ("POST", "/v0/qemu/path", "qemu.configure", Action::QemuPath),
+    (
+        "POST",
+        "/v0/qemu/path/clear",
+        "qemu.configure",
+        Action::QemuPathClear,
+    ),
+    (
+        "POST",
+        "/v0/preflight/run",
+        "preflight.run",
+        Action::PreflightRun,
+    ),
+    (
+        "POST",
+        "/v0/preflight/ack",
+        "preflight.run",
+        Action::PreflightAck,
+    ),
+    (
+        "POST",
+        "/v0/audit/alert",
+        "settings.write",
+        Action::AuditAlert,
+    ),
+    (
+        "POST",
+        "/v0/audit/export",
+        "audit.export",
+        Action::AuditExport,
+    ),
+    (
+        "POST",
+        "/v0/settings/theme",
+        "settings.write",
+        Action::SettingsThemeSet,
+    ),
+    (
+        "POST",
+        "/v0/settings/language",
+        "settings.write",
+        Action::SettingsLanguageSet,
+    ),
+    (
+        "POST",
+        "/v0/llm/config",
+        "llm.configure",
+        Action::LlmConfigSet,
+    ),
+    (
+        "POST",
+        "/v0/llm/stored-key/load",
+        "llm.configure",
+        Action::LlmStoredKeyLoad,
+    ),
+    (
+        "POST",
+        "/v0/llm/config/clear",
+        "llm.configure",
+        Action::LlmConfigClear,
+    ),
+    (
+        "POST",
+        "/v0/serial/export",
+        "serial.export",
+        Action::SerialExport,
+    ),
 ];
 
 /// `/v0/runs/{run_id}` is the one path with a parameter.
@@ -167,8 +355,8 @@ const LOCAL_ROUTES: &[(&str, Local, &str)] = &[
     ("/v0/events", Local::Events, "events.subscribe"),
 ];
 
-/// Query-string parameters, percent-decoded.
-#[derive(Debug)]
+/// Query-string and body parameters, flattened to strings.
+#[derive(Debug, Default)]
 pub(crate) struct Params {
     values: HashMap<String, String>,
 }
@@ -182,45 +370,95 @@ impl Params {
             .filter(|v| !v.is_empty())
     }
 
+    /// Set one (the path parameter from `/v0/runs/{run_id}`).
+    pub fn insert(&mut self, name: impl Into<String>, value: impl Into<String>) {
+        self.values.insert(name.into(), value.into());
+    }
+
+    /// Fold the body's scalar fields in; an explicitly sent body wins over the
+    /// query string.
+    pub fn merge(&mut self, other: Params) {
+        for (key, value) in other.values {
+            self.values.insert(key, value);
+        }
+    }
+
+    /// Flatten a JSON body's scalar fields. Nested values are not addressable and
+    /// are dropped: a required lookup then answers `400`, which is the honest
+    /// answer for "you sent the wrong shape".
+    pub fn from_json(value: &serde_json::Value) -> Params {
+        let mut values = HashMap::new();
+        if let Some(object) = value.as_object() {
+            for (key, value) in object {
+                match value {
+                    serde_json::Value::String(text) => {
+                        values.insert(key.clone(), text.clone());
+                    }
+                    serde_json::Value::Bool(flag) => {
+                        values.insert(key.clone(), flag.to_string());
+                    }
+                    serde_json::Value::Number(number) => {
+                        values.insert(key.clone(), number.to_string());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Params { values }
+    }
+
     /// Read a required parameter, or the `400` to answer with.
     pub fn required(&self, name: &str) -> Result<&str, Response<RespBody>> {
-        self.get(name).ok_or_else(|| {
-            error_response(
-                400,
-                "bad_request",
-                &format!("missing required parameter {name:?}"),
-                Some(name),
-            )
-        })
+        self.get(name)
+            .ok_or_else(|| bad_request(name, "is required"))
     }
 
     /// Read a required non-negative integer, or the `400` to answer with.
     pub fn usize_required(&self, name: &str) -> Result<usize, Response<RespBody>> {
-        let raw = self.required(name)?;
-        raw.parse().map_err(|e| {
-            error_response(
-                400,
-                "bad_request",
-                &format!("parameter {name:?} is not a number: {e}"),
-                Some(name),
-            )
-        })
+        match self.required(name)?.parse() {
+            Ok(value) => Ok(value),
+            Err(_) => Err(bad_request(name, "must be a non-negative number")),
+        }
     }
 
     /// Read an optional non-negative integer, falling back to `default`.
     pub fn usize_or(&self, name: &str, default: usize) -> Result<usize, Response<RespBody>> {
         match self.get(name) {
-            Some(raw) => raw.parse().map_err(|e| {
-                error_response(
-                    400,
-                    "bad_request",
-                    &format!("parameter {name:?} is not a number: {e}"),
-                    Some(name),
-                )
-            }),
+            Some(raw) => raw
+                .parse()
+                .map_err(|_| bad_request(name, "must be a non-negative number")),
             None => Ok(default),
         }
     }
+
+    /// Read a required boolean (`true` / `false`), or the `400` to answer with.
+    pub fn bool_required(&self, name: &str) -> Result<bool, Response<RespBody>> {
+        match self.required(name)? {
+            "true" => Ok(true),
+            "false" => Ok(false),
+            _ => Err(bad_request(name, "must be true or false")),
+        }
+    }
+
+    /// Read an optional boolean, falling back to `default`.
+    pub fn bool_or(&self, name: &str, default: bool) -> Result<bool, Response<RespBody>> {
+        match self.get(name) {
+            Some("true") => Ok(true),
+            Some("false") => Ok(false),
+            Some(_) => Err(bad_request(name, "must be true or false")),
+            None => Ok(default),
+        }
+    }
+}
+
+/// The `400` for a parameter that is missing or unusable.
+fn bad_request(name: &str, why: &str) -> Response<RespBody> {
+    error_response(
+        400,
+        "bad_request",
+        &format!("parameter {name:?} {why}"),
+        Some(name),
+    )
 }
 
 /// Parse `a=1&b=two` into a parameter set. Both sides are percent-decoded, so a
@@ -262,11 +500,15 @@ fn run_id_from(path: &str) -> Option<&str> {
     if rest.is_empty() || rest.contains('/') {
         return None;
     }
+    // The literal sub-paths of `/v0/runs/…` are their own routes.
+    if matches!(rest, "diff" | "export" | "abandon-stale") {
+        return None;
+    }
     Some(rest)
 }
 
-/// Resolve a request to its route.
-pub(crate) fn resolve(method: &str, path: &str, query: Option<&str>) -> Resolution {
+/// Resolve a request to its route. The query string is the caller's business.
+pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
     for (local_path, kind, capability) in LOCAL_ROUTES {
         if *local_path == path {
             return if method == "GET" {
@@ -275,47 +517,63 @@ pub(crate) fn resolve(method: &str, path: &str, query: Option<&str>) -> Resoluti
                     capability,
                 }
             } else {
-                Resolution::MethodNotAllowed { allowed: "GET" }
+                Resolution::MethodNotAllowed {
+                    allowed: "GET".to_string(),
+                }
             };
         }
     }
+    // Two passes over the table on purpose: a path may be served under more than
+    // one method, so the method has to be matched before the path is declared
+    // unserved. Everything the path does serve is collected for the 405 answer.
+    let mut allowed: Vec<&str> = Vec::new();
     for (route_method, route_path, capability, action) in ROUTES {
-        if *route_path == path {
-            return if *route_method == method {
-                Resolution::Query {
-                    action: *action,
-                    capability,
-                    params: parse_query(query),
-                }
-            } else {
-                Resolution::MethodNotAllowed {
-                    allowed: route_method,
-                }
+        if *route_path != path {
+            continue;
+        }
+        if *route_method == method {
+            return Resolution::Query {
+                action: *action,
+                capability,
+                path_param: None,
             };
         }
+        allowed.push(route_method);
+    }
+    if !allowed.is_empty() {
+        return Resolution::MethodNotAllowed {
+            allowed: allowed.join(", "),
+        };
     }
     if let Some(run_id) = run_id_from(path) {
         if method != "GET" {
-            return Resolution::MethodNotAllowed { allowed: "GET" };
+            return Resolution::MethodNotAllowed {
+                allowed: "GET".to_string(),
+            };
         }
-        let mut params = parse_query(query);
-        // The path segment is a parameter like any other, so handlers read it the
-        // same way they read the query string.
-        params
-            .values
-            .insert("run_id".to_string(), run_id.to_string());
         return Resolution::Query {
             action: Action::Run,
             capability: "runs.read",
-            params,
+            path_param: Some(("run_id", run_id.to_string())),
         };
     }
     Resolution::NotFound
 }
 
-/// Run one query against the host and shape the answer.
-pub(crate) fn dispatch(action: Action, params: &Params, app: &AppState) -> Response<RespBody> {
+/// The settings vocabularies the API document fixes. Validating them here means a
+/// typo is a `400`, not a host error dressed up as a server fault.
+const THEMES: &[&str] = &["light", "dark", "system"];
+const LANGUAGES: &[&str] = &["system", "en", "zh"];
+
+/// Run one endpoint against the host and shape the answer.
+pub(crate) fn dispatch(
+    action: Action,
+    params: &Params,
+    app: &Arc<AppState>,
+    hub: &Arc<SseHub>,
+) -> Response<RespBody> {
     match action {
+        // ---- queries ----
         Action::AuditStatus => match app.audit_status() {
             Ok(mut view) => {
                 // A `GET` must not consume the queue another client is waiting for:
@@ -395,9 +653,361 @@ pub(crate) fn dispatch(action: Action, params: &Params, app: &AppState) -> Respo
         Action::Resources => error_response(
             501,
             "not_implemented",
-            "resource accounting is reserved and not implemented yet (v0.9 batch 4)",
+            "resource accounting is reserved and not implemented yet",
             Some("resources"),
         ),
+
+        // ---- controls ----
+        Action::AgentRun => {
+            // The one precondition worth answering precisely: with no usable model
+            // there is nothing to run, and that is `unavailable`, not a fault.
+            let readiness = app.llm_readiness();
+            if !readiness.ready {
+                return error_response(
+                    503,
+                    "unavailable",
+                    &host::state::readiness_error(&readiness),
+                    Some("llm"),
+                );
+            }
+            let user_input = match params.required("user_input") {
+                Ok(value) => value,
+                Err(response) => return response,
+            };
+            let sink: Arc<dyn host::EventSink> =
+                Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
+            match app.run_agent(sink, user_input) {
+                Ok(view) => ok_json(&view),
+                Err(e) => host_error(e),
+            }
+        }
+        Action::RunExport => {
+            let run_id = match params.required("run_id") {
+                Ok(value) => value,
+                Err(response) => return response,
+            };
+            let path = match params.required("path") {
+                Ok(value) => value,
+                Err(response) => return response,
+            };
+            match app.get_run(run_id) {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    return error_response(
+                        404,
+                        "not_found",
+                        &format!("no run with id {run_id:?}"),
+                        Some("run_id"),
+                    )
+                }
+                Err(e) => return host_error(e),
+            }
+            match app.export_run_audit(run_id, path.to_string()) {
+                Ok(bytes_written) => {
+                    ok_json(&serde_json::json!({ "bytes_written": bytes_written }))
+                }
+                Err(e) => host_error(e),
+            }
+        }
+        Action::RunsAbandonStale => match app.abandon_stale_runs() {
+            Ok(abandoned) => ok_json(&serde_json::json!({ "abandoned": abandoned })),
+            Err(e) => host_error(e),
+        },
+        // §6 G1: reserved. An explicit start has no lifetime semantics yet.
+        Action::VmStart => error_response(
+            501,
+            "not_implemented",
+            "starting a VM on its own is reserved: today the VM starts inside a run",
+            Some("vm"),
+        ),
+        Action::VmStop => match app.stop_current_vm() {
+            Ok(()) => no_content(),
+            Err(e) => host_error(e),
+        },
+        Action::SnapshotSave => {
+            let name = match params.required("name") {
+                Ok(value) => value,
+                Err(response) => return response,
+            };
+            if !app.vm_is_running() {
+                return error_response(
+                    409,
+                    "conflict",
+                    "there is no VM to snapshot; run something first",
+                    Some("vm"),
+                );
+            }
+            match app.save_snapshot_real(name) {
+                Ok(bytes_written) => {
+                    ok_json(&serde_json::json!({ "bytes_written": bytes_written }))
+                }
+                Err(e) => state_clash(e),
+            }
+        }
+        Action::SnapshotResume => {
+            let name = match params.required("name") {
+                Ok(value) => value,
+                Err(response) => return response,
+            };
+            let known = match app.list_snapshots() {
+                Ok(snapshots) => snapshots.iter().any(|s| s.name == name),
+                Err(e) => return host_error(e),
+            };
+            if !known {
+                return error_response(
+                    404,
+                    "not_found",
+                    &format!("no snapshot named {name:?}"),
+                    Some("name"),
+                );
+            }
+            match app.resume_from_snapshot_real(name) {
+                Ok(()) => no_content(),
+                Err(e) => state_clash(e),
+            }
+        }
+        Action::SnapshotDelete => match params.required("name") {
+            Ok(name) => match app.delete_snapshot(name) {
+                Ok(deleted) => ok_json(&serde_json::json!({ "deleted": deleted })),
+                Err(e) => host_error(e),
+            },
+            Err(response) => response,
+        },
+        Action::SessionCreate => match params.required("title") {
+            Ok(title) => match app.create_session(title) {
+                Ok(session_id) => ok_json(&serde_json::json!({ "session_id": session_id })),
+                Err(e) => host_error(e),
+            },
+            Err(response) => response,
+        },
+        Action::SessionOpen => match params.required("session_id") {
+            Ok(session_id) => match app.open_session(session_id) {
+                Ok(view) => ok_json(&view),
+                Err(e) => not_found_or_internal(e, "session_id", session_id),
+            },
+            Err(response) => response,
+        },
+        Action::SessionRename => {
+            let session_id = match params.required("session_id") {
+                Ok(value) => value,
+                Err(response) => return response,
+            };
+            let title = match params.required("title") {
+                Ok(value) => value,
+                Err(response) => return response,
+            };
+            // The host's rename is idempotent: an unknown id is a no-op, not an
+            // error. The endpoint mirrors that rather than inventing a 404.
+            match app.rename_session(session_id, title) {
+                Ok(()) => no_content(),
+                Err(e) => host_error(e),
+            }
+        }
+        Action::SessionDelete => match params.required("session_id") {
+            Ok(session_id) => match app.delete_session(session_id) {
+                Ok(()) => no_content(),
+                Err(e) => host_error(e),
+            },
+            Err(response) => response,
+        },
+        Action::SessionClear => match app.clear_all_sessions() {
+            Ok(()) => no_content(),
+            Err(e) => host_error(e),
+        },
+        Action::ToolchainDownloadStart => {
+            if app.toolchain_download_status().in_progress {
+                return error_response(
+                    409,
+                    "conflict",
+                    "a toolchain download is already running",
+                    Some("download"),
+                );
+            }
+            let spec = match host::toolchain_download::spec_for_current_platform() {
+                Ok(spec) => spec,
+                Err(e) => return host_error(HostError::Other(e.to_string())),
+            };
+            let cancel = match app.begin_toolchain_download(&spec) {
+                Ok(cancel) => cancel,
+                Err(e) => return host_error(e),
+            };
+            // The download is blocking, so it runs on its own thread and reports
+            // progress through the stream, exactly as the Tauri command does.
+            let state = hub.clone();
+            let app = Arc::clone(app);
+            std::thread::spawn(move || {
+                let sink = HttpEventSink::new(Arc::clone(&state), app.agent_id());
+                let dest_root = app.toolchain_dir();
+                let mut on_event = |event: host::toolchain_download::DownloadEvent| {
+                    app.record_download_event(event.clone());
+                    sink.emit(
+                        host::events::TOOLCHAIN_DOWNLOAD,
+                        serde_json::to_value(&event).unwrap_or(serde_json::Value::Null),
+                    );
+                };
+                if let Err(e) = app.download_toolchain_now(&spec, &dest_root, cancel, &mut on_event)
+                {
+                    eprintln!("riscdom-server: toolchain download failed: {e}");
+                }
+            });
+            accepted(&serde_json::json!({ "state": "started" }))
+        }
+        Action::ToolchainDownloadCancel => {
+            if !app.toolchain_download_status().in_progress {
+                return error_response(
+                    409,
+                    "conflict",
+                    "no toolchain download is running",
+                    Some("download"),
+                );
+            }
+            match app.cancel_toolchain_download() {
+                Ok(()) => accepted(&serde_json::json!({ "state": "cancelling" })),
+                Err(e) => host_error(e),
+            }
+        }
+        // The two path setters: their only `Other` failure is "the path you gave
+        // is not usable", which the API document calls `bad_request`.
+        Action::ToolchainPath => match params.required("path") {
+            Ok(path) => match app.set_toolchain_path(path) {
+                Ok(()) => no_content(),
+                Err(e) => unusable_input(e, "path"),
+            },
+            Err(response) => response,
+        },
+        Action::ToolchainPathClear => match app.clear_toolchain_path() {
+            Ok(()) => no_content(),
+            Err(e) => host_error(e),
+        },
+        Action::QemuPath => match params.required("path") {
+            Ok(path) => match app.set_qemu_path(path) {
+                Ok(()) => no_content(),
+                Err(e) => unusable_input(e, "path"),
+            },
+            Err(response) => response,
+        },
+        Action::QemuPathClear => match app.clear_qemu_path() {
+            Ok(()) => no_content(),
+            Err(e) => host_error(e),
+        },
+        Action::PreflightRun => {
+            // Compiles and boots a guest: never on the request thread.
+            let emitter: Arc<dyn host::EventSink> =
+                Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
+            let app = Arc::clone(app);
+            std::thread::spawn(move || {
+                if let Err(e) = app.ensure_preflight(true, Some(emitter)) {
+                    eprintln!("riscdom-server: preflight failed: {e}");
+                }
+            });
+            accepted(&serde_json::json!({ "state": "running" }))
+        }
+        Action::PreflightAck => match app.acknowledge_preflight() {
+            Ok(view) => ok_json(&view),
+            Err(e) => host_error(e),
+        },
+        Action::AuditAlert => match params.bool_required("enabled") {
+            Ok(enabled) => match app.set_alert_on_audit_failure(enabled) {
+                Ok(()) => no_content(),
+                Err(e) => host_error(e),
+            },
+            Err(response) => response,
+        },
+        Action::AuditExport => match params.required("path") {
+            Ok(path) => match app.export_audit_jsonl(path.to_string()) {
+                Ok(bytes_written) => {
+                    ok_json(&serde_json::json!({ "bytes_written": bytes_written }))
+                }
+                Err(e) => host_error(e),
+            },
+            Err(response) => response,
+        },
+        Action::SettingsThemeSet => match params.required("theme") {
+            Ok(theme) if THEMES.contains(&theme.trim().to_lowercase().as_str()) => {
+                match app.set_theme(theme) {
+                    Ok(()) => no_content(),
+                    Err(e) => host_error(e),
+                }
+            }
+            Ok(_) => error_response(
+                400,
+                "bad_request",
+                "theme must be one of \"light\", \"dark\", \"system\"",
+                Some("theme"),
+            ),
+            Err(response) => response,
+        },
+        Action::SettingsLanguageSet => match params.required("language") {
+            Ok(language) if LANGUAGES.contains(&language.trim().to_lowercase().as_str()) => {
+                match app.set_language(language) {
+                    Ok(()) => no_content(),
+                    Err(e) => host_error(e),
+                }
+            }
+            Ok(_) => error_response(
+                400,
+                "bad_request",
+                "language must be one of \"system\", \"en\", \"zh\"",
+                Some("language"),
+            ),
+            Err(response) => response,
+        },
+        Action::LlmConfigSet => {
+            let api_key = match params.required("api_key") {
+                Ok(value) => value,
+                Err(response) => return response,
+            };
+            let base_url = match params.required("base_url") {
+                Ok(value) => value,
+                Err(response) => return response,
+            };
+            let model = match params.required("model") {
+                Ok(value) => value,
+                Err(response) => return response,
+            };
+            let provider_id = params.get("provider_id").map(str::to_string);
+            let remember = match params.bool_or("remember", false) {
+                Ok(value) => Some(value),
+                Err(response) => return response,
+            };
+            match app.set_llm_config_with(
+                provider_id,
+                api_key.to_string(),
+                base_url.to_string(),
+                model.to_string(),
+                remember,
+            ) {
+                Ok(()) => no_content(),
+                Err(e) => unusable_input(e, "llm config"),
+            }
+        }
+        Action::LlmStoredKeyLoad => match params.required("provider_id") {
+            Ok(provider_id) => match app.load_stored_key(provider_id) {
+                Ok(()) => no_content(),
+                // The host answers with the reason as text; a key that is not
+                // stored is a not-found, whatever the wording.
+                Err(message) => error_response(
+                    404,
+                    "not_found",
+                    &format!("no stored key for {provider_id:?}: {message}"),
+                    Some("provider_id"),
+                ),
+            },
+            Err(response) => response,
+        },
+        Action::LlmConfigClear => {
+            app.clear_llm_config();
+            no_content()
+        }
+        Action::SerialExport => match params.required("path") {
+            Ok(path) => match app.export_serial_log(path.to_string()) {
+                Ok(bytes_written) => {
+                    ok_json(&serde_json::json!({ "bytes_written": bytes_written }))
+                }
+                Err(e) => host_error(e),
+            },
+            Err(response) => response,
+        },
     }
 }
 
@@ -412,6 +1022,11 @@ fn ok_json<T: serde::Serialize>(value: &T) -> Response<RespBody> {
             None,
         ),
     }
+}
+
+/// A `202` with the acknowledgement body.
+fn accepted(value: &serde_json::Value) -> Response<RespBody> {
+    json_response(StatusCode::ACCEPTED, value)
 }
 
 /// A result from the host, or the error model's mapping of it.
@@ -434,28 +1049,64 @@ fn host_error(error: HostError) -> Response<RespBody> {
     error_response(status, code, &error.user_message(), None)
 }
 
+/// An error whose only sensible reading is "the caller's input was unusable".
+fn unusable_input(error: HostError, cause: &str) -> Response<RespBody> {
+    error_response(400, "bad_request", &error.user_message(), Some(cause))
+}
+
+/// Something that is not there: the host has no typed not-found, so the command
+/// whose argument is the identifier maps to `404` and everything else stays 500.
+fn not_found_or_internal(error: HostError, cause: &str, value: &str) -> Response<RespBody> {
+    match &error {
+        HostError::Io(_) | HostError::Policy(_) => host_error(error),
+        _ => error_response(
+            404,
+            "not_found",
+            &format!("no {cause} {value:?}: {}", error.user_message()),
+            Some(cause),
+        ),
+    }
+}
+
+/// A state clash: the VM or the snapshot is not in the state the action needs.
+fn state_clash(error: HostError) -> Response<RespBody> {
+    error_response(409, "conflict", &error.user_message(), None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn the_table_has_the_twenty_six_queries_plus_the_reserved_one() {
+    fn the_table_has_the_documented_endpoints() {
         let queries = ROUTES
             .iter()
-            .filter(|(_, _, _, action)| *action != Action::Resources)
+            .filter(|(method, ..)| *method == "GET")
             .count();
-        // 26 queries, one of which (`/v0/runs/{run_id}`) is a pattern, so 25 rows.
-        assert_eq!(queries, 25, "table rows for the 26 queries");
-        assert_eq!(ROUTES.len(), 26, "plus the reserved /v0/resources");
+        let controls = ROUTES
+            .iter()
+            .filter(|(method, ..)| *method == "POST")
+            .count();
+        // 26 queries (one of them the `/v0/runs/{run_id}` pattern, so 25 rows)
+        // plus the reserved aggregate.
+        assert_eq!(queries, 26, "query rows");
+        // The 27 controls of §5.2, plus the reserved `POST /v0/vm/start` and
+        // `POST /v0/runs/abandon-stale` (§6, G1 and G4).
+        assert_eq!(controls, 29, "control rows");
     }
 
     #[test]
     fn resolve_matches_every_documented_path() {
         for (method, path, capability, _) in ROUTES {
-            match resolve(method, path, None) {
+            match resolve(method, path) {
                 Resolution::Query {
-                    capability: found, ..
-                } => assert_eq!(found, *capability, "{path}"),
+                    capability: found,
+                    path_param,
+                    ..
+                } => {
+                    assert_eq!(found, *capability, "{path}");
+                    assert!(path_param.is_none(), "{path}");
+                }
                 other => panic!("{path} did not resolve to a query: {other:?}"),
             }
         }
@@ -463,66 +1114,93 @@ mod tests {
 
     #[test]
     fn resolve_runs_by_id_and_rejects_a_nested_path() {
-        match resolve("GET", "/v0/runs/run-1-7", None) {
-            Resolution::Query { action, params, .. } => {
+        match resolve("GET", "/v0/runs/run-1-7") {
+            Resolution::Query {
+                action, path_param, ..
+            } => {
                 assert_eq!(action, Action::Run);
-                assert_eq!(params.get("run_id"), Some("run-1-7"));
+                assert_eq!(path_param, Some(("run_id", "run-1-7".to_string())));
             }
             other => panic!("got {other:?}"),
         }
-        // `/v0/runs/diff` is its own endpoint, not a run called "diff".
-        match resolve("GET", "/v0/runs/diff", None) {
-            Resolution::Query { action, .. } => assert_eq!(action, Action::RunDiff),
-            other => panic!("got {other:?}"),
+        // The literal sub-paths are their own endpoints, not runs named that.
+        // The literal sub-paths are their own endpoints, not runs named that.
+        match resolve("GET", "/v0/runs/diff") {
+            Resolution::Query {
+                action: Action::RunDiff,
+                ..
+            } => {}
+            other => panic!("GET /v0/runs/diff: {other:?}"),
+        }
+        for path in ["/v0/runs/export", "/v0/runs/abandon-stale"] {
+            match resolve("POST", path) {
+                Resolution::Query { .. } => {}
+                other => panic!("POST {path}: {other:?}"),
+            }
+            match resolve("GET", path) {
+                Resolution::MethodNotAllowed { allowed } => assert_eq!(allowed, "POST", "{path}"),
+                other => panic!("GET {path}: {other:?}"),
+            }
         }
         assert!(matches!(
-            resolve("GET", "/v0/runs/a/b", None),
+            resolve("GET", "/v0/runs/a/b"),
             Resolution::NotFound
         ));
     }
 
     #[test]
-    fn a_known_path_under_the_wrong_method_is_405() {
-        match resolve("POST", "/v0/health", None) {
-            Resolution::MethodNotAllowed { allowed } => assert_eq!(allowed, "GET"),
-            other => panic!("got {other:?}"),
+    fn a_path_served_under_two_methods_resolves_to_each_of_them() {
+        // `/v0/toolchain/download` is a `GET` status query and a `POST` start.
+        match resolve("GET", "/v0/toolchain/download") {
+            Resolution::Query {
+                action: Action::ToolchainDownload,
+                ..
+            } => {}
+            other => panic!("GET: {other:?}"),
         }
-        match resolve("POST", "/v0/snapshots", None) {
-            Resolution::MethodNotAllowed { allowed } => assert_eq!(allowed, "GET"),
-            other => panic!("got {other:?}"),
+        match resolve("POST", "/v0/toolchain/download") {
+            Resolution::Query {
+                action: Action::ToolchainDownloadStart,
+                ..
+            } => {}
+            other => panic!("POST: {other:?}"),
         }
-        match resolve("DELETE", "/v0/events", None) {
-            Resolution::MethodNotAllowed { allowed } => assert_eq!(allowed, "GET"),
-            other => panic!("got {other:?}"),
-        }
-        match resolve("POST", "/v0/runs/run-1-7", None) {
-            Resolution::MethodNotAllowed { allowed } => assert_eq!(allowed, "GET"),
-            other => panic!("got {other:?}"),
+        // And anything else names both, rather than pretending there is one.
+        match resolve("DELETE", "/v0/toolchain/download") {
+            Resolution::MethodNotAllowed { allowed } => assert_eq!(allowed, "GET, POST"),
+            other => panic!("DELETE: {other:?}"),
         }
     }
 
     #[test]
-    fn the_host_local_endpoints_resolve() {
-        for (path, kind) in [
-            ("/v0/health", Local::Health),
-            ("/v0/status", Local::Status),
-            ("/v0/events", Local::Events),
+    fn a_known_path_under_the_wrong_method_is_405() {
+        for (method, path, allowed) in [
+            ("POST", "/v0/health", "GET"),
+            ("POST", "/v0/snapshots", "GET"),
+            ("DELETE", "/v0/events", "GET"),
+            ("POST", "/v0/runs/run-1-7", "GET"),
+            ("GET", "/v0/snapshots/save", "POST"),
+            ("GET", "/v0/sessions/create", "POST"),
+            ("DELETE", "/v0/llm/config", "GET, POST"),
         ] {
-            match resolve("GET", path, None) {
-                Resolution::Local { kind: found, .. } => assert_eq!(found, kind, "{path}"),
-                other => panic!("{path} did not resolve locally: {other:?}"),
+            match resolve(method, path) {
+                Resolution::MethodNotAllowed { allowed: found } => {
+                    assert_eq!(found, allowed, "{method} {path}")
+                }
+                other => panic!("{method} {path}: {other:?}"),
             }
         }
     }
 
     #[test]
     fn an_unknown_path_is_not_found() {
+        assert!(matches!(resolve("GET", "/v0/nope"), Resolution::NotFound));
         assert!(matches!(
-            resolve("GET", "/v0/nope", None),
+            resolve("GET", "/other/health"),
             Resolution::NotFound
         ));
         assert!(matches!(
-            resolve("GET", "/other/health", None),
+            resolve("POST", "/v0/snapshots/save/x"),
             Resolution::NotFound
         ));
     }
@@ -536,12 +1214,30 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_or_unparsable_number_is_a_400() {
+    fn a_json_body_becomes_scalar_parameters() {
+        let params = Params::from_json(&serde_json::json!({
+            "name": "after-blink",
+            "enabled": true,
+            "remember": false,
+            "limit": 7,
+            "nested": { "no": "not addressable" },
+        }));
+        assert_eq!(params.get("name"), Some("after-blink"));
+        assert_eq!(params.bool_required("enabled").expect("enabled"), true);
+        assert_eq!(params.bool_or("remember", true).expect("remember"), false);
+        assert_eq!(params.usize_required("limit").expect("limit"), 7);
+        assert_eq!(params.get("nested"), None);
+    }
+
+    #[test]
+    fn a_missing_or_unparsable_parameter_is_a_400() {
         let params = parse_query(Some("limit=nine"));
         let response = params.usize_required("limit").expect_err("not a number");
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         let params = parse_query(None);
         assert!(params.usize_required("limit").is_err());
         assert_eq!(params.usize_or("limit", 20).expect("default"), 20);
+        assert!(params.bool_required("enabled").is_err());
+        assert_eq!(params.bool_or("enabled", true).expect("default"), true);
     }
 }

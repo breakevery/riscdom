@@ -5,6 +5,7 @@
 //! what an integrator codes against today.
 
 use std::fmt;
+use subtle::ConstantTimeEq;
 
 /// What the control plane knows about a request before it acts.
 ///
@@ -115,7 +116,12 @@ pub trait Authn: Send + Sync {
     fn authorise(&self, meta: &ReqMeta) -> Result<Actor, AuthError>;
 }
 
-/// The v0.9 default: every request is authorised as [`Actor::anonymous`].
+/// The opt-out: every request is authorised as [`Actor::anonymous`].
+///
+/// **Not the default any more** (v0.9). The control endpoints include destructive
+/// ones, so the server installs [`TokenAuth`] unless it is started with
+/// `--no-auth` — which prints a warning, because it means anyone who can reach
+/// the socket can delete a session or stop the VM.
 ///
 /// The `Authorization` header is still read into [`ReqMeta`] (so a real hook sees
 /// it) and the route's capability is still named there; this implementation
@@ -126,6 +132,39 @@ pub struct NoAuth;
 impl Authn for NoAuth {
     fn authorise(&self, _meta: &ReqMeta) -> Result<Actor, AuthError> {
         Ok(Actor::anonymous())
+    }
+}
+
+/// The default: the request must present the token from `<data-dir>/token`.
+///
+/// The comparison is constant time (`subtle`), so a wrong token cannot be
+/// recovered byte by byte from the time it takes to be refused. The only thing
+/// that leaks is the token's length, which is fixed for a generated one.
+pub struct TokenAuth {
+    token: String,
+}
+
+impl TokenAuth {
+    pub fn new(token: impl Into<String>) -> Self {
+        Self {
+            token: token.into(),
+        }
+    }
+}
+
+impl Authn for TokenAuth {
+    fn authorise(&self, meta: &ReqMeta) -> Result<Actor, AuthError> {
+        let presented = meta.token.as_deref().unwrap_or_default();
+        if presented.as_bytes().ct_eq(self.token.as_bytes()).into() {
+            Ok(Actor {
+                // The identity an audit reader sees for a token holder. The
+                // chain's own `agent_id` still names the host that wrote the row.
+                agent_id: "operator".to_string(),
+                kind: ActorKind::Human,
+            })
+        } else {
+            Err(AuthError::Unauthorized)
+        }
     }
 }
 
@@ -167,5 +206,25 @@ mod tests {
         assert_eq!(AuthError::Unauthorized.status(), 401);
         assert_eq!(AuthError::Forbidden.code(), "forbidden");
         assert_eq!(AuthError::Forbidden.status(), 403);
+    }
+
+    #[test]
+    fn token_auth_accepts_only_the_token_it_holds() {
+        let auth = TokenAuth::new("a-64-char-token");
+        let ok = auth
+            .authorise(&meta(Some("a-64-char-token")))
+            .expect("allowed");
+        assert_eq!(ok.agent_id, "operator");
+        assert_eq!(ok.kind, ActorKind::Human);
+
+        for wrong in ["", "a-64-char-toke", "a-64-char-tokenn", "A-64-CHAR-TOKEN"] {
+            let refused = auth.authorise(&meta(Some(wrong)));
+            assert_eq!(refused, Err(AuthError::Unauthorized), "accepted {wrong:?}");
+        }
+        assert_eq!(
+            auth.authorise(&meta(None)),
+            Err(AuthError::Unauthorized),
+            "a missing header is refused too"
+        );
     }
 }

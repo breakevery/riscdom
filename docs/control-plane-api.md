@@ -15,9 +15,12 @@ instruction from a supervisor AI and one from a human are both authorised instru
 from the control plane; the audit chain tells them apart by `agent_id`. Building two
 control channels instead of one is the mistake this design exists to avoid.
 
-**Implementation status (v0.9).** The 26 query endpoints of §5.1, the host-local
-endpoints of §5.3, the error model of §4, and the event envelope are implemented. §5.2
-(the controls), `gap` frames, and capability enforcement are not.
+**Implementation status (v0.9).** Everything in §5 is implemented — the 26 query
+endpoints of §5.1, the 27 controls of §5.2, the host-local endpoints of §5.3, the error
+model of §4, the event envelope with `Last-Event-ID` replay and `gap` frames, and the
+bearer token of §3. Only two routes are reserved: `/v0/resources` (§6, G3) and
+`POST /v0/vm/start` (§6, G1), and both say so with `501`. Capability *enforcement* is
+still the permission intermediary's job, a later batch.
 
 ## 1. Position and protocol
 
@@ -53,6 +56,12 @@ endpoints of §5.3, the error model of §4, and the event envelope are implement
 ## 3. Authentication
 
 - Clients send `Authorization: Bearer <token>`.
+- **Out of the box the token is a file.** The served program installs `TokenAuth` unless it
+  is started with `--no-auth`: on first start it generates 32 random bytes into
+  `<data-dir>/token`, owner-readable only, and every request must present that value. The
+  token is never printed or logged — read it from the file. With `--no-auth` the
+  requirement is dropped and the server prints a warning, because the control endpoints
+  include destructive ones.
 - The control plane reserves a single hook, shaped as a trait so the mechanism can be
   settled later:
 
@@ -163,7 +172,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/workspace/file` | GET | `workspace.read` | query: `path` | `{ "content": string }` | `read_workspace_file` |
 | `/v0/serial` | GET | `serial.read` | — | `{ "buffer": string }` | `get_serial_buffer` |
 
-### 5.2 Controls (27)
+### 5.2 Controls (27) — implemented in v0.9 batch 4
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
@@ -218,8 +227,14 @@ the tables above. They are part of this document's surface all the same.
 
 ### 5.4 Notes on the tables
 
-- **The queries are implemented; §5.2 is not.** Every §5.1 endpoint answers today, and
-  `/v0/resources` answers `501` until the aggregate lands (§6, G3).
+- **Queries and controls are implemented.** `POST /v0/vm/start` (§6, G1) and
+  `/v0/resources` (§6, G3) answer `501` until their kernel work lands.
+- **A control that reports success may have been a no-op.** The host's session rename and
+  delete are idempotent: an unknown `session_id` is not an error (the endpoint answers
+  `204`), where `/v0/sessions/open` answers `404`. The endpoint mirrors the host rather
+  than inventing a difference.
+- **`POST /v0/toolchain/download` starts a real download** of the pinned RISC-V GCC archive
+  and answers `202`; progress arrives as `toolchain:download` events.
 - **Capabilities are declared, not enforced.** The server names each endpoint's capability
   and hands it to the `Authn` hook through `ReqMeta.capability`; deciding whether an
   actor *holds* one is the permission intermediary's job, a later batch. Under the v0.9

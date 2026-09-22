@@ -13,6 +13,15 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The controls, the token and the event replay are in** (v0.9 batch 4). All 27
+  `POST` endpoints of `docs/control-plane-api.md` §5.2 answer, plus the reserved
+  `POST /v0/vm/start` (501) and `POST /v0/runs/abandon-stale` (G4, implemented); the server
+  now installs `TokenAuth` by default — a generated 32-byte token in `<data-dir>/token`,
+  owner-readable only, compared in constant time, `--no-auth` to opt out — and the event
+  stream carries a server-wide frame ordinal, replays from a bounded 1024-frame buffer on
+  `Last-Event-ID`, and sends a `gap` frame when the cursor is older than the buffer. Every
+  route declares its capability and hands it to the hook; enforcement is still a later
+  batch.
 - **The audit store's open path is concurrency-safe now** (fix after v0.9 batch 3).
   Opening one fresh `audit.db` from two processes at once used to fail one of them:
   `PRAGMA journal_mode = WAL` needs exclusive access and answers `SQLITE_BUSY` without

@@ -37,6 +37,8 @@ riscdom-server --bind 127.0.0.1:7821 --workspace ./my-workspace
 | `--workspace <dir>` | the current directory | The workspace this host owns. Its audit chain lives at `<workspace>/.riscdom/audit.db`. |
 | `--data-dir <dir>` | this platform's host data dir | Where settings and sessions live (the v0.8 injected-data-dir path). |
 | `--heartbeat-ms <n>` | `15000` | SSE heartbeat period; `0` disables it. |
+| `--auth` | on | Require the bearer token in `<data-dir>/token` (the default). |
+| `--no-auth` | | Drop the requirement and print a warning: for local debugging. |
 
 `--help` prints the same table. Exit codes: `0` clean stop, `1` workspace or bind failure,
 `2` usage error. Stop it with `Ctrl+C`.
@@ -50,7 +52,9 @@ listen on a public interface unless you tell it to.
 |---|---|---|
 | `/v0/health` | GET | `{"status":"ok","version":"0.8.0","uptime_ms":N}` |
 | `/v0/status` | GET | `{"status","version","uptime_ms","connections","sse_subscribers","agents","agent_id"}` |
-| `/v0/events` | GET | The SSE event stream (`text/event-stream`). |
+| `/v0/events` | GET | The SSE event stream (`text/event-stream`, replayable with `Last-Event-ID`). |
+| `/v0/runs`, `/v0/sessions`, `/v0/snapshots`, `/v0/llm/…`, `/v0/preflight`, `/v0/serial` | GET | The rest of the query surface: see the API document's §5.1. |
+| `/v0/sessions/create`, `/v0/settings/theme`, … | POST | The 27 controls of §5.2: sessions, snapshots, VM, toolchain, preflight, LLM config, exports. |
 
 Everything else answers `404` with the error model of the API document:
 
@@ -92,10 +96,23 @@ The heartbeat is a comment line every 15 seconds (or the period you set):
 
 ## Authentication
 
-Requests carry `Authorization: Bearer <token>`. The hook is the `Authn` trait; the default
-in v0.9 is `NoAuth`, which authorises every request as an anonymous actor and ignores the
-token. The token is read into the request metadata and **never logged** (its `Debug`
-redacts it). Refusals map into the error model: `401 unauthorized`, `403 forbidden`.
+**The token is on by default.** On first start the server generates 32 random bytes into
+`<data-dir>/token` (owner-readable only: mode `600` on Unix, an owner-only ACL on Windows —
+if the platform cannot restrict it, the server refuses to start) and requires every request
+to present it:
+
+```bash
+curl -sS http://127.0.0.1:7821/v0/health \
+  -H "Authorization: Bearer $(cat /path/to/data-dir/token)"
+```
+
+The token is **never printed or logged**; the start-up line names the file, not the value.
+An operator may provision the file instead of accepting a generated one. `--no-auth`
+removes the requirement and prints a warning — the control endpoints include destructive
+ones (delete a session, stop the VM, change the LLM configuration).
+
+The hook is the `Authn` trait, so a distribution can install its own. Refusals map into the
+error model: `401 unauthorized`, `403 forbidden`.
 
 A distribution that exposes the control plane beyond the loopback interface is responsible
 for transport security: the open-source build ships plaintext HTTP and the hook, nothing
@@ -103,9 +120,7 @@ more.
 
 ## Not implemented yet
 
-- **`gap` frames and `Last-Event-ID` replay.** A subscriber that falls behind loses the
-  frames it missed; the stream does not say so. The design reserves the `gap` kind and the
-  `id` cursor for it — see [docs/control-plane-events.md](../docs/control-plane-events.md) §2.
-- **The rest of the API table.** The 53 commands become 53 endpoints in later batches.
-- **Payload normalisation.** Events are wrapped exactly as the host emits them; the
-  unified v1 payload shapes are a later change.
+- **Capability enforcement.** Each route declares its capability and the server hands it to
+  the auth hook, but deciding whether a caller *holds* it is the permission intermediary's
+  job, a later batch. Today the token is the whole gate.
+- **`POST /v0/vm/start`** and **`GET /v0/resources`** answer `501`.

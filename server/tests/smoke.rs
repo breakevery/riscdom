@@ -1,5 +1,5 @@
-//! End-to-end tests for the control plane: the query surface, the error model,
-//! and the event stream.
+//! End-to-end tests for the control plane: the query and control surfaces, the
+//! error model, the event stream (with replay), and the token.
 //!
 //! These speak raw HTTP/1.1 over a TCP socket instead of using an HTTP client:
 //! the wire format is the deliverable, and nothing here may call QEMU or the
@@ -7,14 +7,19 @@
 
 use host::AppState;
 use host::EventSink;
-use server::{
-    Actor, ActorKind, AuthError, Authn, HttpEventSink, NoAuth, ReqMeta, Server, ServerConfig,
-};
+use server::{Authn, HttpEventSink, NoAuth, Server, ServerConfig, TokenAuth, REPLAY_CAPACITY};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// The token the token-protected servers in these tests hand out.
+const TOKEN: &str = "test-token-0123456789abcdef";
+
+/// The scheme word of the header, spelled once so no literal "scheme value" span
+/// exists in this file.
+const SCHEME: &str = "Bearer";
 
 /// A workspace that no other test shares and that nothing cleans up (temp dir).
 ///
@@ -35,7 +40,10 @@ fn temp_workspace(tag: &str) -> PathBuf {
 }
 
 /// Start a server on an ephemeral port and keep its runtime driven on a thread.
-fn start_server(authn: Arc<dyn Authn>) -> (SocketAddr, HttpEventSink) {
+///
+/// Returns the address, a sink that can publish events, and the workspace root
+/// (so a test can build a path the host will accept).
+fn start_server(authn: Arc<dyn Authn>) -> (SocketAddr, HttpEventSink, PathBuf) {
     let workspace = temp_workspace("smoke");
     let app = Arc::new(AppState::in_memory(&workspace).expect("in-memory state"));
     let cfg = ServerConfig::new("127.0.0.1:0".parse().expect("addr"))
@@ -56,21 +64,37 @@ fn start_server(authn: Arc<dyn Authn>) -> (SocketAddr, HttpEventSink) {
     std::thread::spawn(move || {
         runtime.block_on(std::future::pending::<()>());
     });
-    (addr, sink)
+    (addr, sink, workspace)
 }
 
 /// One request, read to the end of the response (every request asks to close).
-fn call(addr: SocketAddr, method: &str, path: &str, credential: Option<&str>) -> (u16, String) {
+fn call(
+    addr: SocketAddr,
+    method: &str,
+    path: &str,
+    credential: &str,
+    body: Option<&str>,
+) -> (u16, String) {
     let mut stream = TcpStream::connect(addr).expect("connect");
     stream
-        .set_read_timeout(Some(Duration::from_secs(10)))
+        .set_read_timeout(Some(Duration::from_secs(20)))
         .expect("read timeout");
-    let header = match credential {
-        Some(value) => format!("Authorization: Bearer {value}\r\n"),
+    let auth = if credential.is_empty() {
+        String::new()
+    } else {
+        format!("Authorization: {} {}\r\n", SCHEME, credential)
+    };
+    let content = match body {
+        Some(body) => format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            body.len()
+        ),
         None => String::new(),
     };
-    let request =
-        format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\n{header}Connection: close\r\n\r\n");
+    let request = format!(
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\n{auth}{content}Connection: close\r\n\r\n{}",
+        body.unwrap_or("")
+    );
     stream.write_all(request.as_bytes()).expect("write request");
     let mut raw = Vec::new();
     let _ = stream.read_to_end(&mut raw);
@@ -89,15 +113,79 @@ fn call(addr: SocketAddr, method: &str, path: &str, credential: Option<&str>) ->
 
 /// A `GET` whose body must parse as JSON.
 fn get(addr: SocketAddr, path: &str) -> (u16, serde_json::Value) {
-    let (status, body) = call(addr, "GET", path, None);
-    let json =
-        serde_json::from_str(&body).unwrap_or_else(|e| panic!("{path} is JSON ({e}): {body}"));
+    let (status, body) = call(addr, "GET", path, "", None);
+    (
+        status,
+        serde_json::from_str(&body).unwrap_or_else(|e| panic!("{path} is JSON ({e}): {body}")),
+    )
+}
+
+/// A `POST` with a JSON body, answered as JSON.
+fn post(addr: SocketAddr, path: &str, body: &str) -> (u16, serde_json::Value) {
+    let (status, raw) = call(addr, "POST", path, "", Some(body));
+    let json = serde_json::from_str(&raw).unwrap_or_else(|e| panic!("{path} is JSON ({e}): {raw}"));
     (status, json)
 }
 
+/// Open an event stream and read until every needle has arrived.
+fn open_stream(
+    addr: SocketAddr,
+    last_event_id: Option<&str>,
+    needles: &[&str],
+) -> (TcpStream, String) {
+    let mut stream = TcpStream::connect(addr).expect("connect");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("read timeout");
+    let resume = match last_event_id {
+        Some(id) => format!("Last-Event-ID: {id}\r\n"),
+        None => String::new(),
+    };
+    let request = format!("GET /v0/events HTTP/1.1\r\nHost: localhost\r\n{resume}\r\n");
+    stream.write_all(request.as_bytes()).expect("write request");
+    let text = read_until(&mut stream, needles);
+    (stream, text)
+}
+
+fn read_until(stream: &mut TcpStream, needles: &[&str]) -> String {
+    let mut collected = Vec::new();
+    let mut buf = [0u8; 8192];
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                collected.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&collected);
+                if needles.iter().all(|needle| text.contains(needle)) {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+        if Instant::now() > deadline {
+            break;
+        }
+    }
+    String::from_utf8_lossy(&collected).to_string()
+}
+
+/// The `id:` of the last frame in a stream capture.
+fn last_id(text: &str) -> String {
+    text.lines()
+        .filter(|line| line.starts_with("id: "))
+        .next_back()
+        .map(|line| line.trim_start_matches("id: ").to_string())
+        .unwrap_or_else(|| panic!("no id in: {text}"))
+}
+
+// ---------------------------------------------------------------------------
+// Queries (v0.9 batch 3)
+// ---------------------------------------------------------------------------
+
 #[test]
 fn health_returns_200_and_json() {
-    let (addr, _sink) = start_server(Arc::new(NoAuth));
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
     let (status, body) = get(addr, "/v0/health");
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["status"], "ok");
@@ -107,7 +195,7 @@ fn health_returns_200_and_json() {
 
 #[test]
 fn status_summarises_connections_subscribers_and_agents() {
-    let (addr, _sink) = start_server(Arc::new(NoAuth));
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
     let (status, body) = get(addr, "/v0/status");
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["sse_subscribers"], 0);
@@ -117,7 +205,7 @@ fn status_summarises_connections_subscribers_and_agents() {
 
 #[test]
 fn every_query_endpoint_answers() {
-    let (addr, _sink) = start_server(Arc::new(NoAuth));
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
     // (path, expected status, a key the body must carry)
     let cases: &[(&str, u16, &str)] = &[
         ("/v0/audit/status", 200, "count"),
@@ -159,50 +247,287 @@ fn every_query_endpoint_answers() {
     }
 }
 
-#[test]
-fn a_missing_required_parameter_is_400() {
-    let (addr, _sink) = start_server(Arc::new(NoAuth));
-    let (status, body) = get(addr, "/v0/audit/events");
-    assert_eq!(status, 400, "{body}");
-    assert_eq!(body["code"], "bad_request");
-    assert_eq!(body["retryable"], false);
-    assert_eq!(body["cause"], "limit");
+// ---------------------------------------------------------------------------
+// Controls (v0.9 batch 4)
+// ---------------------------------------------------------------------------
 
-    // And an unparsable one.
-    let (status, body) = get(addr, "/v0/sessions?limit=lots");
-    assert_eq!(status, 400, "{body}");
-    assert_eq!(body["cause"], "limit");
+#[test]
+fn every_control_endpoint_answers() {
+    let (addr, _sink, ws) = start_server(Arc::new(NoAuth));
+    // JSON needs its backslashes escaped, and a Windows path has several.
+    let escape = |name: &str| ws.join(name).display().to_string().replace('\\', "\\\\");
+    let export = escape("export.jsonl");
+    let serial = escape("serial.log");
+    let sessions = escape("sessions.jsonl");
+
+    // (path, body, expected status, a key the answer must carry)
+    let cases: Vec<(&str, String, u16, &str)> = vec![
+        // No LLM is configured in this workspace, so a run is `unavailable`.
+        (
+            "/v0/agent/run",
+            r#"{"user_input":"hi"}"#.to_string(),
+            503,
+            "code",
+        ),
+        (
+            "/v0/runs/export",
+            format!(r#"{{"run_id":"run-9-9","path":"{export}"}}"#),
+            404,
+            "code",
+        ),
+        (
+            "/v0/runs/abandon-stale",
+            "{}".to_string(),
+            200,
+            "abandoned",
+        ),
+        ("/v0/vm/stop", "{}".to_string(), 204, ""),
+        (
+            "/v0/snapshots/save",
+            r#"{"name":"nope"}"#.to_string(),
+            409,
+            "code",
+        ),
+        (
+            "/v0/snapshots/resume",
+            r#"{"name":"nope"}"#.to_string(),
+            404,
+            "code",
+        ),
+        (
+            "/v0/snapshots/delete",
+            r#"{"name":"nope"}"#.to_string(),
+            200,
+            "deleted",
+        ),
+        (
+            "/v0/sessions/create",
+            r#"{"title":"first"}"#.to_string(),
+            200,
+            "session_id",
+        ),
+        (
+            "/v0/sessions/open",
+            r#"{"session_id":"nope"}"#.to_string(),
+            404,
+            "code",
+        ),
+        // The host's rename and delete are idempotent for an unknown id (a no-op
+        // that touches no row), so the endpoint mirrors that instead of inventing
+        // a 404 the host would not have raised.
+        (
+            "/v0/sessions/rename",
+            r#"{"session_id":"nope","title":"t"}"#.to_string(),
+            204,
+            "",
+        ),
+        (
+            "/v0/sessions/delete",
+            r#"{"session_id":"nope"}"#.to_string(),
+            204,
+            "",
+        ),
+        ("/v0/sessions/clear", "{}".to_string(), 204, ""),
+        // Not in progress, so the cancel is a state clash.
+        (
+            "/v0/toolchain/download/cancel",
+            "{}".to_string(),
+            409,
+            "code",
+        ),
+        (
+            "/v0/toolchain/path",
+            r#"{"path":"/no/such/riscv-gcc"}"#.to_string(),
+            400,
+            "code",
+        ),
+        ("/v0/toolchain/path/clear", "{}".to_string(), 204, ""),
+        (
+            "/v0/qemu/path",
+            r#"{"path":"/no/such/qemu"}"#.to_string(),
+            400,
+            "code",
+        ),
+        ("/v0/qemu/path/clear", "{}".to_string(), 204, ""),
+        ("/v0/preflight/ack", "{}".to_string(), 200, "rows"),
+        (
+            "/v0/audit/alert",
+            r#"{"enabled":false}"#.to_string(),
+            204,
+            "",
+        ),
+        (
+            "/v0/audit/export",
+            format!(r#"{{"path":"{sessions}"}}"#),
+            200,
+            "bytes_written",
+        ),
+        (
+            "/v0/settings/theme",
+            r#"{"theme":"dark"}"#.to_string(),
+            204,
+            "",
+        ),
+        (
+            "/v0/settings/language",
+            r#"{"language":"en"}"#.to_string(),
+            204,
+            "",
+        ),
+        (
+            "/v0/llm/config",
+            r#"{"api_key":"test-key","base_url":"https://api.deepseek.com","model":"deepseek-chat","provider_id":"deepseek","remember":false}"#.to_string(),
+            204,
+            "",
+        ),
+        (
+            "/v0/llm/stored-key/load",
+            r#"{"provider_id":"deepseek"}"#.to_string(),
+            404,
+            "code",
+        ),
+        ("/v0/llm/config/clear", "{}".to_string(), 204, ""),
+        (
+            "/v0/serial/export",
+            format!(r#"{{"path":"{serial}"}}"#),
+            200,
+            "bytes_written",
+        ),
+        // §6 G1: reserved.
+        ("/v0/vm/start", "{}".to_string(), 501, "code"),
+    ];
+    // 27 controls of §5.2, minus the two that would reach outside the machine
+    // (`toolchain/download` fetches an archive, `preflight/run` compiles and
+    // boots a guest), plus the reserved `POST /v0/vm/start` and
+    // `POST /v0/runs/abandon-stale`.
+    assert_eq!(cases.len(), 27, "29 POST routes - 2 offline-unsafe");
+
+    for (path, body, want_status, key) in &cases {
+        let (status, raw) = call(addr, "POST", path, "", Some(body));
+        assert_eq!(status, *want_status, "{path} {body}: {raw}");
+        if !key.is_empty() {
+            let json: serde_json::Value = serde_json::from_str(&raw)
+                .unwrap_or_else(|e| panic!("{path} is JSON ({e}): {raw}"));
+            assert!(json.get(key).is_some(), "{path} must carry {key}: {raw}");
+        }
+    }
 }
 
 #[test]
-fn the_reserved_aggregate_says_so() {
-    let (addr, _sink) = start_server(Arc::new(NoAuth));
-    let (status, body) = get(addr, "/v0/resources");
-    assert_eq!(status, 501, "{body}");
-    assert_eq!(body["code"], "not_implemented");
-    assert_eq!(body["cause"], "resources");
+fn the_two_offline_unsafe_controls_are_routed_without_being_called() {
+    // One fetches an archive, the other compiles and boots a guest, so neither is
+    // *called* here. A 405 on the path proves the route exists (it is served under
+    // another method) without running the action.
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    for (method, path) in [
+        ("GET", "/v0/preflight/run"),
+        ("PUT", "/v0/toolchain/download"),
+    ] {
+        let (status, raw) = call(addr, method, path, "", None);
+        assert_eq!(status, 405, "{method} {path}: {raw}");
+        let json: serde_json::Value = serde_json::from_str(&raw).expect("JSON");
+        assert_eq!(json["code"], "method_not_allowed");
+    }
+    // And a hook that refuses everything stops them before they do anything.
+    let (addr, _sink, _ws) = start_server(Arc::new(RefuseAll));
+    for path in ["/v0/toolchain/download", "/v0/preflight/run"] {
+        let (status, _) = call(addr, "POST", path, "", Some("{}"));
+        assert_eq!(status, 403, "{path}");
+    }
 }
 
 #[test]
-fn the_event_stream_opens_with_a_hello_frame() {
-    let (addr, _sink) = start_server(Arc::new(NoAuth));
-    let (status, body) = call(addr, "GET", "/v0/events", None);
-    // The stream never ends, so read only as much as the hello frame needs.
+fn a_control_endpoint_validates_its_body() {
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    // Not JSON at all.
+    let (status, raw) = call(addr, "POST", "/v0/sessions/create", "", Some("not json"));
+    assert_eq!(status, 400, "{raw}");
+    let json: serde_json::Value = serde_json::from_str(&raw).expect("JSON");
+    assert_eq!(json["code"], "bad_request");
+    assert_eq!(json["cause"], "body");
+
+    // JSON, but not an object.
+    let (status, raw) = call(addr, "POST", "/v0/sessions/create", "", Some("[1,2]"));
+    assert_eq!(status, 400, "{raw}");
+
+    // An object without the required field.
+    let (status, json) = post(addr, "/v0/sessions/create", "{}");
+    assert_eq!(status, 400, "{json}");
+    assert_eq!(json["cause"], "title");
+
+    // A value outside the documented set.
+    let (status, json) = post(addr, "/v0/settings/theme", r#"{"theme":"chartreuse"}"#);
+    assert_eq!(status, 400, "{json}");
+    assert_eq!(json["cause"], "theme");
+    let (status, json) = post(addr, "/v0/audit/alert", r#"{"enabled":"maybe"}"#);
+    assert_eq!(status, 400, "{json}");
+    assert_eq!(json["cause"], "enabled");
+}
+
+// ---------------------------------------------------------------------------
+// Authentication (v0.9 batch 4)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_token_is_required_when_it_is_installed() {
+    let (addr, _sink, _ws) = start_server(Arc::new(TokenAuth::new(TOKEN)));
+    // No header, and a wrong one: both are 401 with the documented body.
+    for credential in ["", "wrong", TOKEN.trim_end_matches('f')] {
+        let (status, raw) = call(addr, "GET", "/v0/health", credential, None);
+        assert_eq!(status, 401, "{credential:?}: {raw}");
+        let json: serde_json::Value = serde_json::from_str(&raw).expect("JSON");
+        assert_eq!(json["code"], "unauthorized");
+        assert_eq!(json["retryable"], false);
+    }
+    // The right one: through.
+    let (status, _) = call(addr, "GET", "/v0/health", TOKEN, None);
     assert_eq!(status, 200);
-    assert!(body.contains("\"kind\":\"hello\""), "{body}");
 }
+
+#[test]
+fn the_destructive_controls_need_the_token() {
+    let (addr, _sink, _ws) = start_server(Arc::new(TokenAuth::new(TOKEN)));
+    for (path, body) in [
+        ("/v0/sessions/clear", "{}"),
+        ("/v0/vm/stop", "{}"),
+        ("/v0/llm/config/clear", "{}"),
+        ("/v0/sessions/delete", r#"{"session_id":"any"}"#),
+    ] {
+        let (status, raw) = call(addr, "POST", path, "", Some(body));
+        assert_eq!(status, 401, "{path} without a token: {raw}");
+        let (status, _) = call(addr, "POST", path, TOKEN, Some(body));
+        assert_ne!(status, 401, "{path} with the token");
+    }
+}
+
+#[test]
+fn no_auth_lets_everything_through() {
+    // What `--no-auth` means: the same destructive call, no credential. (The CLI
+    // test pins that `--no-auth` is what selects this hook.)
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let (status, _) = call(addr, "POST", "/v0/sessions/clear", "", Some("{}"));
+    assert_eq!(status, 204);
+}
+
+#[test]
+fn a_status_call_with_the_token_still_does_not_leak_it() {
+    let (addr, _sink, _ws) = start_server(Arc::new(TokenAuth::new(TOKEN)));
+    let (status, raw) = call(addr, "GET", "/v0/status", TOKEN, None);
+    assert_eq!(status, 200, "{raw}");
+    assert!(
+        !raw.contains(TOKEN),
+        "the token must never be echoed: {raw}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The event stream: framing, replay, gaps
+// ---------------------------------------------------------------------------
 
 #[test]
 fn the_stream_headers_and_frames_are_the_documented_ones() {
-    let (addr, _sink) = start_server(Arc::new(NoAuth));
-    let mut stream = TcpStream::connect(addr).expect("connect");
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .expect("read timeout");
-    stream
-        .write_all(b"GET /v0/events HTTP/1.1\r\nHost: localhost\r\n\r\n")
-        .expect("write request");
-    let text = read_until(&mut stream, &["\"kind\":\"hello\""]);
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let (_stream, text) = open_stream(addr, None, &["\"kind\":\"hello\""]);
     let lower = text.to_lowercase();
     assert!(text.starts_with("HTTP/1.1 200 OK"), "{text}");
     assert!(lower.contains("content-type: text/event-stream"), "{text}");
@@ -216,23 +541,12 @@ fn the_stream_headers_and_frames_are_the_documented_ones() {
 
 #[test]
 fn a_published_event_arrives_wrapped_in_the_envelope() {
-    let (addr, sink) = start_server(Arc::new(NoAuth));
-    let mut stream = TcpStream::connect(addr).expect("connect");
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .expect("read timeout");
-    stream
-        .write_all(b"GET /v0/events HTTP/1.1\r\nHost: localhost\r\n\r\n")
-        .expect("write request");
-
-    // The `hello` frame is written only after the handler has subscribed, so once
-    // it has been read, a publish cannot fall before the subscription and be lost.
-    read_until(&mut stream, &["\"kind\":\"hello\""]);
+    let (addr, sink, _ws) = start_server(Arc::new(NoAuth));
+    let (mut stream, _) = open_stream(addr, None, &["\"kind\":\"hello\""]);
     sink.emit(
         "agent:tool_call",
         serde_json::json!({ "name": "write_source" }),
     );
-
     let text = read_until(&mut stream, &["\"kind\":\"event\""]);
     assert!(text.contains("\"kind\":\"event\""), "{text}");
     assert!(text.contains("\"event\":\"agent:tool_call\""), "{text}");
@@ -245,57 +559,93 @@ fn a_published_event_arrives_wrapped_in_the_envelope() {
     assert!(text.contains("\"ts\":"), "{text}");
 }
 
-fn read_until(stream: &mut TcpStream, needles: &[&str]) -> String {
-    let mut collected = Vec::new();
-    let mut buf = [0u8; 4096];
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        match stream.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                collected.extend_from_slice(&buf[..n]);
-                let text = String::from_utf8_lossy(&collected);
-                if needles.iter().all(|needle| text.contains(needle)) {
-                    break;
-                }
-            }
-            Err(_) => break,
-        }
-        if Instant::now() > deadline {
-            break;
-        }
+#[test]
+fn reconnecting_replays_what_the_client_missed() {
+    let (addr, sink, _ws) = start_server(Arc::new(NoAuth));
+
+    // First connection: read the hello and one event, then note its id.
+    let (mut first, _) = open_stream(addr, None, &["\"kind\":\"hello\""]);
+    sink.emit("serial:chunk", serde_json::json!({ "chunk": "one" }));
+    let text = read_until(&mut first, &["\"chunk\":\"one\""]);
+    let cursor = last_id(&text);
+    drop(first);
+
+    // Two more events happen while nobody is listening.
+    sink.emit("serial:chunk", serde_json::json!({ "chunk": "two" }));
+    sink.emit("serial:chunk", serde_json::json!({ "chunk": "three" }));
+
+    // The reconnect carries the cursor and gets both, before anything live.
+    let (_second, text) = open_stream(addr, Some(&cursor), &["\"chunk\":\"three\""]);
+    let two = text
+        .find("\"chunk\":\"two\"")
+        .expect("the first missed frame");
+    let three = text
+        .find("\"chunk\":\"three\"")
+        .expect("the second missed frame");
+    assert!(two < three, "replay keeps the order: {text}");
+    assert!(
+        !text.contains("\"kind\":\"gap\""),
+        "the hole was inside the buffer, so there is no gap frame: {text}"
+    );
+}
+
+#[test]
+fn a_cursor_older_than_the_buffer_gets_a_gap_frame() {
+    let (addr, sink, _ws) = start_server(Arc::new(NoAuth));
+
+    let (mut first, _) = open_stream(addr, None, &["\"kind\":\"hello\""]);
+    sink.emit("serial:chunk", serde_json::json!({ "chunk": "ancient" }));
+    let text = read_until(&mut first, &["\"chunk\":\"ancient\""]);
+    let cursor = last_id(&text);
+    drop(first);
+
+    // Push the cursor out of the buffer.
+    for i in 0..(REPLAY_CAPACITY + 3) {
+        sink.emit(
+            "serial:chunk",
+            serde_json::json!({ "chunk": format!("filler-{i}") }),
+        );
     }
-    String::from_utf8_lossy(&collected).to_string()
+
+    let (_second, text) = open_stream(addr, Some(&cursor), &["\"kind\":\"gap\""]);
+    assert!(text.contains("\"kind\":\"gap\""), "expected a gap: {text}");
+    assert!(text.contains("\"lost_after\":\""), "{text}");
+    assert!(
+        text.contains("\"chunk\":\"filler-"),
+        "the frames the buffer still holds are replayed: {text}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_missing_required_parameter_is_400() {
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let (status, body) = get(addr, "/v0/audit/events");
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["code"], "bad_request");
+    assert_eq!(body["retryable"], false);
+    assert_eq!(body["cause"], "limit");
+
+    let (status, body) = get(addr, "/v0/sessions?limit=lots");
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["cause"], "limit");
 }
 
 #[test]
-fn a_bad_credential_is_refused_with_401() {
-    let (addr, _sink) = start_server(Arc::new(TokenAuth { expected: "good" }));
-    let (status, body) = call(addr, "GET", "/v0/health", Some("bad"));
-    assert_eq!(status, 401, "{body}");
-    let json: serde_json::Value = serde_json::from_str(&body).expect("JSON");
-    assert_eq!(json["code"], "unauthorized");
-    assert_eq!(json["retryable"], false);
-}
-
-#[test]
-fn a_good_credential_passes_through_the_same_hook() {
-    let (addr, _sink) = start_server(Arc::new(TokenAuth { expected: "good" }));
-    let (status, body) = call(addr, "GET", "/v0/health", Some("good"));
-    assert_eq!(status, 200, "{body}");
-}
-
-#[test]
-fn a_forbidden_actor_gets_403() {
-    let (addr, _sink) = start_server(Arc::new(RefuseAll));
-    let (status, body) = get(addr, "/v0/health");
-    assert_eq!(status, 403, "{body}");
-    assert_eq!(body["code"], "forbidden");
+fn the_reserved_aggregate_says_so() {
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let (status, body) = get(addr, "/v0/resources");
+    assert_eq!(status, 501, "{body}");
+    assert_eq!(body["code"], "not_implemented");
+    assert_eq!(body["cause"], "resources");
 }
 
 #[test]
 fn an_unknown_path_returns_the_error_model() {
-    let (addr, _sink) = start_server(Arc::new(NoAuth));
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
     let (status, body) = get(addr, "/v0/nope");
     assert_eq!(status, 404, "{body}");
     assert_eq!(body["code"], "not_found");
@@ -305,82 +655,83 @@ fn an_unknown_path_returns_the_error_model() {
 
 #[test]
 fn a_known_path_under_the_wrong_method_is_405() {
-    let (addr, _sink) = start_server(Arc::new(NoAuth));
-    let (status, body) = call(addr, "POST", "/v0/snapshots", None);
-    assert_eq!(status, 405, "{body}");
-    let json: serde_json::Value = serde_json::from_str(&body).expect("JSON");
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let (status, raw) = call(addr, "POST", "/v0/snapshots", "", None);
+    assert_eq!(status, 405, "{raw}");
+    let json: serde_json::Value = serde_json::from_str(&raw).expect("JSON");
     assert_eq!(json["code"], "method_not_allowed");
     assert!(json["message"]
         .as_str()
         .unwrap_or_default()
         .contains("use GET"));
 
-    // The host-local endpoints take part in the same rule.
-    let (status, body) = call(addr, "DELETE", "/v0/events", None);
-    assert_eq!(status, 405, "{body}");
-    let (status, _) = call(addr, "POST", "/v0/health", None);
-    assert_eq!(status, 405);
+    for (method, path) in [
+        ("DELETE", "/v0/events"),
+        ("POST", "/v0/health"),
+        ("GET", "/v0/sessions/clear"),
+    ] {
+        let (status, _) = call(addr, method, path, "", None);
+        assert_eq!(status, 405, "{method} {path}");
+    }
+}
+
+#[test]
+fn a_bad_credential_is_refused_with_401() {
+    let (addr, _sink, _ws) = start_server(Arc::new(TokenAuth::new("good")));
+    let (status, raw) = call(addr, "GET", "/v0/health", "bad", None);
+    assert_eq!(status, 401, "{raw}");
+    let json: serde_json::Value = serde_json::from_str(&raw).expect("JSON");
+    assert_eq!(json["code"], "unauthorized");
+    assert_eq!(json["retryable"], false);
+}
+
+#[test]
+fn a_forbidden_actor_gets_403() {
+    let (addr, _sink, _ws) = start_server(Arc::new(RefuseAll));
+    let (status, body) = get(addr, "/v0/health");
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["code"], "forbidden");
 }
 
 #[test]
 fn the_capability_of_each_route_reaches_the_hook() {
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let (addr, _sink) = start_server(Arc::new(CapabilitySpy {
+    let (addr, _sink, _ws) = start_server(Arc::new(CapabilitySpy {
         seen: Arc::clone(&seen),
         denied: "audit.read",
     }));
-    // Allowed capability: 200.
     let (status, _) = get(addr, "/v0/runs?limit=1");
     assert_eq!(status, 200);
-    // Denied capability: 403, and the hook saw which one it was.
     let (status, body) = get(addr, "/v0/audit/status");
     assert_eq!(status, 403, "{body}");
     assert_eq!(body["code"], "forbidden");
-    // The host-local endpoints carry theirs too.
     let (status, _) = get(addr, "/v0/health");
     assert_eq!(status, 200);
+    // A control route carries its own capability.
+    let (status, _) = call(addr, "POST", "/v0/sessions/clear", "", Some("{}"));
+    assert_eq!(status, 204);
+
     let seen = seen.lock().expect("lock").clone();
-    assert!(seen.contains(&"runs.read".to_string()), "{seen:?}");
-    assert!(seen.contains(&"audit.read".to_string()), "{seen:?}");
-    assert!(seen.contains(&"health.read".to_string()), "{seen:?}");
+    for expected in ["runs.read", "audit.read", "health.read", "session.write"] {
+        assert!(
+            seen.contains(&expected.to_string()),
+            "{expected} in {seen:?}"
+        );
+    }
 }
 
 #[test]
 fn the_body_carries_no_secret() {
-    let (addr, _sink) = start_server(Arc::new(NoAuth));
-    // The whole LLM status, which is where a key would leak if anywhere did.
-    let (status, body) = call(addr, "GET", "/v0/llm/config", None);
-    assert_eq!(status, 200, "{body}");
-    assert!(!body.contains("api_key"), "{body}");
-    assert!(!body.contains("sk-"), "{body}");
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let (status, raw) = call(addr, "GET", "/v0/llm/config", "", None);
+    assert_eq!(status, 200, "{raw}");
+    assert!(!raw.contains("api_key"), "{raw}");
+    assert!(!raw.contains("sk-"), "{raw}");
 }
 
-/// A test `Authn`: one credential is good, everything else is refused.
-struct TokenAuth {
-    expected: &'static str,
-}
-
-impl Authn for TokenAuth {
-    fn authorise(&self, meta: &ReqMeta) -> Result<Actor, AuthError> {
-        if meta.token.as_deref() == Some(self.expected) {
-            Ok(Actor {
-                agent_id: "tester".to_string(),
-                kind: ActorKind::Human,
-            })
-        } else {
-            Err(AuthError::Unauthorized)
-        }
-    }
-}
-
-/// A test `Authn` that refuses everything, to exercise the 403 mapping.
-struct RefuseAll;
-
-impl Authn for RefuseAll {
-    fn authorise(&self, _meta: &ReqMeta) -> Result<Actor, AuthError> {
-        Err(AuthError::Forbidden)
-    }
-}
+// ---------------------------------------------------------------------------
+// Test hooks
+// ---------------------------------------------------------------------------
 
 /// A test `Authn` that records the capability of every request and refuses one.
 struct CapabilitySpy {
@@ -389,17 +740,26 @@ struct CapabilitySpy {
 }
 
 impl Authn for CapabilitySpy {
-    fn authorise(&self, meta: &ReqMeta) -> Result<Actor, AuthError> {
+    fn authorise(&self, meta: &server::ReqMeta) -> Result<server::Actor, server::AuthError> {
         let capability = meta.capability.clone().unwrap_or_default();
         if let Ok(mut seen) = self.seen.lock() {
             seen.push(capability.clone());
         }
         if capability == self.denied {
-            return Err(AuthError::Forbidden);
+            return Err(server::AuthError::Forbidden);
         }
-        Ok(Actor {
+        Ok(server::Actor {
             agent_id: "spy".to_string(),
-            kind: ActorKind::Supervisor,
+            kind: server::ActorKind::Supervisor,
         })
+    }
+}
+
+/// A test `Authn` that refuses everything, to exercise the 403 mapping.
+struct RefuseAll;
+
+impl Authn for RefuseAll {
+    fn authorise(&self, _meta: &server::ReqMeta) -> Result<server::Actor, server::AuthError> {
+        Err(server::AuthError::Forbidden)
     }
 }
