@@ -17,6 +17,12 @@ The RiscDom **audit layer**. It implements article 2 of the project constitution
   (lowercase hex). The first (genesis) event has a `prev_hash` of 64 `0`s.
 - **independently verifiable**: `verify_chain` recomputes the whole chain and **locates the
   first broken event's id**.
+- **several processes, one `audit.db`**: the connection runs in WAL with a 5 s `busy_timeout`,
+  and **both** the open sequence and every append are retried on a locked database
+  (`OPEN_MAX_ATTEMPTS` / `APPEND_MAX_ATTEMPTS`, exponential backoff from 20 ms). The open
+  retry exists because `PRAGMA journal_mode = WAL` answers `SQLITE_BUSY` *without* consulting
+  the busy timeout, so two processes creating one fresh `audit.db` at the same moment used to
+  fail one of them. A lock that outlasts either budget is an error — never a silent drop.
 
 ## Modules
 
@@ -68,7 +74,8 @@ cargo test -p audit
 ```
 
 Coverage: empty chain / three-event chain / tamper localisation / UPDATE + DELETE rejected by
-the triggers / query filtering / JSONL export / CLI exit codes / concurrent appends.
+the triggers / query filtering / JSONL export / CLI exit codes / concurrent appends /
+concurrent **opens** (8 threads racing one fresh file, and one already in WAL).
 
 ## v0.2 TODO
 

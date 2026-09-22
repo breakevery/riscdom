@@ -30,7 +30,10 @@ pub use run::{
     ACTION_RUN_START, FINGERPRINT_SCHEMA_V1, SHORT_FINGERPRINT_LEN,
 };
 pub use sink::{AuditFailureReporter, AuditSink, FileAuditSink, SqliteAuditSink};
-pub use store::{AuditStore, EventFilter, APPEND_BACKOFF_BASE, APPEND_MAX_ATTEMPTS, BUSY_TIMEOUT};
+pub use store::{
+    AuditStore, EventFilter, APPEND_BACKOFF_BASE, APPEND_MAX_ATTEMPTS, BUSY_TIMEOUT,
+    OPEN_BACKOFF_BASE, OPEN_MAX_ATTEMPTS,
+};
 
 /// The default failure reporter: put it where a human will see it.
 ///

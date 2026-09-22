@@ -26,6 +26,18 @@ pub const APPEND_BACKOFF_BASE: Duration = Duration::from_millis(20);
 /// row.
 pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How many times the **open sequence** retries a locked database (v0.9).
+///
+/// Defined from the append path's budget on purpose: opening and appending share
+/// one lock-retry policy, so the two cannot drift apart. The retry is needed
+/// because the journal-mode switch answers `SQLITE_BUSY` *without* consulting the
+/// busy timeout (see [`AuditStore::open`]).
+pub const OPEN_MAX_ATTEMPTS: u32 = APPEND_MAX_ATTEMPTS;
+
+/// First backoff step for the open retry; it doubles per attempt, exactly as
+/// [`APPEND_BACKOFF_BASE`] does on the write path.
+pub const OPEN_BACKOFF_BASE: Duration = APPEND_BACKOFF_BASE;
+
 /// Schema + append-only triggers.
 ///
 /// The `BEFORE UPDATE` / `BEFORE DELETE` triggers are the hard guarantee that
@@ -151,7 +163,56 @@ pub struct AuditStore {
 
 impl AuditStore {
     /// Open (or create) a store at `path`.
+    ///
+    /// A **locked** database is retried — the whole sequence, with a fresh
+    /// connection each time — up to [`OPEN_MAX_ATTEMPTS`] with exponential
+    /// backoff (v0.9).
+    ///
+    /// The retry is not belt-and-braces. `PRAGMA journal_mode = WAL` needs
+    /// exclusive access, and when another connection has the database open SQLite
+    /// answers `SQLITE_BUSY` **immediately**: that statement is one of the few the
+    /// busy handler is never consulted for (waiting on it could deadlock), so a
+    /// generous `busy_timeout` does not cover it. Two processes opening one fresh
+    /// `audit.db` at the same moment therefore used to fail one of them outright —
+    /// which is the normal case once agents run as separate processes.
+    ///
+    /// What the sequence *does* is unchanged: `busy_timeout`, then WAL only when
+    /// the file is not already WAL, then `synchronous = NORMAL`, then the schema
+    /// and the column migrations. Nothing here touches the chain.
     pub fn open(path: &Path) -> Result<Self, AuditError> {
+        Self::open_with(path, OPEN_MAX_ATTEMPTS, OPEN_BACKOFF_BASE)
+    }
+
+    /// [`Self::open`] with an explicit attempt budget and backoff base.
+    ///
+    /// Exposed for the same reason [`Self::append_with`] is: the exhaustion path
+    /// deserves a test that does not wait out the real budget.
+    pub fn open_with(
+        path: &Path,
+        attempts: u32,
+        backoff_base: Duration,
+    ) -> Result<Self, AuditError> {
+        let budget = attempts.max(1);
+        let mut attempt: u32 = 1;
+        loop {
+            match Self::open_once(path) {
+                Ok(store) => return Ok(store),
+                Err(error) => {
+                    if attempt >= budget || !is_lock_error(&error) {
+                        return Err(error);
+                    }
+                    // 20 / 40 / 80 / 160 ms, the append path's shape.
+                    std::thread::sleep(backoff_base * 2u32.pow(attempt - 1));
+                    attempt += 1;
+                }
+            }
+        }
+    }
+
+    /// One open attempt: connect, then configure and create/migrate the schema.
+    ///
+    /// A fresh connection per attempt, so a half-configured one is never reused.
+    fn open_once(path: &Path) -> Result<Self, AuditError> {
         let conn = Connection::open(path)?;
         let store = Self { conn };
         store.init_schema()?;
@@ -196,7 +257,9 @@ impl AuditStore {
         conn.busy_timeout(BUSY_TIMEOUT)?;
         // WAL is a property of the *file*, so an existing database is switched
         // once and every later open reads the answer back instead of taking the
-        // lock again.
+        // lock again. The switch is the one statement here that does **not** wait
+        // out the busy timeout — `AuditStore::open` retries the whole sequence for
+        // exactly that reason.
         let mode: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
         if !mode.eq_ignore_ascii_case("wal") && mode != "memory" {
             let _mode: String =

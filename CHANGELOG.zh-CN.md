@@ -9,6 +9,12 @@
 
 ## [未发布]
 
+**审计存储的打开路径不再是并发隐患。** 两个进程同时打开同一个全新的 `audit.db`，过去必有一个失败：`PRAGMA journal_mode = WAL` 需要独占访问，且会**绕过** busy_timeout 直接回 `SQLITE_BUSY`（等待可能死锁时 SQLite 不调用 busy handler），因此覆盖写路径的 5 秒超时从未覆盖这次切换。现在「连接 → 配置 → 建 schema → 迁移列」整条打开序列在遇到数据库锁时会重试，预算与退避形状沿用 v0.8 起写路径的那一套。序列本身的动作未变，链的一切未变。
+
+### 修复
+
+- **`AuditStore::open` 遇到数据库锁会重试**（`OPEN_MAX_ATTEMPTS` / `OPEN_BACKOFF_BASE`，定义为写路径常量的别名，两者不会漂移）：每次重试用新连接，只对 `SQLITE_BUSY` / `SQLITE_LOCKED` 重试，预算耗尽后仍**如实报错**——绝不静默降级。由一条「8 线程抢开同一新文件 × 25 轮」的测试、一条「同样方式打开已是 WAL 的文件」的测试、以及一条「超过预算的锁是错误」的测试钉住。
+
 **控制平面会应答查询了，且事件只有一种 envelope。** `docs/control-plane-api.zh-CN.md` §5.1 的 26 个查询端点已可用，并新增错误码 `method_not_allowed`（405）、预留端点 `/v0/resources`（501）；同时，无论走哪个传输，每个事件现在都包在 `docs/control-plane-events.zh-CN.md` 定下的 envelope 里——SSE 流、Tauri webview（在唯一边界处解包）、以及 worker 的行协议。
 
 ### 新增

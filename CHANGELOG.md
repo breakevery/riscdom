@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**The audit store's open path is no longer a concurrency hazard.** Opening one fresh
+`audit.db` from two processes at the same moment used to fail one of them: `PRAGMA
+journal_mode = WAL` needs exclusive access and answers `SQLITE_BUSY` *without* consulting
+the busy timeout (SQLite skips the handler when waiting could deadlock), so the 5 s timeout
+that covers writes never covered the switch. The open sequence — connect, configure, create
+the schema, migrate the columns — is now retried on a locked database, with the same budget
+and backoff shape the append path has used since v0.8. Nothing else in the sequence changed,
+and nothing about the chain changed.
+
+### Fixed
+
+- **`AuditStore::open` retries a locked database** (`OPEN_MAX_ATTEMPTS` /
+  `OPEN_BACKOFF_BASE`, defined from the append path's constants so the two cannot drift
+  apart): a fresh connection per attempt, retrying only `SQLITE_BUSY` / `SQLITE_LOCKED`, and
+  the failure is still reported — never a silent fallback — once the budget is spent. Pinned
+  by a test that races 8 threads on one new file for 25 rounds, one that does the same against
+  a file already in WAL, and one that shows a lock outlasting the budget is an error.
+
 **The control plane answers queries and carries one event envelope.** The 26 query
 endpoints of `docs/control-plane-api.md` §5.1 are live, with a new
 `method_not_allowed` (405) code and a reserved `/v0/resources` (501); and every event,

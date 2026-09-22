@@ -5,11 +5,11 @@
 //! that safe: WAL + a busy timeout on the connection, retries instead of lost
 //! events, and an error — not a silent drop — when the lock outlasts them.
 
-use audit::{AuditEvent, AuditSink, AuditStore, ChainStatus, SqliteAuditSink};
+use audit::{verify_chain, AuditEvent, AuditSink, AuditStore, ChainStatus, SqliteAuditSink};
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
 fn tmp_db(name: &str) -> PathBuf {
@@ -147,4 +147,167 @@ fn the_sink_reports_a_write_it_could_not_make() {
     holder
         .execute_batch("PRAGMA busy_timeout = 5000")
         .expect("timeout");
+}
+
+/// Every connection that opens the same **new** file at the same moment succeeds.
+///
+/// Opening is not only `busy_timeout` + WAL: it also creates the schema and
+/// migrates the tables, and some of those statements answer `SQLITE_BUSY`
+/// *without* consulting the busy handler — the journal-mode switch is the
+/// documented one. Before this test existed, the race showed up as a one-in-three
+/// flake in the gate, reported as `open: database is locked`.
+#[test]
+fn many_connections_open_one_new_file_at_once() {
+    const THREADS: usize = 8;
+    const ROUNDS: usize = 25;
+    let mut opened = 0usize;
+    for round in 0..ROUNDS {
+        let path = tmp_db(&format!("open-race-new-{round}"));
+        let barrier = Arc::new(Barrier::new(THREADS));
+        let mut handles = Vec::new();
+        for _ in 0..THREADS {
+            let path = path.clone();
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                AuditStore::open(&path)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }));
+        }
+        for handle in handles {
+            let result = handle.join().expect("join");
+            assert!(result.is_ok(), "round {round}: open failed: {result:?}");
+            opened += 1;
+        }
+    }
+    assert_eq!(opened, THREADS * ROUNDS);
+}
+
+/// The same race against a file that is **already** WAL (the steady state).
+#[test]
+fn many_connections_open_one_existing_file_at_once() {
+    const THREADS: usize = 8;
+    const ROUNDS: usize = 25;
+    for round in 0..ROUNDS {
+        let path = tmp_db(&format!("open-race-existing-{round}"));
+        // Create it (and switch it to WAL) once, the way a long-lived host does.
+        AuditStore::open(&path).expect("first open");
+        let barrier = Arc::new(Barrier::new(THREADS));
+        let mut handles = Vec::new();
+        for _ in 0..THREADS {
+            let path = path.clone();
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                AuditStore::open(&path)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }));
+        }
+        for handle in handles {
+            let result = handle.join().expect("join");
+            assert!(result.is_ok(), "round {round}: open failed: {result:?}");
+        }
+    }
+}
+
+/// An existing database that was never switched to WAL is switched on open.
+#[test]
+fn an_existing_non_wal_file_is_switched_on_open() {
+    let path = tmp_db("legacy-journal");
+    {
+        let plain = Connection::open(&path).expect("plain");
+        plain
+            .execute_batch("CREATE TABLE t(x); PRAGMA journal_mode = DELETE;")
+            .expect("legacy database");
+        let mode: String = plain
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .expect("mode");
+        assert_eq!(mode, "delete");
+    }
+
+    let store = AuditStore::open(&path).expect("open");
+    assert_eq!(store.journal_mode().expect("mode"), "wal");
+    assert_eq!(store.count().expect("count"), 0);
+}
+
+/// An open that cannot switch to WAL inside its budget is an **error**, never a
+/// silent fallback to the rollback journal.
+#[test]
+fn an_open_that_cannot_switch_to_wal_is_reported_not_ignored() {
+    let path = tmp_db("wal-blocked");
+    {
+        let plain = Connection::open(&path).expect("plain");
+        plain
+            .execute_batch("CREATE TABLE t(x);")
+            .expect("legacy schema");
+    }
+    let holder = Connection::open(&path).expect("holder");
+    holder
+        .execute_batch("BEGIN EXCLUSIVE")
+        .expect("take the write lock");
+
+    let error = AuditStore::open_with(&path, 1, Duration::from_millis(1))
+        .err()
+        .expect("the budget is spent, so the failure must be reported");
+    let message = error.to_string();
+    assert!(
+        message.contains("locked") || message.contains("busy"),
+        "expected a lock error, got: {message}"
+    );
+
+    holder.execute_batch("ROLLBACK").expect("release");
+    // Free again, the same open succeeds — and it did switch to WAL.
+    let store = AuditStore::open(&path).expect("open after the lock is gone");
+    assert_eq!(store.journal_mode().expect("mode"), "wal");
+}
+
+/// Opening and appending at once loses nothing: the events are the assertion.
+#[test]
+fn opening_and_appending_at_the_same_time_loses_nothing() {
+    const WRITERS: i64 = 3;
+    const OPENERS: usize = 3;
+    const PER_WRITER: i64 = 40;
+    let path = tmp_db("open-plus-write");
+    let barrier = Arc::new(Barrier::new(WRITERS as usize + OPENERS));
+
+    let mut handles = Vec::new();
+    for writer in 0..WRITERS {
+        let path = path.clone();
+        let barrier = Arc::clone(&barrier);
+        handles.push(std::thread::spawn(move || {
+            barrier.wait();
+            let mut store = AuditStore::open(&path).expect("open by a writer");
+            for i in 0..PER_WRITER {
+                store
+                    .append(ev(writer * 1000 + i, "writer"))
+                    .expect("append");
+            }
+        }));
+    }
+    for _ in 0..OPENERS {
+        let path = path.clone();
+        let barrier = Arc::clone(&barrier);
+        handles.push(std::thread::spawn(move || {
+            barrier.wait();
+            AuditStore::open(&path).expect("concurrent open");
+        }));
+    }
+    for handle in handles {
+        handle.join().expect("join");
+    }
+
+    let store = AuditStore::open(&path).expect("open");
+    assert_eq!(
+        store.count().expect("count"),
+        (WRITERS * PER_WRITER) as usize
+    );
+    assert_eq!(
+        verify_chain(&store).expect("verify"),
+        ChainStatus::Intact {
+            length: (WRITERS * PER_WRITER) as usize
+        },
+        "the chain stayed a chain through the race"
+    );
 }

@@ -15,6 +15,7 @@
   actor | "|" | action | "|" | detail_json)`（小写 hex）。第一条（创世）事件的
   `prev_hash` 为 64 个 `0`。
 - **可独立验证**：`verify_chain` 会重算整条链，并**定位到第一个断裂事件的 id**。
+- **多进程共用一个 `audit.db`**：连接运行在 WAL 下并带 5 秒 `busy_timeout`，**打开序列**与每次 append 在遇到数据库锁时都会重试（`OPEN_MAX_ATTEMPTS` / `APPEND_MAX_ATTEMPTS`，从 20 ms 起指数退避）。打开路径之所以要重试，是因为 `PRAGMA journal_mode = WAL` 会**绕过** busy_timeout 直接回 `SQLITE_BUSY`——两个进程同时创建一个全新的 `audit.db`，过去必有一个失败。任一预算耗尽的锁一律报错，绝不静默丢弃。
 
 ## 模块
 
@@ -66,7 +67,7 @@ cargo test -p audit
 ```
 
 覆盖：空链 / 三事件链 / 篡改定位 / UPDATE+DELETE 被触发器拒绝 / 查询过滤 /
-JSONL 导出 / CLI 退出码 / 并发 append。
+JSONL 导出 / CLI 退出码 / 并发 append / 并发**打开**（8 线程抢开同一新文件，以及一个已在 WAL 的文件）。
 
 ## v0.2 TODO
 

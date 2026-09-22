@@ -13,6 +13,16 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The audit store's open path is concurrency-safe now** (fix after v0.9 batch 3).
+  Opening one fresh `audit.db` from two processes at once used to fail one of them:
+  `PRAGMA journal_mode = WAL` needs exclusive access and answers `SQLITE_BUSY` without
+  consulting the busy timeout, so the 5 s timeout that covers writes never covered the switch
+  — which is why the gate flaked once on `audit::concurrency`. `AuditStore::open` now retries
+  the whole sequence (a fresh connection per attempt, `OPEN_MAX_ATTEMPTS` /
+  `OPEN_BACKOFF_BASE`, defined from the append path's constants) on lock errors only. The
+  write path's `BEGIN IMMEDIATE` + retry, the hash formula, the chain rows and the triggers
+  are untouched. Pinned by two new race tests (8 threads × 25 rounds, on a new file and on one
+  already in WAL).
 - **The query API and the one event envelope are in** (v0.9 batch 3/N). All 26 query
   endpoints of `docs/control-plane-api.md` §5.1 answer over HTTP — plus the host-local
   `/v0/health`, `/v0/status`, `/v0/events`, the reserved `/v0/resources` (501), and a
