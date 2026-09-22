@@ -1480,6 +1480,16 @@ dependencies = [
 name = "host"
 version = "0.8.0"
 dependencies = [
+ "host-core",
+ "serde_json",
+ "tauri",
+ "tokio",
+]
+
+[[package]]
+name = "host-core"
+version = "0.8.0"
+dependencies = [
  "agent",
  "audit",
  "flate2",
@@ -1491,9 +1501,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tar",
- "tauri",
  "thiserror 1.0.69",
- "tokio",
  "uuid",
  "zip",
 ]

@@ -1,0 +1,39 @@
+[package]
+name = "host-core"
+description = "The portable half of the RiscDom host: no Tauri, no webview"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+agent = { path = "../agent" }
+sandbox = { path = "../sandbox" }
+audit = { path = "../audit" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+sha2 = "0.10"
+# Reused for session persistence (same version/features as `audit`).
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Reused for the local-model probe (same version/features as `agent`, so the
+# dependency graph is unchanged).
+reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
+# Run ids (v0.4 1c). Already in the workspace lock file (pulled in by
+# `tauri-utils` / `schemars`); this only adds a direct edge plus the `v7` feature.
+uuid = { version = "1", features = ["v7"] }
+
+# API-key persistence. The `keyring` crate ships **no** default backend, so a
+# bare `keyring = "3"` compiles to a silent no-op (writes appear to succeed and
+# nothing is stored). Each platform opts into its native store explicitly.
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+zip = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+flate2 = "1"
+tar = "0.4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native-sync-persistent"] }
+flate2 = "1"
+tar = "0.4"

@@ -13,6 +13,18 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The host is split: `host-core` + a facade** (v0.9 A1 wave 1 of 4). The portable half
+  of the kernel facade — the audit wiring, the VM slot, snapshots, sessions, the download
+  paths, the preflight, the event envelope and the `EventSink` trait — is now the
+  `host-core` crate, and **no Tauri crate appears in its dependency tree**
+  (`cargo tree -p host-core` names none; `-p host` still names 15). `host` keeps the 53
+  Tauri commands, the `TauriEventSink` transport, and the Tauri dependency, and re-exports
+  the portable surface (`pub use host_core::*;` plus `host::events::*`), so **no consumer
+  and no test changed in this wave**: `worker` / `server` / `ui/src-tauri` still compile
+  against `host` and still link Tauri. The three later waves move the tests to
+  `host-core/tests`, then `worker` + `server` to `host-core` (which drops Tauri from
+  both), then rename `host` to `host-tauri` and move the desktop shell. See
+  [host-core/README.md](../host-core/README.md).
 - **Capabilities are enforced, and the transports agree on identity** (v0.9 batch 5/N).
   `Capability` is now a typed column of the route table (`server/src/routes.rs`): a route
   cannot be written without naming one, so no path skips the check. After the `Authn` hook

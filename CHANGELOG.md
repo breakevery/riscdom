@@ -22,6 +22,28 @@ actor the `Authn` hook returned and refuses with `403` when the actor does not h
 The identity a sink stamps is now taken from its source, so one event cannot look like two
 agents.
 
+**The host is split into a portable half and a Tauri half.** `host-core` now holds
+everything the host does without a webview, and its dependency tree contains no Tauri
+crate; `host` keeps the commands, the Tauri transport and the Tauri dependency, and
+re-exports the portable surface, so nothing else changed in this wave.
+
+### Added
+
+- **`host-core`, a new workspace crate**: the audit wiring, `AppState`, snapshots,
+  sessions, the toolchain and QEMU download paths, the preflight, `run_diff`, `paths`,
+  `settings`, `keyring`, `error`, `dispatch`, `executor` and the event envelope with the
+  `EventSink` trait. `agent` / `sandbox` / `audit` are its only workspace dependencies,
+  and `cargo tree -p host-core` names no Tauri crate.
+
+### Changed
+
+- **`host` is a facade over `host-core`** (A1 wave 1; three waves still to come). It still
+  provides `host::commands`, `host::events::TauriEventSink` and the Tauri dependency, and
+  it re-exports the portable surface (`pub use host_core::*`) — so `worker`, `server`,
+  `ui/src-tauri` and the 39 `host/tests` files compile unchanged, which is what made this
+  wave green with no temporarily-red state. `host-core/README.md` documents the split and
+  the no-Tauri constraint.
+
 ### Added
 
 - **Capability enforcement.** Every served route declares exactly one capability, as a typed

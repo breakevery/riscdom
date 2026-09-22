@@ -13,6 +13,16 @@
 
 **现在每个端点都检查权限，且两种传输对身份一致。** 控制平面不再只是标注每条路由需要什么：服务端拿它与 `Authn` 钩子返回的 actor 比对，不持有即 `403`。sink 打的身份改从**来源**取，一个事件不可能看起来像两个 agent。
 
+**宿主拆成「可移植半边」与「Tauri 半边」。** `host-core` 现在装着宿主所有不需要 webview 的部分，其依赖树里没有任何 Tauri crate；`host` 保留命令、Tauri 传输与 Tauri 依赖并再导出可移植面，因此本波其余一切未变。
+
+### 新增
+
+- **`host-core`，新的 workspace crate**：审计接线、`AppState`、快照、会话、工具链与 QEMU 两条下载路径、预检、`run_diff`、`paths`、`settings`、`keyring`、`error`、`dispatch`、`executor`，以及事件 envelope 与 `EventSink` trait。它只依赖 `agent` / `sandbox` / `audit`，且 `cargo tree -p host-core` 里没有任何 Tauri crate。
+
+### 变更
+
+- **`host` 变成架在 `host-core` 之上的门面**（A1 第 1 波；后续还有三波）。它仍提供 `host::commands`、`host::events::TauriEventSink` 与 Tauri 依赖，并再导出可移植面（`pub use host_core::*`）——因此 `worker`、`server`、`ui/src-tauri` 与 39 个 `host/tests` 文件原样编译，这正是本波能全程绿、没有「暂时红」中间态的原因。`host-core/README.md` 记录该拆分与「无 Tauri」约束。
+
 ### 新增
 
 - **权限强制。** 每条被服务的路由恰好声明一个 capability，且它是路由表（`server/src/routes.rs`）的类型化列——写不出一条不声明它的路由，也就没有跳过检查的路径。处理器运行前，请求路径会问 `Actor` 是否 `allows` 该 capability，不持有即 `403 forbidden`、`cause` 为 `"capability"`（`server/src/http.rs`）。默认拒绝；词汇表就是 API 文档 §5 表格里的 28 个名字。

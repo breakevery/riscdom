@@ -1,41 +1,24 @@
-//! host — 智芯城 RiscDom 的 Tauri 宿主后端。
+//! host — the Tauri half of the RiscDom host backend, and the facade the
+//! consumers still compile against.
 //!
-//! 对外（给 `ui/src-tauri`）暴露 Tauri commands；对内组合 `agent` / `sandbox`
-//! / `audit`。前端**不直接**接触 Rust crate，一律经 Tauri command。
+//! The portable half lives in `host-core`: the audit store wiring, the VM slot,
+//! sessions, the download paths, the preflight and the event envelope. This
+//! crate adds what needs a webview — the Tauri commands, the `TauriEventSink`
+//! transport — and re-exports the rest, so `host::state::…`, `host::events::…`
+//! and `host::AppState` keep resolving while the split is carried out wave by
+//! wave (A1 W1; the consumers move to `host-core` / `host-tauri` in later
+//! waves).
 //!
-//! 依赖方向：`host → {agent, sandbox, audit}`。
+//! Dependency direction: `host → host-core → {agent, sandbox, audit}`;
+//! `ui/src-tauri → host`. The frontend never touches a Rust crate directly: it
+//! goes through Tauri commands.
 //!
-//! 安全约束：
+//! Security constraints (unchanged):
 //! - API key 只存在于内存（`AppState::llm_config`），不落盘、不进审计、不进日志。
 //! - 文件读写经 `agent::WorkspacePolicy` 检查。
 //! - 前端无法绕过 host 直接调用 sandbox/agent。
 
 pub mod commands;
-pub mod dispatch;
-pub mod error;
 pub mod events;
-pub mod executor;
-pub mod keyring;
-pub mod paths;
-pub mod preflight;
-pub mod qemu_download;
-pub mod run_diff;
-pub mod session;
-pub mod settings;
-pub mod state;
-pub mod toolchain_download;
 
-pub use dispatch::{local_dispatcher, HostAgentHandle};
-pub use error::HostError;
-pub use events::{EventSink, EV_PREFLIGHT};
-pub use executor::{StdioExecutorHandle, DEFAULT_EXECUTOR_TIMEOUT};
-pub use keyring::{KeyringBackend, OsKeyring, SERVICE};
-pub use preflight::{PreflightCache, PreflightRow, PreflightView};
-pub use run_diff::{diff_fingerprints, FingerprintFieldDiff, FINGERPRINT_FIELDS};
-pub use session::{SessionMessage, SessionMeta, SessionStore};
-pub use state::{
-    AgentOutcomeView, AppState, AuditStatusView, ChainStatusView, LlmConfigInput, LlmConfigStatus,
-    LlmReadiness, LocalProbeResult, LocalProviderInfo, ProviderPresetView, QemuView, RunView,
-    SessionDetailView, SnapshotMetaView, StoredEventView, ToolchainDownloadStatus, ToolchainView,
-    VmStatusView,
-};
+pub use host_core::*;
