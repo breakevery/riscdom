@@ -86,6 +86,18 @@ section when the next release ships)
   split, the settled decisions (Tauri decoupling A3 → A1, the B2 multi-process model, the audit chain as
   a single chain + agent_id), the seams left open for multi-device, and the milestone path to the v1.0
   kernel-API freeze. Documentation only: no code changed.
+- **v0.8 main deliverable is complete — a supervisor dispatcher plus several executors, demonstrable**
+  (v0.8 main deliverable 2/2): the prototype runs end to end. `worker` gained a library half
+  (`worker::supervisor`) and a runnable demo (`cargo run -p worker --example dispatch`): it starts
+  several executor processes that **share one workspace** and each own a **data dir**, routes each task
+  to the executor named in `Task.target`, and prints one line per task plus a tally. Tasks are
+  dispatched **concurrently** (`std::thread::scope`, one thread per task — the handles are `Send +
+  Sync`, so no thread-pool dependency), and a task naming an executor that is not in the fleet is
+  **refused** rather than sent to a best guess. No model sits anywhere in the supervisor: for this
+  stage it is a dispatcher, not an agent. Same batch: `worker`'s `audit` dependency (declared, never
+  used) is gone, the supervisor logic lives in `worker`'s library so the demo and the tests share one
+  implementation, and the four settled decisions are written down in
+  [the multi-agent foundation note](multi-agent-foundation.md).
 - **The two-process prototype has landed** (v0.8 main deliverable 1/2): a supervisor and an executor
   as separate processes, over **stdio + JSON lines**. `worker` (new crate; the executor binary) reads
   one `Task` JSON line on stdin, runs the host's own `run_agent` path with an injected data dir, and

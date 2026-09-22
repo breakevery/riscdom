@@ -56,8 +56,25 @@ it unconditionally — v0.9 makes it optional), and the child's own agent identi
 its **events**, not through the dispatcher's `TaskOutcome` (whose `agent_id` follows batch 4's meaning:
 the executor the task was addressed to).
 
+**v0.8 main deliverable 2/2 — a supervisor drives several executors at once.** The prototype is now
+demonstrable end to end: `worker` gained a library half (`worker::supervisor`) and a runnable demo
+(`cargo run -p worker --example dispatch`), which starts N executor processes that **share one
+workspace** and each own a **data dir**, routes tasks to the executor named in `Task.target`, and
+prints one line per task plus a tally. Tasks are dispatched **concurrently** (one `std::thread::scope`
+thread per task — the handles are `Send + Sync`, so no thread-pool dependency is needed), and a task
+naming an executor that is not in the fleet is **refused** rather than handed to a best guess. There is
+no model anywhere in the supervisor: for this stage the supervisor is a dispatcher, not an agent.
+Housekeeping in the same batch: `worker`'s `audit` dependency was declared but never used (the executor
+reaches the chain through `host::AppState`) and is gone; the supervisor logic lives in `worker`'s
+library so the demo and the tests share one implementation instead of two copies of the loop; and the
+four settled decisions are written down in [docs/multi-agent-foundation.md](docs/multi-agent-foundation.md).
+
 ### Changed
 
+- **`worker` gained a library target, and lost an unused dependency** (v0.8 main deliverable 2/2):
+  the crate now has a library (`worker::supervisor`) next to the executor binary, so the demo and the
+  tests share one supervisor implementation; and its `audit` dependency was declared but never used
+  (the executor reaches the chain through `host::AppState`), so it is removed.
 - **`host::dispatch::outcome_from_view` is public** (v0.8 main deliverable 1/2): the one
 `AgentOutcomeView` → `AgentOutcome` mapping used to be private; the out-of-process worker reuses it
 instead of keeping a second copy. No behaviour change.
@@ -91,6 +108,17 @@ instances keep separate chains and separate slots — so nothing re-shares them 
 
 ### Added
 
+- **The supervisor** (v0.8 main deliverable 2/2): `worker::supervisor` (a library half on the `worker`
+  crate) plus the runnable demo `worker/examples/dispatch.rs`. `ExecutorSpec` describes one executor
+  (label, program, args, optional deadline, environment); `dispatcher(&specs)` builds a
+  `LocalDispatcher` over stdio handles; `dispatch_all` runs the tasks concurrently with
+  `std::thread::scope` and returns the results **in input order**; `tally` / `report` count and print
+  answered / refused / broken; `parse_tasks` reads the JSON-lines task list and names the line number
+  of a bad line. A panicking dispatch thread becomes a failed outcome instead of taking the plan down.
+- **`docs/multi-agent-foundation.md`** (+ [中文](docs/multi-agent-foundation.zh-CN.md)) (v0.8 main
+  deliverable 2/2): the four settled decisions — the B2 process model, the `<device>-<pid>-<seq>`
+  identity, per-agent snapshots, the dispatch abstraction — written from the code, with the open items
+  handed to v0.9 (including the child identity not reaching `TaskOutcome`).
 - **`worker`** (v0.8 main deliverable 1/2): the executor process. Usage:
 `worker --workspace <dir> --data-dir <dir> [--sleep-ms <n>]` — the paths are required and have no
 environment fallback, because an executor's identity is its command line and an inherited variable

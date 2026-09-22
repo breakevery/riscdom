@@ -69,6 +69,14 @@
   [architecture-evolution.zh-CN.md](architecture-evolution.zh-CN.md) 成对）记录了 v0.7.0 之后做的架构重估 ——
   四层分层与 syscall 层的「机制/策略」划分、已定决策（Tauri 解耦 A3 → A1、B2 多进程模型、审计单链 +
   agent_id）、为多设备预留的缝，以及通往 v1.0 内核 API 冻结的里程碑路径。只写文档：未改代码。
+- **v0.8 主体交付完成 —— 监工派发器 + 多执行者，可演示**（v0.8 主体交付 2/2）：端到端可跑。`worker`
+  增加了库半边（`worker::supervisor`）与可运行演示（`cargo run -p worker --example dispatch`）：它起多个
+  执行者进程，**共享一个 workspace**、各自拥有一个 **data dir**；任务按 `Task.target` 路由到同名执行者；
+  每个任务打印一行，并给出计数。任务**并发**派发（`std::thread::scope` 每任务一线程 —— 句柄是
+  `Send + Sync`，因此不需要线程池依赖）；指向不在机群里的执行者会被**拒绝**，不会发给「猜一个」的执行者。
+  监工里没有任何模型：这一阶段的监工是派发器，不是 agent。同批收尾：`worker` 的 `audit` 依赖声明了却从未
+  使用（执行者经 `host::AppState` 触链）已删除；监工逻辑放进 `worker` 的库，使演示与测试共用一份实现；
+  四项已定决策写进了 [多 Agent 地基文档](multi-agent-foundation.md)。
 - **两进程雏形已落地**（v0.8 主体交付 1/2）：监工与执行者是两个进程，经 **stdio + JSON lines** 对话。
   `worker`（新 crate，执行者二进制）在 stdin 上读一行 `Task` JSON，用注入的 data 目录跑 host 自己那条
   `run_agent` 路径，在 stdout 上写一行 `TaskOutcome`；它的事件以 JSON 行写到 stderr。监工侧

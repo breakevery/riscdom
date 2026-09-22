@@ -45,6 +45,15 @@ lines，**零新依赖**。两个已知边角：worker 会链接 Tauri（因为 
 optional），以及子进程自己的 agent 身份是经**事件**回来的，而非经监工的 `TaskOutcome`（后者的
 `agent_id` 沿用批次 4 语义：该任务被寻址到的那个执行者）。
 
+**v0.8 主体交付 2/2 —— 一个监工同时驱动多个执行者。** 原型现在端到端可演示：`worker` 增加了库半边
+（`worker::supervisor`）与可运行演示（`cargo run -p worker --example dispatch`）：它起 N 个执行者进程，
+**共享一个 workspace**、**各自拥有一个 data dir**，把任务按 `Task.target` 路由到同名执行者，每个任务打印
+一行并给出计数。任务**并发**派发（`std::thread::scope` 每任务一线程 —— 句柄是 `Send + Sync`，不需要线程池
+依赖）；指向不在机群里的执行者会被**拒绝**，而不是发给「猜一个」的执行者。监工里没有任何模型：这一阶段的
+监工是派发器，不是 agent。同批收尾：`worker` 的 `audit` 依赖声明了却从未使用（执行者经 `host::AppState`
+触链），已删除；监工逻辑放进 `worker` 的库，使演示与测试共用一份实现而非两份循环；四项已定决策写进了
+[docs/multi-agent-foundation.zh-CN.md](multi-agent-foundation.zh-CN.md)。
+
 ### 变更
 
 - **`host::dispatch::outcome_from_view` 改为公开**（v0.8 主体交付 1/2）：唯一的
