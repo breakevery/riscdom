@@ -9,6 +9,18 @@
 
 ## [未发布]
 
+**环境 preflight 也改为按 agent 隔离。** `<workspace>/.riscdom/preflight` 是一个 workspace 里最后一条共享的
+写入路径：共享同一 workspace 的两个进程会把 preflight guest 编译到同一对 `guest.c` / `guest.elf`，并同时把它们
+的 preflight VM 启到同一个目录。新产物写入 `<workspace>/.riscdom/preflight/<agent_id>/`，要启动的 guest 先在本
+agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的 guest 仍然可用，不会被孤立。`settings.json` 里的缓存结果
+本就随实例隔离，未动。
+
+### 变更
+
+- **preflight guest 与 preflight VM 的快照目录都改为 per-agent**（遗留项 A2）：
+  `AppState::preflight_dir` / `preflight_root` / `write_preflight_guest` / `find_preflight_guest` 公开，
+  布局由一条不编译、不启动任何 guest 的文件系统测试钉住。与 v0.8 批次 B 的快照同一套模式；与审计链无关。
+
 **派发得到的 outcome 现在写明的是**真正跑了任务的那个执行者**。** 此前 `TaskOutcome.agent_id` 由分发器盖上它路由到的
 `Task.target` —— 对子进程来说那是监工自造的标签，而不是真正干活的身份。现在 `AgentHandle::run` 返回
 `TaskOutcome`（此前只返回 `AgentOutcome`），于是每个句柄自己填只有它知道的身份：本地 loop 填自己的 id、host

@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**The environment preflight is per agent too.** `<workspace>/.riscdom/preflight` was the last write path a
+workspace still shared: two processes sharing one workspace compiled the preflight guest into the same
+`guest.c` / `guest.elf`, and booted their preflight VM into the same directory at the same time. New
+artifacts go to `<workspace>/.riscdom/preflight/<agent_id>/`, and the guest to boot is resolved from this
+agent's own directory first, then the shared root — so a guest an older version left behind stays usable
+instead of being orphaned. The cached result in `settings.json` was already per instance and is untouched.
+
+### Changed
+
+- **The preflight guest, and the preflight VM's snapshot directory, are per agent** (follow-up A2):
+  `AppState::preflight_dir` / `preflight_root` / `write_preflight_guest` / `find_preflight_guest` are
+  public, and the layout is pinned by a filesystem test that compiles nothing and boots nothing. Same
+  pattern as v0.8 batch B's snapshots; the audit chain is not involved.
+
 **A dispatched outcome now names the executor that actually ran the task.** `TaskOutcome.agent_id` used to be
 stamped by the dispatcher with the `Task.target` it routed to — which for a child process is a label the
 supervisor invented, not the identity that did the work. `AgentHandle::run` returns a `TaskOutcome` now (it

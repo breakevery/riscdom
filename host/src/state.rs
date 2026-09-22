@@ -46,6 +46,10 @@ const SNAPSHOT_MODE: &str = "tcp-relay";
 /// The older reboot-fallback snapshots the host still lists and deletes.
 const SNAPSHOT_FALLBACK_MODE: &str = "reboot-fallback";
 
+/// The preflight guest's file names, inside this agent's preflight directory.
+const PREFLIGHT_GUEST_SRC: &str = "guest.c";
+const PREFLIGHT_GUEST_ELF: &str = "guest.elf";
+
 /// Epoch milliseconds (VM start bookkeeping).
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -1907,9 +1911,53 @@ impl AppState {
 
     // ----- Environment preflight (v0.4 batch 3) -----------------------------
 
-    /// Where the preflight guest is built (host-managed, never in the AI's area).
-    fn preflight_dir(&self) -> PathBuf {
+    /// Where this agent's preflight guest is built: `<workspace>/.riscdom/preflight/<agent_id>`.
+    ///
+    /// Per agent (v0.8 follow-up A2): several processes may share one workspace,
+    /// and a shared directory meant two of them compiling the guest and booting
+    /// their preflight VM into the same paths at the same time. New artifacts
+    /// always land here; reads fall back to [`Self::preflight_root`] so a guest
+    /// built before this change stays usable. Host-managed, never in the AI's
+    /// area.
+    pub fn preflight_dir(&self) -> PathBuf {
+        self.preflight_root().join(&self.agent_id)
+    }
+
+    /// The directory every agent's preflight subdirectory lives under
+    /// (`<workspace>/.riscdom/preflight`) — where an older version wrote them.
+    pub fn preflight_root(&self) -> PathBuf {
         self.workspace_root.join(".riscdom").join("preflight")
+    }
+
+    /// Lay this agent's preflight guest down in its own directory and return the
+    /// `(source, elf)` paths the compiler will use.
+    ///
+    /// This is the write half of the per-agent isolation; it is public so a test
+    /// can pin the layout without compiling or booting anything.
+    pub fn write_preflight_guest(&self) -> Result<(PathBuf, PathBuf), String> {
+        let dir = self.preflight_dir();
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("preflight dir {}: {e}", dir.display()))?;
+        let src = dir.join(PREFLIGHT_GUEST_SRC);
+        let elf = dir.join(PREFLIGHT_GUEST_ELF);
+        std::fs::write(&src, crate::preflight::GUEST_SRC)
+            .map_err(|e| format!("{}: {e}", src.display()))?;
+        Ok((src, elf))
+    }
+
+    /// The preflight guest to boot: this agent's own build first, then a guest an
+    /// older version left in the shared root.
+    ///
+    /// The read half of the isolation — a pre-A2 artifact is still usable instead
+    /// of being orphaned, and it never wins over this agent's own build.
+    pub fn find_preflight_guest(&self) -> Option<PathBuf> {
+        for dir in [self.preflight_dir(), self.preflight_root()] {
+            let path = dir.join(PREFLIGHT_GUEST_ELF);
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+        None
     }
 
     fn preflight_cache(&self) -> Option<crate::preflight::PreflightCache> {
@@ -2109,19 +2157,10 @@ impl AppState {
             //    host's own directory, the real toolchain path: long paths and
             //    spaces fail here rather than later inside a run)
             emit(pf::STEP_GCC_COMPILES, "running", None);
-            let dir = self.preflight_dir();
-            let build = std::fs::create_dir_all(&dir)
-                .map_err(|e| format!("preflight dir {}: {e}", dir.display()))
-                .and_then(|()| {
-                    let src = dir.join("guest.c");
-                    let elf = dir.join("guest.elf");
-                    std::fs::write(&src, pf::GUEST_SRC)
-                        .map_err(|e| format!("{}: {e}", src.display()))?;
-                    match self.compile_with_guard(&compiler, &src, &elf, options.compile_timeout) {
-                        Ok(()) => Ok(elf),
-                        Err(detail) => Err(detail),
-                    }
-                });
+            let build = self.write_preflight_guest().and_then(|(src, elf)| {
+                self.compile_with_guard(&compiler, &src, &elf, options.compile_timeout)
+                    .map(|()| elf)
+            });
             let elf = match build {
                 Ok(elf) => {
                     emit(
@@ -2168,12 +2207,15 @@ impl AppState {
 
             // 4. it boots that guest and the banner arrives
             emit(pf::STEP_GUEST_BOOTS, "running", None);
+            // This agent's own build, or — if it is gone — a guest an older
+            // version left in the shared root.
+            let boot_guest = self.find_preflight_guest().unwrap_or_else(|| elf.clone());
             let booted = (|| -> Result<(), String> {
                 let mut leases = sandbox::relay::lease_local_ports(2).map_err(|e| e.to_string())?;
                 let mut serial_lease = leases.pop().expect("two leases were requested");
                 let mut qmp_lease = leases.pop().expect("two leases were requested");
                 let config = VMConfig {
-                    kernel: elf.clone(),
+                    kernel: boot_guest.clone(),
                     memory_mb: agent::VM_MEMORY_MB,
                     qmp: QmpEndpoint::tcp("127.0.0.1", qmp_lease.port()),
                     serial: SerialEndpoint::tcp("127.0.0.1", serial_lease.port()),
