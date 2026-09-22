@@ -45,21 +45,23 @@ current request authorising it (§2).
   cross-platform unit test. What is **not** done: nobody has launched those packages, they are
   **unsigned** (macOS Gatekeeper blocks a first run; Developer ID signing and notarization belong to
   the commercialisation layer), and a real Unix-socket QEMU run still needs a Mac or a Linux machine.
-  Windows remains the platform the golden path is verified on. **The CI packages on hand are built
-  under the `0.6.0-preview.1` name**, so the release batch dispatches `bundle` again to produce
-  `0.7.0`-named ones.
+  Windows remains the platform the golden path is verified on. The CI packages on hand at the time
+  were built under the `0.6.0-preview.1` name, so the v0.7.0 release dispatched `bundle` again to get
+  `0.7.0`-named ones — which is what it shipped.
 - **`v0.6.0-preview.1` is released as a pre-release** (v0.6 batches 1–2, released in batch 4): two
   runs are compared field by field — the data layer and the API ([../host/src/run_diff.rs](../host/src/run_diff.rs),
   `AppState::compare_run_fingerprints`, the `compare_run_fingerprints` command) and the collapsed
-  block under the audit tab's two-run panel. A pre-release takes **no Latest marker**, so `v0.5.0`
-  stays the Latest release. Assets: `RiscDom_0.6.0-preview.1_x64_en-US.msi` and
+  block under the audit tab's two-run panel. A pre-release takes **no Latest marker**, so the marker
+  stayed on `v0.5.0` at the time (it has since moved to `v0.7.0`, and now to `v0.8.0`).
+  Assets: `RiscDom_0.6.0-preview.1_x64_en-US.msi` and
   `RiscDom_0.6.0-preview.1_x64-setup.exe`, built with `bundle.windows.wix.version = "0.6.0"` (WiX
   cannot take a pre-release `ProductVersion`), so *Apps & features* shows `0.6.0` while the artifact
   names keep the package version. What it proves and what it does not is in
   [RELEASE_NOTES.md](../RELEASE_NOTES.md) — and the gap it named first has since closed: **the
   step-8 interface has been walked by eye and passed** (the operator's walk; no separate record file
   was archived, so `walkthroughs/` still holds only the v0.5 local walk).
-- **`v0.5.0` is released, and it is the Latest release.**
+- **`v0.5.0` was released, and it held the Latest marker then.** (Latest has since moved on, to
+  `v0.7.0` and then `v0.8.0`.)
   <https://github.com/breakevery/riscdom/releases/tag/v0.5.0> — assets `RiscDom_0.5.0_x64_en-US.msi`
   and `RiscDom_0.5.0_x64-setup.exe`, built without the preview's MSI version override (so *Apps &
   features* shows `0.5.0`). What it proves and what it does not is in [RELEASE_NOTES.md](RELEASE_NOTES.md).

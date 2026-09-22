@@ -38,18 +38,18 @@
   `sandbox::qemu_discover::install_hint_for`），并用一条跨平台单测钉住 Unix 的 `-qmp unix:` 参数。
   **尚未做**：没有人启动过这些安装包；它们**未签名**（macOS Gatekeeper 会拦下首次运行；Developer ID
   签名与公证属于商业化层）；真实 Unix socket 的 QEMU 运行仍需一台 Mac 或 Linux 机器。Windows 仍是黄金
-  路径验证过的平台。**手头的 CI 包是在 `0.6.0-preview.1` 名字下构建的**，所以发布批次会重新 dispatch
-  `bundle` 以产出 `0.7.0` 名字的包。
+  路径验证过的平台。当时的 CI 包是在 `0.6.0-preview.1` 名字下构建的，所以 v0.7.0 发布时重新 dispatch 了
+  `bundle` 以取得 `0.7.0` 名字的包 —— 它发布的就是那些。
 - **`v0.6.0-preview.1` 已作为预发布版发布**（v0.6 批次 1–2，批次 4 发布）：两次 run 逐字段对比 —— 数据层
   与 API（[../host/src/run_diff.rs](../host/src/run_diff.rs)、`AppState::compare_run_fingerprints`、
   `compare_run_fingerprints` 命令）以及审计页两 run 面板下方那个默认折叠的区块。预发布版**不持有 Latest
-  标记**，因此 `v0.5.0` 仍是 Latest 正式版。附件：`RiscDom_0.6.0-preview.1_x64_en-US.msi` 与
+  标记**，因此当时 Latest 仍在 `v0.5.0`（此后已先后移到 `v0.7.0`、`v0.8.0`）。附件：`RiscDom_0.6.0-preview.1_x64_en-US.msi` 与
   `RiscDom_0.6.0-preview.1_x64-setup.exe`，构建时带 `bundle.windows.wix.version = "0.6.0"`（WiX 不接受
   预发布版 `ProductVersion`），所以「应用和功能」里显示 `0.6.0`，而产物名保留包版本。它证明了什么、
   没证明什么写在 [RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) —— 它所点的第一条缺口如今已闭环：
   **第 8 步的界面已经人工走查、结论通过**（由项目所有者走查；没有单独归档记录文件，因此
   `walkthroughs/` 里仍只有 v0.5 那次本地走查）。
-- **`v0.5.0` 已发布，它就是 Latest。**
+- **`v0.5.0` 已发布，当时它持有 Latest 标记。**（Latest 此后已先后移到 `v0.7.0`、`v0.8.0`。）
   <https://github.com/breakevery/riscdom/releases/tag/v0.5.0> —— 附件为 `RiscDom_0.5.0_x64_en-US.msi`
   与 `RiscDom_0.5.0_x64-setup.exe`，构建时已去掉预览版的 MSI 版本覆盖（因此「应用和功能」里显示
   `0.5.0`）。它证明了什么、没证明什么，写在 [RELEASE_NOTES.zh-CN.md](RELEASE_NOTES.zh-CN.md)。
