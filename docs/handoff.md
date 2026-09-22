@@ -20,8 +20,7 @@ current request authorising it (§2).
   [RELEASE_NOTES.md](../RELEASE_NOTES.md) is rewritten as the release text — **the GitHub release body is
   that file verbatim** (the v0.7.0 release worked that way). Assets: `RiscDom_0.8.0_x64_en-US.msi` and
   `RiscDom_0.8.0_x64-setup.exe` built on this machine, plus the macOS/Linux bundles downloaded from the
-  CI `bundle` job. **This bullet is written by the local preparation batch**: the push, the `v0.8.0` tag,
-  the GitHub release and the asset upload are the release batch's own steps, which this line describes.
+  CI `bundle` job.
   What v0.8 is: a fully bilingual interface, and the multi-agent foundation (multi-process audit writes,
   an identity on every event, per-agent snapshots, the dispatch abstraction, the two-process prototype).
 - **`v0.7.0` is released** (2026-09-21, the release before this one). The version is bumped to `0.7.0` (7 files / 15
@@ -80,10 +79,12 @@ current request authorising it (§2).
   `extract_zip` stub) ← `344fd2b` (rpm for the Linux bundle) ← `0633bdc` (the macOS/Linux bundle CI
   job) ← `833f9c3` (platform-aware QEMU guidance, icon.icns, Unix QMP arg test) ← `06fef0a` (the
   language switch) ← `6abcb44` (the i18n pilot) ← `b0efeb8` (the v0.6.0-preview.1 release).
-- Tags: `v0.8.0` is the newest tag (this release); `v0.7.0` is the release holding the Latest marker
-  (confirmed with `gh release list`: 2026-09-21T11:09:26Z, annotated tag object
-  `f267f13dc6f8df9a3ff196b05d3bb9b7724f2d60` → `2bddae6b0897bb5fe262af2b7e4bf4b3733ec7eb`);
-  `v0.6.0-preview.1` and `v0.5.0-preview.1` are pre-releases; `v0.5.0` =
+- Tags: `v0.8.0` is the newest tag and the release **holding the Latest marker** (confirmed with
+  `gh release list`: 2026-09-22T07:37:50Z, annotated tag object
+  `0b018081de1a4e89e04e7bc1570d595d38ab4b4b` → `8a5381436b62fa84b4f4a972a630061ce2203373`);
+  `v0.7.0` = annotated tag object `f267f13dc6f8df9a3ff196b05d3bb9b7724f2d60` →
+  `2bddae6b0897bb5fe262af2b7e4bf4b3733ec7eb` (it held the Latest marker until this release, which moved
+  it); `v0.6.0-preview.1` and `v0.5.0-preview.1` are pre-releases; `v0.5.0` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`;
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`;
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`.
