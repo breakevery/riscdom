@@ -34,6 +34,7 @@ fn policy_deny_is_audited_and_model_continues() {
         policy,
         Arc::clone(&audit),
         system,
+        agent::next_agent_id(),
     )
     .expect("agent loop");
 

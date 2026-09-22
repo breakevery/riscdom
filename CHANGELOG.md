@@ -21,8 +21,27 @@ reported. A write that still fails is **never dropped silently**: `AuditSink::re
 error, the sink tells the host, and the host logs it, sends an `audit:failed` event and — by
 default — shows a banner and a popup in *Settings → Audit*. Only the alert can be switched off.
 
+**v0.8 batch 3 — every audit event names its agent, and snapshots stop colliding.**
+`agent_id` was a field with no producers; it now reaches every writer. An identity is
+`<device>-<pid>-<seq>` (`agent::next_agent_id`; `local-<pid>-<seq>` on one machine) — one per process,
+and one per agent inside it, from a process-wide counter. The host mints one at construction and hands
+it to the loop it builds, so the sandbox's events and the agent's events carry the same identity as the
+host's. Snapshots move to `<workspace>/.riscdom/snapshots/<agent_id>/`, so two agents sharing a
+workspace can both save `snap1` without overwriting each other; reads fall back to the shared root, so a
+snapshot taken before this change still lists, restores and deletes.
+
 ### Changed
 
+- **`agent_id` has producers** (v0.8 batch 3): `AgentLoop` takes an identity at construction (`new` /
+`with_vm` gained the parameter) and stamps it onto every event it writes — including the ones written
+through `audit_hook` and the tool layer, which now take the id as well. The host mints one per
+`AppState` (`local-<pid>-<seq>`) and stamps its own events and its run markers with it. The field stays
+**beside** the chain: no hash formula, `prev_hash` link or historical row changes.
+- **Snapshots are per agent** (v0.8 batch 3): new snapshots go to
+`<workspace>/.riscdom/snapshots/<agent_id>/`; `list_snapshots` reads that directory and the shared root
+(the per-agent entry wins on a name collision), `resume_from_snapshot_real` and `save_snapshot_real`
+resolve through the same fallback, and `delete_snapshot` removes from both. A pre-v0.8 snapshot keeps
+working.
 - **Audit writes survive several processes** (v0.8 batch 2): `journal_mode=WAL`, `busy_timeout=5s`
 and `synchronous=NORMAL` are set in one place when the connection opens (`audit::store`); a locked
 append is retried up to five times with 20/40/80/160 ms backoff; and the read-head-then-insert pair
@@ -43,6 +62,9 @@ instances keep separate chains and separate slots — so nothing re-shares them 
 
 ### Added
 
+- **`agent::next_agent_id`** (v0.8 batch 3): the identity helper — `DEVICE` (the machine; `local` for
+now) plus a process-wide sequence, so `local-<pid>-1`, `local-<pid>-2`, … are unique inside a process
+and across processes.
 - **The audit-failure alert** (v0.8 batch 2): `settings.json` gains `alert_on_audit_failure`
 (default `true`, so an upgrade cannot switch it off), *Settings → Audit* shows the toggle and a
 banner, and a new failure also raises a dialog — the `dialog:allow-message` permission is granted

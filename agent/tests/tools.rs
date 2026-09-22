@@ -9,6 +9,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// A fixed identity for these tests: the field is an audit label, and a literal
+/// keeps the assertions readable.
+const TEST_AGENT_ID: &str = "local-0-test";
+
 fn unique_dir(tag: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -53,6 +57,7 @@ fn write_source_writes_file_and_audits_two_events() {
         compiler: &compiler,
         serial_observers: Arc::new(Mutex::new(Vec::new())),
         qemu_exe: &None,
+        agent_id: TEST_AGENT_ID,
     };
 
     let msg = execute_tool(
@@ -87,6 +92,7 @@ fn compile_fixture_succeeds() {
         compiler: &compiler,
         serial_observers: Arc::new(Mutex::new(Vec::new())),
         qemu_exe: &None,
+        agent_id: TEST_AGENT_ID,
     };
 
     let src = include_str!("fixtures/hello.c");
@@ -125,6 +131,7 @@ fn policy_denies_traversal_and_bad_extension() {
         compiler: &compiler,
         serial_observers: Arc::new(Mutex::new(Vec::new())),
         qemu_exe: &None,
+        agent_id: TEST_AGENT_ID,
     };
 
     let traversal = execute_tool(

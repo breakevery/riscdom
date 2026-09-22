@@ -87,6 +87,7 @@ fn agent_loop(tag: &str) -> AgentLoop {
         policy,
         audit,
         system,
+        agent::next_agent_id(),
     )
     .expect("agent loop")
 }

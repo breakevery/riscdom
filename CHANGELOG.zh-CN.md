@@ -19,8 +19,23 @@ workspace 一条链），而这正是多 Agent 运行时需要的：多个进程
 `AuditSink::record` 返回错误，sink 通知 host，host 记日志、发 `audit:failed` 事件，并（默认）在
 *设置 → 审计*里给出横幅与弹窗。只有「告警」可以被关掉。
 
+**v0.8 批次 3 —— 每条审计事件都写明是哪个 agent，快照不再相撞。** `agent_id` 此前只有字段没有生产者，
+现在铺到了每一个写者。身份形状为 `<device>-<pid>-<seq>`（`agent::next_agent_id`；单机上即
+`local-<pid>-<seq>`）—— 每进程一个，进程内每个 agent 一个，由进程级计数器发放。host 在构造时领一个，
+交给它构建的 loop，于是 sandbox 的事件与 agent 的事件都带上与 host 相同的身份。快照改到
+`<workspace>/.riscdom/snapshots/<agent_id>/`，共享同一 workspace 的两个 agent 各自保存 `snap1` 不再互相
+覆盖；读取会回退到共享根目录，因此本次改动之前拍下的快照仍可列出、恢复与删除。
+
 ### 变更
 
+- **`agent_id` 有生产者了**（v0.8 批次 3）：`AgentLoop` 在构造时接收身份（`new` / `with_vm` 新增了该
+  参数），并把它盖到自己写的每条事件上 —— 包括经 `audit_hook` 与工具层写出的事件，它们也改为接收该
+  id。host 为每个 `AppState` 领一个（`local-<pid>-<seq>`），并盖在自己的事件与 run 标记上。该字段仍位于
+  链**旁边**：哈希公式、`prev_hash` 链接、历史行全部不动。
+- **快照改为 per-agent**（v0.8 批次 3）：新快照写入
+  `<workspace>/.riscdom/snapshots/<agent_id>/`；`list_snapshots` 同时读该目录与共享根目录（同名时以此
+  agent 的为准），`resume_from_snapshot_real` 与 `save_snapshot_real` 走同一回退，`delete_snapshot` 两边
+  都删。v0.8 之前的快照继续可用。
 - **审计写入支持多进程**（v0.8 批次 2）：`journal_mode=WAL`、`busy_timeout=5s` 与
   `synchronous=NORMAL` 集中在连接打开处设置（`audit::store`）；被锁的 append 最多重试 5 次，退避
   20/40/80/160 ms；而「读 head + 插入」这一对现在跑在 `BEGIN IMMEDIATE` 里 —— 没有后者，单靠 WAL 仍然会
@@ -38,6 +53,8 @@ workspace 一条链），而这正是多 Agent 运行时需要的：多个进程
 
 ### 新增
 
+- **`agent::next_agent_id`**（v0.8 批次 3）：身份助手 —— `DEVICE`（机器标识，现阶段为 `local`）
+  加一个进程级序号，于是 `local-<pid>-1`、`local-<pid>-2`、… 在进程内与跨进程都唯一。
 - **审计失败告警**（v0.8 批次 2）：`settings.json` 增加 `alert_on_audit_failure`（默认 `true`，因此升级
   不会把它关掉），*设置 → 审计*里有开关与横幅，新失败还会弹出对话框 —— 为此授予
   `dialog:allow-message` 权限，并由对话框探针钉住权限集合。`audit:failed` 事件与日志行不受该设置影响。

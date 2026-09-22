@@ -32,6 +32,7 @@ fn a_guest_that_never_goes_quiet_returns_its_output() {
         compiler: &compiler,
         serial_observers: Arc::new(Mutex::new(Vec::new())),
         qemu_exe: &None,
+        agent_id: "local-0-test",
     };
 
     let write = serde_json::json!({ "path": "chatter.c", "content": CHATTER_C }).to_string();

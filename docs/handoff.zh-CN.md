@@ -75,6 +75,12 @@
   目录。审计链新增 **`agent_id`** 列，位于链**旁边**：哈希公式、`prev_hash` 链接与每一行既有的 `hash`
   全不动，因此 v0.8 之前的链仍能通过校验。以及**每个 `AppState` 一个 VM 槽**，以测试钉住而非假定。改的是
   代码不是文档：审计侧两条新测试、host 侧一条新测试（`multi_instance.rs`），黄金路径无变化。
+- **每条审计事件都写明是哪个 agent，快照改为 per-agent**（v0.8 批次 3）：身份为
+  `local-<pid>-<seq>`（`agent::next_agent_id`），每个 `AppState` 领一个并传给它构建的 `AgentLoop`，
+  于是 host、sandbox 与 agent 的事件都带上它；`AgentLoop` 与 `audit_hook` 助手改为接收该参数。
+  `agent_id` 仍是链**旁边**字段 —— 哈希公式、`prev_hash` 链接、历史行均不动。快照改到
+  `<workspace>/.riscdom/snapshots/<agent_id>/`，读取回退到共享根目录，因此共享同一 workspace 的两个
+  agent 不会互相覆盖，v0.8 之前的快照仍可列出、恢复与删除。
 - **审计写入现已支持多进程，且失败会响**（v0.8 批次 2）：`audit.db` 是有意共享的（每个 workspace 一条
   链），因此连接以 **WAL** 打开，带 5 秒 `busy_timeout` 与 `synchronous=NORMAL`；一次 append 在读取 head
   **之前**先拿写锁（`BEGIN IMMEDIATE` —— 没有它两个写者会链到同一行并把链分叉，新增的并发测试抓住了这一

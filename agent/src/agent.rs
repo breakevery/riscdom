@@ -52,6 +52,8 @@ pub struct AgentLoop {
     external_vm: Option<Arc<Mutex<Option<RiscVVirtualMachine>>>>,
     /// Host-injected QEMU executable (v0.3 5b-1b); `None` = discover it.
     qemu_exe: Option<std::path::PathBuf>,
+    /// Who this loop is, for the audit chain's `agent_id` (v0.8 batch B).
+    agent_id: String,
 }
 
 impl AgentLoop {
@@ -62,8 +64,17 @@ impl AgentLoop {
         policy: WorkspacePolicy,
         audit: Arc<Mutex<dyn AuditSink>>,
         system_prompt: String,
+        agent_id: impl Into<String>,
     ) -> Result<Self, AgentError> {
-        Self::build(llm, config, policy, audit, system_prompt, None)
+        Self::build(
+            llm,
+            config,
+            policy,
+            audit,
+            system_prompt,
+            agent_id.into(),
+            None,
+        )
     }
 
     /// Build a loop that operates on an **externally-owned** VM slot.
@@ -71,6 +82,10 @@ impl AgentLoop {
     /// The slot outlives the loop, so a VM started during a run stays alive
     /// afterwards (host-owned lifecycle). `system_prompt` is a sixth parameter
     /// on purpose: without it the constitution could not be injected.
+    ///
+    /// `agent_id` is the last parameter for the same reason it exists at all
+    /// (v0.8 batch B): the caller owns the identity — the host mints one per
+    /// instance — and every event this loop writes carries it.
     pub fn with_vm(
         llm: Box<dyn LlmClient>,
         config: AgentConfig,
@@ -78,16 +93,27 @@ impl AgentLoop {
         audit: Arc<Mutex<dyn AuditSink>>,
         vm: Arc<Mutex<Option<RiscVVirtualMachine>>>,
         system_prompt: String,
+        agent_id: impl Into<String>,
     ) -> Result<Self, AgentError> {
-        Self::build(llm, config, policy, audit, system_prompt, Some(vm))
+        Self::build(
+            llm,
+            config,
+            policy,
+            audit,
+            system_prompt,
+            agent_id.into(),
+            Some(vm),
+        )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build(
         llm: Box<dyn LlmClient>,
         config: AgentConfig,
         policy: WorkspacePolicy,
         audit: Arc<Mutex<dyn AuditSink>>,
         system_prompt: String,
+        agent_id: String,
         external_vm: Option<Arc<Mutex<Option<RiscVVirtualMachine>>>>,
     ) -> Result<Self, AgentError> {
         Ok(Self {
@@ -97,6 +123,7 @@ impl AgentLoop {
             audit,
             messages: vec![ChatMessage::text("system", system_prompt)],
             vm: None,
+            agent_id,
             compiler: CompilerConfig::from_env(),
             serial_observers: Arc::new(Mutex::new(Vec::new())),
             stream_observers: Arc::new(Mutex::new(Vec::new())),
@@ -168,10 +195,17 @@ impl AgentLoop {
 
     fn emit(&self, action: &str, detail: serde_json::Value) {
         if let Ok(mut sink) = self.audit.lock() {
-            if let Err(error) = sink.record(AuditEvent::new("agent", action, detail)) {
+            if let Err(error) =
+                sink.record(AuditEvent::new("agent", action, detail).with_agent(&self.agent_id))
+            {
                 audit::report_failure(&error);
             }
         }
+    }
+
+    /// Who this loop is (v0.8 batch B): the `agent_id` every event it writes carries.
+    pub fn agent_id(&self) -> &str {
+        &self.agent_id
     }
 
     /// Run one user turn to completion.
@@ -206,6 +240,7 @@ impl AgentLoop {
             };
             record_llm_request(
                 &self.audit,
+                &self.agent_id,
                 &request,
                 &self.config.model,
                 &self.config.base_url,
@@ -256,7 +291,7 @@ impl AgentLoop {
                     "has_tool_calls": response.tool_calls().is_some(),
                 }),
             );
-            record_llm_response(&self.audit, &response);
+            record_llm_response(&self.audit, &self.agent_id, &response);
 
             let message = match response.first_message() {
                 Some(m) => m.clone(),
@@ -300,6 +335,7 @@ impl AgentLoop {
                         compiler: &self.compiler,
                         serial_observers: Arc::clone(&self.serial_observers),
                         qemu_exe: &self.qemu_exe,
+                        agent_id: &self.agent_id,
                     };
                     match execute_tool(&call.function.name, &call.function.arguments, &mut ctx) {
                         Ok(result) => result,
@@ -313,6 +349,7 @@ impl AgentLoop {
                         compiler: &self.compiler,
                         serial_observers: Arc::clone(&self.serial_observers),
                         qemu_exe: &self.qemu_exe,
+                        agent_id: &self.agent_id,
                     };
                     match execute_tool(&call.function.name, &call.function.arguments, &mut ctx) {
                         Ok(result) => result,

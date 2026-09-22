@@ -95,6 +95,14 @@ section when the next release ships)
   pre-v0.8 chain still verifies. And **one VM slot per `AppState`** is pinned by a test rather than
   assumed. Code, not documentation: two new audit tests and one new host test (`multi_instance.rs`),
   and no change on the golden path.
+- **Every audit event now names its agent, and snapshots are per agent** (v0.8 batch 3): the identity
+  is `local-<pid>-<seq>` (`agent::next_agent_id`), minted once per `AppState` and passed to the
+  `AgentLoop` it builds, so the host's, the sandbox's and the agent's events all carry it; `AgentLoop`
+  and the `audit_hook` helpers take it as a parameter. `agent_id` stays a **beside-the-chain** field —
+  no hash formula, `prev_hash` link or historical row changes. Snapshots move to
+  `<workspace>/.riscdom/snapshots/<agent_id>/` with a read fallback to the shared root, so two agents
+  sharing a workspace cannot overwrite each other's names and pre-v0.8 snapshots still list, restore and
+  delete.
 - **Audit writes now survive several processes, and a failure is loud** (v0.8 batch 2): `audit.db` is
   shared on purpose (one chain per workspace), so the connection opens in **WAL** with a 5 s
   `busy_timeout` and `synchronous=NORMAL`; an append takes the write lock **before** reading the head

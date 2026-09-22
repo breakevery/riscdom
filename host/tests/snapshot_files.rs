@@ -56,3 +56,52 @@ fn missing_snapshot_dir_lists_empty() {
     let state = AppState::in_memory(unique_dir("empty")).expect("state");
     assert!(state.list_snapshots().expect("list").is_empty());
 }
+
+#[test]
+fn each_agent_gets_its_own_snapshot_directory() {
+    // v0.8 batch B: two agents sharing one workspace must not overwrite each
+    // other's snapshot names, so each writes its own subdirectory.
+    let workspace = unique_dir("per-agent");
+    let root = workspace.join(".riscdom").join("snapshots");
+    std::fs::create_dir_all(&root).expect("snapshot root");
+    // A snapshot written before the per-agent layout lives in the shared root.
+    std::fs::write(root.join("old.mig"), vec![1u8; 16]).expect("old snapshot");
+
+    let a = AppState::in_memory(&workspace).expect("state a");
+    let b = AppState::in_memory(&workspace).expect("state b");
+    assert_ne!(a.agent_id(), b.agent_id(), "one identity per instance");
+    assert_ne!(a.snapshot_dir(), b.snapshot_dir());
+    assert_eq!(a.snapshot_dir(), root.join(a.agent_id()));
+
+    std::fs::create_dir_all(a.snapshot_dir()).expect("a dir");
+    std::fs::create_dir_all(b.snapshot_dir()).expect("b dir");
+    std::fs::write(a.snapshot_dir().join("same.mig"), vec![2u8; 64]).expect("a same");
+    std::fs::write(b.snapshot_dir().join("same.mig"), vec![3u8; 128]).expect("b same");
+
+    // Both agents see the same names — the pre-v0.8 one plus their own `same` —
+    // and each `same` is its own file, not the other's.
+    let names = |state: &AppState| {
+        let mut names: Vec<String> = state
+            .list_snapshots()
+            .expect("list")
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
+        names.sort();
+        names
+    };
+    assert_eq!(names(&a), vec!["old".to_string(), "same".to_string()]);
+    assert_eq!(names(&b), vec!["old".to_string(), "same".to_string()]);
+    let a_same = a
+        .list_snapshots()
+        .expect("list")
+        .into_iter()
+        .find(|s| s.name == "same")
+        .expect("a same");
+    assert_eq!(a_same.size_bytes, 64, "a's own copy, not b's");
+
+    // The pre-v0.8 snapshot is still deletable, from the shared root.
+    assert!(a.delete_snapshot("old").expect("delete old"));
+    assert!(!root.join("old.mig").exists());
+    assert_eq!(a.list_snapshots().expect("list").len(), 1);
+}

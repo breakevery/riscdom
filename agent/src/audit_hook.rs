@@ -18,9 +18,13 @@ pub const AUDIT_ACTOR: &str = "agent";
 /// Cap for stringified payloads stored in audit detail.
 const MAX_DETAIL_STR: usize = 4096;
 
-fn emit(sink: &Arc<Mutex<dyn AuditSink>>, action: &str, detail: serde_json::Value) {
+/// The identity a hook stamps onto its events (v0.8 batch B): the loop's
+/// `agent_id`. Every hook takes it, so no agent-originated event is anonymous.
+fn emit(sink: &Arc<Mutex<dyn AuditSink>>, agent_id: &str, action: &str, detail: serde_json::Value) {
     if let Ok(mut s) = sink.lock() {
-        if let Err(error) = s.record(AuditEvent::new(AUDIT_ACTOR, action, detail)) {
+        if let Err(error) =
+            s.record(AuditEvent::new(AUDIT_ACTOR, action, detail).with_agent(agent_id))
+        {
             audit::report_failure(&error);
         }
     }
@@ -49,12 +53,14 @@ fn truncate(s: &str, max: usize) -> String {
 /// and only the **host** of the base URL (never the full URL, never a key).
 pub fn record_llm_request(
     sink: &Arc<Mutex<dyn AuditSink>>,
+    agent_id: &str,
     req: &ChatRequest,
     model: &str,
     base_url: &str,
 ) {
     emit(
         sink,
+        agent_id,
         "agent.llm.request",
         serde_json::json!({
             "model": model,
@@ -79,10 +85,11 @@ pub fn host_of(url: &str) -> String {
 }
 
 /// Record an LLM response (token usage + shape, not the key).
-pub fn record_llm_response(sink: &Arc<Mutex<dyn AuditSink>>, resp: &ChatResponse) {
+pub fn record_llm_response(sink: &Arc<Mutex<dyn AuditSink>>, agent_id: &str, resp: &ChatResponse) {
     let usage = resp.usage.clone().unwrap_or_default();
     emit(
         sink,
+        agent_id,
         "agent.llm.response",
         serde_json::json!({
             "id": resp.id,
@@ -97,9 +104,10 @@ pub fn record_llm_response(sink: &Arc<Mutex<dyn AuditSink>>, resp: &ChatResponse
 }
 
 /// Record a tool call requested by the model.
-pub fn record_tool_call(sink: &Arc<Mutex<dyn AuditSink>>, call: &ToolCall) {
+pub fn record_tool_call(sink: &Arc<Mutex<dyn AuditSink>>, agent_id: &str, call: &ToolCall) {
     emit(
         sink,
+        agent_id,
         "agent.tool.call",
         serde_json::json!({
             "id": call.id,
@@ -111,9 +119,16 @@ pub fn record_tool_call(sink: &Arc<Mutex<dyn AuditSink>>, call: &ToolCall) {
 }
 
 /// Record the result of a tool call.
-pub fn record_tool_result(sink: &Arc<Mutex<dyn AuditSink>>, call_id: &str, result: &str, ok: bool) {
+pub fn record_tool_result(
+    sink: &Arc<Mutex<dyn AuditSink>>,
+    agent_id: &str,
+    call_id: &str,
+    result: &str,
+    ok: bool,
+) {
     emit(
         sink,
+        agent_id,
         "agent.tool.result",
         serde_json::json!({
             "call_id": call_id,
@@ -127,11 +142,13 @@ pub fn record_tool_result(sink: &Arc<Mutex<dyn AuditSink>>, call_id: &str, resul
 /// Record a capability-policy denial.
 pub fn record_policy_deny(
     sink: &Arc<Mutex<dyn AuditSink>>,
+    agent_id: &str,
     reason: &str,
     detail: serde_json::Value,
 ) {
     emit(
         sink,
+        agent_id,
         "agent.policy.deny",
         serde_json::json!({ "reason": reason, "detail": detail }),
     );
@@ -142,6 +159,9 @@ mod tests {
     use super::*;
     use crate::message::{ChatMessage, Choice, FunctionCall};
     use audit::{verify_chain, AuditStore, ChainStatus, SqliteAuditSink};
+
+    /// A fixed identity for these unit tests.
+    const TEST_AGENT_ID: &str = "local-0-unit";
 
     fn sink() -> (Arc<Mutex<dyn AuditSink>>, Arc<Mutex<AuditStore>>) {
         let shared = Arc::new(Mutex::new(AuditStore::in_memory().expect("store")));
@@ -163,7 +183,13 @@ mod tests {
             temperature: Some(0.0),
             stream: None,
         };
-        record_llm_request(&sink, &req, "deepseek-chat", "https://api.deepseek.com");
+        record_llm_request(
+            &sink,
+            TEST_AGENT_ID,
+            &req,
+            "deepseek-chat",
+            "https://api.deepseek.com",
+        );
 
         let resp = ChatResponse {
             id: Some("r1".into()),
@@ -179,7 +205,7 @@ mod tests {
                 total_tokens: Some(3),
             }),
         };
-        record_llm_response(&sink, &resp);
+        record_llm_response(&sink, TEST_AGENT_ID, &resp);
 
         let call = ToolCall {
             id: "call_1".into(),
@@ -189,10 +215,11 @@ mod tests {
                 arguments: "{\"path\":\"a.c\"}".into(),
             },
         };
-        record_tool_call(&sink, &call);
-        record_tool_result(&sink, "call_1", "wrote 12 bytes", true);
+        record_tool_call(&sink, TEST_AGENT_ID, &call);
+        record_tool_result(&sink, TEST_AGENT_ID, "call_1", "wrote 12 bytes", true);
         record_policy_deny(
             &sink,
+            TEST_AGENT_ID,
             "path outside workspace",
             serde_json::json!({"path": "/etc/passwd"}),
         );

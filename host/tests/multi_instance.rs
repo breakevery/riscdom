@@ -86,3 +86,30 @@ fn two_instances_keep_separate_chains_and_vm_slots() {
     assert!(!a.vm_is_running());
     assert!(!b.vm_is_running());
 }
+
+#[test]
+fn each_instance_has_its_own_agent_identity_and_host_events_carry_it() {
+    // v0.8 batch B: `<device>-<pid>-<seq>`, one per instance, stamped onto every
+    // event the instance writes (including the sandbox's and the agent's, which
+    // share this sink).
+    let (ws_a, ws_b) = (unique_dir("id-a"), unique_dir("id-b"));
+    let a = AppState::with_data_dir(&ws_a, unique_dir("iddata-a")).expect("a");
+    let b = AppState::with_data_dir(&ws_b, unique_dir("iddata-b")).expect("b");
+
+    assert_ne!(a.agent_id(), b.agent_id(), "one identity per instance");
+    for id in [a.agent_id(), b.agent_id()] {
+        let parts: Vec<&str> = id.split('-').collect();
+        assert_eq!(parts.len(), 3, "device-pid-seq: {id}");
+        assert_eq!(parts[0], agent::DEVICE);
+        assert_eq!(parts[1], std::process::id().to_string());
+    }
+
+    // A host event (setting the theme is enough) carries this instance's id.
+    a.set_theme("dark").expect("set theme");
+    let events = a.list_events(50, None, None).expect("events");
+    let ours = events
+        .iter()
+        .find(|e| e.action == "host.theme.set")
+        .expect("host.theme.set");
+    assert_eq!(ours.agent_id.as_deref(), Some(a.agent_id()));
+}

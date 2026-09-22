@@ -85,6 +85,7 @@ fn loop_with_slot(
         audit,
         slot,
         system,
+        agent::next_agent_id(),
     )
     .expect("agent loop")
 }
@@ -127,6 +128,7 @@ fn a_second_run_reuses_the_running_vm_and_stop_clears_the_slot() {
         audit,
         Arc::clone(&slot),
         system,
+        agent::next_agent_id(),
     )
     .expect("agent loop");
     second.run("再次启动").expect("run");
@@ -186,6 +188,7 @@ fn without_injection_the_loop_owns_its_vm() {
         policy,
         audit,
         system,
+        agent::next_agent_id(),
     )
     .expect("agent loop");
 

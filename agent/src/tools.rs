@@ -84,6 +84,9 @@ pub struct ToolContext<'a> {
     pub serial_observers: Arc<Mutex<Vec<std::sync::mpsc::Sender<Vec<u8>>>>>,
     /// Host-injected QEMU executable (v0.3 5b-1b); `None` = discover it.
     pub qemu_exe: &'a Option<std::path::PathBuf>,
+    /// The agent this tool call belongs to (v0.8 batch B): stamped onto the
+    /// events the tools write, and used to keep this agent's snapshots apart.
+    pub agent_id: &'a str,
 }
 
 /// Build a serial observer that fans out to every live subscriber.
@@ -192,7 +195,7 @@ pub fn execute_tool(name: &str, args: &str, ctx: &mut ToolContext) -> Result<Str
             arguments: args.to_string(),
         },
     };
-    record_tool_call(&ctx.audit, &call);
+    record_tool_call(&ctx.audit, ctx.agent_id, &call);
 
     let result = match name {
         "write_source" => tool_write_source(&parsed, ctx),
@@ -205,8 +208,8 @@ pub fn execute_tool(name: &str, args: &str, ctx: &mut ToolContext) -> Result<Str
     };
 
     match &result {
-        Ok(text) => record_tool_result(&ctx.audit, &call.id, text, true),
-        Err(e) => record_tool_result(&ctx.audit, &call.id, &e.to_string(), false),
+        Ok(text) => record_tool_result(&ctx.audit, ctx.agent_id, &call.id, text, true),
+        Err(e) => record_tool_result(&ctx.audit, ctx.agent_id, &call.id, &e.to_string(), false),
     }
     result.map(|s| truncate_result(&s))
 }
@@ -221,6 +224,7 @@ fn arg_str<'a>(args: &'a serde_json::Value, key: &str) -> Result<&'a str, AgentE
 fn deny(ctx: &ToolContext, tool: &str, path: &str, err: AgentError) -> AgentError {
     record_policy_deny(
         &ctx.audit,
+        ctx.agent_id,
         &err.to_string(),
         serde_json::json!({ "tool": tool, "path": path }),
     );
@@ -304,7 +308,9 @@ fn tool_compile(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<Strin
 
 fn emit_compile(ctx: &ToolContext, action: &str, detail: serde_json::Value) {
     if let Ok(mut sink) = ctx.audit.lock() {
-        if let Err(error) = sink.record(audit::AuditEvent::new("agent", action, detail)) {
+        if let Err(error) =
+            sink.record(audit::AuditEvent::new("agent", action, detail).with_agent(ctx.agent_id))
+        {
             audit::report_failure(&error);
         }
     }
@@ -334,7 +340,14 @@ fn tool_start_vm(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<Stri
     for attempt in 1..=START_ATTEMPTS {
         let (mut qmp_lease, mut serial_lease) = two_free_ports()?;
         let (qmp_port, serial_port) = (qmp_lease.port(), serial_lease.port());
-        let snapshot_dir = ctx.policy.root.join(".riscdom").join("snapshots");
+        // Snapshots live under this agent's own subdirectory (v0.8 batch B), so
+        // two agents sharing a workspace cannot overwrite each other's names.
+        let snapshot_dir = ctx
+            .policy
+            .root
+            .join(".riscdom")
+            .join("snapshots")
+            .join(ctx.agent_id);
         let config = VMConfig {
             kernel: elf.clone(),
             memory_mb: VM_MEMORY_MB,

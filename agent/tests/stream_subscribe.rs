@@ -37,6 +37,7 @@ fn agent_loop(tag: &str) -> (AgentLoop, Arc<Mutex<audit::AuditStore>>) {
         policy,
         audit,
         system,
+        agent::next_agent_id(),
     )
     .expect("agent loop");
     (agent, shared)

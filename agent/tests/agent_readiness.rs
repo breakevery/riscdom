@@ -20,6 +20,7 @@ fn loop_with(config: AgentConfig) -> AgentLoop {
         policy,
         sink,
         "system".into(),
+        agent::next_agent_id(),
     )
     .expect("agent loop")
 }

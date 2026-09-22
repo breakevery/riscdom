@@ -43,6 +43,7 @@ fn e2e_mock_full_cycle() {
         policy,
         Arc::clone(&audit),
         system,
+        agent::next_agent_id(),
     )
     .expect("agent loop");
 

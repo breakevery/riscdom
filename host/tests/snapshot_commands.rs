@@ -112,7 +112,8 @@ fn save_then_resume_round_trip() {
 
     let bytes = state.save_snapshot_real("s20c").expect("save");
     assert!(bytes > 0, "the .mig snapshot must not be empty");
-    let path = state.workspace_root.join(".riscdom/snapshots/s20c.mig");
+    // v0.8 batch B: new snapshots land in this agent's own subdirectory.
+    let path = state.snapshot_dir().join("s20c.mig");
     assert!(path.is_file(), "expected {path:?}");
 
     let listed = state.list_snapshots().expect("list");

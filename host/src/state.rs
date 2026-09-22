@@ -390,6 +390,12 @@ pub struct AppState {
     /// How many of them an [`EventSink`] has already been told about, so the
     /// `audit:failed` event is not repeated on every refresh.
     audit_failures_emitted: Arc<AtomicUsize>,
+    /// This instance's agent identity (v0.8 batch B): `<device>-<pid>-<seq>`.
+    ///
+    /// Every event this instance writes carries it, so one chain can say which
+    /// agent caused what once several agents write to it. Minted once, at
+    /// construction: the host is the agent, not the run.
+    agent_id: String,
     /// Host-owned VM slot: a VM started during a run stays here after the run
     /// ends, so later runs reuse the same guest (v0.2 host-owned lifecycle).
     pub vm_slot: Arc<Mutex<Option<RiscVVirtualMachine>>>,
@@ -683,6 +689,7 @@ impl AppState {
             sink,
             audit_failures,
             audit_failures_emitted: Arc::new(AtomicUsize::new(0)),
+            agent_id: agent::next_agent_id(),
             vm_slot: Arc::new(Mutex::new(None)),
             toolchain_path: Mutex::new(None),
             qemu_path: Mutex::new(None),
@@ -724,19 +731,62 @@ impl AppState {
 
     // ----- Snapshots --------------------------------------------------------
 
-    /// Snapshot directory used by the sandbox (`<workspace>/.riscdom/snapshots`).
-    fn snapshot_dir(&self) -> PathBuf {
+    /// This instance's snapshot directory: `<workspace>/.riscdom/snapshots/<agent_id>`.
+    ///
+    /// Per agent (v0.8 batch B): several agents may share one workspace, and a
+    /// shared directory meant two agents saving `snap1` overwrote each other. New
+    /// writes always land here; reads fall back to [`Self::snapshot_root`] so
+    /// snapshots taken before this change stay usable.
+    pub fn snapshot_dir(&self) -> PathBuf {
+        self.snapshot_root().join(&self.agent_id)
+    }
+
+    /// The directory every agent's snapshot subdirectory lives under
+    /// (`<workspace>/.riscdom/snapshots`) — where an older version wrote them.
+    pub fn snapshot_root(&self) -> PathBuf {
         self.workspace_root.join(".riscdom").join("snapshots")
     }
 
-    /// Snapshots present on disk: real (`.mig`) and reboot-fallback (`.json`).
-    pub fn list_snapshots(&self) -> Result<Vec<SnapshotMetaView>, HostError> {
-        let dir = self.snapshot_dir();
-        if !dir.exists() {
-            return Ok(Vec::new());
+    /// Find `name` on disk: this agent's directory first, then the shared root
+    /// (a snapshot written before the per-agent layout).
+    fn find_snapshot(&self, name: &str) -> Option<PathBuf> {
+        for dir in [self.snapshot_dir(), self.snapshot_root()] {
+            for ext in [sandbox::SNAPSHOT_MIG_EXT, sandbox::SNAPSHOT_JSON_EXT] {
+                let path = dir.join(format!("{name}.{ext}"));
+                if path.is_file() {
+                    return Some(path);
+                }
+            }
         }
+        None
+    }
+
+    /// Snapshots present on disk: real (`.mig`) and reboot-fallback (`.json`).
+    ///
+    /// Both this agent's directory and the shared root are listed — the root so a
+    /// pre-v0.8 snapshot stays visible, this agent's directory first so it wins on
+    /// a name collision.
+    pub fn list_snapshots(&self) -> Result<Vec<SnapshotMetaView>, HostError> {
         let mut out = Vec::new();
-        for entry in std::fs::read_dir(&dir)? {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for dir in [self.snapshot_dir(), self.snapshot_root()] {
+            Self::list_snapshot_dir(&dir, &mut seen, &mut out)?;
+        }
+        out.sort_by_key(|s| std::cmp::Reverse(s.created_at_ms));
+        Ok(out)
+    }
+
+    /// Collect the snapshots of one directory into `out`, skipping names already
+    /// seen (so the per-agent entry shadows the shared one).
+    fn list_snapshot_dir(
+        dir: &Path,
+        seen: &mut std::collections::HashSet<String>,
+        out: &mut Vec<SnapshotMetaView>,
+    ) -> Result<(), HostError> {
+        if !dir.exists() {
+            return Ok(());
+        }
+        for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
             if !path.is_file() {
@@ -759,6 +809,9 @@ impl AppState {
                 ),
                 _ => continue,
             };
+            if !seen.insert(name.clone()) {
+                continue;
+            }
             let meta = entry.metadata()?;
             let created_at_ms = meta
                 .modified()
@@ -773,19 +826,20 @@ impl AppState {
                 mode: mode.to_string(),
             });
         }
-        out.sort_by_key(|s| std::cmp::Reverse(s.created_at_ms));
-        Ok(out)
+        Ok(())
     }
 
-    /// Delete a snapshot (either mode). Returns whether a file was removed.
+    /// Delete a snapshot (either mode) from this agent's directory and from the
+    /// shared root. Returns whether a file was removed.
     pub fn delete_snapshot(&self, name: &str) -> Result<bool, HostError> {
-        let dir = self.snapshot_dir();
         let mut removed = false;
-        for ext in [sandbox::SNAPSHOT_MIG_EXT, sandbox::SNAPSHOT_JSON_EXT] {
-            let path = dir.join(format!("{name}.{ext}"));
-            if path.is_file() {
-                std::fs::remove_file(&path)?;
-                removed = true;
+        for dir in [self.snapshot_dir(), self.snapshot_root()] {
+            for ext in [sandbox::SNAPSHOT_MIG_EXT, sandbox::SNAPSHOT_JSON_EXT] {
+                let path = dir.join(format!("{name}.{ext}"));
+                if path.is_file() {
+                    std::fs::remove_file(&path)?;
+                    removed = true;
+                }
             }
         }
         self.emit_host(
@@ -848,12 +902,11 @@ impl AppState {
             vm.save_snapshot_real(name)
                 .map_err(|e| HostError::Other(e.to_string()))?;
         }
-        let bytes = std::fs::metadata(
-            self.snapshot_dir()
-                .join(format!("{name}.{}", sandbox::SNAPSHOT_MIG_EXT)),
-        )
-        .map(|m| m.len())
-        .unwrap_or(0);
+        let bytes = self
+            .find_snapshot(name)
+            .and_then(|path| std::fs::metadata(path).ok())
+            .map(|m| m.len())
+            .unwrap_or(0);
         // Remember which run produced this snapshot, so a restore later in this
         // process can link to it (v0.4 1c). The VM outlives a run, so the run to
         // link to is the most recent one, not necessarily an in-flight run.
@@ -881,12 +934,11 @@ impl AppState {
     /// slot so the next run keeps using it.
     pub fn resume_from_snapshot_real(&self, name: &str) -> Result<(), HostError> {
         Self::validate_snapshot_name(name)?;
+        // This agent's directory first, then the shared root: a snapshot taken
+        // before the per-agent layout is still restorable (v0.8 batch B).
         let path = self
-            .snapshot_dir()
-            .join(format!("{name}.{}", sandbox::SNAPSHOT_MIG_EXT));
-        if !path.is_file() {
-            return Err(HostError::Other(format!("snapshot not found: {name}")));
-        }
+            .find_snapshot(name)
+            .ok_or_else(|| HostError::Other(format!("snapshot not found: {name}")))?;
 
         // Run provenance (v0.4 1c): a restore is its own run (§4.3) — it is a
         // materially different execution — linked to the run that produced the
@@ -1789,7 +1841,8 @@ impl AppState {
     /// be written still reaches the alert path (v0.8).
     fn emit_host(&self, action: &str, detail: serde_json::Value) {
         if let Ok(mut sink) = self.sink.lock() {
-            let _ = sink.record(audit::AuditEvent::new("host", action, detail));
+            let _ = sink
+                .record(audit::AuditEvent::new("host", action, detail).with_agent(&self.agent_id));
         }
     }
 
@@ -2243,6 +2296,11 @@ impl AppState {
         Ok(())
     }
 
+    /// This instance's agent identity (v0.8 batch B): `local-<pid>-<seq>`.
+    pub fn agent_id(&self) -> &str {
+        &self.agent_id
+    }
+
     /// Is the audit-failure alert on? `true` when the user never chose (v0.8).
     pub fn alert_on_audit_failure(&self) -> bool {
         self.settings
@@ -2650,7 +2708,7 @@ impl AppState {
     fn append_host_event(&self, action: &str, detail: serde_json::Value) -> Option<StoredEvent> {
         let mut store = self.audit.lock().ok()?;
         store
-            .append(audit::AuditEvent::new("host", action, detail))
+            .append(audit::AuditEvent::new("host", action, detail).with_agent(&self.agent_id))
             .ok()
     }
 
@@ -2910,6 +2968,7 @@ impl AppState {
             Arc::clone(&self.sink),
             Arc::clone(&self.vm_slot),
             system_prompt,
+            self.agent_id.clone(),
         )?;
         // Host-owned VM: the loop works on `vm_slot`; serial bytes go to the
         // same broadcast list that the long-lived forwarder reads from.

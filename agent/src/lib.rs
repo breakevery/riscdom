@@ -16,6 +16,7 @@ pub mod audit_hook;
 pub mod compiler;
 pub mod config;
 pub mod error;
+pub mod identity;
 pub mod llm;
 pub mod message;
 pub mod policy;
@@ -32,6 +33,7 @@ pub use compiler::{
 };
 pub use config::AgentConfig;
 pub use error::AgentError;
+pub use identity::{next_agent_id, DEVICE};
 pub use llm::{DeepSeekClient, LlmClient, MockLlm, OpenAiCompatClient};
 pub use message::{
     ChatMessage, ChatRequest, ChatResponse, Choice, FunctionCall, StreamEvent, ToolCall, Usage,

@@ -35,7 +35,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         temperature: Some(0.0),
         stream: None,
     };
-    record_llm_request(&sink, &req, "deepseek-chat", "https://api.deepseek.com");
+    record_llm_request(
+        &sink,
+        agent::DEVICE,
+        &req,
+        "deepseek-chat",
+        "https://api.deepseek.com",
+    );
 
     let resp = ChatResponse {
         id: Some("resp-1".into()),
@@ -51,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             total_tokens: Some(160),
         }),
     };
-    record_llm_response(&sink, &resp);
+    record_llm_response(&sink, agent::DEVICE, &resp);
 
     let call = ToolCall {
         id: "call_1".into(),
@@ -61,10 +67,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             arguments: "{\"path\":\"hello.c\",\"content\":\"int main(void){}\"}".into(),
         },
     };
-    record_tool_call(&sink, &call);
-    record_tool_result(&sink, "call_1", "wrote 18 bytes to hello.c", true);
+    record_tool_call(&sink, agent::DEVICE, &call);
+    record_tool_result(
+        &sink,
+        agent::DEVICE,
+        "call_1",
+        "wrote 18 bytes to hello.c",
+        true,
+    );
     record_policy_deny(
         &sink,
+        agent::DEVICE,
         "path outside workspace",
         serde_json::json!({ "path": "/etc/passwd" }),
     );
