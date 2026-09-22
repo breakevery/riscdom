@@ -69,6 +69,8 @@ v0.9 的 `kind` 取值：
 - `hello` —— 流已开启；`payload.buffer` 与 `payload.filters` 描述它。
 - `gap` —— 请求的重放 id 太旧、无法重放；`payload.lost_after` 是服务端仍持有的最旧 id。看到 `gap` 的客户端必须从查询重新同步（见 API 文档），而不是假定什么都没漏。
 
+**v0.9 批次 2 尚未实现。** 事件流只发 `hello` 与 `event` 两种 kind：落后的订阅者会丢掉错过的帧，`Last-Event-ID` 会被读取但不会重放。`gap` 的名字与形状在此预留，落地时不变。
+
 ### 2.1 `version` 如何演进
 
 - **增加 payload 字段不升 `version`。** 客户端忽略未知 payload 键。

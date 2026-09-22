@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**The control plane has a process now.** v0.9's main line is a control plane: a human
+supervising AIs and an AI supervising AIs go through the same HTTP + SSE interface. This
+batch lands the skeleton the rest of that API is built on — a new `server` crate, two
+smoke endpoints, the event stream and the authentication hook — and nothing else: no
+kernel source changed and no event emit site changed.
+
+### Added
+
+- **`server`, a new Layer 3 workspace crate** (binary `riscdom-server`): it depends only
+  on `host` (Layer 2) and names no Tauri type. It binds `GET /v0/health`,
+  `GET /v0/status`, and `GET /v0/events` (SSE), answers everything else with the error
+  model of `docs/control-plane-api.md` §4, and installs the `Authn` hook with `NoAuth`
+  as the v0.9 default. The host's events reach the stream through `HttpEventSink`, handed
+  to `AppState::run_agent` as its `emitter` argument — the host needs no change to be
+  driven from a second process. `httpdate` enters the lock file as hyper's `server`
+  feature's only dependency that was not already there.
+- **`gap` frames and `Last-Event-ID` replay are not implemented yet**: the stream ships
+  the `hello` and `event` kinds, and the design's place for the third is marked in
+  `docs/control-plane-events.md`.
+
 **The environment preflight is per agent too.** `<workspace>/.riscdom/preflight` was the last write path a
 workspace still shared: two processes sharing one workspace compiled the preflight guest into the same
 `guest.c` / `guest.elf`, and booted their preflight VM into the same directory at the same time. New

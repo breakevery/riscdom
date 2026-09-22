@@ -1,0 +1,31 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+description = "RiscDom control plane: HTTP + SSE over the host's kernel facade (Layer 3)"
+
+[[bin]]
+name = "riscdom-server"
+path = "src/main.rs"
+
+[lib]
+name = "server"
+path = "src/lib.rs"
+
+[dependencies]
+# Layer 3 depends only on Layer 2 (the host public API). `tauri` is linked
+# transitively because `host` depends on it unconditionally; this crate never
+# names a Tauri type (`host`'s owned technical debt, to be cleaned up after v0.9).
+host = { path = "../host" }
+# The HTTP/1.1 server. The `server` feature is what pulls `httpdate` (hyper's only
+# dependency not already present in the workspace lock file).
+hyper = { version = "1", features = ["server", "http1"] }
+# Only the IO driver and the broadcast channel are needed: no timer feature, so
+# the heartbeat runs on its own thread instead of a tokio interval.
+tokio = { version = "1", features = ["net", "rt", "io-util", "sync"] }
+# The stream-to-body bridge for the SSE response (`StreamBody`), the fixed-size
+# body (`Full`) and `BoxBody`. `futures-util` supplies `stream::unfold`.
+http-body-util = "0.1"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

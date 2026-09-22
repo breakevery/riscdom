@@ -11,6 +11,7 @@
 
 ## 1. 快照 —— `v0.8.0` 是最新的发行版（下次正式发布时更新本节）
 
+- **控制平面骨架已落**（v0.9 批次 2/N）。新增 `server` crate——可执行文件 `riscdom-server`——绑定了已定稿的接口面：`GET /v0/health`、`GET /v0/status`、`GET /v0/events`（SSE，`hello` 与 `event` 两种帧）、B1 错误模型、以及 `Authn` 钩子（v0.9 默认 `NoAuth`）。它是架在 `host` 之上的 Layer 3，不引用任何 Tauri 类型（仍会链接 `tauri`——已知代价）。它不改 `host` 任何源码：`HttpEventSink` 从 `run_agent` 的 `emitter` 参数位注入。`gap` 帧与 `Last-Event-ID` 补放**尚未实现**（下一批）；设计上给它们留的位置已在 `docs/control-plane-events.zh-CN.md` 标注。见 [server/README.zh-CN.md](../server/README.zh-CN.md)。
 - **控制平面协议已定稿**（v0.9 批次 1/N，仅设计，无代码）。两份双语成对的文档固定了管理侧要照着实现的接口：HTTP 命令/查询面见
   [control-plane-api.zh-CN.md](control-plane-api.zh-CN.md)——53 个命令变成 53 个端点（26 个 `GET` / 27 个 `POST`），四项内核能力缺口逐项明确处置；推送侧见
   [control-plane-events.zh-CN.md](control-plane-events.zh-CN.md)——SSE 分帧，加一个十一个事件共用的 envelope（`version` / `kind` / `event` / `agent_id` / `task_id` / `ts` / `payload`）。十一个 payload 里有三个改了形状（`vm:state`、`audit:failed`、`toolchain:download`），其余八个是恒等映射。**传输选 HTTP + SSE，不用 WebSocket**：推送是单向（服务端到客户端），SSE 是纯 HTTP（无升级握手、无额外 crate），且自带 `Last-Event-ID` 重连。设计定稿，尚无任何实现。

@@ -9,6 +9,13 @@
 
 ## [未发布]
 
+**控制平面现在有进程了。** v0.9 的主线是控制平面：人监督 AI 与 AI 监督 AI 走同一套 HTTP + SSE 接口。本批落的是此后全部 API 赖以生长的骨架——新增 `server` crate、两个 smoke 端点、事件流、认证钩子——仅此而已：未改任何内核源码，未改任何事件发射点。
+
+### 新增
+
+- **`server`：新的 Layer 3 workspace crate**（可执行文件 `riscdom-server`）。它只依赖 `host`（Layer 2），不引用任何 Tauri 类型。它绑定 `GET /v0/health`、`GET /v0/status`、`GET /v0/events`（SSE），其余路径一律按 `docs/control-plane-api.md` §4 的错误模型应答，并装入 `Authn` 钩子、以 `NoAuth` 作为 v0.9 默认。宿主的事件经 `HttpEventSink` 抵达事件流——它在 `AppState::run_agent` 的 `emitter` 参数位传入，因此宿主无需任何改动即可被第二个进程驱动。`httpdate` 进入锁文件，是 hyper `server` feature 唯一新增的依赖。
+- **`gap` 帧与 `Last-Event-ID` 补放尚未实现**：本批事件流只发 `hello` 与 `event` 两种 kind，第三种在设计上的位置已在 `docs/control-plane-events.zh-CN.md` 标注。
+
 **环境 preflight 也改为按 agent 隔离。** `<workspace>/.riscdom/preflight` 是一个 workspace 里最后一条共享的
 写入路径：共享同一 workspace 的两个进程会把 preflight guest 编译到同一对 `guest.c` / `guest.elf`，并同时把它们
 的 preflight VM 启到同一个目录。新产物写入 `<workspace>/.riscdom/preflight/<agent_id>/`，要启动的 guest 先在本

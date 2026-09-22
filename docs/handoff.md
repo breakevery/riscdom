@@ -13,6 +13,15 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The control plane has a skeleton** (v0.9 batch 2/N). A new `server` crate —
+  binary `riscdom-server` — binds the documented surface: `GET /v0/health`,
+  `GET /v0/status`, `GET /v0/events` (SSE, the `hello` and `event` frames), the B1
+  error model, and the `Authn` hook with `NoAuth` as the v0.9 default. It is Layer 3
+  over `host` and names no Tauri type (`tauri` is still linked — the known cost). It
+  changes no `host` source: `HttpEventSink` goes in as `run_agent`'s `emitter`
+  argument. `gap` frames and `Last-Event-ID` replay are **not implemented yet** (next
+  batch); the design's place for them is marked in `docs/control-plane-events.md`. See
+  [server/README.md](../server/README.md).
 - **The control-plane protocol is designed** (v0.9 batch 1/N — design only, no code). Two
   bilingual pairs fix the interface the management side codes against: the HTTP command/query
   surface in [control-plane-api.md](control-plane-api.md) — 53 commands become 53 endpoints

@@ -104,6 +104,8 @@ one meaning each.
   oldest id the server still holds. A client that sees a `gap` must re-sync from a
   query (§ the API document) rather than assume it missed nothing.
 
+**Not implemented in v0.9 batch 2.** The stream ships the `hello` and `event` kinds only: a subscriber that falls behind loses the frames it missed, and `Last-Event-ID` is read but not replayed. The `gap` name and shape are reserved here so they do not change when it lands.
+
 ### 2.1 How `version` evolves
 
 - **Adding a payload field does not bump `version`.** Clients ignore unknown payload keys.
