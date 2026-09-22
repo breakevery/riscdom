@@ -16,7 +16,9 @@
 
 use crate::events::EventSink;
 use crate::state::{AgentOutcomeView, AppState};
-use agent::{AgentHandle, AgentId, AgentOutcome, DispatchError, LocalDispatcher, Task};
+use agent::{
+    AgentHandle, AgentId, AgentOutcome, DispatchError, LocalDispatcher, Task, TaskOutcome,
+};
 use std::sync::Arc;
 
 /// This host instance as an executor.
@@ -48,7 +50,7 @@ impl AgentHandle for HostAgentHandle {
         &self.agent_id
     }
 
-    fn run(&self, task: &Task) -> Result<AgentOutcome, DispatchError> {
+    fn run(&self, task: &Task) -> Result<TaskOutcome, DispatchError> {
         // A handle answers only for its own identity. The dispatcher already
         // routes by target; this keeps the handle correct standing alone (and
         // catches a future remote handle reached with the wrong task).
@@ -59,7 +61,13 @@ impl AgentHandle for HostAgentHandle {
             .state
             .run_agent(Arc::clone(&self.emitter), &task.input)
             .map_err(|error| DispatchError::Failed(error.to_string()))?;
-        Ok(outcome_from_view(view))
+        // The host instance is the executor here; the identity is the one every
+        // event it writes already carries.
+        Ok(TaskOutcome {
+            task_id: task.id.clone(),
+            agent_id: self.agent_id.clone(),
+            outcome: outcome_from_view(view),
+        })
     }
 }
 

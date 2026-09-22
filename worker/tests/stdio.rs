@@ -98,20 +98,38 @@ fn a_task_crosses_the_process_boundary_and_comes_back_as_an_outcome() {
         other => panic!("a worker without an LLM must answer Failed, got {other:?}"),
     }
 
-    // ...and names the executor the task was addressed to (batch C's semantics:
-    // the dispatcher stamps the target it routed to). The child's *own* identity is
-    // a different value and arrives on the event channel — see below.
-    assert_eq!(outcome.agent_id, task.target);
+    // ...and names the executor that **actually ran it**: the child's own identity,
+    // minted in the child process, not the label the supervisor addressed it by.
+    // The two differ here — that is the whole point of this field.
+    let child_id = outcome.agent_id.to_string();
+    assert_ne!(
+        child_id,
+        task.target.to_string(),
+        "the outcome names the executor, not the target it was sent to"
+    );
+    assert_ne!(
+        child_id,
+        handle.agent_id().to_string(),
+        "the child's identity is its own, not the supervisor's label"
+    );
+    let parts: Vec<&str> = child_id.split('-').collect();
+    assert_eq!(parts.len(), 3, "device-pid-seq: {child_id}");
+    assert_eq!(parts[0], "local");
+    assert_ne!(
+        parts[1],
+        std::process::id().to_string(),
+        "the identity was minted in another process: {child_id}"
+    );
 
-    // The child's events came back on its event channel: one JSON object per line,
-    // each naming the identity the child minted for itself (v0.8 batch B), which is
-    // the batch-B artifact that crosses the process boundary here.
+    // The same identity is what the child announced on its event channel, and
+    // every event line agrees on it: one JSON object per line, one agent per child.
     let events = handle.events();
     assert!(
         events.iter().any(|line| line.contains("worker:ready")),
         "the worker announces itself: {events:?}"
     );
-    let mut child_id: Option<String> = None;
+    let mut announced: Option<String> = None;
+    let mut ready_id: Option<String> = None;
     for line in &events {
         let parsed: serde_json::Value = serde_json::from_str(line)
             .unwrap_or_else(|e| panic!("event line is JSON ({e}): {line}"));
@@ -122,24 +140,18 @@ fn a_task_crosses_the_process_boundary_and_comes_back_as_an_outcome() {
             .to_string();
         assert_eq!(
             id,
-            child_id.clone().unwrap_or_else(|| id.clone()),
+            announced.clone().unwrap_or_else(|| id.clone()),
             "one agent per child"
         );
-        child_id = Some(id);
+        if parsed["event"] == "worker:ready" {
+            ready_id = Some(id.clone());
+        }
+        announced = Some(id);
     }
-    let child_id = child_id.expect("the child emitted at least one event");
-    let parts: Vec<&str> = child_id.split('-').collect();
-    assert_eq!(parts.len(), 3, "device-pid-seq: {child_id}");
-    assert_eq!(parts[0], "local");
-    assert_ne!(
-        parts[1],
-        std::process::id().to_string(),
-        "the identity was minted in another process: {child_id}"
-    );
-    assert_ne!(
-        child_id,
-        handle.agent_id().to_string(),
-        "the child's identity is its own, not the supervisor's label"
+    let ready_id = ready_id.expect("the child announces itself before it runs");
+    assert_eq!(
+        ready_id, child_id,
+        "the outcome's identity is the one the child announced"
     );
 }
 

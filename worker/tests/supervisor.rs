@@ -113,14 +113,24 @@ fn two_executors_answer_one_task_each() {
             .expect("both executors answer")
             .clone();
         assert_eq!(sent.task_id, task.id, "task_id echo");
-        assert_eq!(
+        // The outcome names the executor that **ran** the task — the child's own
+        // identity, not the label the supervisor routed by.
+        assert_ne!(
             sent.agent_id, task.target,
-            "the outcome names the addressed executor"
+            "the outcome names the executor, not the label it was addressed by"
         );
         assert!(
             matches!(sent.outcome, AgentOutcome::Failed { .. }),
             "a child with no LLM answers Failed: {sent:?}"
         );
+    }
+
+    // Each outcome's identity is the one that executor announced on its own event
+    // channel: the supervisor learns who did the work from the work's answer.
+    for (outcome, handle) in outcomes.iter().zip(&handles) {
+        let sent = outcome.result.as_ref().expect("answered");
+        let announced = child_id(handle).expect("each executor announced itself");
+        assert_eq!(sent.agent_id.to_string(), announced);
     }
     assert_eq!(
         tally(&outcomes),

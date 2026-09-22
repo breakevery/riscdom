@@ -90,6 +90,23 @@ impl StdioExecutorHandle {
             .unwrap_or_default()
     }
 
+    /// The identity the child announced in its `worker:ready` event.
+    ///
+    /// Read from the event lines this run produced (`since` is the buffer length
+    /// before the spawn). By the time this is called the child has exited and its
+    /// stderr has been drained, so the announcement is already in hand — no extra
+    /// wait, and nothing to read asynchronously afterwards.
+    fn announced_identity(&self, since: usize) -> Option<AgentId> {
+        let events = self.events.lock().ok()?;
+        events.iter().skip(since).find_map(|line| {
+            let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
+            if parsed["event"] != "worker:ready" {
+                return None;
+            }
+            parsed["agent_id"].as_str().map(AgentId::new)
+        })
+    }
+
     /// Drain the child's stderr into `events` on its own thread.
     ///
     /// A thread rather than a plain read: a worker that writes more than the pipe
@@ -116,7 +133,12 @@ impl AgentHandle for StdioExecutorHandle {
         &self.agent_id
     }
 
-    fn run(&self, task: &Task) -> Result<agent::AgentOutcome, DispatchError> {
+    fn run(&self, task: &Task) -> Result<TaskOutcome, DispatchError> {
+        // Where the child's events start for *this* run: the handle's event buffer
+        // is shared across runs, so the identity is looked up only among the lines
+        // this run produced.
+        let seen = self.events.lock().map(|held| held.len()).unwrap_or(0);
+
         let line = serde_json::to_string(task)
             .map_err(|e| DispatchError::Failed(format!("the task is not serialisable: {e}")))?;
 
@@ -190,7 +212,18 @@ impl AgentHandle for StdioExecutorHandle {
                         parsed.task_id, task.id
                     )));
                 }
-                Ok(parsed.outcome)
+                // The child's answer names the identity **it** minted; ask the
+                // child, through the announcement it makes before it runs, rather
+                // than believing the label the supervisor addressed it by.
+                let executor = self.announced_identity(seen).ok_or_else(|| {
+                    DispatchError::Failed(format!(
+                        "the executor never announced its identity (no worker:ready event; {status})"
+                    ))
+                })?;
+                Ok(TaskOutcome {
+                    agent_id: executor,
+                    ..parsed
+                })
             }
             Ok(Err(e)) => {
                 let _ = child.kill();

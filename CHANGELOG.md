@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**A dispatched outcome now names the executor that actually ran the task.** `TaskOutcome.agent_id` used to be
+stamped by the dispatcher with the `Task.target` it routed to — which for a child process is a label the
+supervisor invented, not the identity that did the work. `AgentHandle::run` returns a `TaskOutcome` now (it
+returned a bare `AgentOutcome`), so each handle fills in the identity it alone knows: a local loop's own id,
+the host instance's id, or — for `StdioExecutorHandle` — the identity the child announces in its
+`worker:ready` event, with a missing announcement reported as `DispatchError::Failed` rather than guessed at.
+`LocalDispatcher` passes the handle's outcome through; its only judgement left is the route. Nothing about the
+audit chain, the hash formula or the append-only triggers changes.
+
+### Changed
+
+- **`TaskOutcome.agent_id` means "who ran this", not "who it was sent to"** (main deliverable 3/3):
+  `AgentHandle::run` returns `Result<TaskOutcome, DispatchError>` and builds the record itself; `LocalAgent`
+  and `HostAgentHandle` fill their own identity, `StdioExecutorHandle` fills the child's announced one, and
+  `LocalDispatcher` no longer assembles anything. The two differ whenever the executor is a child process,
+  which is exactly what a supervisor needs to tell "executor-0" apart from the process that answered.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

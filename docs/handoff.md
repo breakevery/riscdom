@@ -13,6 +13,15 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **After the v0.8.0 release: a dispatched outcome names the executor that actually ran the task** (main
+  deliverable 3/3 — the first of the three "known limitations" the v0.8.0 release notes named).
+  `AgentHandle::run` returns a `TaskOutcome` and fills in the identity it alone knows: a local loop's own id,
+  the host instance's id, or the child process's announced id (read from its `worker:ready` event, with a
+  missing announcement reported rather than guessed). `LocalDispatcher` passes it through instead of stamping
+  `Task.target`, so `TaskOutcome.agent_id` now answers "who ran this" rather than "who it was sent to". Two
+  v0.8.0 edges remain open: `tauri` is still not optional, and the preflight directory is still shared.
+  `RELEASE_NOTES.md` is the released text and is **not** edited: its "Known limitations" list still carries
+  the fixed edge, which this line supersedes.
 - **`v0.8.0` is released** (2026-09-22): the version is bumped to `0.8.0` (7 files: `Cargo.toml`, the two
   `Cargo.lock`s, `ui/package.json`, `ui/package-lock.json`, `ui/src-tauri/Cargo.toml`,
   `ui/src-tauri/tauri.conf.json` — the wix guard requires no `bundle.windows.wix.version` on a numeric

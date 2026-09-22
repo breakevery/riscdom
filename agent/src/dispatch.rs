@@ -97,9 +97,17 @@ impl Task {
 ///
 /// Serialisable since v0.8 (main deliverable 1/2): this is the record a worker
 /// process writes back as one JSON line.
+///
+/// `agent_id` is the **executor that actually ran the task** — its own identity,
+/// which the handle fills in. It need not equal the `Task.target` the supervisor
+/// routed by: a task addressed to a label lands on a child process whose identity
+/// (`local-<pid>-<seq>`) the supervisor could not have known in advance. Before
+/// v0.8 main deliverable 3/3 the dispatcher stamped the *target* here, so a
+/// supervisor could not tell who had done the work.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskOutcome {
     pub task_id: TaskId,
+    /// The identity of the executor that ran it (not the target it was sent to).
     pub agent_id: AgentId,
     /// The executor's own outcome, unchanged: the supervisor reads runs, not a
     /// second, dispatch-shaped vocabulary for the same thing.
@@ -128,9 +136,14 @@ pub trait AgentHandle: Send + Sync {
     /// The identity a task must target to reach this handle.
     fn agent_id(&self) -> &AgentId;
 
-    /// Run one task. `&self`: a handle is shared, so any mutable state it needs
-    /// lives inside it.
-    fn run(&self, task: &Task) -> Result<AgentOutcome, DispatchError>;
+    /// Run one task and report it, **filling in the identity of the executor that
+    /// ran it**. `&self`: a handle is shared, so any mutable state it needs lives
+    /// inside it.
+    ///
+    /// The handle owns the `TaskOutcome` assembly because only the handle knows
+    /// who the executor really is: for an in-process loop that is its own id, for
+    /// a child process it is the id the child announces.
+    fn run(&self, task: &Task) -> Result<TaskOutcome, DispatchError>;
 }
 
 /// Anything that can turn a [`Task`] into a [`TaskOutcome`].
@@ -161,18 +174,18 @@ impl LocalDispatcher {
 }
 
 impl Dispatcher for LocalDispatcher {
+    /// Route by `Task.target`, then **pass the handle's own outcome through**.
+    ///
+    /// The dispatcher no longer assembles a [`TaskOutcome`]: it does not know the
+    /// executor's identity (a child process has one the dispatcher never sees) and
+    /// must not invent one. Its only judgement left is the route itself.
     fn dispatch(&self, task: Task) -> Result<TaskOutcome, DispatchError> {
         let handle = self
             .handles
             .iter()
             .find(|handle| *handle.agent_id() == task.target)
             .ok_or_else(|| DispatchError::NoSuchAgent(task.target.clone()))?;
-        let outcome = handle.run(&task)?;
-        Ok(TaskOutcome {
-            task_id: task.id,
-            agent_id: task.target,
-            outcome,
-        })
+        handle.run(&task)
     }
 }
 
@@ -201,14 +214,21 @@ impl AgentHandle for LocalAgent {
         &self.agent_id
     }
 
-    fn run(&self, task: &Task) -> Result<AgentOutcome, DispatchError> {
+    fn run(&self, task: &Task) -> Result<TaskOutcome, DispatchError> {
         let mut agent = self
             .agent
             .lock()
             .map_err(|_| DispatchError::Failed("agent loop mutex poisoned".into()))?;
-        agent
+        let outcome = agent
             .run(&task.input)
-            .map_err(|error: AgentError| DispatchError::Failed(error.to_string()))
+            .map_err(|error: AgentError| DispatchError::Failed(error.to_string()))?;
+        // An in-process executor is its own identity: there is nobody else it
+        // could be.
+        Ok(TaskOutcome {
+            task_id: task.id.clone(),
+            agent_id: self.agent_id.clone(),
+            outcome,
+        })
     }
 }
 

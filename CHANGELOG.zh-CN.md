@@ -9,6 +9,21 @@
 
 ## [未发布]
 
+**派发得到的 outcome 现在写明的是**真正跑了任务的那个执行者**。** 此前 `TaskOutcome.agent_id` 由分发器盖上它路由到的
+`Task.target` —— 对子进程来说那是监工自造的标签，而不是真正干活的身份。现在 `AgentHandle::run` 返回
+`TaskOutcome`（此前只返回 `AgentOutcome`），于是每个句柄自己填只有它知道的身份：本地 loop 填自己的 id、host
+实例填自己的 id、`StdioExecutorHandle` 则填子进程在 `worker:ready` 事件里声明的身份（缺失即报
+`DispatchError::Failed`，而非猜一个）。`LocalDispatcher` 透传句柄的 outcome，它仅剩的判断就是路由。审计链、
+哈希公式与 append-only 触发器均无变化。
+
+### 变更
+
+- **`TaskOutcome.agent_id` 的语义是「谁跑了它」，不是「它被发给谁」**（主体交付 3/3）：
+  `AgentHandle::run` 返回 `Result<TaskOutcome, DispatchError>` 并自行组装记录；`LocalAgent` 与
+  `HostAgentHandle` 填自己的身份，`StdioExecutorHandle` 填子进程声明的那个，
+  `LocalDispatcher` 不再组装任何东西。执行者是子进程时两者必然不同 —— 而这正是监工区分「executor-0」
+  与「真正应答的那个进程」所需要的。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

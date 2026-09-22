@@ -11,6 +11,12 @@
 
 ## 1. 快照 —— `v0.8.0` 是最新的发行版（下次正式发布时更新本节）
 
+- **v0.8.0 发布之后：派发得到的 outcome 写明的是真正跑了任务的执行者**（主体交付 3/3 —— v0.8.0 发布说明里
+  三条「已知限制」的第一条已闭环）。`AgentHandle::run` 返回 `TaskOutcome`，并填入只有它知道的身份：本地 loop
+  自己的 id、host 实例自己的 id、或子进程声明的 id（从它的 `worker:ready` 事件读出，缺失则上报而不是猜）。
+  `LocalDispatcher` 改为透传而不再盖 `Task.target`，因此 `TaskOutcome.agent_id` 现在回答的是「谁跑了它」而不是
+  「它被发给谁」。v0.8.0 还有两个边角未结：`tauri` 仍未 optional，preflight 目录仍共享。`RELEASE_NOTES.md` 是
+  已发布的正文、**不改**：它的「已知限制」里仍带着已闭环的那一条，以本行为准。
 - **`v0.8.0` 已发布**（2026-09-22）：版本 bump 到 `0.8.0`（7 个文件：`Cargo.toml`、两个 `Cargo.lock`、
   `ui/package.json`、`ui/package-lock.json`、`ui/src-tauri/Cargo.toml`、`ui/src-tauri/tauri.conf.json`
   —— wix 守卫要求纯数字正式版不带 `bundle.windows.wix.version`，当前确实没有），`CHANGELOG` 的
