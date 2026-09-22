@@ -1,5 +1,7 @@
 import { useState } from "react";
 import type { AppStore } from "../state/appStore";
+import { t } from "../i18n/index.ts";
+import type { StringKey } from "../i18n/index.ts";
 import AppearanceTab from "./AppearanceTab";
 import AuditTab from "./AuditTab";
 import ModelTab from "./ModelTab";
@@ -9,13 +11,13 @@ import ToolchainTab from "./ToolchainTab";
 
 type TabId = "model" | "toolchain" | "snapshot" | "audit" | "plugin" | "appearance";
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: "model", label: "模型" },
-  { id: "toolchain", label: "工具链" },
-  { id: "snapshot", label: "快照" },
-  { id: "audit", label: "审计" },
-  { id: "plugin", label: "插件" },
-  { id: "appearance", label: "外观" },
+const TABS: { id: TabId; labelKey: StringKey }[] = [
+  { id: "model", labelKey: "settings.tab.model" },
+  { id: "toolchain", labelKey: "settings.tab.toolchain" },
+  { id: "snapshot", labelKey: "settings.tab.snapshot" },
+  { id: "audit", labelKey: "settings.tab.audit" },
+  { id: "plugin", labelKey: "settings.tab.plugin" },
+  { id: "appearance", labelKey: "settings.tab.appearance" },
 ];
 
 /**
@@ -29,13 +31,13 @@ export default function SettingsTabs({ store }: { store: AppStore }) {
   return (
     <>
       <nav className="settings-tabs">
-        {TABS.map((t) => (
+        {TABS.map((entry) => (
           <button
-            key={t.id}
-            className={`tab-btn${tab === t.id ? " active" : ""}`}
-            onClick={() => setTab(t.id)}
+            key={entry.id}
+            className={`tab-btn${tab === entry.id ? " active" : ""}`}
+            onClick={() => setTab(entry.id)}
           >
-            {t.label}
+            {t(entry.labelKey)}
           </button>
         ))}
       </nav>

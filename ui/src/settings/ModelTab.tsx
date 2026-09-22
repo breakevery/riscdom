@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../api/tauri";
 import type { AppStore } from "../state/appStore";
+import { t } from "../i18n/index.ts";
+import type { StringKey } from "../i18n/index.ts";
 
-const BANNER_TEXT: Record<string, string> = {
-  no_config: "尚未配置模型。选择服务商并填写 API Key，或使用本地模型。",
-  missing_api_key: "缺少 API Key。请填写，或切换到本地模型预设。",
-  invalid_base_url: "Base URL 无效，请检查。",
-  invalid_config: "配置无效，请检查服务商与 Model。",
+const BANNER_TEXT: Record<string, StringKey | undefined> = {
+  no_config: "model.banner.no_config",
+  missing_api_key: "model.banner.missing_api_key",
+  invalid_base_url: "model.banner.invalid_base_url",
+  invalid_config: "model.banner.invalid_config",
 };
 
 // Only a non-sensitive UI preference is kept in localStorage.
@@ -64,7 +66,7 @@ export default function ModelTab({ store }: { store: AppStore }) {
     api
       .getProviderPresets()
       .then(setPresets)
-      .catch(() => setNote("加载服务商失败"));
+      .catch(() => setNote(t("model.presets_failed")));
 
     void (async () => {
       await refreshReadiness();
@@ -79,7 +81,7 @@ export default function ModelTab({ store }: { store: AppStore }) {
             setProviderId(pid);
             await refreshStatus();
             await refreshReadiness();
-            setNote("已从系统钥匙串恢复 Key");
+            setNote(t("model.key_restored"));
           }
         } else {
           setProviderId(status.provider_id);
@@ -118,7 +120,7 @@ export default function ModelTab({ store }: { store: AppStore }) {
     try {
       await api.loadStoredKey(id);
       setStoredPrompt(null);
-      setNote("已从系统钥匙串加载 Key");
+      setNote(t("model.key_loaded"));
       await refreshStatus();
       await refreshReadiness();
     } catch (e) {
@@ -132,7 +134,7 @@ export default function ModelTab({ store }: { store: AppStore }) {
       await api.setLlmConfig(apiKey, baseUrl, model, providerId, remember);
       setApiKey(""); // never keep the key in component memory
       setNote(
-        remember ? "已保存到本次会话并写入系统钥匙串" : "已保存到本次会话（仅内存）",
+        remember ? t("model.saved_keyring") : t("model.saved_memory"),
       );
       await refreshStatus();
       await refreshReadiness();
@@ -145,7 +147,7 @@ export default function ModelTab({ store }: { store: AppStore }) {
   const clear = async () => {
     try {
       await api.clearLlmConfig();
-      setNote("已清除（含系统钥匙串条目）");
+      setNote(t("model.cleared"));
       setFieldError(null);
       await refreshStatus();
       await refreshReadiness();
@@ -163,10 +165,10 @@ export default function ModelTab({ store }: { store: AppStore }) {
       if (result.found && result.providers.length > 0) {
         setSuggestion(result.providers[0]);
       } else {
-        setProbeNote("未检测到本地模型");
+        setProbeNote(t("model.no_local"));
       }
     } catch {
-      setProbeNote("未检测到本地模型");
+      setProbeNote(t("model.no_local"));
     } finally {
       setProbing(false);
     }
@@ -181,7 +183,7 @@ export default function ModelTab({ store }: { store: AppStore }) {
     setSuggestion(null);
     try {
       await api.setLlmConfig("", provider.base_url, localModel, provider.id, false);
-      setNote("已切换到本地模型");
+      setNote(t("model.switched_local"));
       await refreshStatus();
       await refreshReadiness();
     } catch (e) {
@@ -196,21 +198,25 @@ export default function ModelTab({ store }: { store: AppStore }) {
     <>
       {bannerReason !== null ? (
         <div className="banner warn">
-          <span>{BANNER_TEXT[bannerReason] ?? "模型未就绪，请检查配置。"}</span>
+          <span>
+            {BANNER_TEXT[bannerReason] !== undefined
+              ? t(BANNER_TEXT[bannerReason])
+              : t("model.not_ready")}
+          </span>
           <button className="ghost tiny" disabled={probing} onClick={() => void detectLocal()}>
-            {probing ? "检测中…" : "检测本地模型"}
+            {probing ? t("model.detecting") : t("model.detect_local")}
           </button>
         </div>
       ) : null}
 
       {storedPrompt ? (
         <div className="banner info">
-          <span>检测到已保存的 {presetName(storedPrompt)} Key，是否加载？</span>
+          <span>{t("model.stored_prompt", { provider: presetName(storedPrompt) })}</span>
           <button className="ghost tiny" onClick={() => void loadStored(storedPrompt)}>
-            加载
+            {t("model.load")}
           </button>
           <button className="ghost tiny" onClick={() => setStoredPrompt(null)}>
-            忽略
+            {t("model.ignore")}
           </button>
         </div>
       ) : null}
@@ -218,21 +224,24 @@ export default function ModelTab({ store }: { store: AppStore }) {
       {suggestion ? (
         <div className="banner info">
           <span>
-            检测到本地模型 {suggestion.display_name}（{suggestion.base_url}，
-            {suggestion.models.length} 个模型）。是否使用？
+            {t("model.local_found", {
+              name: suggestion.display_name,
+              url: suggestion.base_url,
+              count: suggestion.models.length,
+            })}
           </span>
           <button className="ghost tiny" onClick={() => void useLocal(suggestion)}>
-            使用
+            {t("model.use")}
           </button>
           <button className="ghost tiny" onClick={() => setSuggestion(null)}>
-            忽略
+            {t("model.ignore")}
           </button>
         </div>
       ) : null}
       {probeNote ? <div className="muted small">{probeNote}</div> : null}
 
       <label>
-        服务商
+        {t("model.provider")}
         <select value={providerId} onChange={(e) => onProviderChange(e.target.value)}>
           {presets.map((p) => (
             <option key={p.id} value={p.id}>
@@ -249,11 +258,13 @@ export default function ModelTab({ store }: { store: AppStore }) {
           value={apiKey}
           autoComplete="off"
           disabled={keyNotNeeded}
-          placeholder={keyNotNeeded ? "本地模型无需 key" : "sk-…（仅保存在内存）"}
+          placeholder={keyNotNeeded ? t("model.no_key_needed") : t("model.key_placeholder")}
           onChange={(e) => setApiKey(e.target.value)}
         />
       </label>
-      {keyNotNeeded ? <div className="muted small">本地模型无需 key</div> : null}
+      {keyNotNeeded ? (
+        <div className="muted small">{t("model.no_key_needed")}</div>
+      ) : null}
 
       <label className="check-row">
         <input
@@ -264,9 +275,9 @@ export default function ModelTab({ store }: { store: AppStore }) {
             writeRemember(e.target.checked);
           }}
         />
-        <span>保存到系统钥匙串（推荐）</span>
+        <span>{t("model.remember")}</span>
       </label>
-      <div className="muted small">未勾选时，API Key 仅保存在本次会话。</div>
+      <div className="muted small">{t("model.remember_hint")}</div>
 
       {fieldError?.code === "missing_api_key" ? (
         <div className="field-error">{fieldError.text}</div>
@@ -297,9 +308,9 @@ export default function ModelTab({ store }: { store: AppStore }) {
       ) : null}
 
       <div className="row">
-        <button onClick={() => void save()}>保存到本次会话</button>
+        <button onClick={() => void save()}>{t("model.save")}</button>
         <button className="ghost" onClick={() => void clear()}>
-          清除
+          {t("model.clear")}
         </button>
       </div>
       {note ? <div className="muted small">{note}</div> : null}
@@ -307,10 +318,13 @@ export default function ModelTab({ store }: { store: AppStore }) {
       <div className="status-line">
         <span className={`dot ${store.llmStatus.configured ? "ok" : "off"}`} />
         {store.llmStatus.configured
-          ? `已配置 · ${providerName} · ${
-              store.llmStatus.persisted ? "已保存到系统钥匙串" : "仅本次会话"
-            }`
-          : "未配置（API key 不会落盘）"}
+          ? t("model.status_configured", {
+              provider: providerName,
+              state: store.llmStatus.persisted
+                ? t("model.status_persisted")
+                : t("model.status_session_only"),
+            })
+          : t("model.status_unconfigured")}
       </div>
     </>
   );

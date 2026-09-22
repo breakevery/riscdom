@@ -1,4 +1,5 @@
 import type { AppStore } from "../state/appStore";
+import { t } from "../i18n/index.ts";
 import {
   comparePanelVisible,
   diffEmptyText,
@@ -33,23 +34,25 @@ export default function AuditTab({ store }: { store: AppStore }) {
       <div className="status-line">
         <span className={`dot ${chain?.status === "Intact" ? "ok" : chain ? "bad" : "off"}`} />
         {store.auditStatus
-          ? `${store.auditStatus.count} 条事件 · ${
-              chain?.status === "Intact"
-                ? `链完整 (${chain.length})`
-                : chain
-                  ? `链断裂 @${chain.at_id}`
-                  : "未知"
-            }`
-          : "加载中…"}
+          ? t("audit.status", {
+              count: store.auditStatus.count,
+              state:
+                chain?.status === "Intact"
+                  ? t("audit.chain_intact", { length: chain.length ?? 0 })
+                  : chain
+                    ? t("audit.chain_broken", { id: chain.at_id ?? 0 })
+                    : t("audit.unknown"),
+            })
+          : t("audit.loading")}
         <button className="ghost tiny" onClick={() => void store.refreshAudit()}>
-          刷新
+          {t("audit.refresh")}
         </button>
       </div>
 
       {/* v0.5 batch 11: the filter follows the input instead of applying on blur —
           waiting for focus to leave hid the effect of what had just been typed. */}
       <label className="row">
-        <span className="small">按 actor 过滤</span>
+        <span className="small">{t("audit.filter_actor")}</span>
         <input
           value={store.auditActorFilter}
           placeholder="sandbox / agent / host / human"
@@ -72,16 +75,16 @@ export default function AuditTab({ store }: { store: AppStore }) {
 
       {/* Runs (v0.4 1d): read-only window onto the derived index. */}
       <div className="status-line">
-        <span className="small">最近运行（run）</span>
-        <span className="muted small">勾选两个可并排对比指纹</span>
+        <span className="small">{t("audit.runs_heading")}</span>
+        <span className="muted small">{t("audit.compare_hint")}</span>
         <span className="spacer" />
         {store.selectedRuns.length > 0 ? (
           <button className="ghost tiny" onClick={() => store.clearRunSelection()}>
-            清除选择
+            {t("audit.clear_selection")}
           </button>
         ) : null}
         <button className="ghost tiny" onClick={() => void store.refreshRuns()}>
-          刷新
+          {t("audit.refresh")}
         </button>
       </div>
       {runRows.length === 0 ? (
@@ -95,7 +98,7 @@ export default function AuditTab({ store }: { store: AppStore }) {
                 className="run-pick"
                 checked={store.selectedRuns.includes(r.runId)}
                 onChange={() => store.toggleRunSelection(r.runId)}
-                aria-label={`选择 ${r.runId}`}
+                aria-label={t("audit.select_run", { id: r.runId })}
               />
               <span className={`badge ${r.status === "ok" ? "ok" : ""}`}>
                 {r.statusLabel}
@@ -117,7 +120,7 @@ export default function AuditTab({ store }: { store: AppStore }) {
                   className="ghost tiny"
                   onClick={() => void store.exportRunAudit(r.runId)}
                 >
-                  导出
+                  {t("audit.export")}
                 </button>
               ) : null}
             </li>

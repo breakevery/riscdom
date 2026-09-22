@@ -6,7 +6,7 @@ import { LANGUAGE_CHOICES, languageChoiceKey, t } from "../i18n/index.ts";
 export default function AppearanceTab({ store }: { store: AppStore }) {
   return (
     <>
-      <h3>主题</h3>
+      <h3>{t("appearance.theme")}</h3>
       <div className="theme-choices">
         {THEMES.map((candidate) => (
           <button
@@ -18,11 +18,11 @@ export default function AppearanceTab({ store }: { store: AppStore }) {
           </button>
         ))}
         <button className="ghost tiny" onClick={() => void store.cycleTheme()}>
-          循环切换
+          {t("appearance.cycle")}
         </button>
       </div>
       <div className="muted small">{themeSummary(store.theme, store.resolvedTheme)}</div>
-      <div className="muted small">选择会写入 settings.json，重启后继续生效。</div>
+      <div className="muted small">{t("appearance.hint")}</div>
 
       {/* Language (v0.7 batch 2): the theme's three-state shape again — follow the
           system, or pin one language. The labels come from the registry, so the
