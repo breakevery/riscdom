@@ -1,18 +1,18 @@
 [English](README.md) | 中文
 
-# host
+# host-tauri
 
-智芯城（RiscDom）的 **Tauri 宿主后端**。前端只通过 Tauri command 与它通信，
-绝不直接接触 `agent` / `sandbox` / `audit`。
+RiscDom 宿主的 **Tauri 半边**：53 个 `#[tauri::command]` 与 `TauriEventSink` 传输，架在内核门面之上。前端只通过 Tauri command 与它通信，绝不直接接触 `agent` / `sandbox` / `audit`——**内核能力在 [`host-core`](../host-core/README.zh-CN.md)**，本 crate 再导出它（`pub use host_core::*`），因此外壳只依赖一个 crate。
 
-依赖方向：`host → {agent, sandbox, audit}`；`ui/src-tauri → host`。
+依赖方向：`host-tauri → host-core → {agent, sandbox, audit}`；`ui/src-tauri → host-tauri`。下层不得依赖 `host-tauri`——v0.9 A1 拆分存在的理由，就是让 `worker` 与 `server` 不链接 Tauri。
 
 ## 模块
 
-- `state` — `AppState`（审计库、sink、VM 槽、LLM 配置、工作区、编译器）
-- `commands` — Tauri commands
-- `events` — 事件名常量 + `EventSink`（Tauri / 测试用录制实现）
-- `error` — `HostError`
+- `commands` —— 53 个 Tauri 命令，是 `host-core` 的 `AppState` 上的薄包装
+- `events` —— `TauriEventSink` 传输，外加 `host-core` 事件面（envelope、事件名、`EventSink`）的再导出
+- `lib.rs` —— 门面：`pub use host_core::*`
+
+审计库、`AppState`、快照、会话、两条下载路径、预检、运行指纹对比、keyring、路径与错误类型都在 `host-core`，经门面在此可达（`host_tauri::AppState`、`host_tauri::state::…` 等）。
 
 ## Commands
 
@@ -48,7 +48,7 @@
 
 ## 服务商预设
 
-`host` 通过 `get_provider_presets` 把 `agent::presets::builtin_presets()`（纯数据）暴露给前端；
+`host-tauri` 通过 `get_provider_presets` 把 `agent::presets::builtin_presets()`（纯数据）暴露给前端；
 `set_llm_config` 接受 `provider_id`，当传入的是预设且 `base_url` / `model` 为空时用预设值填充；
 `provider_id = "custom"` 时两者必填。5 个内置预设：`deepseek`（默认）/ `openai` /
 `ollama`（本地，无需 key）/ `lmstudio`（本地，无需 key）/ `custom`。详见 `agent/README.md`。
@@ -136,7 +136,7 @@ cmdkey /list:llm-api-key:deepseek.com.breakevery.riscdom
 cmdkey /list | findstr breakevery
 ```
 
-`cargo test -p host --test keyring_os -- --ignored --nocapture` 会用一次性的
+`cargo test -p host-core --test keyring_os -- --ignored --nocapture` 会用一次性的
 `com.breakevery.riscdom.test` 条目真实演练一遍，并自行清理。
 
 ## 会话持久化
@@ -208,7 +208,7 @@ AgentOutcome: Final，iterations = 6
 
 - 串口含 `HELLO RISCV` ✅
 - 模型只使用了白名单工具（write_source → compile → start_vm → read_serial → stop_vm）✅
-- 注意：该测试本身只断言“串口含 HELLO RISCV + 非 Failed”，**未包含** `verify_chain` 断言（属测试覆盖缺口，未在本轮修改代码）。链完整性证据见 mock e2e（`cargo test -p host -- --ignored`，Intact length 29）。
+- 注意：该测试本身只断言“串口含 HELLO RISCV + 非 Failed”，**未包含** `verify_chain` 断言（属测试覆盖缺口，未在本轮修改代码）。链完整性证据见 mock e2e（`cargo test -p host-core -- --ignored`，Intact length 29）。
 
 ### UI 全链路人工步骤
 
@@ -233,15 +233,17 @@ AgentOutcome: Final，iterations = 6
 自动化的等价验证（mock LLM，无需 key）：
 
 ```text
-cargo test -p host -- --ignored --nocapture
+cargo test -p host-core -- --ignored --nocapture
 ```
 
 断言：`agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
 
 ## 测试
 
+测试随代码搬迁：它们住在 [`host-core/tests`](../host-core/tests)，因为它们所验证的行为在那里。
+
 ```text
-cargo test -p host
+cargo test -p host-core
 ```
 
 - `tests/commands_smoke.rs`：状态/配置/文件（含 key 不泄漏断言）

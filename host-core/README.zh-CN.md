@@ -20,13 +20,13 @@ RiscDom 宿主（host）的**可移植半边**：内核门面里所有不需要 
 - `paths` —— workspace 与数据目录路径
 - `error` —— `HostError`
 
-## 与 `host` 的关系
+## 与 `host-tauri` 的关系
 
-`host` 是 Tauri 半边：53 个 `#[tauri::command]` 与 `TauriEventSink` 传输。A1 拆分分波推进期间，`host` 同时再导出本 crate 的公共面（`pub use host_core::*`），因此照着拆分前的 `host` 写的消费者无需改动即可编译。后续各波把消费者搬离 `host`——`worker` 与 `server` 搬去 `host-core`，桌面壳搬去更名后的 Tauri crate。
+`host-tauri` 是 Tauri 半边：53 个 `#[tauri::command]` 与 `TauriEventSink` 传输。它再导出本 crate 的公共面（`pub use host_core::*`），因此桌面壳只依赖一个 crate，而照着拆分前的 `host` 写的消费者无需改动即可编译。依赖只朝一个方向：`host-tauri → host-core`；`worker` 与 `server` 直接依赖本 crate，这正是它们都不链接 Tauri 的原因。
 
 ## 约束
 
-- **无 Tauri。** 需要 webview 的改动属于 `host`，不属于这里。
+- **无 Tauri。** 需要 webview 的改动属于 `host-tauri`，不属于这里。
 - API key 只存在于内存：不落盘、不进日志、不进审计。
 - 文件读写经 `agent::WorkspacePolicy` 检查。
 - 本 crate 之外的一切都不直接触碰 `sandbox` / `agent`。

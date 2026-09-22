@@ -1477,16 +1477,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "host"
-version = "0.8.0"
-dependencies = [
- "host-core",
- "serde_json",
- "tauri",
- "tokio",
-]
-
-[[package]]
 name = "host-core"
 version = "0.8.0"
 dependencies = [
@@ -1504,6 +1494,15 @@ dependencies = [
  "thiserror 1.0.69",
  "uuid",
  "zip",
+]
+
+[[package]]
+name = "host-tauri"
+version = "0.8.0"
+dependencies = [
+ "host-core",
+ "serde_json",
+ "tauri",
 ]
 
 [[package]]

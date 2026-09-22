@@ -1,18 +1,27 @@
 [中文](README.zh-CN.md) | English
 
-# host
+# host-tauri
 
-The RiscDom **Tauri host backend**. The frontend talks to it only through Tauri commands and
-never touches `agent` / `sandbox` / `audit` directly.
+The RiscDom **Tauri half of the host backend**: the 53 `#[tauri::command]` functions and the
+`TauriEventSink` transport, over the kernel facade. The frontend talks to it only through Tauri
+commands and never touches `agent` / `sandbox` / `audit` directly — **the kernel capability lives
+in [`host-core`](../host-core/README.md)**, and this crate re-exports it (`pub use
+host_core::*`), so a shell depends on one crate.
 
-Dependency direction: `host → {agent, sandbox, audit}`; `ui/src-tauri → host`.
+Dependency direction: `host-tauri → host-core → {agent, sandbox, audit}`; `ui/src-tauri →
+host-tauri`. Nothing below depends on `host-tauri` — the split (v0.9 A1) exists so that `worker`
+and `server` do not link Tauri.
 
 ## Modules
 
-- `state` — `AppState` (audit store, sink, VM slot, LLM config, workspace, compiler)
-- `commands` — Tauri commands
-- `events` — event-name constants + `EventSink` (Tauri / recording test implementation)
-- `error` — `HostError`
+- `commands` — the 53 Tauri commands, thin wrappers over `host-core`'s `AppState`
+- `events` — the `TauriEventSink` transport, plus a re-export of `host-core`'s event surface
+  (envelope, event names, `EventSink`)
+- `lib.rs` — the facade: `pub use host_core::*`
+
+The audit store, `AppState`, snapshots, sessions, the download paths, the preflight, the run
+fingerprint diff, the keyring, the paths and the error type all live in `host-core` and are
+reachable here through the facade (`host_tauri::AppState`, `host_tauri::state::…`, …).
 
 ## Commands
 
@@ -48,7 +57,7 @@ Dependency direction: `host → {agent, sandbox, audit}`; `ui/src-tauri → host
 
 ## Provider presets
 
-`host` exposes `agent::presets::builtin_presets()` (pure data) to the frontend through
+`host-tauri` exposes `agent::presets::builtin_presets()` (pure data) to the frontend through
 `get_provider_presets`; `set_llm_config` accepts `provider_id` and fills `base_url` / `model`
 from the preset when they are empty; `provider_id = "custom"` requires both. The 5 built-in
 presets: `deepseek` (default) / `openai` / `ollama` (local, no key) / `lmstudio` (local, no
@@ -147,7 +156,7 @@ cmdkey /list:llm-api-key:deepseek.com.breakevery.riscdom
 cmdkey /list | findstr breakevery
 ```
 
-`cargo test -p host --test keyring_os -- --ignored --nocapture` exercises the real store with a
+`cargo test -p host-core --test keyring_os -- --ignored --nocapture` exercises the real store with a
 throwaway `com.breakevery.riscdom.test` entry and cleans up after itself.
 
 ## Session persistence
@@ -234,7 +243,7 @@ test time: about 7.6s (compile + QEMU boot); about 12.8s total
 - Note: at the time this record was written the test itself asserted only "serial contains
   HELLO RISCV + not Failed" and had **no** `verify_chain` assertion (a coverage gap; since
   stage 21 the test asserts the chain as well). Chain-integrity evidence is in the mock e2e
-  (`cargo test -p host -- --ignored`, Intact length 29).
+  (`cargo test -p host-core -- --ignored`, Intact length 29).
 
 ### Full UI walkthrough
 
@@ -268,7 +277,7 @@ timeout and fails silently.
 The automated equivalent (mock LLM, no key needed):
 
 ```text
-cargo test -p host -- --ignored --nocapture
+cargo test -p host-core -- --ignored --nocapture
 ```
 
 It asserts: `agent:final` arrives, `serial:chunk` contains `HELLO RISCV`, `verify_chain` is
@@ -276,8 +285,11 @@ Intact.
 
 ## Tests
 
+The tests moved with the code: they live in [`host-core/tests`](../host-core/tests), because
+that is where the behaviour they exercise is.
+
 ```text
-cargo test -p host
+cargo test -p host-core
 ```
 
 - `tests/commands_smoke.rs`: status/config/files (including key-leak assertions)

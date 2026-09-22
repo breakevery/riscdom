@@ -1477,16 +1477,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "host"
-version = "0.8.0"
-dependencies = [
- "host-core",
- "serde_json",
- "tauri",
- "tokio",
-]
-
-[[package]]
 name = "host-core"
 version = "0.8.0"
 dependencies = [
@@ -1504,6 +1494,15 @@ dependencies = [
  "thiserror 1.0.69",
  "uuid",
  "zip",
+]
+
+[[package]]
+name = "host-tauri"
+version = "0.8.0"
+dependencies = [
+ "host-core",
+ "serde_json",
+ "tauri",
 ]
 
 [[package]]
@@ -4386,7 +4385,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 name = "ui"
 version = "0.8.0"
 dependencies = [
- "host",
+ "host-tauri",
  "serde",
  "serde_json",
  "tauri",

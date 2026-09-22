@@ -269,3 +269,13 @@
 **理由**：多个传输承载的是同一批事件；统一 envelope，才让照着其中一个写出的客户端也适用于其余几个。
 
 **影响**：版本规则——加 payload 字段、加事件名、加 `kind` 取值都不升 `version`；改字段含义或类型、或删字段才升。顶层字段冻结。事件身份取自**事件源**，不取自承载它的 sink。
+
+## 27. 宿主拆分：host-core + host-tauri
+
+**日期**：2026-09-23 ｜ **状态**：已定，v0.9 已落（A1，四波）
+
+**决策**：宿主分成两个 crate——`host-core`（内核门面：审计接线、`AppState`、快照、会话、两条下载路径、预检、事件 envelope）与 `host-tauri`（53 个 Tauri 命令与 `TauriEventSink` 传输），由 `host-tauri` 再导出 `host-core`。
+
+**理由**：`tauri` 此前被无条件链接，于是 `worker` 与 `server`——两个从不接触 webview 的无头进程——把一整套 GUI 工具链拖进了每次构建。拆 crate 才能把「链接 Tauri」从宿主的固有属性变成进程自己的选择。
+
+**影响**：边界就是「是否需要 webview」这一问，且依赖只朝一个方向：`host-tauri → host-core → {agent, sandbox, audit}`。`worker` 与 `server` 依赖 `host-core` 且不含任何 Tauri crate（`cargo tree -p worker` / `-p server` 可验）；桌面壳只依赖 `host-tauri`，因为后者再导出了可移植面（`pub use host_core::*`）。39 个集成测试住在 `host-core/tests`；镜像常量守卫与 clippy 步骤覆盖两个 crate。工作分四波完成——core + 门面、测试 + 守卫、worker/server、更名 + 外壳——每波自身可绿，没有「暂时红」的中间态。crate 名本身即文档：`host-core` 说「无 webview」，`host-tauri` 说「只有 webview」。

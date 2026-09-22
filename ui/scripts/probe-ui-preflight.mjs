@@ -23,7 +23,7 @@ const TAB = path.join(REPO, "ui", "src", "settings", "ToolchainTab.tsx");
 const STORE = path.join(REPO, "ui", "src", "state", "appStore.ts");
 const API = path.join(REPO, "ui", "src", "api", "tauri.ts");
 const SHELL = path.join(REPO, "ui", "src-tauri", "src", "lib.rs");
-const HOST_CMDS = path.join(REPO, "host", "src", "commands.rs");
+const HOST_CMDS = path.join(REPO, "host-tauri", "src", "commands.rs");
 
 let failures = 0;
 function check(name, ok, detail) {

@@ -369,3 +369,26 @@ against one of them work against the others.
 value all leave `version` alone; changing a field's meaning or type, or removing one, bumps it.
 The top-level fields are frozen. An event's identity comes from the **event source**, not from
 the sink that carries it.
+
+## 27. The host split: host-core + host-tauri
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; landed in v0.9 (A1, four waves)
+
+**Decision**: The host is two crates — `host-core` (the kernel facade: audit wiring, `AppState`,
+snapshots, sessions, the download paths, the preflight, the event envelope) and `host-tauri` (the
+53 Tauri commands and the `TauriEventSink` transport), with `host-tauri` re-exporting
+`host-core`.
+
+**Why**: `tauri` was linked unconditionally, so `worker` and `server` — headless processes that
+never touch a webview — dragged a GUI toolkit into every build. Splitting the crates is what turns
+"links Tauri" from a property of the host into a choice of the process.
+
+**Impact**: The boundary is the question "does it need a webview", and the dependency runs one way
+only: `host-tauri → host-core → {agent, sandbox, audit}`. `worker` and `server` depend on
+`host-core` and name no Tauri crate (`cargo tree -p worker` / `-p server` confirm); the desktop
+shell depends on `host-tauri` alone, because `host-tauri` re-exports the portable surface
+(`pub use host_core::*`). The 39 integration tests live in `host-core/tests`; the mirror-constant
+guard and the clippy step cover both crates. The work was four waves — core + facade, tests +
+guards, worker/server, rename + shell — each green on its own, with no temporarily-red intermediate
+state. The crate names are load-bearing: `host-core` says "no webview", `host-tauri` says
+"webview only".

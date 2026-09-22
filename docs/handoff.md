@@ -13,6 +13,15 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The host split is complete: `host-core` + `host-tauri`** (v0.9 A1, wave 4 of 4).
+  `host` is renamed `host-tauri` (directory, `[package] name`, workspace member) and the
+  desktop shell depends on it: all 57 `host::` paths in `ui/src-tauri/src/lib.rs` became
+  `host_tauri::`, every one of them resolving through the facade, so the shell needs one crate
+  and no direct `host-core` edge. The dead `tokio` dependency is gone from the manifest
+  (nothing in the crate or its tests ever used it). `cargo tree`: `-p host-core` 0 Tauri lines,
+  `-p host-tauri` 15, `-p worker` and `-p server` still 0. `worker` gained the README pair it
+  never had; `host-tauri/README.md` describes the two-crate boundary; the ledger has the entry
+  (`docs/decisions.md` §27).
 - **`worker` and `server` no longer link Tauri** (v0.9 A1 wave 3 of 4). Both moved off
   `host` to `host-core`: 30 `host::` paths became `host_core::` (worker 7 in 4 files,
   server 23 in 7 files — every occurrence, not only the `use` lines) and each `Cargo.toml`

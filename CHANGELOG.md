@@ -34,6 +34,23 @@ it lives; and the mirror-constant guard and the clippy step cover both crates ag
 **`worker` and `server` no longer link Tauri.** Both depend on the kernel facade's
 portable half, so neither binary pulls a GUI toolkit into a headless process.
 
+**The host split is complete: `host-core` + `host-tauri`.** The crate that carries the Tauri
+commands is now named for what it is, the desktop shell is its only consumer, and nothing below
+it links Tauri.
+
+### Changed
+
+- **`host` is renamed `host-tauri`** (directory, `[package] name`, workspace member), and the
+  desktop shell depends on it: all 57 `host::` paths in `ui/src-tauri/src/lib.rs` became
+  `host_tauri::`, resolving through the facade, so `ui/src-tauri` needs no direct `host-core`
+  edge. `cargo tree`: `-p host-core` 0 Tauri lines, `-p host-tauri` 15, `-p worker` /
+  `-p server` 0.
+- **The dead `tokio` dependency is gone** from `host-tauri/Cargo.toml`: nothing in the crate or
+  its tests ever named it (`cargo tree` still shows tokio through Tauri).
+- **`host-tauri/README.md`** now documents the two-crate boundary and points at `host-core` for
+  the kernel capability; **`worker/README.md`** is new (it had none), covering the CLI, the stdio
+  protocol, the supervisor half and the demo.
+
 ### Changed
 
 - **`worker` + `server` depend on `host-core` instead of `host`** (A1 wave 3): 30 `host::`

@@ -19,6 +19,14 @@
 
 **`worker` 与 `server` 不再链接 Tauri。** 两者改为依赖内核门面的可移植半边，于是任何无头进程都不再被拖进一套 GUI 工具链。
 
+**宿主拆分完成：`host-core` + `host-tauri`。** 承载 Tauri 命令的 crate 现在按它的实质命名，桌面壳是它唯一的消费者，其下层没有任何东西链接 Tauri。
+
+### 变更
+
+- **`host` 更名为 `host-tauri`**（目录、`[package] name`、workspace member），桌面壳依赖它：`ui/src-tauri/src/lib.rs` 里 57 处 `host::` 全部改为 `host_tauri::`，经门面解析，因此 `ui/src-tauri` 无需直接依赖 `host-core`。`cargo tree`：`-p host-core` 0 行 Tauri、`-p host-tauri` 15 行、`-p worker` / `-p server` 0 行。
+- **`host-tauri/Cargo.toml` 里的 `tokio` 死依赖已删除**：本 crate 与其测试从未用到它（`cargo tree` 仍会经 Tauri 显示 tokio）。
+- **`host-tauri/README.md`** 现在说明两 crate 边界，并把内核能力指向 `host-core`；**`worker/README.md`** 为新增（此前没有），覆盖 CLI、stdio 协议、监工半边与示例。
+
 ### 变更
 
 - **`worker` + `server` 改依赖 `host-core`（而非 `host`）**（A1 第 3 波）：30 处 `host::` 路径改写为 `host_core::`（worker 4 文件 7 处、server 7 文件 23 处），依赖行也改到可移植半边。`cargo tree -p worker` 与 `-p server` 现在不含任何 Tauri crate；此前各列出 15 行 `tauri`。逻辑未变。

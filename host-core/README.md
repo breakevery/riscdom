@@ -24,17 +24,17 @@ driven by the CLI, by `worker` and by the control plane without linking a GUI to
 - `paths` — workspace and data-directory paths
 - `error` — `HostError`
 
-## Relationship to `host`
+## Relationship to `host-tauri`
 
-`host` is the Tauri half: the 53 `#[tauri::command]` functions and the `TauriEventSink`
-transport. While the A1 split is carried out wave by wave, `host` also re-exports this
-crate's public surface (`pub use host_core::*`), so a consumer written against the
-pre-split `host` keeps compiling unchanged. Later waves move the consumers off `host` —
-`worker` and `server` to `host-core`, the desktop shell to the renamed Tauri crate.
+`host-tauri` is the Tauri half: the 53 `#[tauri::command]` functions and the `TauriEventSink`
+transport. It re-exports this crate's public surface (`pub use host_core::*`), so the desktop
+shell depends on one crate, and a consumer written against the pre-split `host` compiles
+unchanged. The dependency runs one way only — `host-tauri → host-core` — and `worker` and
+`server` depend on this crate directly, which is why neither of them links Tauri.
 
 ## Constraints
 
-- **No Tauri.** A change that needs a webview belongs in `host`, not here.
+- **No Tauri.** A change that needs a webview belongs in `host-tauri`, not here.
 - The API key exists in memory only: never written to disk, never logged, never audited.
 - File reads and writes go through `agent::WorkspacePolicy`.
 - Nothing outside this crate reaches `sandbox` / `agent` directly.
