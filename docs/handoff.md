@@ -13,6 +13,18 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The query API and the one event envelope are in** (v0.9 batch 3/N). All 26 query
+  endpoints of `docs/control-plane-api.md` §5.1 answer over HTTP — plus the host-local
+  `/v0/health`, `/v0/status`, `/v0/events`, the reserved `/v0/resources` (501), and a
+  new `405 method_not_allowed` — and every transport now wraps what it sends in the one
+  envelope, built in `host/src/events.rs`. The three payload shapes the events document
+  calls changed have landed (`vm:state` always carries `name`, `audit:failed` uses
+  `message`, `toolchain:download` is tagged `state`); the other eight are untouched.
+  The webview unwraps them at its single boundary (`ui/src/api/tauri.ts`); the worker's
+  line protocol and the SSE stream carry the envelope as-is. A client walkthrough is in
+  [docs/control-plane-client-guide.md](control-plane-client-guide.md). Still open: the
+  controls (next batch), `gap`/`Last-Event-ID` (next batch), and capability enforcement
+  (a later batch).
 - **The control plane has a skeleton** (v0.9 batch 2/N). A new `server` crate —
   binary `riscdom-server` — binds the documented surface: `GET /v0/health`,
   `GET /v0/status`, `GET /v0/events` (SSE, the `hello` and `event` frames), the B1

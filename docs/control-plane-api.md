@@ -15,6 +15,10 @@ instruction from a supervisor AI and one from a human are both authorised instru
 from the control plane; the audit chain tells them apart by `agent_id`. Building two
 control channels instead of one is the mistake this design exists to avoid.
 
+**Implementation status (v0.9).** The 26 query endpoints of §5.1, the host-local
+endpoints of §5.3, the error model of §4, and the event envelope are implemented. §5.2
+(the controls), `gap` frames, and capability enforcement are not.
+
 ## 1. Position and protocol
 
 - **Layer 3.** The control plane is a host (as defined in
@@ -109,6 +113,7 @@ Codes and HTTP status mapping:
 | `unauthorized` | 401 | No token, or the hook refused the token. |
 | `forbidden` | 403 | Authenticated, but the actor lacks the endpoint's capability. |
 | `not_found` | 404 | Unknown `run_id`, `session_id`, snapshot name. |
+| `method_not_allowed` | 405 | The path is served, but not under this method; `message` names the one to use. |
 | `conflict` | 409 | A state clash: VM absent on `resume`, a download already running. |
 | `not_implemented` | 501 | A reserved endpoint with no kernel method yet (§6). |
 | `unavailable` | 503 | The dependency is not ready (no LLM, no QEMU, no toolchain). |
@@ -199,6 +204,39 @@ Long-running controls answer immediately and stream progress over SSE
 (`/v0/agent/run` → `agent:*`; `/v0/preflight/run` → `preflight:progress`;
 `/v0/toolchain/download` → `toolchain:download`). The `202` bodies above are the
 acknowledgement, not the result.
+
+### 5.3 Host-local endpoints
+
+Three endpoints belong to the host process rather than to the kernel, so they are not in
+the tables above. They are part of this document's surface all the same.
+
+| Endpoint | Method | Capability | Answers |
+|---|---|---|---|
+| `/v0/health` | GET | `health.read` | `{"status":"ok","version":"0.8.0","uptime_ms":N}` |
+| `/v0/status` | GET | `status.read` | `{"status","version","uptime_ms","connections","sse_subscribers","agents","agent_id"}` |
+| `/v0/events` | GET | `events.subscribe` | The SSE event stream (see [control-plane-events.md](control-plane-events.md)). |
+
+### 5.4 Notes on the tables
+
+- **The queries are implemented; §5.2 is not.** Every §5.1 endpoint answers today, and
+  `/v0/resources` answers `501` until the aggregate lands (§6, G3).
+- **Capabilities are declared, not enforced.** The server names each endpoint's capability
+  and hands it to the `Authn` hook through `ReqMeta.capability`; deciding whether an
+  actor *holds* one is the permission intermediary's job, a later batch. Under the v0.9
+  default (`NoAuth`) every query is allowed, and a `403` can only come from a hook that
+  refuses.
+- **Parameters.** A required parameter that is missing or unparsable is `400 bad_request`
+  with `cause` set to the parameter's name. `limit` is required where the host command
+  requires it, and optional elsewhere: `/v0/runs` defaults to 20, while
+  `/v0/audit/events` and `/v0/sessions` require it. `?path=` on
+  `/v0/workspace/file` is percent-decoded.
+- **`/v0/audit/status` does not consume the failure queue.** The Tauri command *takes* the
+  pending audit failures; a `GET` must not, or one polling client would swallow another's
+  alerts. The endpoint reports the queue as it stands.
+- **An unknown run in `/v0/runs/diff` answers `internal`.** The host reports a missing run
+  as an opaque message rather than a typed not-found, so the control plane cannot turn it
+  into `404` without inventing a rule. A typed host error would close this; it is not in
+  this batch.
 
 ## 6. The four kernel-capability gaps
 

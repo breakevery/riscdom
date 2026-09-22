@@ -27,7 +27,7 @@ pub fn run() {
             // Long-lived serial forwarder: outlives individual runs so the UI
             // keeps receiving serial output across runs.
             let emitter: std::sync::Arc<dyn host::EventSink> = std::sync::Arc::new(
-                host::events::TauriEventSink::new(app.handle().clone()),
+                host::events::TauriEventSink::new(app.handle().clone(), state.agent_id()),
             );
             state
                 .start_serial_forwarder(emitter)

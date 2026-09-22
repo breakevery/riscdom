@@ -17,6 +17,12 @@ pub struct ReqMeta {
     pub path: String,
     /// The bearer token from `Authorization`, when one was sent.
     pub token: Option<String>,
+    /// The capability this endpoint requires, read from the route table.
+    ///
+    /// *Declared, not enforced* in v0.9: the permission intermediary that decides
+    /// whether an actor holds a capability is a later batch, so [`NoAuth`] ignores
+    /// this. A hook that wants to enforce it already has what it needs.
+    pub capability: Option<String>,
 }
 
 impl fmt::Debug for ReqMeta {
@@ -28,6 +34,7 @@ impl fmt::Debug for ReqMeta {
                 "token",
                 &self.token.as_ref().map(|_| "<redacted>").unwrap_or("none"),
             )
+            .field("capability", &self.capability)
             .finish()
     }
 }
@@ -111,7 +118,9 @@ pub trait Authn: Send + Sync {
 /// The v0.9 default: every request is authorised as [`Actor::anonymous`].
 ///
 /// The `Authorization` header is still read into [`ReqMeta`] (so a real hook sees
-/// it); this implementation simply ignores it.
+/// it) and the route's capability is still named there; this implementation
+/// simply ignores both. Capability enforcement is the permission intermediary's
+/// job, a later batch.
 pub struct NoAuth;
 
 impl Authn for NoAuth {
@@ -129,6 +138,7 @@ mod tests {
             method: "GET".into(),
             path: "/v0/health".into(),
             token: token.map(str::to_string),
+            capability: Some("health.read".into()),
         }
     }
 
@@ -147,6 +157,8 @@ mod tests {
         assert!(!shown.contains("super-secret"), "token leaked: {shown}");
         assert!(shown.contains("redacted"));
         assert!(format!("{:?}", meta(None)).contains("none"));
+        // The capability is not a secret: it is fine to log.
+        assert!(shown.contains("health.read"));
     }
 
     #[test]

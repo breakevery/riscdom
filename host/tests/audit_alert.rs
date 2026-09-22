@@ -30,13 +30,17 @@ fn a_queued_failure_is_announced_once_and_then_taken() {
     state.push_audit_failure("sqlite error: database is locked");
     assert_eq!(state.audit_failures().len(), 1);
 
-    // First announcement: one event, carrying the message.
+    // First announcement: one event, carrying the message under the v0.9 key.
     assert_eq!(state.emit_audit_failures(&sink), 1);
     assert_eq!(sink.count(EV_AUDIT_FAILED), 1);
     let payload = sink.events()[0].1.clone();
     assert_eq!(
-        payload.get("error").and_then(|v| v.as_str()),
+        payload.get("message").and_then(|v| v.as_str()),
         Some("sqlite error: database is locked")
+    );
+    assert!(
+        payload.get("error").is_none(),
+        "the old key is gone: {payload}"
     );
 
     // Not announced twice: the cursor moved.

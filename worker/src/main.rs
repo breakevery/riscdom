@@ -94,13 +94,11 @@ struct LineEventSink {
 
 impl EventSink for LineEventSink {
     fn emit(&self, event: &str, payload: serde_json::Value) {
-        let line = serde_json::json!({
-            "kind": "event",
-            "event": event,
-            "agent_id": self.agent_id,
-            "payload": payload,
-        });
-        eprintln!("{line}");
+        // The one envelope every transport uses (v0.9). `worker:ready` and
+        // `worker:done` are this process's own protocol events and travel in it
+        // too — as `kind: "event"`, so a supervisor parses all lines one way.
+        let line = host::events::event_envelope(event, &self.agent_id, payload);
+        eprintln!("{}", line.to_json());
     }
 }
 

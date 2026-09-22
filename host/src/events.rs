@@ -1,7 +1,30 @@
-//! Event names emitted by the host, plus an [`EventSink`] abstraction so the
-//! same code runs under Tauri and under tests.
+//! Event names emitted by the host, the envelope every event travels in, and the
+//! [`EventSink`] abstraction so the same code runs under Tauri, under the control
+//! plane and under tests.
+//!
+//! # The envelope
+//!
+//! Every event the host emits reaches a transport wrapped in one envelope, the
+//! shape settled in `docs/control-plane-events.md` §2:
+//!
+//! ```json
+//! { "version": 1, "kind": "event", "event": "agent:tool_call",
+//!   "agent_id": "local-12345-1", "task_id": null, "ts": 1758533001207,
+//!   "payload": { "name": "write_source", "arguments": {} } }
+//! ```
+//!
+//! **The sink builds the envelope, not the emit site.** [`EventSink::emit`] keeps
+//! its `(&str, Value)` signature, so no emit site and no implementation outside
+//! this crate had to change shape; a sink that knows its own identity wraps, and
+//! [`RecordingEventSink`] goes on recording the raw `(event, payload)` pair a test
+//! asked about. The envelope is written with a struct — never through
+//! `serde_json::Value` — because a `Value` map sorts its keys and would move
+//! `version` away from the front of the object.
 
+use serde::Serialize;
+use serde_json::Value;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// One LLM iteration started (maps to an audited `agent.llm.request`).
 pub const EV_AGENT_ITERATION: &str = "agent:iteration";
@@ -30,33 +53,159 @@ pub const EV_PREFLIGHT: &str = "preflight:progress";
 /// what can be switched off, the event and its log line cannot.
 pub const EV_AUDIT_FAILED: &str = "audit:failed";
 
-/// Anything that can deliver an event to the frontend.
-pub trait EventSink: Send + Sync {
-    fn emit(&self, event: &str, payload: serde_json::Value);
+/// The envelope schema version (v0.9 line). A payload field added later does not
+/// bump it; a change to a field's meaning, type, or presence does.
+pub const ENVELOPE_VERSION: u32 = 1;
+
+/// The frame kinds of the event stream.
+pub mod kind {
+    /// One of the eleven events; `event` names it.
+    pub const EVENT: &str = "event";
+    /// The stream opened; the payload describes the buffer and the filters.
+    pub const HELLO: &str = "hello";
+    /// A replay request was too old to fill. **Not implemented yet**; the name is
+    /// reserved so it does not change when it lands.
+    pub const GAP: &str = "gap";
 }
 
-/// Delivers events to the Tauri webview.
+/// Epoch milliseconds — the timestamp unit of every event and every frame.
+pub fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// One event, wrapped for the wire.
+///
+/// Field order is the wire order: `version` is the first key a client sees. Build
+/// one through [`envelope`] rather than by hand, so every transport agrees.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Envelope {
+    /// Envelope schema version ([`ENVELOPE_VERSION`]).
+    pub version: u32,
+    /// [`kind::EVENT`] / [`kind::HELLO`] / [`kind::GAP`].
+    pub kind: String,
+    /// One of the eleven event names, or `null` for `hello` / `gap`.
+    pub event: Option<String>,
+    /// The agent that caused the event, `<device>-<pid>-<seq>`.
+    pub agent_id: String,
+    /// The dispatched task it belongs to, or `null` when not tied to one.
+    pub task_id: Option<String>,
+    /// Epoch milliseconds.
+    pub ts: i64,
+    /// Event-specific body.
+    pub payload: Value,
+}
+
+impl Envelope {
+    /// The wire form: a single line, fields in declaration order.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "null".to_string())
+    }
+
+    /// The same envelope as a `serde_json::Value`.
+    ///
+    /// For a consumer that needs a value rather than bytes, and accepts that a
+    /// value map has no key order. Transports use [`Envelope::to_json`].
+    pub fn to_value(&self) -> Value {
+        serde_json::to_value(self).unwrap_or(Value::Null)
+    }
+}
+
+/// Wrap anything in an envelope. The one place the shape is written down.
+pub fn envelope(
+    kind: &str,
+    event: Option<&str>,
+    agent_id: &str,
+    task_id: Option<&str>,
+    payload: Value,
+) -> Envelope {
+    Envelope {
+        version: ENVELOPE_VERSION,
+        kind: kind.to_string(),
+        event: event.map(str::to_string),
+        agent_id: agent_id.to_string(),
+        task_id: task_id.map(str::to_string),
+        ts: now_ms(),
+        payload,
+    }
+}
+
+/// One of the eleven events, wrapped. The common case: no task identity yet, so
+/// `task_id` is `null`.
+pub fn event_envelope(event: &str, agent_id: &str, payload: Value) -> Envelope {
+    envelope(kind::EVENT, Some(event), agent_id, None, payload)
+}
+
+/// The `vm:state` payload.
+///
+/// `name` is **always present** — `null` for a start/stop, the snapshot's name for
+/// a save (`docs/control-plane-events.md` §3.1). A client tests
+/// `payload.state == "snapshot"`, never "does `name` exist".
+pub fn vm_state_payload(
+    state: &str,
+    running: bool,
+    since_ms: Option<i64>,
+    name: Option<&str>,
+) -> Value {
+    serde_json::json!({
+        "state": state,
+        "running": running,
+        "since_ms": since_ms,
+        "name": name,
+    })
+}
+
+/// The `audit:failed` payload. The key is `message`, matching the API error model.
+pub fn audit_failed_payload(message: &str) -> Value {
+    serde_json::json!({ "message": message })
+}
+
+/// Anything that can deliver an event to the frontend.
+pub trait EventSink: Send + Sync {
+    fn emit(&self, event: &str, payload: Value);
+}
+
+/// Delivers events to the Tauri webview, wrapped in the envelope.
+///
+/// The webview unwraps at its single boundary (`ui/src/api/tauri.ts`'s
+/// `onHostEvent`), so panel callbacks go on reading the payload they always read.
 pub struct TauriEventSink {
     app: tauri::AppHandle,
+    agent_id: String,
 }
 
 impl TauriEventSink {
-    pub fn new(app: tauri::AppHandle) -> Self {
-        Self { app }
+    /// `agent_id` is the identity every envelope this sink sends carries
+    /// (`AppState::agent_id`).
+    pub fn new(app: tauri::AppHandle, agent_id: impl Into<String>) -> Self {
+        Self {
+            app,
+            agent_id: agent_id.into(),
+        }
     }
 }
 
 impl EventSink for TauriEventSink {
-    fn emit(&self, event: &str, payload: serde_json::Value) {
+    fn emit(&self, event: &str, payload: Value) {
         use tauri::Emitter;
-        let _ = self.app.emit(event, payload);
+        // The struct, not a `Value`: Tauri serialises it field by field, so
+        // `version` stays the first key of the object.
+        let _ = self
+            .app
+            .emit(event, event_envelope(event, &self.agent_id, payload));
     }
 }
 
 /// Collects events in memory (tests).
+///
+/// Records the `(event, payload)` pair exactly as the kernel emitted it — the raw
+/// payload, not the envelope — because that is what a host test asserts about.
+/// The transports above are where the envelope is applied.
 #[derive(Default)]
 pub struct RecordingEventSink {
-    events: Mutex<Vec<(String, serde_json::Value)>>,
+    events: Mutex<Vec<(String, Value)>>,
 }
 
 impl RecordingEventSink {
@@ -65,7 +214,7 @@ impl RecordingEventSink {
     }
 
     /// All recorded `(event, payload)` pairs.
-    pub fn events(&self) -> Vec<(String, serde_json::Value)> {
+    pub fn events(&self) -> Vec<(String, Value)> {
         self.events.lock().map(|g| g.clone()).unwrap_or_default()
     }
 
@@ -94,9 +243,198 @@ impl RecordingEventSink {
 }
 
 impl EventSink for RecordingEventSink {
-    fn emit(&self, event: &str, payload: serde_json::Value) {
+    fn emit(&self, event: &str, payload: Value) {
         if let Ok(mut g) = self.events.lock() {
             g.push((event.to_string(), payload));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The envelope every transport puts around the eleven events.
+    fn wrap(event: &str, payload: Value) -> Envelope {
+        event_envelope(event, "local-4711-1", payload)
+    }
+
+    fn assert_envelope(env: &Envelope, event: &str) {
+        assert_eq!(env.version, ENVELOPE_VERSION, "version");
+        assert_eq!(env.kind, kind::EVENT, "kind");
+        assert_eq!(env.event.as_deref(), Some(event), "event");
+        assert_eq!(env.agent_id, "local-4711-1", "agent_id");
+        assert_eq!(env.task_id, None, "task_id");
+        assert!(env.ts > 0, "ts");
+        assert!(env.payload.is_object(), "payload");
+    }
+
+    #[test]
+    fn the_envelope_puts_version_first_on_the_wire() {
+        let json = wrap(EV_AGENT_FINAL, serde_json::json!({ "kind": "final" })).to_json();
+        assert!(
+            json.starts_with("{\"version\":1,\"kind\":\"event\","),
+            "{json}"
+        );
+        assert!(json.contains("\"task_id\":null"), "{json}");
+    }
+
+    #[test]
+    fn agent_iteration_keeps_its_payload() {
+        let env = wrap(
+            EV_AGENT_ITERATION,
+            serde_json::json!({ "model": "local-model", "messages": [] }),
+        );
+        assert_envelope(&env, EV_AGENT_ITERATION);
+        assert!(env.payload["model"].is_string());
+        assert!(env.payload["messages"].is_array());
+    }
+
+    #[test]
+    fn agent_tool_call_keeps_its_payload() {
+        let env = wrap(
+            EV_AGENT_TOOL_CALL,
+            serde_json::json!({ "name": "write_source", "arguments": { "path": "src/main.c" } }),
+        );
+        assert_envelope(&env, EV_AGENT_TOOL_CALL);
+        assert_eq!(env.payload["name"], "write_source");
+        assert!(env.payload["arguments"].is_object());
+    }
+
+    #[test]
+    fn agent_tool_result_keeps_its_payload() {
+        let env = wrap(
+            EV_AGENT_TOOL_RESULT,
+            serde_json::json!({ "ok": true, "result": "wrote 24 bytes" }),
+        );
+        assert_envelope(&env, EV_AGENT_TOOL_RESULT);
+        assert_eq!(env.payload["ok"], true);
+        assert!(env.payload["result"].is_string());
+    }
+
+    #[test]
+    fn agent_final_keeps_its_payload() {
+        let env = wrap(
+            EV_AGENT_FINAL,
+            serde_json::json!({ "kind": "final", "content": "done", "reason": null, "iterations": 1 }),
+        );
+        assert_envelope(&env, EV_AGENT_FINAL);
+        assert_eq!(env.payload["kind"], "final");
+        assert_eq!(env.payload["iterations"], 1);
+    }
+
+    #[test]
+    fn agent_stream_delta_keeps_its_payload() {
+        let env = wrap(
+            EV_AGENT_STREAM_DELTA,
+            serde_json::json!({ "text": "Compiling" }),
+        );
+        assert_envelope(&env, EV_AGENT_STREAM_DELTA);
+        assert_eq!(env.payload["text"], "Compiling");
+    }
+
+    #[test]
+    fn agent_stream_done_keeps_an_empty_payload() {
+        let env = wrap(EV_AGENT_STREAM_DONE, serde_json::json!({}));
+        assert_envelope(&env, EV_AGENT_STREAM_DONE);
+        assert_eq!(env.payload.as_object().map(|o| o.len()), Some(0));
+    }
+
+    #[test]
+    fn serial_chunk_keeps_its_payload() {
+        let env = wrap(
+            EV_SERIAL_CHUNK,
+            serde_json::json!({ "chunk": "hello from riscv\n" }),
+        );
+        assert_envelope(&env, EV_SERIAL_CHUNK);
+        assert_eq!(env.payload["chunk"], "hello from riscv\n");
+    }
+
+    #[test]
+    fn preflight_progress_keeps_its_payload() {
+        let env = wrap(
+            EV_PREFLIGHT,
+            serde_json::json!({ "step": "gcc_runs", "state": "ok", "detail": "gcc 13.2.0" }),
+        );
+        assert_envelope(&env, EV_PREFLIGHT);
+        assert_eq!(env.payload["step"], "gcc_runs");
+        assert_eq!(env.payload["state"], "ok");
+    }
+
+    #[test]
+    fn vm_state_carries_a_name_on_every_variant() {
+        // v0.9 change: `name` is always present, `null` when it is not a snapshot.
+        let running = vm_state_payload("running", true, Some(1758533002050), None);
+        assert_eq!(running["state"], "running");
+        assert_eq!(running["running"], true);
+        assert_eq!(running["since_ms"], 1758533002050i64);
+        assert!(running.get("name").is_some(), "name must exist");
+        assert!(running["name"].is_null());
+
+        let snapshot = vm_state_payload("snapshot", true, Some(1), Some("after-blink"));
+        assert_eq!(snapshot["name"], "after-blink");
+
+        let env = wrap(EV_VM_STATE, running);
+        assert_envelope(&env, EV_VM_STATE);
+        assert!(env.payload.get("name").is_some());
+    }
+
+    #[test]
+    fn audit_failed_uses_the_message_key() {
+        // v0.9 change: `error` became `message`, matching the API error model.
+        let env = wrap(EV_AUDIT_FAILED, audit_failed_payload("database is locked"));
+        assert_envelope(&env, EV_AUDIT_FAILED);
+        assert_eq!(env.payload["message"], "database is locked");
+        assert!(env.payload.get("error").is_none(), "the old key is gone");
+    }
+
+    #[test]
+    fn toolchain_download_payload_is_flat_and_tagged_state() {
+        // v0.9 change: the tag is `state`, and the variant fields sit beside it.
+        let payload = serde_json::to_value(crate::toolchain_download::DownloadEvent::Progress {
+            downloaded: 10,
+            total: Some(20),
+        })
+        .expect("serialises");
+        assert_eq!(payload["state"], "progress");
+        assert_eq!(payload["downloaded"], 10);
+        assert_eq!(payload["total"], 20);
+        assert!(payload.get("kind").is_none(), "the old tag is gone");
+
+        let env = wrap(TOOLCHAIN_DOWNLOAD, payload);
+        assert_envelope(&env, TOOLCHAIN_DOWNLOAD);
+        assert_eq!(env.payload["state"], "progress");
+    }
+
+    #[test]
+    fn all_eleven_events_are_named() {
+        // A guard against a name drifting: the doc lists eleven.
+        let names = [
+            EV_AGENT_ITERATION,
+            EV_AGENT_TOOL_CALL,
+            EV_AGENT_TOOL_RESULT,
+            EV_AGENT_FINAL,
+            EV_AGENT_STREAM_DELTA,
+            EV_AGENT_STREAM_DONE,
+            EV_SERIAL_CHUNK,
+            EV_VM_STATE,
+            EV_PREFLIGHT,
+            EV_AUDIT_FAILED,
+            TOOLCHAIN_DOWNLOAD,
+        ];
+        assert_eq!(names.len(), 11);
+    }
+
+    #[test]
+    fn the_recording_sink_still_records_the_raw_payload() {
+        let sink = RecordingEventSink::new();
+        sink.emit(EV_SERIAL_CHUNK, serde_json::json!({ "chunk": "a" }));
+        sink.emit(EV_SERIAL_CHUNK, serde_json::json!({ "chunk": "b" }));
+        assert_eq!(sink.count(EV_SERIAL_CHUNK), 2);
+        assert_eq!(sink.serial_text(), "ab");
+        // The raw payload, not an envelope.
+        let (_, payload) = sink.events().remove(0);
+        assert!(payload.get("chunk").is_some());
+        assert!(payload.get("version").is_none());
     }
 }

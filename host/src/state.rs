@@ -2424,7 +2424,10 @@ impl AppState {
         let already = self.audit_failures_emitted.load(Ordering::Relaxed);
         let mut announced = 0;
         for message in failures.iter().skip(already) {
-            emitter.emit(EV_AUDIT_FAILED, serde_json::json!({ "error": message }));
+            emitter.emit(
+                EV_AUDIT_FAILED,
+                crate::events::audit_failed_payload(message),
+            );
             announced += 1;
         }
         self.audit_failures_emitted
@@ -3199,13 +3202,12 @@ impl AuditBridge {
     }
 
     /// `vm:state` payload shared by every VM lifecycle event.
-    fn vm_payload(&self, state: &str) -> serde_json::Value {
+    ///
+    /// `name` is always present (v0.9): `null` for a start/stop, the snapshot's
+    /// name for a save. A client tests `state == "snapshot"`.
+    fn vm_payload(&self, state: &str, name: Option<&str>) -> serde_json::Value {
         let since = self.vm_started_at.lock().ok().and_then(|g| *g);
-        serde_json::json!({
-            "state": state,
-            "running": since.is_some(),
-            "since_ms": since,
-        })
+        crate::events::vm_state_payload(state, since.is_some(), since, name)
     }
 
     /// Record/clear the VM start time as the sandbox reports it.
@@ -3248,26 +3250,17 @@ impl AuditBridge {
                 ),
                 "vm.start" => {
                     self.set_vm_started(true);
-                    let payload = self.vm_payload("running");
+                    let payload = self.vm_payload("running", None);
                     self.emitter.emit(EV_VM_STATE, payload);
                 }
                 "vm.stop" => {
                     self.set_vm_started(false);
-                    let payload = self.vm_payload("stopped");
+                    let payload = self.vm_payload("stopped", None);
                     self.emitter.emit(EV_VM_STATE, payload);
                 }
                 "vm.snapshot.save" => {
-                    let mut payload = self.vm_payload("snapshot");
-                    if let Some(object) = payload.as_object_mut() {
-                        object.insert(
-                            "name".to_string(),
-                            e.event
-                                .detail
-                                .get("name")
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null),
-                        );
-                    }
+                    let name = e.event.detail.get("name").and_then(|v| v.as_str());
+                    let payload = self.vm_payload("snapshot", name);
                     self.emitter.emit(EV_VM_STATE, payload);
                 }
                 _ => {}

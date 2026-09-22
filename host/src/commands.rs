@@ -32,7 +32,8 @@ pub async fn start_toolchain_download(
     // runtime; the app handle gives the worker access to the managed state.
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let emitter: Arc<dyn crate::events::EventSink> = Arc::new(TauriEventSink::new(app.clone()));
+        let emitter: Arc<dyn crate::events::EventSink> =
+            Arc::new(TauriEventSink::new(app.clone(), state.agent_id()));
         let mut on_event = |event: crate::toolchain_download::DownloadEvent| {
             if let Ok(payload) = serde_json::to_value(&event) {
                 emitter.emit(TOOLCHAIN_DOWNLOAD, payload);
@@ -238,7 +239,8 @@ pub async fn get_audit_status(
     state: State<'_, AppState>,
 ) -> Result<AuditStatusView, String> {
     let mut view = state.audit_status().map_err(|e| e.user_message())?;
-    let emitter: Arc<dyn crate::events::EventSink> = Arc::new(TauriEventSink::new(app));
+    let emitter: Arc<dyn crate::events::EventSink> =
+        Arc::new(TauriEventSink::new(app, state.agent_id()));
     state.emit_audit_failures(emitter.as_ref());
     view.failures = state.take_audit_failures();
     Ok(view)
@@ -301,7 +303,8 @@ pub async fn acknowledge_preflight(state: State<'_, AppState>) -> Result<Preflig
 fn spawn_preflight(app: tauri::AppHandle) {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let emitter: Arc<dyn crate::events::EventSink> = Arc::new(TauriEventSink::new(app.clone()));
+        let emitter: Arc<dyn crate::events::EventSink> =
+            Arc::new(TauriEventSink::new(app.clone(), state.agent_id()));
         if let Err(e) = state.ensure_preflight(true, Some(emitter)) {
             eprintln!("preflight failed: {e}");
         }
@@ -414,7 +417,8 @@ pub async fn run_agent(
     state: State<'_, AppState>,
     user_input: String,
 ) -> Result<AgentOutcomeView, String> {
-    let emitter: Arc<dyn crate::events::EventSink> = Arc::new(TauriEventSink::new(app));
+    let emitter: Arc<dyn crate::events::EventSink> =
+        Arc::new(TauriEventSink::new(app, state.agent_id()));
     state
         .run_agent(emitter, &user_input)
         .map_err(|e| e.user_message())

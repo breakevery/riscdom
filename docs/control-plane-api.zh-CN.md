@@ -8,6 +8,8 @@
 
 **这是什么。** RiscDom v0.9 的主线是控制平面：人监督 AI 与 AI 监督 AI 走**同一套** HTTP 接口。在内核看来，来自监工 AI 的指令和来自人的指令都是控制平面授权的指令；审计链靠 `agent_id` 区分二者。本条设计存在的意义，就是避免去建两条会各自演化、最终冲突的控制通道。
 
+**实现状态（v0.9）。** §5.1 的 26 个查询端点、§5.3 的宿主本地端点、§4 的错误模型、以及事件 envelope 均已实现。§5.2（控制类）、`gap` 帧、以及权限强制尚未实现。
+
 ## 1. 定位与协议
 
 - **Layer 3。** 控制平面是一个宿主（[architecture-evolution.md](architecture-evolution.md) §4 的定义）：它与 `ui/src-tauri` 并列，只依赖 Layer 2 的稳定 API（`host` 的公开面）。它不直接触碰 `agent` / `sandbox` / `audit`。
@@ -75,6 +77,7 @@ pub struct Actor {
 | `unauthorized` | 401 | 无 token，或钩子拒绝了 token。 |
 | `forbidden` | 403 | 已认证，但 actor 缺少该端点的 capability。 |
 | `not_found` | 404 | 未知 `run_id`、`session_id`、快照名。 |
+| `method_not_allowed` | 405 | 路径存在，但不接受该方法；`message` 指出该用哪个。 |
 | `conflict` | 409 | 状态冲突：`resume` 时无 VM、下载已在跑。 |
 | `not_implemented` | 501 | 已预留、暂无内核方法的端点（§6）。 |
 | `unavailable` | 503 | 依赖未就绪（无 LLM、无 QEMU、无工具链）。 |
@@ -152,6 +155,24 @@ pub struct Actor {
 上表中的响应类型即 `host` 的视图类型（`host/src/state.rs`），客户端可直接从该文件读字段。`AgentOutcomeView` 为 `{ kind, content, reason, iterations }`，其中 `kind` 取 `final` / `max_iterations` / `failed`。
 
 长时间运行的控制类命令立即应答，进度走 SSE（`/v0/agent/run` → `agent:*`；`/v0/preflight/run` → `preflight:progress`；`/v0/toolchain/download` → `toolchain:download`）。上表的 `202` 体是应答，不是结果。
+
+### 5.3 宿主本地端点
+
+有三个端点属于宿主进程而非内核，因此不在上面的表里。它们同样是本文接口面的一部分。
+
+| 端点 | 方法 | 权限 | 应答 |
+|---|---|---|---|
+| `/v0/health` | GET | `health.read` | `{"status":"ok","version":"0.8.0","uptime_ms":N}` |
+| `/v0/status` | GET | `status.read` | `{"status","version","uptime_ms","connections","sse_subscribers","agents","agent_id"}` |
+| `/v0/events` | GET | `events.subscribe` | SSE 事件流（见 [control-plane-events.zh-CN.md](control-plane-events.zh-CN.md)）。 |
+
+### 5.4 表格附注
+
+- **查询类已实现；§5.2 尚未。** §5.1 的每个端点今天都有应答，`/v0/resources` 在聚合落地前回 `501`（§6，G3）。
+- **权限是声明、不是强制。** 服务端为每个端点标注权限，并经 `ReqMeta.capability` 交给 `Authn` 钩子；判断 actor **是否持有**该权限是权限中介的事，属后续批次。v0.9 默认（`NoAuth`）下所有查询均放行，`403` 只可能来自自行拒绝的钩子。
+- **参数。** 必填参数缺失或无法解析 → `400 bad_request`，`cause` 为该参数名。`limit` 在宿主命令要求处为必填、其余为可选：`/v0/runs` 默认 20，`/v0/audit/events` 与 `/v0/sessions` 必填。`/v0/workspace/file` 的 `?path=` 会做百分号解码。
+- **`/v0/audit/status` 不消费失败队列。** Tauri 命令会**取走**待报的审计失败；`GET` 不能取，否则一个轮询客户端会吞掉另一个客户端的告警。该端点按现状报告队列。
+- **`/v0/runs/diff` 遇到不存在的 run 回 `internal`。** 宿主把「找不到 run」报成不透明消息而非有类型的 not-found，控制平面若不臆造规则就无法映射成 `404`。一个宿主侧的类型化错误能闭合它；不在本批内。
 
 ## 6. 四项内核能力缺口
 

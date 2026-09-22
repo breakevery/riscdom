@@ -9,6 +9,19 @@
 
 ## [未发布]
 
+**控制平面会应答查询了，且事件只有一种 envelope。** `docs/control-plane-api.zh-CN.md` §5.1 的 26 个查询端点已可用，并新增错误码 `method_not_allowed`（405）、预留端点 `/v0/resources`（501）；同时，无论走哪个传输，每个事件现在都包在 `docs/control-plane-events.zh-CN.md` 定下的 envelope 里——SSE 流、Tauri webview（在唯一边界处解包）、以及 worker 的行协议。
+
+### 新增
+
+- **26 个查询端点**（`GET`）：审计状态与事件、运行（列表 / 单个 / 对比）、LLM 各类视图、会话、快照、VM 状态、工具链、QEMU、预检、设置、workspace 与串口——另加宿主本地端点 `/v0/health`、`/v0/status`、`/v0/events`，以及回 `501` 的预留端点 `/v0/resources`。必填参数会被校验（`400`，`cause` 指出参数名），路径参与 `405 method_not_allowed` 判定，每个端点的权限都在路由表里声明并交给 `Authn` 钩子。
+- **envelope** 落于 `host/src/events.rs`：`version` / `kind` / `event` / `agent_id` / `task_id` / `ts` / `payload`，由各传输构建。`EventSink` trait 保持原签名，因此没有任何发射点改形状。
+- **[docs/control-plane-client-guide.zh-CN.md](docs/control-plane-client-guide.zh-CN.md)**：客户端侧走查——逐端点 curl、应答示例、错误表、以及 SSE 订阅示例。
+
+### 变更
+
+- **三种事件 payload** 现在与文档一致：`vm:state` 恒带 `name`（非快照时为 `null`）、`audit:failed` 用 `message`（此前为 `error`）、`toolchain:download` 标签为 `state`（此前为 `kind`）。其余八种 payload 未变。webview 在 `ui/src/api/tauri.ts` 处解包 envelope，因此面板回调读到的仍是它们一贯读的 payload。
+- **`TauriEventSink::new` 接收 agent 身份**，其发出的每个 envelope 都携带它。
+
 **控制平面现在有进程了。** v0.9 的主线是控制平面：人监督 AI 与 AI 监督 AI 走同一套 HTTP + SSE 接口。本批落的是此后全部 API 赖以生长的骨架——新增 `server` crate、两个 smoke 端点、事件流、认证钩子——仅此而已：未改任何内核源码，未改任何事件发射点。
 
 ### 新增

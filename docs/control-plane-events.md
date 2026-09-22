@@ -16,10 +16,13 @@ per-event payloads, and filtering.
 **Where the events come from.** `host/src/events.rs` defines eleven event names and an
 `EventSink` trait (`emit(&self, event: &str, payload: serde_json::Value)`). Three
 implementations exist today: `TauriEventSink` (to the webview), `RecordingEventSink`
-(tests), and `LineEventSink` (`worker`, JSON lines on stderr). The control plane adds a
-fourth sink that writes SSE frames; **it does not change the emit sites.** Normalising
-the payloads at the source is a later batch's work; the envelope below is what the SSE
-sink wraps around the payloads exactly as they are emitted.
+(tests), and `LineEventSink` (`worker`, JSON lines on stderr). **Every transport wraps what it
+sends in the envelope below** — the SSE sink, the Tauri sink (whose webview unwraps at its
+single boundary), and the worker's line protocol. The emit sites still pass a raw payload,
+because the envelope is the transport's business: `EventSink::emit` keeps its
+`(&str, Value)` signature and no emit site changed shape. **Implemented in v0.9 batch 3**,
+together with the three payload shapes §3 marks as changed; the other eight travel exactly
+as the host emits them.
 
 ## 1. SSE protocol
 
@@ -134,9 +137,11 @@ today's payload is not the identity; the rest keep their keys and are merely wra
 | 8 | `vm:state` | `{state, running, since_ms}` (+ `name` only on snapshot) | `{state, running, since_ms, name}` — `name` always present | **yes** |
 | 9 | `preflight:progress` | `{step, state, detail}` | `{step, state, detail}` | no |
 | 10 | `audit:failed` | `{error}` | `{message}` | **yes** |
-| 11 | `toolchain:download` | externally-tagged enum (`{"Started":{...}}`, …) | `{state, ...}` — lowercased `state` plus flat fields | **yes** |
+| 11 | `toolchain:download` | internally tagged enum: `{"kind":"progress","downloaded":d,"total":n}`, … | `{state, ...}` — the same fields under the tag `state` | **yes** |
 
 **Three** of the eleven change shape; **eight** are the identity mapping.
+**All three landed in v0.9 batch 3**, at the emit sites: the envelope wraps them, and the
+keys below are what a client sees in `payload` today.
 
 ### 3.1 Old → new migration
 
@@ -152,18 +157,18 @@ where the human-readable text is `message`:
 |---|---|
 | `payload.error` | `payload.message` |
 
-`toolchain:download`. Today the payload is the externally-tagged `DownloadEvent` enum.
-v1 flattens it and lowercases the tag into `state`:
+`toolchain:download`. Today the payload is the internally tagged `DownloadEvent` enum, whose
+tag is `kind`; v1 renames that tag to `state` and keeps the variant fields beside it:
 
 | old | new |
 |---|---|
-| `{"Started":{"total_bytes":n}}` | `{"state":"started","total_bytes":n}` |
-| `{"Progress":{"downloaded":d,"total":n}}` | `{"state":"progress","downloaded":d,"total":n}` |
-| `{"Verifying"}` | `{"state":"verifying"}` |
-| `{"Extracting"}` | `{"state":"extracting"}` |
-| `{"Done":{"install_path":p}}` | `{"state":"done","install_path":p}` |
-| `{"Failed":{"reason":r}}` | `{"state":"failed","reason":r}` |
-| `{"Cancelled"}` | `{"state":"cancelled"}` |
+| `{"kind":"started","total_bytes":n}` | `{"state":"started","total_bytes":n}` |
+| `{"kind":"progress","downloaded":d,"total":n}` | `{"state":"progress","downloaded":d,"total":n}` |
+| `{"kind":"verifying"}` | `{"state":"verifying"}` |
+| `{"kind":"extracting"}` | `{"state":"extracting"}` |
+| `{"kind":"done","install_path":p}` | `{"state":"done","install_path":p}` |
+| `{"kind":"failed","reason":r}` | `{"state":"failed","reason":r}` |
+| `{"kind":"cancelled"}` | `{"state":"cancelled"}` |
 
 ## 4. Filtering
 

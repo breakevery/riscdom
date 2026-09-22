@@ -11,6 +11,7 @@
 
 ## 1. 快照 —— `v0.8.0` 是最新的发行版（下次正式发布时更新本节）
 
+- **查询 API 与统一事件 envelope 已落**（v0.9 批次 3/N）。`docs/control-plane-api.zh-CN.md` §5.1 的 26 个查询端点全部可经 HTTP 调用——另加宿主本地端点 `/v0/health`、`/v0/status`、`/v0/events`、预留的 `/v0/resources`（501）、以及新增错误码 `405 method_not_allowed`——并且每个传输现在都把要发的东西包进同一个 envelope，构建于 `host/src/events.rs`。事件文档标为「有变」的三种 payload 形状均已落地（`vm:state` 恒带 `name`、`audit:failed` 用 `message`、`toolchain:download` 标签为 `state`）；其余八种未动。webview 在唯一边界处解包（`ui/src/api/tauri.ts`）；worker 的行协议与 SSE 流按原样承载 envelope。客户端走查见 [docs/control-plane-client-guide.zh-CN.md](control-plane-client-guide.zh-CN.md)。仍未做：控制类（下一批）、`gap` / `Last-Event-ID`（下一批）、权限强制（后续批次）。
 - **控制平面骨架已落**（v0.9 批次 2/N）。新增 `server` crate——可执行文件 `riscdom-server`——绑定了已定稿的接口面：`GET /v0/health`、`GET /v0/status`、`GET /v0/events`（SSE，`hello` 与 `event` 两种帧）、B1 错误模型、以及 `Authn` 钩子（v0.9 默认 `NoAuth`）。它是架在 `host` 之上的 Layer 3，不引用任何 Tauri 类型（仍会链接 `tauri`——已知代价）。它不改 `host` 任何源码：`HttpEventSink` 从 `run_agent` 的 `emitter` 参数位注入。`gap` 帧与 `Last-Event-ID` 补放**尚未实现**（下一批）；设计上给它们留的位置已在 `docs/control-plane-events.zh-CN.md` 标注。见 [server/README.zh-CN.md](../server/README.zh-CN.md)。
 - **控制平面协议已定稿**（v0.9 批次 1/N，仅设计，无代码）。两份双语成对的文档固定了管理侧要照着实现的接口：HTTP 命令/查询面见
   [control-plane-api.zh-CN.md](control-plane-api.zh-CN.md)——53 个命令变成 53 个端点（26 个 `GET` / 27 个 `POST`），四项内核能力缺口逐项明确处置；推送侧见

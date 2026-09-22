@@ -1,12 +1,14 @@
 //! The HTTP server: routing, the error model, and the SSE response body.
 //!
-//! Two smoke endpoints and the event stream — the rest of the API table in
-//! `docs/control-plane-api.md` is later batches.
+//! The query surface lives in [`crate::routes`]; this module owns the connection
+//! loop, the authentication step every request goes through, the host-local
+//! endpoints, and the response shapes.
 
 use crate::auth::{Authn, ReqMeta};
 use crate::config::ServerConfig;
-use crate::envelope::{now_ms, Envelope};
+use crate::envelope;
 use crate::io::TokioIo;
+use crate::routes::{self, Local, Resolution};
 use crate::sse::{frame_bytes, HttpEventSink, SseFrame, SseHub, CHANNEL_CAPACITY};
 use futures_util::stream;
 use host::AppState;
@@ -115,26 +117,32 @@ impl Shared {
         self.started.elapsed().as_millis() as u64
     }
 
-    fn health(&self) -> serde_json::Value {
-        serde_json::json!({
-            "status": "ok",
-            "version": crate::VERSION,
-            "uptime_ms": self.uptime_ms(),
-        })
+    fn health(&self) -> Response<RespBody> {
+        json_response(
+            StatusCode::OK,
+            &serde_json::json!({
+                "status": "ok",
+                "version": crate::VERSION,
+                "uptime_ms": self.uptime_ms(),
+            }),
+        )
     }
 
-    fn status(&self) -> serde_json::Value {
-        serde_json::json!({
-            "status": "ok",
-            "version": crate::VERSION,
-            "uptime_ms": self.uptime_ms(),
-            "connections": self.connections.load(Ordering::Relaxed),
-            "sse_subscribers": self.hub.subscribers(),
-            // This host instance is the one agent the control plane knows until
-            // the executor roster is wired (later batches).
-            "agents": 1,
-            "agent_id": self.app.agent_id(),
-        })
+    fn status(&self) -> Response<RespBody> {
+        json_response(
+            StatusCode::OK,
+            &serde_json::json!({
+                "status": "ok",
+                "version": crate::VERSION,
+                "uptime_ms": self.uptime_ms(),
+                "connections": self.connections.load(Ordering::Relaxed),
+                "sse_subscribers": self.hub.subscribers(),
+                // This host instance is the one agent the control plane knows until
+                // the executor roster is wired (later batches).
+                "agents": 1,
+                "agent_id": self.app.agent_id(),
+            }),
+        )
     }
 
     /// Open an SSE stream: subscribe first, then the `hello` frame.
@@ -143,12 +151,7 @@ impl Shared {
     /// follows the client having *read* `hello` can never race the subscription.
     fn open_stream(&self) -> Response<RespBody> {
         let rx = self.hub.subscribe();
-        let hello = Envelope::hello(
-            self.app.agent_id().to_string(),
-            now_ms(),
-            serde_json::json!({ "from": 0, "to": 0 }),
-            serde_json::json!({ "event": [], "agent_id": null, "task_id": null }),
-        );
+        let hello = envelope::hello(self.app.agent_id());
         let first = Bytes::from(frame_bytes(&SseFrame::Envelope(hello), 0));
 
         type Item = Result<Frame<Bytes>, std::io::Error>;
@@ -170,7 +173,7 @@ impl Shared {
                         }
                         // A subscriber that fell behind loses what it missed.
                         // Filling the hole is the `gap` frame's job and `gap` is
-                        // **not implemented in this batch**
+                        // **not implemented yet**
                         // (`docs/control-plane-events.md` §2), so here the stream
                         // simply carries on.
                         Err(broadcast::error::RecvError::Lagged(_)) => continue,
@@ -190,6 +193,15 @@ impl Shared {
         headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-cache"));
         headers.insert(CONNECTION, HeaderValue::from_static("keep-alive"));
         response
+    }
+
+    /// The endpoints this crate answers itself.
+    fn local(&self, kind: Local) -> Response<RespBody> {
+        match kind {
+            Local::Health => self.health(),
+            Local::Status => self.status(),
+            Local::Events => self.open_stream(),
+        }
     }
 }
 
@@ -217,7 +229,7 @@ async fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
         tokio::spawn(async move {
             let _guard = guard;
             if let Err(e) = serve(stream, shared).await {
-                // The peer and the error only: a request's token never reaches here.
+                // The peer and the error only: a request's credential never gets here.
                 eprintln!("riscdom-server: connection from {peer} ended: {e}");
             }
         });
@@ -240,22 +252,46 @@ async fn handle(
 ) -> Response<RespBody> {
     let method = request.method().as_str().to_string();
     let path = request.uri().path().to_string();
+    let query = request.uri().query().map(str::to_string);
+    let presented = presented_credential(request.headers().get(AUTHORIZATION));
+
+    let resolution = routes::resolve(&method, &path, query.as_deref());
+    let capability = match &resolution {
+        Resolution::Query { capability, .. } | Resolution::Local { capability, .. } => {
+            Some((*capability).to_string())
+        }
+        _ => None,
+    };
     let meta = ReqMeta {
         method: method.clone(),
         path: path.clone(),
-        token: bearer(request.headers().get(AUTHORIZATION)),
+        token: presented,
+        capability,
     };
     if let Err(err) = shared.authn.authorise(&meta) {
         return error_response(err.status(), err.code(), err.message(), None);
     }
-    match (method.as_str(), path.as_str()) {
-        ("GET", "/v0/health") => json_response(StatusCode::OK, &shared.health()),
-        ("GET", "/v0/status") => json_response(StatusCode::OK, &shared.status()),
-        ("GET", "/v0/events") => shared.open_stream(),
-        // Every other (method, path) pair, including a known path under the wrong
-        // method: the error model has no `method_not_allowed`, and inventing a
-        // code would break its closed list.
-        _ => error_response(
+
+    match resolution {
+        Resolution::Query { action, params, .. } => {
+            let app = Arc::clone(&shared.app);
+            // The host's queries are synchronous and some of them do real work
+            // (a directory scan, a `--version` probe), so they run off the async
+            // runtime and never stall the event stream.
+            match tokio::task::spawn_blocking(move || routes::dispatch(action, &params, &app)).await
+            {
+                Ok(response) => response,
+                Err(_) => error_response(500, "internal", "the query task failed", None),
+            }
+        }
+        Resolution::Local { kind, .. } => shared.local(kind),
+        Resolution::MethodNotAllowed { allowed } => error_response(
+            405,
+            "method_not_allowed",
+            &format!("{method} is not allowed on {path}; use {allowed}"),
+            Some("method"),
+        ),
+        Resolution::NotFound => error_response(
             404,
             "not_found",
             &format!("no endpoint {method} {path}"),
@@ -264,12 +300,12 @@ async fn handle(
     }
 }
 
-/// The token from an `Authorization: Bearer <token>` header, if it is one.
-fn bearer(value: Option<&HeaderValue>) -> Option<String> {
+/// The credential an `Authorization` header presents, when it is one.
+fn presented_credential(value: Option<&HeaderValue>) -> Option<String> {
     let raw = value?.to_str().ok()?;
-    let (scheme, token) = raw.split_once(' ')?;
-    if scheme.eq_ignore_ascii_case("bearer") && !token.is_empty() {
-        Some(token.to_string())
+    let (scheme, credential) = raw.split_once(' ')?;
+    if scheme.eq_ignore_ascii_case("bearer") && !credential.is_empty() {
+        Some(credential.to_string())
     } else {
         None
     }
@@ -282,7 +318,7 @@ fn full_body(bytes: Bytes) -> RespBody {
         .boxed()
 }
 
-fn json_response(status: StatusCode, value: &serde_json::Value) -> Response<RespBody> {
+pub(crate) fn json_response(status: StatusCode, value: &serde_json::Value) -> Response<RespBody> {
     let bytes = serde_json::to_vec(value).unwrap_or_else(|_| b"null".to_vec());
     let mut response = Response::new(full_body(Bytes::from(bytes)));
     *response.status_mut() = status;
@@ -294,7 +330,7 @@ fn json_response(status: StatusCode, value: &serde_json::Value) -> Response<Resp
 }
 
 /// The error model of `docs/control-plane-api.md` §4.
-fn error_response(
+pub(crate) fn error_response(
     status: u16,
     code: &str,
     message: &str,

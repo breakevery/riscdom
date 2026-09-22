@@ -4,9 +4,10 @@
 //! The wire format is settled in `docs/control-plane-events.md` §1: a frame uses
 //! `id:` and `data:` only, and ends with a blank line. There is deliberately no
 //! `event:` field — that would break a browser's single `onmessage` handler, and
-//! the envelope's `event` field is the router instead.
+//! the envelope's `event` field is the router instead. The envelope itself comes
+//! from `host::events`, so every transport writes the same one.
 
-use crate::envelope::{now_ms, Envelope};
+use host::events::{event_envelope, Envelope};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -84,12 +85,7 @@ impl SseHub {
     }
 }
 
-/// Brings the host's events to the stream.
-///
-/// This is the only place the two layers meet: it implements `host::EventSink`
-/// (the kernel's emitter trait) by pushing each event into the hub. It holds no
-/// Tauri handle and no `AppHandle` — it is passed to `AppState::run_agent` as the
-/// `emitter` argument, so `host` needs no change to be driven from here.
+/// Brings the host's events to the stream, wrapped in the one envelope.
 pub struct HttpEventSink {
     hub: Arc<SseHub>,
     agent_id: String,
@@ -106,15 +102,18 @@ impl HttpEventSink {
 
 impl host::EventSink for HttpEventSink {
     fn emit(&self, event: &str, payload: serde_json::Value) {
-        let envelope = Envelope::event(event, self.agent_id.clone(), None, now_ms(), payload);
-        self.hub.publish(SseFrame::Envelope(envelope));
+        self.hub.publish(SseFrame::Envelope(event_envelope(
+            event,
+            &self.agent_id,
+            payload,
+        )));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::envelope::kind;
+    use host::events::kind;
     use host::EventSink;
 
     fn text(frame: &SseFrame, seq: u64) -> String {
@@ -123,15 +122,14 @@ mod tests {
 
     #[test]
     fn an_envelope_frame_has_id_data_and_a_terminating_blank_line() {
-        let env = Envelope::event(
+        let env = event_envelope(
             "agent:tool_call",
             "dev-1-1",
-            Some("task-1-1".into()),
-            1234,
             serde_json::json!({ "name": "write_source" }),
         );
         let wire = text(&SseFrame::Envelope(env), 4);
-        assert!(wire.starts_with("id: 1234-4\n"), "got {wire}");
+        assert!(wire.starts_with("id: "), "got {wire}");
+        assert!(wire.contains("-4\n"), "the id carries the ordinal: {wire}");
         assert!(wire.contains("\ndata: {\"version\":1,"), "got {wire}");
         assert!(wire.ends_with("\n\n"), "frames must end with a blank line");
         assert_eq!(wire.lines().filter(|l| l.starts_with("data: ")).count(), 1);
@@ -167,6 +165,7 @@ mod tests {
                 assert_eq!(env.event.as_deref(), Some("vm:state"));
                 assert_eq!(env.agent_id, "dev-9-1");
                 assert_eq!(env.payload["running"], true);
+                assert_eq!(env.version, 1);
             }
             other => panic!("expected an envelope, got {other:?}"),
         }

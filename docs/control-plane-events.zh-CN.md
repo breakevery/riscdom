@@ -8,7 +8,7 @@
 
 **范围。** 命令与查询见 [control-plane-api.zh-CN.md](control-plane-api.zh-CN.md)。本文覆盖推送侧：SSE 分帧、所有事件共用的一个 envelope、逐事件 payload、以及过滤。
 
-**事件从哪来。** `host/src/events.rs` 定义十一个事件名与一个 `EventSink` trait（`emit(&self, event: &str, payload: serde_json::Value)`）。当前有三个实现：`TauriEventSink`（发往 webview）、`RecordingEventSink`（测试）、`LineEventSink`（`worker`，JSON 行写 stderr）。控制平面新增第四个 sink 写 SSE 帧；**它不改发射点。** 在源头把 payload 规范化是后续批次的事；下面的 envelope 是 SSE sink 包在「按现状发射的 payload」外面的东西。
+**事件从哪来。** `host/src/events.rs` 定义十一个事件名与一个 `EventSink` trait（`emit(&self, event: &str, payload: serde_json::Value)`）。当前有三个实现：`TauriEventSink`（发往 webview）、`RecordingEventSink`（测试）、`LineEventSink`（`worker`，JSON 行写 stderr）。**每个传输都把要发的东西包进下面的 envelope**——SSE sink、Tauri sink（其 webview 在唯一边界处解包）、以及 worker 的行协议。发射点仍然只传原始 payload，因为 envelope 是传输的事：`EventSink::emit` 保持 `(&str, Value)` 签名，没有任何发射点改形状。**v0.9 批次 3 已实现**，连同 §3 标为「有变」的三种 payload 形状；其余八种与宿主发射时完全一致。
 
 ## 1. SSE 协议
 
@@ -94,9 +94,10 @@ v0.9 的 `kind` 取值：
 | 8 | `vm:state` | `{state, running, since_ms}`（仅快照时带 `name`） | `{state, running, since_ms, name}`——`name` 恒存在 | **是** |
 | 9 | `preflight:progress` | `{step, state, detail}` | `{step, state, detail}` | 否 |
 | 10 | `audit:failed` | `{error}` | `{message}` | **是** |
-| 11 | `toolchain:download` | 外部标签枚举（`{"Started":{...}}` 等） | `{state, ...}`——小写 `state` 加扁平字段 | **是** |
+| 11 | `toolchain:download` | 内部标签枚举：`{"kind":"progress","downloaded":d,"total":n}` 等 | `{state, ...}`——同样的字段，标签改为 `state` | **是** |
 
 十一个中有**三个**改形状，**八个**是恒等映射。
+**三种改动均已在 v0.9 批次 3 落地**（在发射点处）：envelope 包裹它们，下表这些键就是客户端今天在 `payload` 里看到的。
 
 ### 3.1 旧 → 新迁移
 
@@ -108,17 +109,17 @@ v0.9 的 `kind` 取值：
 |---|---|
 | `payload.error` | `payload.message` |
 
-`toolchain:download`。今日 payload 是外部标签的 `DownloadEvent` 枚举。v1 把它压平，标签小写进 `state`：
+`toolchain:download`。今日 payload 是内部标签的 `DownloadEvent` 枚举，标签为 `kind`；v1 把标签改名为 `state`，变体字段留在旁边：
 
 | 旧 | 新 |
 |---|---|
-| `{"Started":{"total_bytes":n}}` | `{"state":"started","total_bytes":n}` |
-| `{"Progress":{"downloaded":d,"total":n}}` | `{"state":"progress","downloaded":d,"total":n}` |
-| `{"Verifying"}` | `{"state":"verifying"}` |
-| `{"Extracting"}` | `{"state":"extracting"}` |
-| `{"Done":{"install_path":p}}` | `{"state":"done","install_path":p}` |
-| `{"Failed":{"reason":r}}` | `{"state":"failed","reason":r}` |
-| `{"Cancelled"}` | `{"state":"cancelled"}` |
+| `{"kind":"started","total_bytes":n}` | `{"state":"started","total_bytes":n}` |
+| `{"kind":"progress","downloaded":d,"total":n}` | `{"state":"progress","downloaded":d,"total":n}` |
+| `{"kind":"verifying"}` | `{"state":"verifying"}` |
+| `{"kind":"extracting"}` | `{"state":"extracting"}` |
+| `{"kind":"done","install_path":p}` | `{"state":"done","install_path":p}` |
+| `{"kind":"failed","reason":r}` | `{"state":"failed","reason":r}` |
+| `{"kind":"cancelled"}` | `{"state":"cancelled"}` |
 
 ## 4. 过滤
 

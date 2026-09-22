@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**The control plane answers queries and carries one event envelope.** The 26 query
+endpoints of `docs/control-plane-api.md` §5.1 are live, with a new
+`method_not_allowed` (405) code and a reserved `/v0/resources` (501); and every event,
+whatever the transport, now travels in the envelope settled in
+`docs/control-plane-events.md` — the SSE stream, the Tauri webview (which unwraps at its
+one boundary) and the worker's line protocol.
+
+### Added
+
+- **The 26 query endpoints** (`GET`): audit status and events, runs (list, one, diff),
+  the LLM views, sessions, snapshots, VM state, toolchain, QEMU, preflight, settings,
+  workspace and serial — plus the host-local `/v0/health`, `/v0/status` and
+  `/v0/events`, and the reserved `/v0/resources` answering `501`. Required parameters
+  are validated (`400` with the offending name in `cause`), paths take part in a
+  `405 method_not_allowed`, and every endpoint's capability is declared in the route
+  table and handed to the `Authn` hook.
+- **The envelope** in `host/src/events.rs`: `version` / `kind` / `event` /
+  `agent_id` / `task_id` / `ts` / `payload`, built by each transport. The
+  `EventSink` trait keeps its signature, so no emit site changed shape.
+- **[docs/control-plane-client-guide.md](docs/control-plane-client-guide.md)**: the
+  client-side walkthrough — curl per endpoint, response examples, the error table, and an
+  SSE subscription example.
+
+### Changed
+
+- **Three event payloads** follow the document now: `vm:state` always carries `name`
+  (`null` unless it is a snapshot), `audit:failed` carries `message` (it was `error`),
+  and `toolchain:download` is tagged `state` (it was `kind`). The eight other payloads
+  are unchanged. The webview unwraps the envelope in `ui/src/api/tauri.ts`, so panel
+  callbacks read the payload they always read.
+- **`TauriEventSink::new` takes the agent identity**, which every envelope it sends
+  carries.
+
 **The control plane has a process now.** v0.9's main line is a control plane: a human
 supervising AIs and an AI supervising AIs go through the same HTTP + SSE interface. This
 batch lands the skeleton the rest of that API is built on — a new `server` crate, two

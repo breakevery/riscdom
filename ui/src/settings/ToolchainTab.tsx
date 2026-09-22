@@ -12,7 +12,7 @@ import { t } from "../i18n/index.ts";
 /** Human-readable state line for the download area. */
 function statusText(store: AppStore): string {
   const dl = store.toolchainDownload;
-  switch (dl.event?.kind) {
+  switch (dl.event?.state) {
     case "started":
       return t("toolchain.download.started");
     case "progress": {
@@ -50,7 +50,7 @@ function statusText(store: AppStore): string {
 export default function ToolchainTab({ store }: { store: AppStore }) {
   const dl = store.toolchainDownload;
   const busy = dl.in_progress;
-  const kind = dl.event?.kind ?? null;
+  const kind = dl.event?.state ?? null;
   const percent =
     dl.progress && dl.progress.total
       ? Math.min(100, Math.round((dl.progress.downloaded / dl.progress.total) * 100))
@@ -186,7 +186,7 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
         </>
       ) : null}
 
-      {!busy && kind === "done" && dl.event?.kind === "done" ? (
+      {!busy && kind === "done" && dl.event?.state === "done" ? (
         <div className="muted small">
           {t("toolchain.download.installed", { path: dl.event.install_path })}
         </div>
@@ -197,7 +197,7 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
       {!busy && kind === "failed" ? (
         <>
           <div className="field-error">
-            {dl.event?.kind === "failed"
+            {dl.event?.state === "failed"
               ? dl.event.reason
               : t("toolchain.download.failed")}
           </div>

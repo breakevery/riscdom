@@ -270,15 +270,19 @@ export interface VmStatus {
 
 export const vmStatus = () => invoke<VmStatus>("vm_status");
 
-/** One-click toolchain download (mirrors the host `DownloadEvent`). */
+/** One-click toolchain download (mirrors the host `DownloadEvent`).
+ *
+ * The tag is `state` since v0.9: the same flattened shape the envelope's payload
+ * carries, so the event and the polling status agree.
+ */
 export type ToolchainDownloadEvent =
-  | { kind: "started"; total_bytes: number | null }
-  | { kind: "progress"; downloaded: number; total: number | null }
-  | { kind: "verifying" }
-  | { kind: "extracting" }
-  | { kind: "done"; install_path: string }
-  | { kind: "failed"; reason: string }
-  | { kind: "cancelled" };
+  | { state: "started"; total_bytes: number | null }
+  | { state: "progress"; downloaded: number; total: number | null }
+  | { state: "verifying" }
+  | { state: "extracting" }
+  | { state: "done"; install_path: string }
+  | { state: "failed"; reason: string }
+  | { state: "cancelled" };
 
 export interface ToolchainDownloadStatus {
   in_progress: boolean;
@@ -395,12 +399,42 @@ export const onAgentStreamDelta = (cb: (text: string) => void) =>
 export const onAgentStreamDone = (cb: () => void) =>
   onHostEvent("agent:stream:done", () => cb());
 
+/**
+ * The envelope every host event travels in (v0.9).
+ *
+ * `version` first, then `kind` / `event` / `agent_id` / `task_id` / `ts`, and the
+ * panel's payload nested inside.
+ */
+export interface HostEnvelope {
+  version: number;
+  kind: string;
+  event: string | null;
+  agent_id: string;
+  task_id: string | null;
+  ts: number;
+  payload: unknown;
+}
+
+/**
+ * Unwrap a host event, so a panel callback keeps reading the payload it always
+ * read. One boundary, one unwrap: the panels never see the envelope.
+ */
+export const unwrapHostPayload = (value: unknown): unknown => {
+  if (value && typeof value === "object") {
+    const candidate = value as Partial<HostEnvelope>;
+    if (typeof candidate.version === "number" && "payload" in candidate) {
+      return candidate.payload;
+    }
+  }
+  return value;
+};
+
 /** Subscribe to a host event. Returns an unlisten function. */
 export const onHostEvent = (
   event: string,
   cb: (payload: unknown) => void,
 ): (() => void) => {
-  const p = listen(event, (e) => cb(e.payload));
+  const p = listen(event, (e) => cb(unwrapHostPayload(e.payload)));
   return () => {
     p.then((f) => f()).catch(() => {});
   };

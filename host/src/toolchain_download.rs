@@ -64,7 +64,7 @@ impl DownloadSpec {
 
 /// Progress / lifecycle events for the UI.
 #[derive(Debug, Clone, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(tag = "state", rename_all = "kebab-case")]
 pub enum DownloadEvent {
     Started { total_bytes: Option<u64> },
     Progress { downloaded: u64, total: Option<u64> },

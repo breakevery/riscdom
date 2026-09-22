@@ -765,7 +765,7 @@ export function useAppStore(): AppStore {
       await api.startToolchainDownload();
       setToolchainDownload({
         in_progress: true,
-        event: { kind: "started", total_bytes: null },
+        event: { state: "started", total_bytes: null },
         progress: null,
       });
     } catch (e) {
@@ -864,19 +864,19 @@ export function useAppStore(): AppStore {
       api.onToolchainDownload((event) => {
         setToolchainDownload((prev) => ({
           in_progress:
-            event.kind !== "done" &&
-            event.kind !== "failed" &&
-            event.kind !== "cancelled",
+            event.state !== "done" &&
+            event.state !== "failed" &&
+            event.state !== "cancelled",
           event,
           progress:
-            event.kind === "progress"
+            event.state === "progress"
               ? { downloaded: event.downloaded, total: event.total }
-              : event.kind === "started"
+              : event.state === "started"
                 ? null
                 : prev.progress,
         }));
         // A finished download becomes the active toolchain.
-        if (event.kind === "done") void refreshToolchain();
+        if (event.state === "done") void refreshToolchain();
       }),
     );
     return () => offs.forEach((f) => f());
