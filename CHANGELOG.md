@@ -27,6 +27,21 @@ everything the host does without a webview, and its dependency tree contains no 
 crate; `host` keeps the commands, the Tauri transport and the Tauri dependency, and
 re-exports the portable surface, so nothing else changed in this wave.
 
+**The host's tests moved with the split, and two guards are whole again.** The 39
+integration test files now live in `host-core/tests`, so they test the portable half where
+it lives; and the mirror-constant guard and the clippy step cover both crates again.
+
+### Changed
+
+- **`host/tests` → `host-core/tests`** (39 files, `git mv`, history kept), with all 133
+  `host::` paths rewritten to `host_core::`. `host` now has no tests, and its
+  `[dev-dependencies]` are gone: the tests use `host-core`'s own dependencies.
+- **`scripts/check-mirrored-constants.mjs` scans `host-core/src` and `host/src`** — 17 files,
+  up from the 3 that wave 1's move had left inside the guard. `--dir` may be repeated.
+- **`scripts/gate.sh` lints `host-core` too**:
+  `cargo clippy -p host-core -p host --all-targets -- -D warnings`. Wave 1's split had put
+  the bulk of the host outside every clippy step.
+
 ### Added
 
 - **`host-core`, a new workspace crate**: the audit wiring, `AppState`, snapshots,

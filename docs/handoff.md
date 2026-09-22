@@ -13,6 +13,17 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The host's tests moved with it, and the two guards the split had weakened are whole
+  again** (v0.9 A1 wave 2 of 4). All 39 integration test files moved from `host/tests` to
+  `host-core/tests` (`git mv`, history kept) and their 133 `host::` paths became
+  `host_core::` — 67 `use host::` lines, 65 inline paths and one doc link. `host` now has
+  no tests and no `[dev-dependencies]`; the tests use `host-core`'s own dependencies
+  (`agent`, `audit`, `sandbox`, `serde_json`, `sha2`, `rusqlite`, `zip` / `flate2` +
+  `tar`), so nothing is declared twice. Two guards had gone quiet in wave 1 and are fixed
+  here: `scripts/check-mirrored-constants.mjs` now scans `host-core/src` **and** `host/src`
+  (17 files, up from 3) and `scripts/gate.sh` lints `-p host-core -p host` in one clippy
+  step (host-core had been escaping clippy entirely). The consumers are still untouched —
+  that is waves 3 and 4.
 - **The host is split: `host-core` + a facade** (v0.9 A1 wave 1 of 4). The portable half
   of the kernel facade — the audit wiring, the VM slot, snapshots, sessions, the download
   paths, the preflight, the event envelope and the `EventSink` trait — is now the

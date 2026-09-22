@@ -13,8 +13,8 @@
 # several tests boot a real guest.
 #
 # Platform differences are printed, never skipped silently:
-#   - non-Windows: `host` / `ui/src-tauri` lint and check are skipped (Tauri needs
-#     the webkit2gtk / gtk / librsvg system libraries);
+#   - non-Windows: `host-core` / `host` / `ui/src-tauri` lint and check are skipped (Tauri needs
+#     the webkit2gtk / gtk / librsvg system libraries)
 #   - without QEMU + a RISC-V GCC: the guest-booting tests are skipped and the
 #     portable library tests run instead.
 #
@@ -59,8 +59,8 @@ echo "==> cargo check (portable crates audit sandbox agent)"
 cargo check -p audit -p sandbox -p agent || fail "cargo check"
 
 if [ "$host_os" = "windows" ]; then
-  echo "==> cargo clippy (host)"
-  cargo clippy -p host --all-targets -- -D warnings || fail "cargo clippy host"
+  echo "==> cargo clippy (host-core + host)"
+  cargo clippy -p host-core -p host --all-targets -- -D warnings || fail "cargo clippy host-core + host"
 
   echo "==> cargo clippy (ui/src-tauri)"
   cargo clippy --manifest-path ui/src-tauri/Cargo.toml --all-targets -- -D warnings || fail "cargo clippy ui/src-tauri"
@@ -68,7 +68,7 @@ if [ "$host_os" = "windows" ]; then
   echo "==> cargo check (ui/src-tauri)"
   cargo check --manifest-path ui/src-tauri/Cargo.toml || fail "cargo check ui/src-tauri"
 else
-  skip "host + ui/src-tauri lint and check (Tauri needs webkit2gtk / gtk / librsvg; they are linted on Windows)"
+  skip "host-core + host + ui/src-tauri lint and check (Tauri needs webkit2gtk / gtk / librsvg; they are linted on Windows)"
 fi
 
 if have_guest_tools; then
@@ -93,7 +93,7 @@ node ui/scripts/probe-ui-preflight.mjs || fail "ui probe (preflight)"
 node ui/scripts/probe-ui-theme.mjs || fail "ui probe (theme)"
 node ui/scripts/probe-ui-i18n.mjs || fail "ui probe (i18n)"
 
-echo "==> mirrored constants (host/src)"
+echo "==> mirrored constants (host-core/src + host/src)"
 node scripts/check-mirrored-constants.mjs || fail "mirrored constants"
 
 echo "==> wix version guard"

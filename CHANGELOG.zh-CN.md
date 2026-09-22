@@ -15,6 +15,14 @@
 
 **宿主拆成「可移植半边」与「Tauri 半边」。** `host-core` 现在装着宿主所有不需要 webview 的部分，其依赖树里没有任何 Tauri crate；`host` 保留命令、Tauri 传输与 Tauri 依赖并再导出可移植面，因此本波其余一切未变。
 
+**宿主的测试随拆分搬迁，两个守卫恢复完整。** 39 个集成测试文件现在住在 `host-core/tests`，即在可移植半边所在之处测试它；镜像常量守卫与 clippy 步骤也重新覆盖两个 crate。
+
+### 变更
+
+- **`host/tests` → `host-core/tests`**（39 文件，`git mv`，保留历史），133 处 `host::` 路径改写为 `host_core::`。`host` 现在没有测试，`[dev-dependencies]` 随之删除：测试用的是 `host-core` 自己的依赖。
+- **`scripts/check-mirrored-constants.mjs` 同时扫描 `host-core/src` 与 `host/src`**——17 个文件，而第 1 波搬迁后守卫内只剩 3 个。`--dir` 可重复给出。
+- **`scripts/gate.sh` 也 lint `host-core`**：`cargo clippy -p host-core -p host --all-targets -- -D warnings`。第 1 波拆分曾把宿主的绝大部分放到所有 clippy 步骤之外。
+
 ### 新增
 
 - **`host-core`，新的 workspace crate**：审计接线、`AppState`、快照、会话、工具链与 QEMU 两条下载路径、预检、`run_diff`、`paths`、`settings`、`keyring`、`error`、`dispatch`、`executor`，以及事件 envelope 与 `EventSink` trait。它只依赖 `agent` / `sandbox` / `audit`，且 `cargo tree -p host-core` 里没有任何 Tauri crate。

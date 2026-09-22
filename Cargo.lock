@@ -1480,18 +1480,10 @@ dependencies = [
 name = "host"
 version = "0.8.0"
 dependencies = [
- "agent",
- "audit",
- "flate2",
  "host-core",
- "rusqlite",
- "sandbox",
  "serde_json",
- "sha2",
- "tar",
  "tauri",
  "tokio",
- "zip",
 ]
 
 [[package]]

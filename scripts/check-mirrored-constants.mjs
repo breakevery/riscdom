@@ -5,16 +5,19 @@
  * Some values belong to `sandbox` / `agent`: the QEMU machine and cpu, the guest
  * RAM, the crt0 injection marker, the RISC-V GCC executable names, the snapshot
  * file extensions. Everything that needs them must reference the exported
- * constant. A second copy inside `host/src` compiles just as well, drifts
- * silently when the owner changes, and quietly makes v0.6's run comparison wrong.
+ * constant. A second copy inside `host-core/src` or `host/src` compiles just as
+ * well, drifts silently when the owner changes, and quietly makes v0.6's run
+ * comparison wrong.
  *
- * This scans `host/src` (production sources only) and fails on a literal copy of
- * any of those values. Comment lines are skipped, because a doc comment may name
- * them.
+ * This scans `host-core/src` and `host/src` (production sources only) and fails on a
+ * literal copy of any of those values. Comment lines are skipped, because a doc
+ * comment may name them. `host-core` moved out of `host` in v0.9's A1 wave 1, so
+ * both directories are scanned: a guard that covers half the crate is a guard that
+ * quietly stops guarding.
  *
- *   node scripts/check-mirrored-constants.mjs              # self-test, then scan
- *   node scripts/check-mirrored-constants.mjs --self-test  # only the self-test
- *   node scripts/check-mirrored-constants.mjs --dir <dir>  # scan <dir>, no self-test
+ *   node scripts/check-mirrored-constants.mjs                    # self-test, then scan
+ *   node scripts/check-mirrored-constants.mjs --self-test        # only the self-test
+ *   node scripts/check-mirrored-constants.mjs --dir <dir> [...]  # scan <dir>s, no self-test
  *
  * The self-test plants a literal in a temporary directory and requires the scanner
  * to reject it — a guard nobody verifies is a guard that quietly stops working.
@@ -26,7 +29,10 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..");
-const DEFAULT_DIR = path.join(REPO, "host", "src");
+const DEFAULT_DIRS = [
+  path.join(REPO, "host-core", "src"),
+  path.join(REPO, "host", "src"),
+];
 
 /** One rule per mirrored value: the literal to spot, and the owner to point at. */
 const RULES = [
@@ -70,7 +76,7 @@ function rustFiles(dir) {
   return out;
 }
 
-/** All literal copies found under `dir`. */
+/** All literal copies found under one directory. */
 function scan(dir) {
   const findings = [];
   for (const file of rustFiles(dir)) {
@@ -93,9 +99,20 @@ function scan(dir) {
   return findings;
 }
 
-function report(findings, dir) {
+/** All literal copies found under every directory in `dirs`. */
+function scanAll(dirs) {
+  return dirs.flatMap((dir) => scan(dir));
+}
+
+/** The scanned directories, as `host-core/src + host/src`. */
+function where(dirs) {
+  return dirs.map((dir) => path.relative(REPO, dir).replace(/\\/g, "/")).join(" + ");
+}
+
+function report(findings, dirs) {
+  const count = dirs.reduce((total, dir) => total + rustFiles(dir).length, 0);
   if (findings.length === 0) {
-    console.log(`mirrored constants: OK (${rustFiles(dir).length} files in ${path.relative(REPO, dir).replace(/\\/g, "/")})`);
+    console.log(`mirrored constants: OK (${count} files in ${where(dirs)})`);
     return 0;
   }
   for (const f of findings) {
@@ -133,13 +150,19 @@ if (args.includes("--self-test")) {
 }
 
 const dirFlag = args.indexOf("--dir");
-const explicitDir = dirFlag === -1 ? null : args[dirFlag + 1];
-if (dirFlag !== -1 && !explicitDir) {
-  console.error("usage: node scripts/check-mirrored-constants.mjs [--self-test] [--dir <dir>]");
+// `--dir` may be repeated; the default is every production source directory.
+const explicitDirs = args.reduce((out, arg, index) => {
+  if (arg === "--dir") out.push(args[index + 1]);
+  return out;
+}, []);
+if (dirFlag !== -1 && explicitDirs.some((dir) => !dir)) {
+  console.error("usage: node scripts/check-mirrored-constants.mjs [--self-test] [--dir <dir> ...]");
   process.exit(2);
 }
 
-if (!explicitDir && !selfTest()) {
+const dirs = explicitDirs.length > 0 ? explicitDirs : DEFAULT_DIRS;
+
+if (explicitDirs.length === 0 && !selfTest()) {
   process.exit(1);
 }
-process.exit(report(scan(explicitDir ?? DEFAULT_DIR), explicitDir ?? DEFAULT_DIR));
+process.exit(report(scanAll(dirs), dirs));
