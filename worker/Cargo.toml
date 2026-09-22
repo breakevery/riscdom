@@ -4,11 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 # The executor process of the two-process prototype (v0.8 main deliverable 1/2).
-# It depends on `host` on purpose: the executor runs the very same, already
+# It depends on `host-core` on purpose: the executor runs the very same, already
 # verified `AppState::run_agent` path the desktop app runs, instead of a second
-# agent-driving implementation. The known cost is that this binary links Tauri
-# (host depends on it unconditionally); making `tauri` optional is a v0.9 cleanup.
+# agent-driving implementation. That used to be `host`, and the known cost was
+# that this binary linked Tauri; since v0.9's A1 wave 3 it is the *portable* half,
+# so `cargo tree -p worker` names no Tauri crate at all.
 [dependencies]
-host = { path = "../host" }
+host-core = { path = "../host-core" }
 agent = { path = "../agent" }
 serde_json = "1"

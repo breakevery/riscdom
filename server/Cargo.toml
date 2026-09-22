@@ -13,10 +13,10 @@ name = "server"
 path = "src/lib.rs"
 
 [dependencies]
-# Layer 3 depends only on Layer 2 (the host public API). `tauri` is linked
-# transitively because `host` depends on it unconditionally; this crate never
-# names a Tauri type (`host`'s owned technical debt, to be cleaned up after v0.9).
-host = { path = "../host" }
+# Layer 3 depends only on Layer 2's portable half (`host-core`), so it never names
+# a Tauri type **and** no longer links one: A1 wave 3 moved it off `host`, whose
+# unconditional `tauri` dependency used to be the known cost.
+host-core = { path = "../host-core" }
 # The HTTP/1.1 server. The `server` feature is what pulls `httpdate` (hyper's only
 # dependency not already present in the workspace lock file).
 hyper = { version = "1", features = ["server", "http1"] }

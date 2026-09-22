@@ -8,9 +8,10 @@
 > [docs/control-plane-events.md](../docs/control-plane-events.md).
 
 `riscdom-server` is the RiscDom control plane as a process: the same HTTP + SSE interface a
-human supervisor and an AI supervisor both use. It is **Layer 3** over the kernel facade
-(`host`, Layer 2) and names no Tauri type. `tauri` is still *linked* because `host`
-depends on it unconditionally — a known cost, not a reference.
+human supervisor and an AI supervisor both use. It is **Layer 3** over the kernel facade's
+portable half (`host-core`, Layer 2) and links **no Tauri crate** — `cargo tree -p server`
+names none. (Before v0.9's A1 wave 3 it did, because it depended on `host`, which depends on
+`tauri` unconditionally.)
 
 All 53 endpoints of the API tables answer over HTTP, plus the three host-local ones, the
 two reserved routes that say so with `501`, and the event stream. The token is on by

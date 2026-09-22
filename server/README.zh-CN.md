@@ -4,7 +4,7 @@
 
 > **适用 v0.9。v1.0 之前接口面不稳定。** 本文是**集成者**的文档：如何编译、如何启动、今天能得到什么答复。它实现的协议定稿于 [docs/control-plane-api.zh-CN.md](../docs/control-plane-api.zh-CN.md) 与 [docs/control-plane-events.zh-CN.md](../docs/control-plane-events.zh-CN.md)。
 
-`riscdom-server` 是作为进程形态的 RiscDom 控制平面：人监工与 AI 监工共用同一套 HTTP + SSE 接口。它是架在内核门面（`host`，Layer 2）之上的 **Layer 3**，不引用任何 Tauri 类型。`tauri` 仍会被**链接**，因为 `host` 无条件依赖它——这是已知代价，不是引用。
+`riscdom-server` 是作为进程形态的 RiscDom 控制平面：人监工与 AI 监工共用同一套 HTTP + SSE 接口。它是架在内核门面的可移植半边（`host-core`，Layer 2）之上的 **Layer 3**，并且**不链接任何 Tauri crate**——`cargo tree -p server` 里一个都没有。（v0.9 A1 第 3 波之前是会链接的，因为它依赖 `host`，而 `host` 无条件依赖 `tauri`。）
 
 API 表格里的 53 个端点全部可经 HTTP 调用，另有三个宿主本地端点、两条以 `501` 明示的预留路由，以及事件流。token 默认开启，且每条路由的 capability 都会被强制。
 

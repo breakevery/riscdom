@@ -8,7 +8,7 @@
 //! Exit codes: `0` after a clean stop, `1` when the workspace, the token or the
 //! bind fails, `2` on a usage error.
 
-use host::AppState;
+use host_core::AppState;
 use server::{cli, token, AuthMode, Cli, NoAuth, Server, ServerConfig, TokenAuth};
 use std::process::ExitCode;
 use std::sync::Arc;

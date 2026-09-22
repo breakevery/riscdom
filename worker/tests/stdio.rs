@@ -19,7 +19,7 @@ use agent::{
     AgentHandle, AgentId, AgentOutcome, DispatchError, Dispatcher, LocalDispatcher, Task,
     TaskOutcome,
 };
-use host::StdioExecutorHandle;
+use host_core::StdioExecutorHandle;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;

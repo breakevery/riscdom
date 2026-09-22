@@ -5,11 +5,11 @@
 //! What this module adds is the vocabulary the control plane puts *in* it: the
 //! opening `hello`, and the reserved `gap`.
 
-use host::events::{envelope, kind, Envelope};
+use host_core::events::{envelope, kind, Envelope};
 
 /// The envelope type every frame carries (re-exported: the control plane does not
 /// define its own).
-pub use host::events::{Envelope as Frame, ENVELOPE_VERSION};
+pub use host_core::events::{Envelope as Frame, ENVELOPE_VERSION};
 
 /// The frame a client receives first on `/v0/events`.
 ///

@@ -5,8 +5,8 @@
 //! the wire format is the deliverable, and nothing here may call QEMU or the
 //! network. The heartbeat is disabled so the streams under test are deterministic.
 
-use host::AppState;
-use host::EventSink;
+use host_core::AppState;
+use host_core::EventSink;
 use server::{
     Authn, Capability, HttpEventSink, NoAuth, Server, ServerConfig, TokenAuth, REPLAY_CAPACITY,
 };

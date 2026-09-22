@@ -3438,7 +3438,7 @@ version = "0.8.0"
 dependencies = [
  "futures-util",
  "getrandom 0.4.3",
- "host",
+ "host-core",
  "http-body-util",
  "hyper",
  "serde",
@@ -5163,7 +5163,7 @@ name = "worker"
 version = "0.8.0"
 dependencies = [
  "agent",
- "host",
+ "host-core",
  "serde_json",
 ]
 

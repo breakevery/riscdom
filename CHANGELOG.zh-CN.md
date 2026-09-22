@@ -17,6 +17,13 @@
 
 **宿主的测试随拆分搬迁，两个守卫恢复完整。** 39 个集成测试文件现在住在 `host-core/tests`，即在可移植半边所在之处测试它；镜像常量守卫与 clippy 步骤也重新覆盖两个 crate。
 
+**`worker` 与 `server` 不再链接 Tauri。** 两者改为依赖内核门面的可移植半边，于是任何无头进程都不再被拖进一套 GUI 工具链。
+
+### 变更
+
+- **`worker` + `server` 改依赖 `host-core`（而非 `host`）**（A1 第 3 波）：30 处 `host::` 路径改写为 `host_core::`（worker 4 文件 7 处、server 7 文件 23 处），依赖行也改到可移植半边。`cargo tree -p worker` 与 `-p server` 现在不含任何 Tauri crate；此前各列出 15 行 `tauri`。逻辑未变。
+- **`server/README.md`** 的 Layer 3 边界不再带「tauri 仍被链接」的旧注；`worker` 与 `server` 的 `Cargo.toml` 注释同此。
+
 ### 变更
 
 - **`host/tests` → `host-core/tests`**（39 文件，`git mv`，保留历史），133 处 `host::` 路径改写为 `host_core::`。`host` 现在没有测试，`[dev-dependencies]` 随之删除：测试用的是 `host-core` 自己的依赖。

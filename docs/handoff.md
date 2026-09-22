@@ -13,6 +13,14 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **`worker` and `server` no longer link Tauri** (v0.9 A1 wave 3 of 4). Both moved off
+  `host` to `host-core`: 30 `host::` paths became `host_core::` (worker 7 in 4 files,
+  server 23 in 7 files — every occurrence, not only the `use` lines) and each `Cargo.toml`
+  names the portable half. `cargo tree -p worker` and `cargo tree -p server` now name **no**
+  Tauri crate; each listed 15 `tauri` lines before. No logic changed — import paths and one
+  dependency line. Both crates' end-to-end tests pass unchanged (the worker protocol and the
+  HTTP + SSE control plane), and the worktree suite is still 418 tests. One consumer is left:
+  wave 4 renames `host` to `host-tauri` and moves the desktop shell.
 - **The host's tests moved with it, and the two guards the split had weakened are whole
   again** (v0.9 A1 wave 2 of 4). All 39 integration test files moved from `host/tests` to
   `host-core/tests` (`git mv`, history kept) and their 133 `host::` paths became

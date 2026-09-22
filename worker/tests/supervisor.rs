@@ -13,7 +13,7 @@
 use agent::{
     AgentHandle, AgentId, AgentOutcome, DispatchError, LocalDispatcher, Task, TaskOutcome,
 };
-use host::StdioExecutorHandle;
+use host_core::StdioExecutorHandle;
 use std::path::PathBuf;
 use std::sync::Arc;
 use worker::supervisor::{

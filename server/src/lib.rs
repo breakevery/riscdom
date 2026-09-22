@@ -13,7 +13,7 @@
 //!   `POST /v0/vm/start` (both `501`) and the host-local `/v0/health`,
 //!   `/v0/status`;
 //! - the **event stream** (`GET /v0/events`), carrying the envelope built in
-//!   `host::events`, with a bounded replay buffer for `Last-Event-ID` and a `gap`
+//!   `host_core::events`, with a bounded replay buffer for `Last-Event-ID` and a `gap`
 //!   frame when the hole is older than the buffer;
 //! - the **error model**, the **`Authn` hook**, and the **bearer token** the
 //!   served program installs by default ([`TokenAuth`], `--no-auth` to opt out).

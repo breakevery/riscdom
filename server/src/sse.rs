@@ -1,11 +1,11 @@
 //! The SSE push side: the hub that fans events out, the frame format, the bounded
-//! replay buffer, and the `host::EventSink` implementation that feeds it.
+//! replay buffer, and the `host_core::EventSink` implementation that feeds it.
 //!
 //! The wire format is settled in `docs/control-plane-events.md` §1: a frame uses
 //! `id:` and `data:` only, and ends with a blank line. There is deliberately no
 //! `event:` field — that would break a browser's single `onmessage` handler, and
 //! the envelope's `event` field is the router instead. The envelope itself comes
-//! from `host::events`, so every transport writes the same one.
+//! from `host_core::events`, so every transport writes the same one.
 //!
 //! **Replay.** Every frame carries `id: <ts>-<seq>` where `seq` is a
 //! **server-wide** ordinal (not a per-connection one): that is what makes the id
@@ -14,7 +14,7 @@
 //! `Last-Event-ID` gets everything after it — or a `gap` frame when the hole is
 //! older than the buffer.
 
-use host::events::{envelope, event_envelope, Envelope};
+use host_core::events::{envelope, event_envelope, Envelope};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -150,7 +150,7 @@ impl SseHub {
             Err(_) => (0, 0),
         };
         let envelope = envelope(
-            host::events::kind::HELLO,
+            host_core::events::kind::HELLO,
             None,
             agent_id,
             None,
@@ -171,7 +171,7 @@ impl SseHub {
     /// The frame that says "the hole could not be filled".
     pub fn gap(&self, lost_after: &str) -> Arc<WireFrame> {
         let envelope = envelope(
-            host::events::kind::GAP,
+            host_core::events::kind::GAP,
             None,
             "server",
             None,
@@ -267,7 +267,7 @@ pub struct HttpEventSink {
 }
 
 impl HttpEventSink {
-    /// `agent_id` must be the identity of the [`AppState`](host::AppState) whose
+    /// `agent_id` must be the identity of the [`AppState`](host_core::AppState) whose
     /// events this sink carries — that is, `state.agent_id()`, never a fresh or
     /// per-request value. Identity is a property of the source, so two sinks
     /// built from one state stamp the same `agent_id` and an event cannot look
@@ -284,7 +284,7 @@ impl HttpEventSink {
     }
 }
 
-impl host::EventSink for HttpEventSink {
+impl host_core::EventSink for HttpEventSink {
     fn emit(&self, event: &str, payload: serde_json::Value) {
         self.hub
             .publish_event(event_envelope(event, &self.agent_id, payload));
@@ -294,8 +294,8 @@ impl host::EventSink for HttpEventSink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use host::events::kind;
-    use host::EventSink;
+    use host_core::events::kind;
+    use host_core::EventSink;
 
     fn event(name: &str) -> Envelope {
         event_envelope(name, "dev-1-1", serde_json::json!({ "name": name }))

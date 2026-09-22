@@ -7,7 +7,7 @@
 use crate::auth::Capability;
 use crate::http::{error_response, json_response, no_content, RespBody};
 use crate::sse::{HttpEventSink, SseHub};
-use host::{AppState, EventSink, HostError};
+use host_core::{AppState, EventSink, HostError};
 use hyper::{Response, StatusCode};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -744,7 +744,7 @@ pub(crate) fn dispatch(
                 return error_response(
                     503,
                     "unavailable",
-                    &host::state::readiness_error(&readiness),
+                    &host_core::state::readiness_error(&readiness),
                     Some("llm"),
                 );
             }
@@ -752,7 +752,7 @@ pub(crate) fn dispatch(
                 Ok(value) => value,
                 Err(response) => return response,
             };
-            let sink: Arc<dyn host::EventSink> =
+            let sink: Arc<dyn host_core::EventSink> =
                 Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
             match app.run_agent(sink, user_input) {
                 Ok(view) => ok_json(&view),
@@ -901,7 +901,7 @@ pub(crate) fn dispatch(
                     Some("download"),
                 );
             }
-            let spec = match host::toolchain_download::spec_for_current_platform() {
+            let spec = match host_core::toolchain_download::spec_for_current_platform() {
                 Ok(spec) => spec,
                 Err(e) => return host_error(HostError::Other(e.to_string())),
             };
@@ -916,10 +916,10 @@ pub(crate) fn dispatch(
             std::thread::spawn(move || {
                 let sink = HttpEventSink::new(Arc::clone(&state), app.agent_id());
                 let dest_root = app.toolchain_dir();
-                let mut on_event = |event: host::toolchain_download::DownloadEvent| {
+                let mut on_event = |event: host_core::toolchain_download::DownloadEvent| {
                     app.record_download_event(event.clone());
                     sink.emit(
-                        host::events::TOOLCHAIN_DOWNLOAD,
+                        host_core::events::TOOLCHAIN_DOWNLOAD,
                         serde_json::to_value(&event).unwrap_or(serde_json::Value::Null),
                     );
                 };
@@ -970,7 +970,7 @@ pub(crate) fn dispatch(
         },
         Action::PreflightRun => {
             // Compiles and boots a guest: never on the request thread.
-            let emitter: Arc<dyn host::EventSink> =
+            let emitter: Arc<dyn host_core::EventSink> =
                 Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
             let app = Arc::clone(app);
             std::thread::spawn(move || {

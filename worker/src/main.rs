@@ -23,8 +23,8 @@
 //! writes no stdout line; the supervisor reports that as a protocol failure.
 
 use agent::{AgentId, AgentOutcome, Task, TaskOutcome};
-use host::state::AppState;
-use host::EventSink;
+use host_core::state::AppState;
+use host_core::EventSink;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -97,7 +97,7 @@ impl EventSink for LineEventSink {
         // The one envelope every transport uses (v0.9). `worker:ready` and
         // `worker:done` are this process's own protocol events and travel in it
         // too — as `kind: "event"`, so a supervisor parses all lines one way.
-        let line = host::events::event_envelope(event, &self.agent_id, payload);
+        let line = host_core::events::event_envelope(event, &self.agent_id, payload);
         eprintln!("{}", line.to_json());
     }
 }
@@ -194,7 +194,7 @@ fn run(args: &Args, task: Option<&Task>) -> TaskOutcome {
     );
 
     let outcome = match state.run_agent(Arc::clone(&sink) as Arc<dyn EventSink>, &task.input) {
-        Ok(view) => host::dispatch::outcome_from_view(view),
+        Ok(view) => host_core::dispatch::outcome_from_view(view),
         // A host-level refusal (not ready, no toolchain, no QEMU, …) is an
         // outcome, not a crash: the supervisor sees it as data.
         Err(e) => AgentOutcome::Failed {

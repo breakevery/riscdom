@@ -10,7 +10,7 @@ use crate::io::TokioIo;
 use crate::routes::{self, Local, Resolution};
 use crate::sse::{HttpEventSink, Replay, SseHub, CHANNEL_CAPACITY};
 use futures_util::stream;
-use host::AppState;
+use host_core::AppState;
 use http_body_util::{combinators::BoxBody, BodyExt, Full, Limited, StreamBody};
 use hyper::body::{Bytes, Frame};
 use hyper::header::{HeaderValue, AUTHORIZATION, CACHE_CONTROL, CONNECTION, CONTENT_TYPE};

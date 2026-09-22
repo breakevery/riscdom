@@ -31,6 +31,18 @@ re-exports the portable surface, so nothing else changed in this wave.
 integration test files now live in `host-core/tests`, so they test the portable half where
 it lives; and the mirror-constant guard and the clippy step cover both crates again.
 
+**`worker` and `server` no longer link Tauri.** Both depend on the kernel facade's
+portable half, so neither binary pulls a GUI toolkit into a headless process.
+
+### Changed
+
+- **`worker` + `server` depend on `host-core` instead of `host`** (A1 wave 3): 30 `host::`
+  paths rewritten to `host_core::` (7 in 4 worker files, 23 in 7 server files) and each
+  dependency line moved to the portable half. `cargo tree -p worker` and `-p server` now
+  name no Tauri crate; each listed 15 `tauri` lines before. No logic changed.
+- **`server/README.md`** states the Layer 3 boundary without the old caveat that `tauri` is
+  still linked; `worker`'s and `server`'s `Cargo.toml` comments say the same.
+
 ### Changed
 
 - **`host/tests` → `host-core/tests`** (39 files, `git mv`, history kept), with all 133
