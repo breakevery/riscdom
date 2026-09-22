@@ -86,6 +86,17 @@ section when the next release ships)
   split, the settled decisions (Tauri decoupling A3 → A1, the B2 multi-process model, the audit chain as
   a single chain + agent_id), the seams left open for multi-device, and the milestone path to the v1.0
   kernel-API freeze. Documentation only: no code changed.
+- **A minimal dispatch abstraction has landed** (v0.8 batch 4): work can now be *dispatched*
+  rather than only called inline. `agent::dispatch` holds the vocabulary — `Task`, `TaskId`
+  (`task-<pid>-<seq>`), `AgentId` (the batch-3 identity shape), `TaskOutcome`, `DispatchError` — and
+  the two traits that make the seam: `AgentHandle` (an executor: run this task, return the outcome)
+  and `Dispatcher`. The **local** half is implemented: `agent::LocalAgent` wraps a loop,
+  `agent::LocalDispatcher` routes by target, and the host adds `HostAgentHandle` +
+  `host::local_dispatcher` over its existing `run_agent` path. The **remote** half is deliberately
+  absent — that absence *is* the seam. It lives in `agent`, not `host`, precisely so the abstraction
+  is not owned by the Tauri-facing crate and does **not** force the host-core / host-tauri split
+  ([architecture-evolution](architecture-evolution.md) §7 seam 2). The Tauri commands still call
+  `run_agent` unchanged: the dispatch path is an added internal route.
 - **The v0.8 technical-debt batch has landed** (v0.8 batch 1): the three dead-ends the
   [architecture-evolution note](architecture-evolution.md) §8 listed as debt are cleared. The app-data
   directory is **injected** — `AppState::with_data_dir(workspace, data_dir)` replaces the process-wide

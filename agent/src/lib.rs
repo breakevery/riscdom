@@ -15,6 +15,7 @@ pub mod agent;
 pub mod audit_hook;
 pub mod compiler;
 pub mod config;
+pub mod dispatch;
 pub mod error;
 pub mod identity;
 pub mod llm;
@@ -32,6 +33,10 @@ pub use compiler::{
     CRT0_INJECTED, GCC_NAMES, TOOLCHAIN_URL,
 };
 pub use config::AgentConfig;
+pub use dispatch::{
+    AgentHandle, AgentId, DispatchError, Dispatcher, LocalAgent, LocalDispatcher, Task, TaskId,
+    TaskOutcome,
+};
 pub use error::AgentError;
 pub use identity::{next_agent_id, DEVICE};
 pub use llm::{DeepSeekClient, LlmClient, MockLlm, OpenAiCompatClient};

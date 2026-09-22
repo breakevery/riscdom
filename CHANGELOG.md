@@ -30,6 +30,17 @@ host's. Snapshots move to `<workspace>/.riscdom/snapshots/<agent_id>/`, so two a
 workspace can both save `snap1` without overwriting each other; reads fall back to the shared root, so a
 snapshot taken before this change still lists, restores and deletes.
 
+**v0.8 batch 4 — a task can be handed to an executor, and the caller does not care where it runs.**
+The multi-agent runtime needs something the host has never had: a way to *dispatch* work instead of
+calling an agent inline. `agent::dispatch` adds the vocabulary — `Task`, `TaskId`, `AgentId`,
+`TaskOutcome`, `DispatchError` — and the two traits that make up the seam: `AgentHandle` (an executor:
+"run this task, give me the outcome") and `Dispatcher` ("turn a task into an outcome"). The **local**
+half is implemented: `LocalDispatcher` routes a task to the handle that owns its target, and the host
+wraps its existing `run_agent` path in `HostAgentHandle`. The **remote** half is deliberately absent —
+that absence *is* the seam: a handle reaching another process or machine implements `AgentHandle` and
+drops into the same dispatcher with nothing above it changing. The Tauri commands keep calling
+`run_agent` exactly as before; the dispatch path is an added internal route, not a replacement.
+
 ### Changed
 
 - **`agent_id` has producers** (v0.8 batch 3): `AgentLoop` takes an identity at construction (`new` /
@@ -62,6 +73,15 @@ instances keep separate chains and separate slots — so nothing re-shares them 
 
 ### Added
 
+- **`agent::dispatch`** (v0.8 batch 4): the dispatch vocabulary and seam. `Task { id, target, input }`;
+`TaskId` (`task-<pid>-<seq>`, from a process-wide counter, so ids are unique inside a process and
+across processes); `AgentId` (the batch-3 `<device>-<pid>-<seq>` shape, as a newtype);
+`TaskOutcome { task_id, agent_id, outcome }`, whose `outcome` is the executor's own `AgentOutcome`
+unchanged; and `DispatchError::NoSuchAgent` / `::Failed`. The traits are `AgentHandle` (`agent_id`,
+`run(&self, &Task)`) and `Dispatcher` (`dispatch(Task) -> Result<TaskOutcome, DispatchError>`).
+`agent::LocalAgent` wraps one loop as an executor and `agent::LocalDispatcher` routes by target;
+the host adds `HostAgentHandle` (its `run_agent` path) and `host::local_dispatcher`.
+**No remote implementation is written** — that is the seam, left open on purpose.
 - **`agent::next_agent_id`** (v0.8 batch 3): the identity helper — `DEVICE` (the machine; `local` for
 now) plus a process-wide sequence, so `local-<pid>-1`, `local-<pid>-2`, … are unique inside a process
 and across processes.

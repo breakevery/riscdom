@@ -69,6 +69,14 @@
   [architecture-evolution.zh-CN.md](architecture-evolution.zh-CN.md) 成对）记录了 v0.7.0 之后做的架构重估 ——
   四层分层与 syscall 层的「机制/策略」划分、已定决策（Tauri 解耦 A3 → A1、B2 多进程模型、审计单链 +
   agent_id）、为多设备预留的缝，以及通往 v1.0 内核 API 冻结的里程碑路径。只写文档：未改代码。
+- **最小派发抽象已落地**（v0.8 批次 4）：任务现在可以**派发**，而不再只能内联调用。
+  `agent::dispatch` 持有词汇 —— `Task`、`TaskId`（`task-<pid>-<seq>`）、`AgentId`（批次 3 的身份形状）、
+  `TaskOutcome`、`DispatchError` —— 以及构成缝的两个 trait：`AgentHandle`（执行者：跑这个任务、返回结果）
+  与 `Dispatcher`。**本地**一半已实现：`agent::LocalAgent` 包一个 loop，`agent::LocalDispatcher` 按 target
+  路由，host 在其既有 `run_agent` 路径上新增 `HostAgentHandle` + `host::local_dispatcher`。**远程**一半
+  有意缺席 —— 这个缺席本身就是那道缝。它放在 `agent` 而不是 `host`，正是为了让该抽象不归 Tauri 外壳所有、
+  **不**强迫做 host-core / host-tauri 拆分（[架构演进](architecture-evolution.zh-CN.md) §7 缝 2）。Tauri
+  命令仍照旧直接调 `run_agent`：派发路径是新增的内部通路。
 - **v0.8 技术债批次已落地**（v0.8 批次 1）：[架构演进文档](architecture-evolution.md) §8 列为债务的三个
   堵死点已清除。app data 目录改为**注入** —— `AppState::with_data_dir(workspace, data_dir)` 取代了
   `host::paths` 里进程级的 `OnceLock`，于是同一进程内的两个实例各自拥有 `settings.json`、会话 DB 与工具链

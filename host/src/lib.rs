@@ -11,6 +11,7 @@
 //! - 前端无法绕过 host 直接调用 sandbox/agent。
 
 pub mod commands;
+pub mod dispatch;
 pub mod error;
 pub mod events;
 pub mod keyring;
@@ -23,6 +24,7 @@ pub mod settings;
 pub mod state;
 pub mod toolchain_download;
 
+pub use dispatch::{local_dispatcher, HostAgentHandle};
 pub use error::HostError;
 pub use events::{EventSink, EV_PREFLIGHT};
 pub use keyring::{KeyringBackend, OsKeyring, SERVICE};

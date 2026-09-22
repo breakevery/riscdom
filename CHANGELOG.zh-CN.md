@@ -26,6 +26,14 @@ workspace 一条链），而这正是多 Agent 运行时需要的：多个进程
 `<workspace>/.riscdom/snapshots/<agent_id>/`，共享同一 workspace 的两个 agent 各自保存 `snap1` 不再互相
 覆盖；读取会回退到共享根目录，因此本次改动之前拍下的快照仍可列出、恢复与删除。
 
+**v0.8 批次 4 —— 任务可以交给一个执行者，而调用方不必知道它在哪跑。** 多 Agent 运行时需要一件 host 从未
+有过的东西：**派发**而不是内联调用。`agent::dispatch` 给出词汇 —— `Task`、`TaskId`、`AgentId`、
+`TaskOutcome`、`DispatchError` —— 以及构成缝的两个 trait：`AgentHandle`（执行者：「跑这个任务，把结果给我」）
+与 `Dispatcher`（「把任务变成结果」）。**本地**一半已实现：`LocalDispatcher` 按 target 把任务路由到持有该身份的
+句柄，host 用 `HostAgentHandle` 把自己的 `run_agent` 路径包成句柄。**远程**一半有意缺席 —— 这个缺席本身就
+是那道缝：将来跨进程或跨机器的句柄只需实现 `AgentHandle`，就能接进同一个分发器，上层一行不改。Tauri 命令
+仍然照旧直接调 `run_agent`；派发路径是**新增的内部通路**，不是替换。
+
 ### 变更
 
 - **`agent_id` 有生产者了**（v0.8 批次 3）：`AgentLoop` 在构造时接收身份（`new` / `with_vm` 新增了该
@@ -53,6 +61,14 @@ workspace 一条链），而这正是多 Agent 运行时需要的：多个进程
 
 ### 新增
 
+- **`agent::dispatch`**（v0.8 批次 4）：派发词汇与缝。`Task { id, target, input }`；`TaskId`
+  （`task-<pid>-<seq>`，来自进程级计数器，因此在进程内与跨进程都唯一）；`AgentId`（批次 3 的
+  `<device>-<pid>-<seq>` 形状，包成 newtype）；`TaskOutcome { task_id, agent_id, outcome }`，其中
+  `outcome` 就是执行者自己的 `AgentOutcome`，原样不包装；以及 `DispatchError::NoSuchAgent` /
+  `::Failed`。两个 trait 是 `AgentHandle`（`agent_id`、`run(&self, &Task)`）与 `Dispatcher`
+  （`dispatch(Task) -> Result<TaskOutcome, DispatchError>`）。`agent::LocalAgent` 把一个 loop 包成
+  执行者，`agent::LocalDispatcher` 按 target 路由；host 侧新增 `HostAgentHandle`（内部即 `run_agent`
+  路径）与 `host::local_dispatcher`。**远程实现不写** —— 那就是有意留开的缝。
 - **`agent::next_agent_id`**（v0.8 批次 3）：身份助手 —— `DEVICE`（机器标识，现阶段为 `local`）
   加一个进程级序号，于是 `local-<pid>-1`、`local-<pid>-2`、… 在进程内与跨进程都唯一。
 - **审计失败告警**（v0.8 批次 2）：`settings.json` 增加 `alert_on_audit_failure`（默认 `true`，因此升级
