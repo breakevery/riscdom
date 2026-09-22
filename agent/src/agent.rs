@@ -10,6 +10,7 @@ use crate::policy::WorkspacePolicy;
 use crate::tools::{execute_tool, tools_json, ToolContext};
 use audit::{AuditEvent, AuditSink};
 use sandbox::vm::RiscVVirtualMachine;
+use serde::{Deserialize, Serialize};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -21,7 +22,12 @@ pub const CONTEXT_MAX: usize = 40;
 pub const CONTEXT_KEEP: usize = 30;
 
 /// How a run finished.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Serialisable since v0.8 (main deliverable 1/2): a run's outcome crosses a
+/// process boundary in [`crate::dispatch::TaskOutcome`] (stdio + JSON lines).
+/// Plain `String` / `u32` fields, so the round trip is lossless, and the enum is
+/// nowhere near the audit chain — the derive is purely additive.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AgentOutcome {
     /// The model produced a final answer.
     Final { content: String, iterations: u32 },

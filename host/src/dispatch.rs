@@ -75,8 +75,10 @@ pub fn local_dispatcher(state: Arc<AppState>, emitter: Arc<dyn EventSink>) -> Lo
 ///
 /// Lossless in both directions: the view keeps every field the outcome has
 /// (`kind`, `content`, `reason`, `iterations`), so a dispatched task reports the
-/// same outcome a direct `run_agent` call does.
-fn outcome_from_view(view: AgentOutcomeView) -> AgentOutcome {
+/// same outcome a direct `run_agent` call does. Public since v0.8 (main
+/// deliverable 1/2): the out-of-process worker reuses this one mapping instead of
+/// keeping a second copy of it.
+pub fn outcome_from_view(view: AgentOutcomeView) -> AgentOutcome {
     match view.kind.as_str() {
         "final" => AgentOutcome::Final {
             content: view.content.unwrap_or_default(),

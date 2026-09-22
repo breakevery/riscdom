@@ -94,7 +94,10 @@ impl Task {
 }
 
 /// What a dispatched task produced.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Serialisable since v0.8 (main deliverable 1/2): this is the record a worker
+/// process writes back as one JSON line.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskOutcome {
     pub task_id: TaskId,
     pub agent_id: AgentId,
@@ -104,7 +107,10 @@ pub struct TaskOutcome {
 }
 
 /// Why a dispatch produced no outcome.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// Serialisable since v0.8 (main deliverable 1/2). `#[error(...)]` is
+/// `thiserror`'s; serde ignores it and tags the variants by name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 pub enum DispatchError {
     /// No handle in this dispatcher owns `task.target`.
     #[error("no executor for agent {0}")]
@@ -209,6 +215,52 @@ impl AgentHandle for LocalAgent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_wire_types_survive_a_json_round_trip() {
+        let task = Task::new(AgentId::new("local-1-1"), "say hi");
+        let json = serde_json::to_string(&task).expect("task json");
+        assert_eq!(serde_json::from_str::<Task>(&json).expect("task"), task);
+
+        for outcome in [
+            AgentOutcome::Final {
+                content: "done".into(),
+                iterations: 3,
+            },
+            AgentOutcome::MaxIterations {
+                last_content: "partial".into(),
+                iterations: 9,
+            },
+            AgentOutcome::Failed {
+                reason: "boom".into(),
+                iterations: 0,
+            },
+        ] {
+            let wire = TaskOutcome {
+                task_id: task.id.clone(),
+                agent_id: task.target.clone(),
+                outcome,
+            };
+            let json = serde_json::to_string(&wire).expect("outcome json");
+            assert_eq!(
+                serde_json::from_str::<TaskOutcome>(&json).expect("outcome"),
+                wire,
+                "every outcome variant survives the wire: {json}"
+            );
+        }
+
+        for error in [
+            DispatchError::NoSuchAgent(AgentId::new("elsewhere-1-1")),
+            DispatchError::Failed("boom".into()),
+        ] {
+            let json = serde_json::to_string(&error).expect("error json");
+            assert_eq!(
+                serde_json::from_str::<DispatchError>(&json).expect("error"),
+                error,
+                "every dispatch error survives the wire: {json}"
+            );
+        }
+    }
 
     #[test]
     fn task_ids_are_unique_and_ordered_by_creation() {

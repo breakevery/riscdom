@@ -1,0 +1,15 @@
+[package]
+name = "worker"
+version.workspace = true
+edition.workspace = true
+
+# The executor process of the two-process prototype (v0.8 main deliverable 1/2).
+# It depends on `host` on purpose: the executor runs the very same, already
+# verified `AppState::run_agent` path the desktop app runs, instead of a second
+# agent-driving implementation. The known cost is that this binary links Tauri
+# (host depends on it unconditionally); making `tauri` optional is a v0.9 cleanup.
+[dependencies]
+host = { path = "../host" }
+agent = { path = "../agent" }
+audit = { path = "../audit" }
+serde_json = "1"

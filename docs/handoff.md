@@ -86,6 +86,18 @@ section when the next release ships)
   split, the settled decisions (Tauri decoupling A3 → A1, the B2 multi-process model, the audit chain as
   a single chain + agent_id), the seams left open for multi-device, and the milestone path to the v1.0
   kernel-API freeze. Documentation only: no code changed.
+- **The two-process prototype has landed** (v0.8 main deliverable 1/2): a supervisor and an executor
+  as separate processes, over **stdio + JSON lines**. `worker` (new crate; the executor binary) reads
+  one `Task` JSON line on stdin, runs the host's own `run_agent` path with an injected data dir, and
+  writes one `TaskOutcome` line on stdout; its events go to stderr as JSON lines. On the supervisor
+  side, `host::StdioExecutorHandle` (an `AgentHandle`) spawns that binary, sends the task, reads the
+  outcome, drains the events, and kills it if it does not answer in time — nothing above the handle
+  changed, which is the seam v0.8 batch 4 left open. Transport needs no new dependency; the worker
+  **does link Tauri** (host depends on it unconditionally — making it optional is a v0.9 cleanup).
+  Two edges worth knowing: the child's own `agent_id` comes back through its **events**, while the
+  dispatcher's `TaskOutcome.agent_id` keeps batch 4's meaning (the executor the task was addressed
+  to); and an executor with an API key in its environment **will really run** (the probe test removes
+  the key, so nothing here calls a model).
 - **A minimal dispatch abstraction has landed** (v0.8 batch 4): work can now be *dispatched*
   rather than only called inline. `agent::dispatch` holds the vocabulary — `Task`, `TaskId`
   (`task-<pid>-<seq>`), `AgentId` (the batch-3 identity shape), `TaskOutcome`, `DispatchError` — and

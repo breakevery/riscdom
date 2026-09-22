@@ -34,8 +34,22 @@ workspace 一条链），而这正是多 Agent 运行时需要的：多个进程
 是那道缝：将来跨进程或跨机器的句柄只需实现 `AgentHandle`，就能接进同一个分发器，上层一行不改。Tauri 命令
 仍然照旧直接调 `run_agent`；派发路径是**新增的内部通路**，不是替换。
 
+**v0.8 主体交付 1/2 —— 同一套派发接口，执行者换到了另一个进程。** 新增 `worker` crate 作为执行者
+二进制：它在 stdin 上读**一行** `Task` JSON，用给定的 data 目录跑 host 自己那条 `run_agent` 路径，然后在
+stdout 上写**一行** `TaskOutcome` JSON。它的事件以 JSON 行写到 stderr，因此 stdout 是一条监工不必过滤就能
+直接解析的通道。监工侧新增 `host::StdioExecutorHandle`：一个 `AgentHandle`，其执行者就是那个子进程 ——
+它起进程、写任务、读结果、吸干事件，到时不答就杀掉。句柄之上的东西一行未改：分发器分不出执行者是本地还是
+跨进程，而这正是 v0.8 批次 4 留开的那道缝。为上线上，`AgentOutcome`、`TaskOutcome`、`DispatchError`
+加了 `Serialize` / `Deserialize`（纯附加：字段全是 `String` / `u32`，与链无关）。传输是 stdio + JSON
+lines，**零新依赖**。两个已知边角：worker 会链接 Tauri（因为 `host` 无条件依赖它 —— v0.9 改为
+optional），以及子进程自己的 agent 身份是经**事件**回来的，而非经监工的 `TaskOutcome`（后者的
+`agent_id` 沿用批次 4 语义：该任务被寻址到的那个执行者）。
+
 ### 变更
 
+- **`host::dispatch::outcome_from_view` 改为公开**（v0.8 主体交付 1/2）：唯一的
+  `AgentOutcomeView` → `AgentOutcome` 映射此前是私有的；跨进程 worker 复用它，而不是再养一份副本。行为
+  无变化。
 - **`agent_id` 有生产者了**（v0.8 批次 3）：`AgentLoop` 在构造时接收身份（`new` / `with_vm` 新增了该
   参数），并把它盖到自己写的每条事件上 —— 包括经 `audit_hook` 与工具层写出的事件，它们也改为接收该
   id。host 为每个 `AppState` 领一个（`local-<pid>-<seq>`），并盖在自己的事件与 run 标记上。该字段仍位于
@@ -61,6 +75,20 @@ workspace 一条链），而这正是多 Agent 运行时需要的：多个进程
 
 ### 新增
 
+- **`worker`**（v0.8 主体交付 1/2）：执行者进程。用法
+  `worker --workspace <dir> --data-dir <dir> [--sleep-ms <n>]` —— 两个路径必填、无环境变量回退：执行者的
+  身份就是它的命令行，而一个会把它的数据目录静默指到别处的继承变量，比缺参更糟。它构造
+  `AppState::with_data_dir`，于是每个执行者自己拥有 `settings.json`、`sessions.db` 与工具链目录。退出码：
+  **只要写出了 outcome 就是 0** —— 失败的一次运行也是答案，写成 `TaskOutcome { outcome: Failed { .. } }`；
+  用法错误退出 2（不写 stdout 行，由监工报协议失败）。非法任务不是崩溃而是答复：outcome 带约定好的占位
+  id `task-unparsed` / `unparsed`。
+- **`host::StdioExecutorHandle`**（v0.8 主体交付 1/2）：面向子进程的监工侧 `AgentHandle` —— 子进程 stdin
+  进一行任务、stdout 出一行结果；有超时截至，到时不答就杀掉；子进程 stderr 被吸入 `events()`；每条失败消息
+  都带子进程退出状态；答的若是另一个任务则拒绝向上传递而非当作本次结果。`with_env` / `with_env_removed`
+  让监工决定执行者继承什么环境。
+- **派发线上类型加 serde**（v0.8 主体交付 1/2）：`AgentOutcome`、`TaskOutcome`、`DispatchError` 现在派生
+  `Serialize` + `Deserialize`（前两者本就形状可序列化；第三个上 `thiserror` 的 `#[error]` 与 serde 可共存）。
+  纯附加。
 - **`agent::dispatch`**（v0.8 批次 4）：派发词汇与缝。`Task { id, target, input }`；`TaskId`
   （`task-<pid>-<seq>`，来自进程级计数器，因此在进程内与跨进程都唯一）；`AgentId`（批次 3 的
   `<device>-<pid>-<seq>` 形状，包成 newtype）；`TaskOutcome { task_id, agent_id, outcome }`，其中

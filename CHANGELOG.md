@@ -41,8 +41,26 @@ that absence *is* the seam: a handle reaching another process or machine impleme
 drops into the same dispatcher with nothing above it changing. The Tauri commands keep calling
 `run_agent` exactly as before; the dispatch path is an added internal route, not a replacement.
 
+**v0.8 main deliverable 1/2 — the same dispatch interface, with the executor in another process.**
+A new `worker` crate is the executor binary: it reads **one** `Task` JSON line on stdin, runs the
+host's own `run_agent` path against a data directory it was given, and writes **one** `TaskOutcome`
+JSON line on stdout. Its events go to stderr as JSON lines, so stdout stays a channel a supervisor
+can parse without filtering. On the supervisor side, `host::StdioExecutorHandle` is an `AgentHandle`
+whose executor is that child process: it spawns it, writes the task, reads the outcome, drains the
+events, and kills it if it does not answer in time. Nothing above the handle changed — the dispatcher
+cannot tell a local executor from a process boundary, which is exactly the seam v0.8 batch 4 left
+open. `AgentOutcome`, `TaskOutcome` and `DispatchError` gained `Serialize`/`Deserialize` for the wire
+(pure addition: plain `String`/`u32` fields, nowhere near the chain). Transport is stdio + JSON lines,
+which needs **no new dependency**. Two known edges: the worker links Tauri (because `host` depends on
+it unconditionally — v0.9 makes it optional), and the child's own agent identity comes back through
+its **events**, not through the dispatcher's `TaskOutcome` (whose `agent_id` follows batch 4's meaning:
+the executor the task was addressed to).
+
 ### Changed
 
+- **`host::dispatch::outcome_from_view` is public** (v0.8 main deliverable 1/2): the one
+`AgentOutcomeView` → `AgentOutcome` mapping used to be private; the out-of-process worker reuses it
+instead of keeping a second copy. No behaviour change.
 - **`agent_id` has producers** (v0.8 batch 3): `AgentLoop` takes an identity at construction (`new` /
 `with_vm` gained the parameter) and stamps it onto every event it writes — including the ones written
 through `audit_hook` and the tool layer, which now take the id as well. The host mints one per
@@ -73,6 +91,23 @@ instances keep separate chains and separate slots — so nothing re-shares them 
 
 ### Added
 
+- **`worker`** (v0.8 main deliverable 1/2): the executor process. Usage:
+`worker --workspace <dir> --data-dir <dir> [--sleep-ms <n>]` — the paths are required and have no
+environment fallback, because an executor's identity is its command line and an inherited variable
+that silently redirects it is worse than a missing argument. It builds `AppState::with_data_dir`, so
+each executor owns its `settings.json`, `sessions.db` and toolchain directory. Exit code is **0
+whenever an outcome was written** — a failed run is still an answer, written as
+`TaskOutcome { outcome: Failed { .. } }` — and 2 for a usage error (no stdout line; the supervisor
+reports a protocol failure). A malformed task is answered, not crashed: the outcome carries the
+documented placeholder ids `task-unparsed` / `unparsed`.
+- **`host::StdioExecutorHandle`** (v0.8 main deliverable 1/2): the supervisor-side `AgentHandle` for a
+child process — one task line in on its stdin, one outcome line out on its stdout, a deadline that
+kills a worker that never answers, the child's stderr drained into `events()`, the child's exit status
+in every failure message, and an answer that names a different task rejected rather than passed up.
+`with_env` / `with_env_removed` let the supervisor decide what an executor inherits.
+- **Serde on the dispatch wire types** (v0.8 main deliverable 1/2): `AgentOutcome`,
+`TaskOutcome` and `DispatchError` now derive `Serialize` + `Deserialize` (the first two were already
+serialisable in shape; `thiserror`'s `#[error]` and serde coexist on the third). Additive only.
 - **`agent::dispatch`** (v0.8 batch 4): the dispatch vocabulary and seam. `Task { id, target, input }`;
 `TaskId` (`task-<pid>-<seq>`, from a process-wide counter, so ids are unique inside a process and
 across processes); `AgentId` (the batch-3 `<device>-<pid>-<seq>` shape, as a newtype);

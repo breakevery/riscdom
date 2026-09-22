@@ -69,6 +69,14 @@
   [architecture-evolution.zh-CN.md](architecture-evolution.zh-CN.md) 成对）记录了 v0.7.0 之后做的架构重估 ——
   四层分层与 syscall 层的「机制/策略」划分、已定决策（Tauri 解耦 A3 → A1、B2 多进程模型、审计单链 +
   agent_id）、为多设备预留的缝，以及通往 v1.0 内核 API 冻结的里程碑路径。只写文档：未改代码。
+- **两进程雏形已落地**（v0.8 主体交付 1/2）：监工与执行者是两个进程，经 **stdio + JSON lines** 对话。
+  `worker`（新 crate，执行者二进制）在 stdin 上读一行 `Task` JSON，用注入的 data 目录跑 host 自己那条
+  `run_agent` 路径，在 stdout 上写一行 `TaskOutcome`；它的事件以 JSON 行写到 stderr。监工侧
+  `host::StdioExecutorHandle`（一个 `AgentHandle`）起那个二进制、发任务、读结果、吸干事件，到时不答就杀掉
+  —— 句柄之上没有改动，这正是 v0.8 批次 4 留开的缝。传输零新依赖；但 worker **确实会链接 Tauri**
+  （host 无条件依赖它 —— 改为 optional 是 v0.9 的清理）。两个值得知道的边角：子进程自己的 `agent_id` 是经
+  它的事件回来的，而分发器的 `TaskOutcome.agent_id` 保持批次 4 的语义（被寻址到的那个执行者）；以及环境里
+  有 key 的执行者**会真的跑**（探针测试移除了该变量，因此这里不会调模型）。
 - **最小派发抽象已落地**（v0.8 批次 4）：任务现在可以**派发**，而不再只能内联调用。
   `agent::dispatch` 持有词汇 —— `Task`、`TaskId`（`task-<pid>-<seq>`）、`AgentId`（批次 3 的身份形状）、
   `TaskOutcome`、`DispatchError` —— 以及构成缝的两个 trait：`AgentHandle`（执行者：跑这个任务、返回结果）
