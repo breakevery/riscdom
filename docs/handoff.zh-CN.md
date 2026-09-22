@@ -9,13 +9,24 @@
 `main`。每个批次的收尾流程一致：gate 全绿 → `scripts\commit.ps1 "<msg>"`（它自己会跑 gate）→ push ——
 而这些面向远端的动作，只在当轮请求明确授权时才做（见 §2）。
 
-## 1. 快照 —— `v0.7.0` 已在本地准备好；`v0.6.0-preview.1` 是最新的发行版（下次正式发布时更新本节）
+## 1. 快照 —— `v0.8.0` 是最新的发行版（下次正式发布时更新本节）
 
-- **`v0.7.0` 已准备好，但尚未发布。** 版本已 bump 到 `0.7.0`（7 文件 / 15 处 —— 与 v0.6.0-preview.1 相同
+- **`v0.8.0` 已发布**（2026-09-22）：版本 bump 到 `0.8.0`（7 个文件：`Cargo.toml`、两个 `Cargo.lock`、
+  `ui/package.json`、`ui/package-lock.json`、`ui/src-tauri/Cargo.toml`、`ui/src-tauri/tauri.conf.json`
+  —— wix 守卫要求纯数字正式版不带 `bundle.windows.wix.version`，当前确实没有），`CHANGELOG` 的
+  `[Unreleased]` 归入 `[0.8.0] - 2026-09-22`，[RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) 按正式发布
+  重写 —— **GitHub Release 的正文就是该文件（英文版 `RELEASE_NOTES.md`）的逐字拷贝**（v0.7.0 的发布就是
+  这么做的）。附件：本机构建的 `RiscDom_0.8.0_x64_en-US.msi` 与 `RiscDom_0.8.0_x64-setup.exe`，以及从 CI
+  `bundle` job 下载的 macOS/Linux 包。**本条目由本地准备批次写下**：push、`v0.8.0` tag、GitHub Release 与
+  附件上传是发布批次自己的步骤，这一行描述的就是它们要完成的那次发布。v0.8 是什么：完整双语的界面，以及
+  多 Agent 地基（多进程审计写入、每条事件带身份、per-agent 快照、派发抽象、两进程雏形）。
+- **`v0.7.0` 已发布**（2026-09-21，本次发布之前的那一次）。 版本已 bump 到 `0.7.0`（7 文件 / 15 处 —— 与 v0.6.0-preview.1 相同
   的落点），预览版专用的 `bundle.windows.wix.version` 覆盖再次**删除**（包版本已是纯数字，wix 守卫要求
   如此），`CHANGELOG` 与 `RELEASE_NOTES` 已按正式发布重写，Windows 安装包已构建：
-  `RiscDom_0.7.0_x64_en-US.msi` 与 `RiscDom_0.7.0_x64-setup.exe`。等的是 **push、tag 与 Release** —— 以及
-  一次重新 dispatch 的 `bundle`，因为手头的 CI 包名字是 `0.6.0-preview.1`。v0.7 落地了三块：**自建 i18n
+  `RiscDom_0.7.0_x64_en-US.msi` 与 `RiscDom_0.7.0_x64-setup.exe`。次日发布了：annotated tag `v0.7.0`
+  （→ `2bddae6b0897bb5fe262af2b7e4bf4b3733ec7eb`）、正文为 `RELEASE_NOTES.md` 逐字拷贝的 GitHub Release，以及
+  6 个附件（两个 Windows 安装包 + 一次重新 dispatch 的 `bundle` 产出的、名字为 `0.7.0` 的 macOS/Linux 包）。
+  v0.7 落地了三块：**自建 i18n
   设施**（批次 1–2 —— `ui/src/i18n/`、gate 里的 `scripts/check-ui-strings.mjs`、以及*设置 → 外观*里写入
   `settings.json` 并把 `<html>` 的 `lang` 跟着改的语言切换）、**macOS/Linux 构建**（批次 A 的平台工作 +
   批次 B 的 `bundle` job，见下一条），以及让 `host` 在非 Windows 上能编译的修复（批次 8）。**用注册表铺开
@@ -56,15 +67,17 @@
   快照）← `202dd75`（非 Windows 的 `extract_zip` 存根）← `344fd2b`（Linux 包需要的 rpm）← `0633bdc`
   （macOS/Linux 的 bundle CI job）← `833f9c3`（随平台变化的 QEMU 指引、icon.icns、Unix QMP 单测）←
   `06fef0a`（语言切换）← `6abcb44`（i18n 试点）← `b0efeb8`（v0.6.0-preview.1 发布）。
-- tag：`v0.6.0-preview.1` 是最新的 tag（预发布版，也是手头 `bundle` 包的命名来源）；**`v0.7.0` 尚未打
-  tag** —— 由发布批次完成；`v0.5.0` 是持有 Latest 标记的正式版；`v0.5.0-preview.1` =
+- tag：`v0.8.0` 是最新的 tag（本次发布）；`v0.7.0` 是持有 Latest 标记的正式版（已用 `gh release list`
+  确认：2026-09-21T11:09:26Z，annotated tag 对象 `f267f13dc6f8df9a3ff196b05d3bb9b7724f2d60` →
+  `2bddae6b0897bb5fe262af2b7e4bf4b3733ec7eb`）；`v0.6.0-preview.1` 与 `v0.5.0-preview.1` 为预发布版；
+  `v0.5.0` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`；
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`；
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`。
-- `main`（发布提交 `20f2052`，未发布）处的测试总况：**295 passed / 0 failed / 8 ignored / 80 suites**
-  —— `v0.6.0-preview.1` 发布提交处为 291 / 0 / 8 / 80，`v0.5.0` 处为 281 / 0 / 8 / 79。gate 共 13 步
-  （v0.7 批次 1 新增了 UI 字符串注册表；UI 探针无论跑多少个文件都算一步），本地与 CI 均全绿
-  （`ubuntu-latest` 上跑 `scripts/gate.sh`，另加 gitleaks）。
+- `main`（本次发布，`602f402`）处的测试总况：**330 passed / 0 failed / 8 ignored / 90 suites**
+  —— 监工批次之前为 324 / 0 / 8 / 87，`v0.7.0` 发布提交处为 295 / 0 / 8 / 80，`v0.6.0-preview.1` 处为
+  291 / 0 / 8 / 80，`v0.5.0` 处为 281 / 0 / 8 / 79。gate 共 13 步（v0.7 批次 1 新增了 UI 字符串注册表），
+  本地与 CI 均全绿（`ubuntu-latest` 上跑 `scripts/gate.sh`，另加 gitleaks）。
 - **架构演进文档已定稿并落盘**：[architecture-evolution.md](architecture-evolution.md)（双语，与
   [architecture-evolution.zh-CN.md](architecture-evolution.zh-CN.md) 成对）记录了 v0.7.0 之后做的架构重估 ——
   四层分层与 syscall 层的「机制/策略」划分、已定决策（Tauri 解耦 A3 → A1、B2 多进程模型、审计单链 +

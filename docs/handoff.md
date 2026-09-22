@@ -11,16 +11,27 @@ branch `main`. The close-out of every batch is the same: gate green → `scripts
 (which runs the gate itself) → push — and none of those remote-facing steps happens without the
 current request authorising it (§2).
 
-## 1. Snapshot — `v0.7.0` is prepared locally; `v0.6.0-preview.1` is the newest release (update this
-section when the next release ships)
+## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
-- **`v0.7.0` is prepared, and not yet released.** The version is bumped to `0.7.0` (7 files / 15
+- **`v0.8.0` is released** (2026-09-22): the version is bumped to `0.8.0` (7 files: `Cargo.toml`, the two
+  `Cargo.lock`s, `ui/package.json`, `ui/package-lock.json`, `ui/src-tauri/Cargo.toml`,
+  `ui/src-tauri/tauri.conf.json` — the wix guard requires no `bundle.windows.wix.version` on a numeric
+  release, and there is none), `CHANGELOG`'s `[Unreleased]` is folded into `[0.8.0] - 2026-09-22`, and
+  [RELEASE_NOTES.md](../RELEASE_NOTES.md) is rewritten as the release text — **the GitHub release body is
+  that file verbatim** (the v0.7.0 release worked that way). Assets: `RiscDom_0.8.0_x64_en-US.msi` and
+  `RiscDom_0.8.0_x64-setup.exe` built on this machine, plus the macOS/Linux bundles downloaded from the
+  CI `bundle` job. **This bullet is written by the local preparation batch**: the push, the `v0.8.0` tag,
+  the GitHub release and the asset upload are the release batch's own steps, which this line describes.
+  What v0.8 is: a fully bilingual interface, and the multi-agent foundation (multi-process audit writes,
+  an identity on every event, per-agent snapshots, the dispatch abstraction, the two-process prototype).
+- **`v0.7.0` is released** (2026-09-21, the release before this one). The version is bumped to `0.7.0` (7 files / 15
   places — the same sites as v0.6.0-preview.1), the preview-only `bundle.windows.wix.version` override
   is **deleted** again (the package version is numeric, which the wix guard requires), `CHANGELOG` and
   `RELEASE_NOTES` are rewritten for the release, and the Windows installers are built:
-  `RiscDom_0.7.0_x64_en-US.msi` and `RiscDom_0.7.0_x64-setup.exe`. It is waiting on a **push, a tag
-  and a release** — and on a fresh `bundle` dispatch, because the CI packages on hand are named
-  `0.6.0-preview.1`. Three pieces landed in v0.7: the **self-built i18n facility** (batches 1–2 —
+  `RiscDom_0.7.0_x64_en-US.msi` and `RiscDom_0.7.0_x64-setup.exe`. The release was cut the next day: an
+  annotated tag `v0.7.0` (→ `2bddae6b0897bb5fe262af2b7e4bf4b3733ec7eb`), a GitHub release with the
+  verbatim `RELEASE_NOTES.md` body, and six assets (the two Windows installers plus the macOS/Linux
+  bundles from a fresh `bundle` dispatch, which is what produced the `0.7.0`-named packages). Three pieces landed in v0.7: the **self-built i18n facility** (batches 1–2 —
   `ui/src/i18n/`, `scripts/check-ui-strings.mjs` in the gate, and a language switch in *Settings →
   Appearance* that persists to `settings.json` and moves `lang` on `<html>`), **macOS/Linux builds**
   (batch A's platform work plus batch B's `bundle` CI job — the next bullet), and the fix that made
@@ -69,17 +80,18 @@ section when the next release ships)
   `extract_zip` stub) ← `344fd2b` (rpm for the Linux bundle) ← `0633bdc` (the macOS/Linux bundle CI
   job) ← `833f9c3` (platform-aware QEMU guidance, icon.icns, Unix QMP arg test) ← `06fef0a` (the
   language switch) ← `6abcb44` (the i18n pilot) ← `b0efeb8` (the v0.6.0-preview.1 release).
-- Tags: `v0.6.0-preview.1` is the newest tag (a pre-release, and the one the `bundle` packages on
-  hand are named after); **`v0.7.0` is not tagged yet** — the release batch does that; `v0.5.0` is the
-  release holding the Latest marker; `v0.5.0-preview.1` =
+- Tags: `v0.8.0` is the newest tag (this release); `v0.7.0` is the release holding the Latest marker
+  (confirmed with `gh release list`: 2026-09-21T11:09:26Z, annotated tag object
+  `f267f13dc6f8df9a3ff196b05d3bb9b7724f2d60` → `2bddae6b0897bb5fe262af2b7e4bf4b3733ec7eb`);
+  `v0.6.0-preview.1` and `v0.5.0-preview.1` are pre-releases; `v0.5.0` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`;
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`;
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`.
-- Test totals at `main` (the release commit `20f2052`, unreleased): **295 passed / 0 failed / 8
-  ignored / 80 suites** — 291 / 0 / 8 / 80 at the `v0.6.0-preview.1` release commit, and 281 / 0 / 8 /
-  79 at `v0.5.0`. The gate is 13 steps (v0.7 batch 1 added the UI string registry; the UI probes count
-  as one step however many files they run), green locally and in CI (`scripts/gate.sh` on
-  `ubuntu-latest` plus gitleaks).
+- Test totals at `main` (this release, `602f402`): **330 passed / 0 failed / 8 ignored / 90 suites** —
+  324 / 0 / 8 / 87 before the supervisor batch, 295 / 0 / 8 / 80 at the `v0.7.0` release commit,
+  291 / 0 / 8 / 80 at `v0.6.0-preview.1`, and 281 / 0 / 8 / 79 at `v0.5.0`. The gate is 13 steps (v0.7
+  batch 1 added the UI string registry), green locally and in CI (`scripts/gate.sh` on `ubuntu-latest`
+  plus gitleaks).
 - **The architecture-evolution note is finalized and on disk**: [architecture-evolution.md](architecture-evolution.md)
   (bilingual, paired with [architecture-evolution.zh-CN.md](architecture-evolution.zh-CN.md)) records the
   architecture re-assessment done after v0.7.0 — the four layers and the syscall-layer mechanism/policy

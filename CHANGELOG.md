@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-22
+
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the
 architecture re-assessment named are cleared. Nothing on the golden path changes.
 
@@ -640,7 +642,8 @@ locally only. (An earlier draft was deleted; the `v0.1.0` tag remains.)
 - Real DeepSeek API end-to-end: **executed and passing** (2026-09-14, `iterations = 6`,
   serial captured `HELLO RISCV`; see `host/README.md`).
 
-[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/breakevery/riscdom/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/breakevery/riscdom/compare/v0.6.0-preview.1...v0.7.0
 [0.5.0]: https://github.com/breakevery/riscdom/compare/v0.5.0-preview.1...v0.5.0
 [0.4.0]: https://github.com/breakevery/riscdom/compare/v0.3.1...v0.4.0
