@@ -7,7 +7,7 @@
 > 因此由人在一台干净机器上每版走一遍，并**在这里记录下来** —— 即
 > [golden-path.zh-CN.md](golden-path.zh-CN.md) §8 的决定 6：*没人写下来的行走，没人能复核。*
 >
-> 第 3–7 步由 `cargo test -p host --test golden_path -- --ignored` 覆盖（mock LLM + 真实 QEMU guest；
+> 第 3–7 步由 `cargo test -p host-core --test golden_path -- --ignored` 覆盖（mock LLM + 真实 QEMU guest；
 > 见 [golden-path.zh-CN.md](golden-path.zh-CN.md) §6a）。本清单负责它覆盖不到的部分。
 
 ## 怎么用

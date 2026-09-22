@@ -31,8 +31,8 @@ run_0192f4c1-8a3d-7c2e-9f10-6b1d4e0a55aa
 - The `run_` prefix keeps it greppable and distinguishable from session ids and snapshot names.
 
 **Evidence on cost:** `uuid 1.26.1` is *already* in the workspace lock file — it arrives
-transitively via `tauri-utils` / `schemars`, which the `host` crate builds anyway. Making it a
-direct dependency of **`host`** — the crate that mints the id, §4.1; the audit layer only stores it
+transitively via `tauri-utils` / `schemars`, which the `host-core` crate builds anyway. Making it a
+direct dependency of **`host-core`** — the crate that mints the id, §4.1; the audit layer only stores it
 as a string — (with the `v7` feature, whose `getrandom` is also already in the graph) adds a direct
 edge and a feature flag, not a new third-party crate. `audit` stays free of it. Keep the prefix
 hand-written on top of `Uuid::now_v7()`, so the storage layer never depends on a formatting helper.

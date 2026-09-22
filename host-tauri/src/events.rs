@@ -2,8 +2,7 @@
 //!
 //! The envelope itself, the event names and the [`EventSink`] trait live in
 //! `host-core`; this module adds the transport the webview needs and re-exports
-//! the rest, so `host::events::…` keeps resolving for every consumer while the
-//! split is carried out wave by wave.
+//! the rest, so `host_tauri::events::…` keeps resolving for every consumer.
 
 pub use host_core::events::*;
 

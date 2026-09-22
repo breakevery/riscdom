@@ -20,7 +20,7 @@
 
 ## 2. The pattern we already have for GCC
 
-`host/src/toolchain_download.rs`, shipped in v0.3.0, is a complete, reusable template:
+`host-core/src/toolchain_download.rs`, shipped in v0.3.0, is a complete, reusable template:
 
 - a **pinned upstream version** (`XPACK_RISCV_GCC_VERSION = "15.2.0-1"`) and a pinned release base URL;
 - **per-platform** asset names and **pinned SHA-256** for each (win32-x64, darwin-x64, darwin-arm64,
@@ -104,7 +104,7 @@ Why guiding, and not the other two:
    user ends up with a QEMU that their own package manager keeps updated.
 
 The downloader built for v0.4 #4 stays in the tree, unwired and refusing to run
-(`host/src/qemu_download.rs`, spec table empty — see `docs/qemu-setup.md` §3). It is kept because the
+(`host-core/src/qemu_download.rs`, spec table empty — see `docs/qemu-setup.md` §3). It is kept because the
 machinery is written and tested, and a future distribution channel might justify it; nothing calls
 it today.
 
@@ -115,6 +115,6 @@ user-run install impossible (e.g. a store that forbids it), and only with a lice
 
 1. **Now (done):** discovery + manual path + the environment preflight, plus guided install (§5). A
    user with QEMU installed is fully served, and a user without it is told exactly what to run.
-2. **Kept, unwired:** the downloader machinery (`host/src/qemu_download.rs`) — written and tested
+2. **Kept, unwired:** the downloader machinery (`host-core/src/qemu_download.rs`) — written and tested
    against a local server, spec table empty because no build may be pinned (§5). Nothing calls it.
 3. **Not planned:** bundling QEMU into the installer, and mirroring the archives ourselves.

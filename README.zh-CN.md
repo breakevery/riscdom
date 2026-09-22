@@ -127,10 +127,10 @@ cargo test
 cargo test -p sandbox     # QEMU 生命周期 + 串口捕获 + 快照降级
 cargo test -p audit       # append-only + hash chain + 查询 + CLI
 cargo test -p agent       # LLM 客户端 + 工具 + 策略 + 编译器 + Agent 循环
-cargo test -p host        # Tauri 后端命令 + 串口增量
+cargo test -p host-core        # Tauri 后端命令 + 串口增量
 
 # 需要真实 QEMU/工具链的端到端（mock LLM）
-cargo test -p host -- --ignored --nocapture
+cargo test -p host-core -- --ignored --nocapture
 
 # 前端构建
 cd ui && npm run build
@@ -161,7 +161,7 @@ Key 只存在后端内存：**不写** localStorage / sessionStorage / 磁盘 / 
 - **快照**：`save_snapshot` / `load_snapshot` 是"存参数 + 重启"，**不是**真实
   VM 状态（v0.2 换 QEMU `savevm`/`loadvm`）。
 - **串口来源**：由 sandbox 串口读取线程**主动推送**（`subscribe_serial` → `serial:chunk`），
-  不再是审计派生；订阅只收到订阅之后的数据（见 `host/README.md`）。
+  不再是审计派生；订阅只收到订阅之后的数据（见 `host-tauri/README.md`）。
 - **平台**：黄金路径在 Windows 上验证过。macOS/Linux 的安装包由 CI 产出（`.app`/`.dmg`、`.deb`/`.rpm`/`.AppImage`），**未签名、也尚未人工走查**；QMP over Unix socket 仍未实现（仅 TCP）。
 - **无流式输出**：LLM 响应为整块返回。
 - **无会话持久化**：每轮 `run_agent` 是独立上下文。
@@ -194,4 +194,4 @@ gate（`scripts/gate.ps1` / `scripts/gate.sh`），并经由受门禁保护的�
 - [ENVIRONMENT.md](ENVIRONMENT.md) — 工具链与平台限制
 - [CHANGELOG.md](CHANGELOG.md) — 版本历史
 - 各 crate 的 README：[sandbox](sandbox/README.md) · [audit](audit/README.md) ·
-  [agent](agent/README.md) · [host](host/README.md) · [ui](ui/README.md)
+  [agent](agent/README.md) · [host-core](host-core/README.md) · [host-tauri](host-tauri/README.md) · [ui](ui/README.md)

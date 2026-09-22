@@ -69,7 +69,7 @@ npm run tauri dev    # launch the desktop app (needs the Rust toolchain)
 Fill in API Key / Base URL / Model in the **settings** pane and click "save for this
 session".
 
-- The key only lives in backend memory (`host::AppState::llm_config`);
+- The key only lives in backend memory (`host_core::AppState::llm_config`);
 - it is **never** written to localStorage / sessionStorage / console / the audit log / disk;
 - the frontend clears the input box immediately after saving;
 - status read-outs echo `base_url` / `model` and **never the key**.
@@ -91,14 +91,14 @@ frontend (React)  --invoke/listen-->  ui/src-tauri (Tauri shell)  -->  host crat
 ## Events
 
 `agent:iteration` / `agent:tool_call` / `agent:tool_result` / `agent:final` /
-`serial:chunk` / `vm:state`. See `host/README.md`.
+`serial:chunk` / `vm:state`. See `host-tauri/README.md`.
 
 ## Tests
 
 End-to-end (mock LLM, needs QEMU + the RISC-V toolchain):
 
 ```text
-cargo test -p host -- --ignored --nocapture
+cargo test -p host-core -- --ignored --nocapture
 ```
 
 Real-API end-to-end (needs a key):
@@ -120,7 +120,7 @@ The "snapshots" section of the settings pane lists snapshots under
 - "**save current state**": stores the running host-owned VM as a real snapshot (the button
   is disabled while no VM runs);
 - "**restore**" (real snapshots only): after confirmation the current VM is stopped and
-  restored from the snapshot (see `host/README.md`).
+  restored from the snapshot (see `host-tauri/README.md`).
 
 ## Audit tab: runs, side-by-side and the field-level diff
 

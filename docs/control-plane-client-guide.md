@@ -134,7 +134,7 @@ stream instead of a request that ends when the first heartbeat is late.
 ## 2. The query endpoints
 
 26 endpoints, all `GET`. The responses are the host's view types; their fields are the ones
-in `host/src/state.rs`. Everything is JSON.
+in `host-core/src/state.rs`. Everything is JSON.
 
 ### Audit and runs
 

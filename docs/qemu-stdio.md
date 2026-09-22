@@ -122,7 +122,7 @@ the **port lease**; the stdio / file rework is explicitly **not** part of it and
   (`relay.rs`).
 - **`agent` — yes, minimally.** `start_vm` builds the VM config, so it must pass the transport
   choice through.
-- **`host` — yes, minimally.** The resume path builds its own config, and the serial forwarder reads
+- **`host-core` — yes, minimally.** The resume path builds its own config, and the serial forwarder reads
   the serial stream.
 - `audit` — untouched.
 

@@ -39,8 +39,8 @@ RiscDom 检查你配置的工具链与 QEMU **真的能配合工作**——方�
 
 ## 实现在哪
 
-- `host/src/preflight.rs`：步骤词表、缓存结构、banner 等待。
-- `host/src/state.rs`：`preflight_status` / `ensure_preflight` / `acknowledge_preflight`（执行器）。
-- `host/src/commands.rs`：`preflight_status` / `run_preflight` / `acknowledge_preflight`，以及路径变更
+- `host-core/src/preflight.rs`：步骤词表、缓存结构、banner 等待。
+- `host-core/src/state.rs`：`preflight_status` / `ensure_preflight` / `acknowledge_preflight`（执行器）。
+- `host-tauri/src/commands.rs`：`preflight_status` / `run_preflight` / `acknowledge_preflight`，以及路径变更
   时触发的后台预检。
 - `ui/src/lib/preflightView.ts`：设置页显示的文字。

@@ -34,9 +34,9 @@
 **假占位 key**（已在 12.0 提交 `d5daf4f` 替换为非 key 字符串，仅存于历史）。
 这是针对单个已知误报的豁免，不影响其余全历史扫描。
 
-**完整测试**（`sandbox` / `agent` / `host` 的端到端）需要本机 QEMU
+**完整测试**（`sandbox` / `agent` / `host-core` 的端到端）需要本机 QEMU
 （`qemu-system-riscv64`）与 RISC-V 交叉编译器（`riscv64-unknown-elf-gcc`），
 标准 runner 不具备，由开发者在本地执行 `cargo test`。
 
-`host` 依赖 Tauri，在 Linux 需要系统库（webkit2gtk / gtk），故 CI 不编译 `host`；
-MVP 面向 Windows，`host` 在 Windows 本地 lint / check。
+`host-tauri` 依赖 Tauri，在 Linux 需要系统库（webkit2gtk / gtk），故 CI 不编译 `host-tauri`；
+MVP 面向 Windows，`host-core` 与 `host-tauri` 在 Windows 本地 lint / check。

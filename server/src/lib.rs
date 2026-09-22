@@ -1,9 +1,9 @@
 //! The RiscDom control plane (v0.9): HTTP + SSE over the host's kernel facade.
 //!
 //! **Layer 3, the `server` host.** It sits beside `ui/src-tauri` and depends only
-//! on Layer 2 (the `host` public API), never on `agent` / `sandbox` / `audit`
-//! directly, and never on a Tauri type. `tauri` is still *linked* (because `host`
-//! depends on it unconditionally) — a known cost, not a reference.
+//! on Layer 2's portable half (`host-core`), never on `agent` / `sandbox` / `audit`
+//! directly, and never on a Tauri type — since v0.9's A1 wave 3 it does not even link
+//! one (before that it depended on `host`, whose `tauri` edge was the known cost).
 //!
 //! The interface this implements is the one settled in
 //! `docs/control-plane-api.md` and `docs/control-plane-events.md`. What is here:

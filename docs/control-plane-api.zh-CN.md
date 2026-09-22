@@ -12,7 +12,7 @@
 
 ## 1. 定位与协议
 
-- **Layer 3。** 控制平面是一个宿主（[architecture-evolution.md](architecture-evolution.md) §4 的定义）：它与 `ui/src-tauri` 并列，只依赖 Layer 2 的稳定 API（`host` 的公开面）。它不直接触碰 `agent` / `sandbox` / `audit`。
+- **Layer 3。** 控制平面是一个宿主（[architecture-evolution.md](architecture-evolution.md) §4 的定义）：它与 `ui/src-tauri` 并列，只依赖 Layer 2 的稳定 API（`host-core` 的公开面）。它不直接触碰 `agent` / `sandbox` / `audit`。
 - **传输层。** 命令与查询走 HTTP，事件推送走 **SSE**（Server-Sent Events）。刻意不用 WebSocket；理由记在 [handoff.md](handoff.zh-CN.md) §1，线格式见 [control-plane-events.zh-CN.md](control-plane-events.zh-CN.md)。
 - **设备无关语义。** 同一套协议承载本地 IPC 与网络连接。本地套接字与远程主机对同一请求回同一份载荷，只有传输地址不同。这就是 architecture-evolution.md §7 留下的那道「缝」。
 - **每个内核能力都要有端点。** architecture-evolution.md §6 与 §12 的约束：内核能力若没有控制平面端点，官方管理程序就用不上它，那就是装饰。下文 §5 是覆盖表，缺口一并列出。
@@ -159,7 +159,7 @@ pub struct Actor {
 | `/v0/llm/config/clear` | POST | `llm.configure` | — | `204 No Content` | `clear_llm_config` |
 | `/v0/serial/export` | POST | `serial.export` | `{ "path": string }` | `{ "bytes_written": number }` | `export_serial_log` |
 
-上表中的响应类型即 `host` 的视图类型（`host/src/state.rs`），客户端可直接从该文件读字段。`AgentOutcomeView` 为 `{ kind, content, reason, iterations }`，其中 `kind` 取 `final` / `max_iterations` / `failed`。
+上表中的响应类型即 `host-core` 的视图类型（`host-core/src/state.rs`），客户端可直接从该文件读字段。`AgentOutcomeView` 为 `{ kind, content, reason, iterations }`，其中 `kind` 取 `final` / `max_iterations` / `failed`。
 
 长时间运行的控制类命令立即应答，进度走 SSE（`/v0/agent/run` → `agent:*`；`/v0/preflight/run` → `preflight:progress`；`/v0/toolchain/download` → `toolchain:download`）。上表的 `202` 体是应答，不是结果。
 

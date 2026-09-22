@@ -1,17 +1,15 @@
-//! host — the Tauri half of the RiscDom host backend, and the facade the
-//! consumers still compile against.
+//! host-tauri — the Tauri half of the RiscDom host backend.
 //!
 //! The portable half lives in `host-core`: the audit store wiring, the VM slot,
 //! sessions, the download paths, the preflight and the event envelope. This
 //! crate adds what needs a webview — the Tauri commands, the `TauriEventSink`
-//! transport — and re-exports the rest, so `host::state::…`, `host::events::…`
-//! and `host::AppState` keep resolving while the split is carried out wave by
-//! wave (A1 W1; the consumers move to `host-core` / `host-tauri` in later
-//! waves).
+//! transport — and re-exports the rest, so `host_tauri::state::…`,
+//! `host_tauri::events::…` and `host_tauri::AppState` resolve for a consumer
+//! written against the pre-split `host`.
 //!
-//! Dependency direction: `host → host-core → {agent, sandbox, audit}`;
-//! `ui/src-tauri → host`. The frontend never touches a Rust crate directly: it
-//! goes through Tauri commands.
+//! Dependency direction: `host-tauri → host-core → {agent, sandbox, audit}`;
+//! `ui/src-tauri → host-tauri`. The frontend never touches a Rust crate directly:
+//! it goes through Tauri commands.
 //!
 //! Security constraints (unchanged):
 //! - API key 只存在于内存（`AppState::llm_config`），不落盘、不进审计、不进日志。

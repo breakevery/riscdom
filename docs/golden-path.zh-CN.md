@@ -99,10 +99,10 @@ VM → 读串口 → 迭代）、写入 `run.end`，返回结果（`final` / `ma
 
 | 产物 | 覆盖 | 运行方式 |
 |---|---|---|
-| `host/tests/e2e_ui.rs` | 第 3 步端到端（编译 → VM → 串口 → 审计），用 **mock LLM**，并打印 5c-3 失败报告 | `--ignored` |
-| `host/tests/diagnosis/mod.rs`（+ `run_diagnosis.rs`） | 报告本身，措辞被钉住 | 常规 |
+| `host-core/tests/e2e_ui.rs` | 第 3 步端到端（编译 → VM → 串口 → 审计），用 **mock LLM**，并打印 5c-3 失败报告 | `--ignored` |
+| `host-core/tests/diagnosis/mod.rs`（+ `run_diagnosis.rs`） | 报告本身，措辞被钉住 | 常规 |
 | `sandbox/tests/snapshot_real.rs`、`snapshot.rs` | 快照的**真实**存 / 恢复，带 QEMU | 常规 / ignored |
-| `host/tests/snapshot_commands.rs`、`run_provenance.rs`、`qemu_path_snapshot.rs` | host 层的快照命令、run 记录、恢复使用所配置的 QEMU | 常规 |
+| `host-core/tests/snapshot_commands.rs`、`run_provenance.rs`、`qemu_path_snapshot.rs` | host 层的快照命令、run 记录、恢复使用所配置的 QEMU | 常规 |
 | `audit/tests/verify_bin.rs`、`run_verify_cli.rs`、`run_rebuild_cli.rs` | `audit-verify` / `audit-rebuild` 的 CLI 行为 | 常规 |
 | `agent/tests/real_api.rs` | 真实 API key 的端到端 | `--ignored` |
 
@@ -176,7 +176,7 @@ VM → 读串口 → 迭代）、写入 `run.end`，返回结果（`final` / `ma
 
 | 选项 | 是否推荐 | 理由与代价 |
 |---|---|---|
-| **(a) `--ignored` e2e 测试，mock LLM，真实 QEMU**：跑一次任务 → 存快照 → 恢复它（第二次 run 带 parent）→ 导出该 run 的区间 → 对导出文件跑 `audit-verify` → 改一个指纹字段 → 再跑 → 断言两个指纹不同 | **推荐** | 复用 `host/tests/e2e_ui.rs` 与 5c-3 诊断夹具。代价：一个新测试模块 + 一条小的导出通路。它覆盖不到安装/配置（第 1–2 步），也不使用真实模型 |
+| **(a) `--ignored` e2e 测试，mock LLM，真实 QEMU**：跑一次任务 → 存快照 → 恢复它（第二次 run 带 parent）→ 导出该 run 的区间 → 对导出文件跑 `audit-verify` → 改一个指纹字段 → 再跑 → 断言两个指纹不同 | **推荐** | 复用 `host-core/tests/e2e_ui.rs` 与 5c-3 诊断夹具。代价：一个新测试模块 + 一条小的导出通路。它覆盖不到安装/配置（第 1–2 步），也不使用真实模型 |
 | **(b) 文档里的**人工清单（[golden-path-checklist.zh-CN.md](golden-path-checklist.zh-CN.md)），每个版本由人用真实 API key 走一遍 | **推荐，用于第 1–2 步** | 这是覆盖「装 QEMU」与「粘贴 key」的唯一诚实方式。代价：每版的人工时间，且必须被**记录下来**才算数 |
 | (c) 用脚本无头驱动应用命令（不走 GUI） | v0.5 不推荐 | 相对 e2e 测试只是多一层机器，覆盖没有增加 |
 | (d) GUI 自动化（点界面） | v0.5 不推荐 | 脆弱，且仓库里没有任何此类夹具 |

@@ -6,7 +6,7 @@
 GCC。它是 `--ignored` 的，只有你显式要求才会跑：
 
 ```text
-cargo test -p host --test e2e_ui -- --ignored --nocapture
+cargo test -p host-core --test e2e_ui -- --ignored --nocapture
 ```
 
 它每次运行（通过或失败）都会打印一份**运行诊断**：
@@ -43,6 +43,6 @@ events     : agent:iteration x6, agent:tool_call x4, agent:tool_result x4, agent
 
 ## 实现在哪
 
-- `host/tests/diagnosis/mod.rs`：配对工具调用与结果、判定第一个失败、渲染报告。
-- `host/tests/e2e_ui.rs`：在断言之前/之后打印它（断言本身未动）。
-- `host/tests/run_diagnosis.rs`：钉住措辞，用不需要 QEMU 的失败路径。
+- `host-core/tests/diagnosis/mod.rs`：配对工具调用与结果、判定第一个失败、渲染报告。
+- `host-core/tests/e2e_ui.rs`：在断言之前/之后打印它（断言本身未动）。
+- `host-core/tests/run_diagnosis.rs`：钉住措辞，用不需要 QEMU 的失败路径。

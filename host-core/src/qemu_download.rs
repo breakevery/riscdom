@@ -16,7 +16,7 @@
 //! in `docs/qemu-setup.md` is the way in.
 //!
 //! Everything below the spec table is written and exercised by tests against a loopback server
-//! (`host/tests/qemu_download.rs`), so pinning a real release later would be a data change, not a
+//! (`host-core/tests/qemu_download.rs`), so pinning a real release later would be a data change, not a
 //! code change. Nothing calls it today.
 //!
 //! `QemuDownloadEvent::Failed` is emitted by the *caller* (it owns the error text);

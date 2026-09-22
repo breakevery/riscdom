@@ -38,6 +38,23 @@ portable half, so neither binary pulls a GUI toolkit into a headless process.
 commands is now named for what it is, the desktop shell is its only consumer, and nothing below
 it links Tauri.
 
+**The documents and comments catch up with the rename.** Every live reference to the pre-split
+crate now points at `host-core` (kernel capability, tests) or `host-tauri` (the Tauri layer);
+history is untouched.
+
+### Changed
+
+- **Stale `host` references repointed** across the root `README`, `CONTRIBUTING`,
+  `SECURITY`, `PROJECT_CONSTITUTION`, `THIRD_PARTY_NOTICES`, eleven `docs/` pairs,
+  `ui/README`, `ci.yml`'s comment and the doc comments of the four source files that named the
+  old crate: `-p host` → `-p host-core`, `host/tests` → `host-core/tests`, `host/src/…` →
+  `host-core/src/…` (or `host-tauri/src/commands.rs` where the file is the Tauri layer),
+  `host/README.md` → `host-tauri/README.md`, `host::` → `host_core::` / `host_tauri::`.
+  The CHANGELOG, RELEASE_NOTES, the decisions ledger, handoff §1 and the architecture-evolution
+  snapshot keep their historical mentions.
+- **`ui/scripts/probe-ui-*.mjs`** and the gate scripts had already been repointed in wave 4; the
+  workspace is now free of live stale references (`host/src`, `host/tests`, `-p host`, `host::`).
+
 ### Changed
 
 - **`host` is renamed `host-tauri`** (directory, `[package] name`, workspace member), and the

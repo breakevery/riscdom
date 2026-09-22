@@ -13,7 +13,7 @@
 //! not cross a process boundary), and QEMU is never called from here. The child
 //! therefore answers with the failure the host reports, and that is the assertion:
 //! a refusal arrives as a well-formed outcome, not as a crash or a hang. Full-run
-//! behaviour stays covered in-process by `host`'s own tests.
+//! behaviour stays covered in-process by `host-core`'s own tests.
 
 use agent::{
     AgentHandle, AgentId, AgentOutcome, DispatchError, Dispatcher, LocalDispatcher, Task,

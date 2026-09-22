@@ -4,7 +4,7 @@
 //! store. Run it by hand:
 //!
 //! ```text
-//! cargo test -p host --test keyring_os -- --ignored --nocapture
+//! cargo test -p host-core --test keyring_os -- --ignored --nocapture
 //! ```
 //!
 //! Unit tests keep using `InMemoryKeyring`; only this file touches the OS store.

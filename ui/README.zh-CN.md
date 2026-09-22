@@ -57,7 +57,7 @@ npm run tauri dev    # 启动桌面应用（需要 Rust 工具链）
 
 在**设置**栏填写 API Key / Base URL / Model，点"保存到本次会话"。
 
-- Key 只存在后端内存（`host::AppState::llm_config`）；
+- Key 只存在后端内存（`host_core::AppState::llm_config`）；
 - **不写 localStorage / sessionStorage / console / 审计 / 磁盘**；
 - 前端保存后立即清空输入框；
 - 状态显示只回显 `base_url` / `model`，**不回显 key**。
@@ -78,14 +78,14 @@ npm run tauri dev    # 启动桌面应用（需要 Rust 工具链）
 ## 事件
 
 `agent:iteration` / `agent:tool_call` / `agent:tool_result` / `agent:final` /
-`serial:chunk` / `vm:state`。详见 `host/README.md`。
+`serial:chunk` / `vm:state`。详见 `host-tauri/README.md`。
 
 ## 测试
 
 端到端（mock LLM，需 QEMU + RISC-V 工具链）：
 
 ```text
-cargo test -p host -- --ignored --nocapture
+cargo test -p host-core -- --ignored --nocapture
 ```
 
 真实 API 端到端（需 key）：
@@ -103,7 +103,7 @@ npm run tauri dev   # 或直接手动操作界面
 - 标注“**真实**”（`.mig`，QMP 迁移流）或“**重启式**”（`.json`，旧降级方案）；
 - 支持刷新与删除（删除前二次确认）；
 - “**保存当前状态**”：把 host 持有的运行中 VM 存成真实快照（VM 未运行时按钮禁用）；
-- “**恢复**”（仅真实快照）：二次确认后停止当前 VM 并从快照恢复（见 `host/README.md`）。
+- “**恢复**”（仅真实快照）：二次确认后停止当前 VM 并从快照恢复（见 `host-tauri/README.md`）。
 
 ## 审计页：run 列表、并排对比与字段级差异
 

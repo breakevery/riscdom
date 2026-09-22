@@ -63,7 +63,7 @@ impl Server {
 
     /// The sink to hand to `AppState::run_agent` as its `emitter` argument.
     ///
-    /// This is how the host's events reach the stream without `host` changing:
+    /// This is how the host's events reach the stream without `host-core` changing:
     /// the sink is a parameter of the run, not a field of the state.
     ///
     /// It takes no identity argument on purpose. Identity is a property of the

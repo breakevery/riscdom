@@ -3,7 +3,7 @@
 //! Run with `--ignored` (it boots a real QEMU guest):
 //!
 //! ```text
-//! cargo test -p host --test serial_subscription -- --ignored --nocapture
+//! cargo test -p host-core --test serial_subscription -- --ignored --nocapture
 //! ```
 
 use agent::llm::MockLlm;

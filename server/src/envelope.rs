@@ -1,6 +1,6 @@
 //! The control-plane's own frames, built on the one envelope.
 //!
-//! The envelope's shape lives in `host/src/events.rs` — the kernel emits, every
+//! The envelope's shape lives in `host-core/src/events.rs` — the kernel emits, every
 //! transport wraps, and there is exactly one place that writes the fields down.
 //! What this module adds is the vocabulary the control plane puts *in* it: the
 //! opening `hello`, and the reserved `gap`.

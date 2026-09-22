@@ -13,6 +13,16 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The stale references the rename left behind are gone** (v0.9 A1 wave 5). Every *live*
+  mention of the pre-split crate now points at the crate that owns the thing: `cargo test -p host`
+  → `-p host-core` (the tests live there), `host/tests/…` → `host-core/tests/…`,
+  `host/src/state.rs` and its neighbours → `host-core/src/…`, `host/src/commands.rs` →
+  `host-tauri/src/commands.rs`, `host/README.md` → `host-tauri/README.md`, `host::` prefixes →
+  `host_core::` or `host_tauri::` as the item demanded. The crate lists in CONTRIBUTING, SECURITY,
+  PROJECT_CONSTITUTION and ci.yml's comment name both crates now, and `README.md`'s crate index
+  lists `host-core` and `host-tauri`. History was left alone: the CHANGELOG, RELEASE_NOTES, the
+  decisions ledger, §1 of this file and the architecture-evolution snapshot still say `host` for
+  the waves that happened. The non-Windows clippy gap is deliberately **not** closed in this wave.
 - **The host split is complete: `host-core` + `host-tauri`** (v0.9 A1, wave 4 of 4).
   `host` is renamed `host-tauri` (directory, `[package] name`, workspace member) and the
   desktop shell depends on it: all 57 `host::` paths in `ui/src-tauri/src/lib.rs` became
@@ -366,14 +376,14 @@ against [golden-path-checklist.md](golden-path-checklist.md) — machine, OS bui
 fingerprints, the exported file and its `audit-verify` verdict, and any failure verbatim. That walk
 did **not** happen before `v0.5.0` shipped, so it is a **v0.5.x strengthening item** rather than a
 blocker (§1), with [../walkthroughs/2026-09-19-preview1-local.md](../walkthroughs/2026-09-19-preview1-local.md)
-as the local walk standing in for it. Steps 3–7 are covered by `cargo test -p host --test golden_path
+as the local walk standing in for it. Steps 3–7 are covered by `cargo test -p host-core --test golden_path
 -- --ignored`; step 8's comparison has **no** such automated walk yet (§9). "The implementation is
 complete" is not the gate.
 
 ## 9. v0.6 starts at golden-path step 8 — and the step is delivered
 
 v0.6 is the automatic comparison of two runs — which fields differ between their fingerprints —
-which v0.5 deliberately stops short of. **Delivered** in batches 1–2 (`host/src/run_diff.rs`,
+which v0.5 deliberately stops short of. **Delivered** in batches 1–2 (`host-core/src/run_diff.rs`,
 `AppState::compare_run_fingerprints`, the `compare_run_fingerprints` command, and the collapsed
 field-level block under the audit tab's two-run panel); it awaits a walk and a release. The parallel
 items in `PROJECT_CONSTITUTION.md` §10's v0.5 roadmap (QEMU stdio, macOS/Linux, several VMs,

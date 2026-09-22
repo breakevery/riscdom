@@ -22,7 +22,7 @@ RiscDom 启动，并通过管道或 TCP socket 与之对话。本文件只陈述
   的程序」需要如何处理 GCC 自身的运行时库；它并不改变 GCC 本身的许可证。
 - **RiscDom 如何使用**：作为独立程序调用，用于编译 freestanding guest。RiscDom 不链接它的任何部分。
 - **它如何到达用户**：应用内下载从 xPack release 拉取归档并校验其公布的 SHA-256
-  （`host/src/toolchain_download.rs`）。也可以自行安装任意 RISC-V GCC 并指向它。
+  （`host-core/src/toolchain_download.rs`）。也可以自行安装任意 RISC-V GCC 并指向它。
 
 ## Rust 依赖
 

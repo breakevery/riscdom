@@ -27,7 +27,7 @@ does not hold it.
 
 - **Layer 3.** The control plane is a host (as defined in
   [architecture-evolution.md](architecture-evolution.md) §4): it sits beside
-  `ui/src-tauri` and depends only on Layer 2's stable API (the `host` public surface).
+  `ui/src-tauri` and depends only on Layer 2's stable API (the `host-core` public surface).
   It does not reach into `agent` / `sandbox` / `audit` directly.
 - **Transport.** HTTP for commands and queries, **SSE** (Server-Sent Events) for the
   event push. WebSocket is deliberately not used; the reasoning is recorded in
@@ -227,7 +227,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/llm/config/clear` | POST | `llm.configure` | — | `204 No Content` | `clear_llm_config` |
 | `/v0/serial/export` | POST | `serial.export` | `{ "path": string }` | `{ "bytes_written": number }` | `export_serial_log` |
 
-Response shapes named above are the `host` view types (`host/src/state.rs`); a client
+Response shapes named above are the `host-core` view types (`host-core/src/state.rs`); a client
 may read their fields directly from that file. `AgentOutcomeView` is
 `{ kind, content, reason, iterations }`, with `kind` one of `final` / `max_iterations` /
 `failed`.

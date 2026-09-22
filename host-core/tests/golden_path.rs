@@ -11,7 +11,7 @@
 //! Manual run:
 //!
 //! ```text
-//! cargo test -p host --test golden_path -- --ignored --nocapture
+//! cargo test -p host-core --test golden_path -- --ignored --nocapture
 //! ```
 //!
 //! Requires QEMU and a RISC-V bare-metal GCC. The run is driven by `MockLlm`, so
@@ -21,7 +21,7 @@
 //! The export is verified the way an outsider would: the file is written into an
 //! empty database **by itself** — it is self-contained since batch 4, so no prefix and
 //! no other artefact is needed — and the checker is run over that. `audit-verify` is a
-//! binary of the `audit` crate, and a `host` test cannot name it with
+//! binary of the `audit` crate, and a `host-core` test cannot name it with
 //! `CARGO_BIN_EXE_*`; when this checkout has built it (the gate does) the real binary
 //! is used, and when it has not, the test runs the exact library calls the binary
 //! wraps and says so.

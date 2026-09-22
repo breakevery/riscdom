@@ -16,9 +16,10 @@
 #    and a RISC-V bare-metal GCC, which a standard runner does not have; the gate
 #    sees that and runs the portable library tests instead. A developer machine
 #    with both tools runs the full `cargo test`.
-# 2. **`host` and `ui/src-tauri` are not linted here.** Both pull in Tauri, which
+# 2. **`host-tauri` and `ui/src-tauri` are not linted here.** Both pull in Tauri, which
 #    on Linux needs webkit2gtk / gtk / librsvg system libraries. The gate skips
-#    those steps on non-Windows platforms and says so. They are linted locally on
+#    those steps on non-Windows platforms and says so (the clippy step also covers
+#    the portable `host-core`, and is skipped with it). They are linted locally on
 #    Windows, which is the platform the MVP targets.
 # 3. **`--ignored` tests never run in CI.** They need a real QEMU guest or a real
 #    API key by design (e.g. `e2e_ui`, `real_api`), and are run by hand.

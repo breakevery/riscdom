@@ -16,7 +16,7 @@
 | 2 | 多进程可共写同一个 `audit.db`（WAL、`busy_timeout`、`BEGIN IMMEDIATE`、重试），且失败会**响**（`audit:failed` + 横幅 + 弹窗） |
 | 3 | `agent_id` 处处有生产者；快照改到 per-agent 子目录并保留读取回退 |
 | 4 | 最小派发抽象：`Task`、`AgentHandle`、`Dispatcher`，本地实现，远程一半有意缺席 |
-| 5（1/2） | 两个进程：`worker` 执行者二进制 + `host::StdioExecutorHandle`；stdio + JSON lines；每执行者独立 data dir |
+| 5（1/2） | 两个进程：`worker` 执行者二进制 + `host_core::StdioExecutorHandle`；stdio + JSON lines；每执行者独立 data dir |
 | 6（2/2） | 监工：一个**非 AI** 派发器，并发驱动多个执行者，输出报告与计数 |
 
 v0.8 **没有**做的事，也不假装做了：AI 监工、远程（跨机器）执行者、preflight 目录隔离、以及无 Tauri
@@ -35,8 +35,8 @@ v0.8 **没有**做的事，也不假装做了：AI 监工、远程（跨机器�
    仍留在 workspace 下。
 4. **监工与执行者是两个进程。** 执行者是 `worker` 二进制；监工是派发器（见 §5）。传输是 **stdio + JSON
    lines**：零新依赖，且子进程死掉表现为 EOF 而不是挂住的读。
-5. **已知代价。** `worker` 依赖 `host`，而 `host` 无条件依赖 Tauri，于是执行者二进制会链接 Tauri。它不需要
-   `AppHandle`、不需要窗口；把 `tauri` 改为 optional 是 v0.9 的清理（§7）。
+5. **已知代价已偿付。** `worker` 此前依赖 `host`，于是执行者二进制会链接 Tauri——而它既不需要
+   `AppHandle` 也不需要窗口。自 v0.9 A1 第 3 波起它依赖 `host-core`，执行者二进制因此完全不链接任何 Tauri crate（§7）。
 
 ## 3. 决策 2 —— agent 身份：`<device>-<pid>-<seq>`
 
@@ -70,8 +70,8 @@ v0.8 **没有**做的事，也不假装做了：AI 监工、远程（跨机器�
 3. **trait。** `AgentHandle`（「跑这个任务，返回结果」）与 `Dispatcher`（「把任务变成结果」）。**远程一半有意
    缺席** —— 另一个进程或另一台机器上的执行者只需实现 `AgentHandle`，即可接进同一个分发器。
 4. **已存在的实现。** 本地：`agent::LocalAgent`（包一个 loop）、`agent::LocalDispatcher`（按
-   `Task.target` 路由）、`host::HostAgentHandle`（host 自己的 `run_agent` 路径）、以及
-   `host::StdioExecutorHandle`（经 stdio 的子进程）。
+   `Task.target` 路由）、`host_core::HostAgentHandle`（host 自己的 `run_agent` 路径）、以及
+   `host_core::StdioExecutorHandle`（经 stdio 的子进程）。
 5. **路由规则。** 任务自己声明要哪个执行者；声明一个不在机群里的执行者会被 `NoSuchAgent` 拒绝。绝不发给
    「猜一个」的执行者 —— 发错执行者比不发更糟。
 6. **并发。** `AgentHandle: Send + Sync`，分发器持有 `Arc<dyn AgentHandle>`，因此一个分发器可跨线程共享。
@@ -104,7 +104,7 @@ v0.8 **没有**做的事，也不假装做了：AI 监工、远程（跨机器�
 1. **子进程的身份到不了 `TaskOutcome`。** `AgentHandle::run` 返回 `AgentOutcome`，因此 `LocalDispatcher`
    盖的是被寻址的 target。有两条收口路径：给 `TaskOutcome` 加一个 `executor` 字段，或让
    `AgentHandle::run` 返回子进程的 `TaskOutcome`（后者会改动已发布的 trait 签名，所以 v0.8 只报告不做）。
-2. **`tauri` 不是可选的**，因此执行者二进制会链接它。给 `host` 加 feature 开关即是清理；它对正确性并非必需。
+2. ~~**`tauri` 不是可选的**，因此执行者二进制会链接它。~~ **已闭环**（v0.9 A1 第 3 波）：执行者依赖 `host-core`，是 crate 拆分——而不是 feature 开关——移除了这条链接。保留于此，作为当初代价的记录。
 3. **preflight 目录**（`<workspace>/.riscdom/preflight`）在同一 workspace 的进程间仍**共享且无锁**；可以像
    快照那样隔离，也可以接受 last-writer-wins。
 4. **没有 AI 监工。** 这一阶段的监工是派发器而不是 agent：没有 LLM 循环、没有提示词、没有预算策略。

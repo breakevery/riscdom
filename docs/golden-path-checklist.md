@@ -10,7 +10,7 @@
 > walk nobody can check.*
 >
 > Steps 3–7 are covered instead by
-> `cargo test -p host --test golden_path -- --ignored` (mock LLM + a real QEMU guest;
+> `cargo test -p host-core --test golden_path -- --ignored` (mock LLM + a real QEMU guest;
 > see [golden-path.md](golden-path.md) §6a). This checklist covers what that test cannot.
 
 ## How to use it

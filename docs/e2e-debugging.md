@@ -6,7 +6,7 @@ The end-to-end test drives a real run (mock LLM → write → compile → boot �
 needs QEMU plus a RISC-V GCC. It is `--ignored`, so it only runs when you ask for it:
 
 ```text
-cargo test -p host --test e2e_ui -- --ignored --nocapture
+cargo test -p host-core --test e2e_ui -- --ignored --nocapture
 ```
 
 It prints a **run diagnosis** on every run, pass or fail:
@@ -49,7 +49,7 @@ simply reports the failure in prose. The outcome kind is not the verdict; `first
 
 ## Where it lives
 
-- `host/tests/diagnosis/mod.rs` — pairing tool calls with results, naming the first failure,
+- `host-core/tests/diagnosis/mod.rs` — pairing tool calls with results, naming the first failure,
   rendering the report.
-- `host/tests/e2e_ui.rs` — prints it around the assertions (which are unchanged).
-- `host/tests/run_diagnosis.rs` — pins the wording, on failure paths that need no QEMU.
+- `host-core/tests/e2e_ui.rs` — prints it around the assertions (which are unchanged).
+- `host-core/tests/run_diagnosis.rs` — pins the wording, on failure paths that need no QEMU.

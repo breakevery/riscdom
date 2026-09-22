@@ -106,7 +106,7 @@ plus a SHA-256 hash chain, with no UPDATE / DELETE API and no switch to turn aud
 
 ## 9. v0.1 status
 
-- [DONE] The host monitoring layer (`host`) cannot be modified by the AI; the frontend can
+- [DONE] The host monitoring layer (`host-core` / `host-tauri`) cannot be modified by the AI; the frontend can
   only reach it through Tauri commands.
 - [DONE] The audit log is outside the AI, append-only and cannot be disabled (`audit`:
   SQLite triggers + hash chain + `audit-verify`).
@@ -240,7 +240,7 @@ m. **[DONE]** Bilingual (English/Chinese) docs before going public
    recorded anywhere in this repository, so it named nothing a reader could look up.
 2. **[DONE] Stage 5c-3: end-to-end failure-path diagnostics**: a failed run prints a report
    naming the first failing step, that step's own output, the serial state and the chain
-   verdict (`host/tests/diagnosis/`; how to read it: [docs/e2e-debugging.md](docs/e2e-debugging.md)).
+   verdict (`host-core/tests/diagnosis/`; how to read it: [docs/e2e-debugging.md](docs/e2e-debugging.md)).
 3. **[DONE] `tauri-plugin-dialog`**: a native file picker for toolchain / QEMU paths, replacing the
    `window.prompt` text input.
 4. **[DONE] QEMU distribution decided — guide, do not bundle or download**: the app points the user at

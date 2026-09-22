@@ -6,7 +6,7 @@
 //! the one event envelope. It depends on `agent` / `sandbox` / `audit` and on
 //! no Tauri crate.
 //!
-//! The Tauri-facing half is the `host` crate, which depends on this one and adds
+//! The Tauri-facing half is the `host-tauri` crate, which depends on this one and adds
 //! `commands` plus the Tauri transport for the envelope. The dependency runs one
 //! way only — `host → host-core` — so the portable half can be driven by the
 //! CLI, by `worker` and by the control plane without linking a GUI toolkit.

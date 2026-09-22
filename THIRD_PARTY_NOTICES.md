@@ -23,7 +23,7 @@ it does not decide whether any distribution model is compliant — that question
 - **How RiscDom uses it**: invoked as a separate program to compile a freestanding guest. RiscDom
   links none of it.
 - **How it reaches the user**: RiscDom's in-app download fetches the archive from the xPack release
-  and verifies the published SHA-256 (`host/src/toolchain_download.rs`). Any other RISC-V GCC can be
+  and verifies the published SHA-256 (`host-core/src/toolchain_download.rs`). Any other RISC-V GCC can be
   installed by hand and pointed at instead.
 
 ## Rust dependencies

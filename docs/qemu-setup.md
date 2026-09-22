@@ -59,7 +59,7 @@ ourselves would make us the distributor of a GPL-2.0 binary. Step 1 above is the
 something is missing the app says what to run — `winget install SoftwareFreedomConservancy.QEMU`
 where `winget` exists, the official download page where it does not.
 
-(The downloader written for v0.4 #4, `host/src/qemu_download.rs`, stays in the tree unwired, with an
+(The downloader written for v0.4 #4, `host-core/src/qemu_download.rs`, stays in the tree unwired, with an
 empty spec table, for the reasons above; nothing in the app calls it.)
 
 ## 4. Verify

@@ -96,7 +96,7 @@ UPDATE / DELETE API、无关闭审计的开关。`sandbox` 通过 `audit::AuditS
 
 ## 9. v0.1 完成情况
 
-- [DONE] 宿主监控层（`host`）不可被 AI 修改；前端只能经 Tauri command 访问。
+- [DONE] 宿主监控层（`host-core` / `host-tauri`）不可被 AI 修改；前端只能经 Tauri command 访问。
 - [DONE] 审计日志在 AI 之外、append-only、不可关闭（`audit`：SQLite 触发器 + hash chain + `audit-verify`）。
 - [DONE] 能力默认拒绝（`agent::WorkspacePolicy`，防穿越 + 扩展名白名单）。
 - [DONE] 人类可暂停/回滚/终止（VMP 生命周期可控；VM 归 host 持有，快照支持真实保存/恢复）。
@@ -207,7 +207,7 @@ m. **[DONE]** 公开前完成中英双语文档
    [docs/qemu-stdio.md](docs/qemu-stdio.md)。**舍弃「方案 3」这个提法**：本仓库没有任何地方记录过那份
    选项清单，读者无从查证。
 2. **[DONE] 阶段 5c-3：端到端失败路径诊断日志**：运行失败时打印报告，点名第一个失败的步骤、该步骤的
-   原始输出、串口状态与链状态（`host/tests/diagnosis/`；怎么读见
+   原始输出、串口状态与链状态（`host-core/tests/diagnosis/`；怎么读见
    [docs/e2e-debugging.md](docs/e2e-debugging.md)）。
 3. **[DONE] 引入 `tauri-plugin-dialog`**：用原生文件选择器选择工具链 / QEMU 路径，替代
    `window.prompt` 文本输入。

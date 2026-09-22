@@ -31,7 +31,7 @@ sh scripts/gate.sh    # Unix
 
 gate 就是**「全绿」的唯一清单**：CI 跑的是同一个文件（`.github/workflows/ci.yml` 里的
 `sh scripts/gate.sh`），所以检查项再也不会在 CI 与本机之间漂移。依次执行：`cargo fmt --all -- --check` →
-`cargo clippy -D warnings`（workspace 的 `audit` / `sandbox` / `agent` / `host`，以及 `ui/src-tauri`）→
+`cargo clippy -D warnings`（workspace 的 `audit` / `sandbox` / `agent` / `host-core` / `host-tauri`，以及 `ui/src-tauri`）→
 `cargo check` → `cargo test` → `ui/src-tauri` 的 `cargo check` → `npm run build` →
 UI 回归探针（`node ui/scripts/probe-ui-*.mjs`）→ 镜像常量守卫
 （`node scripts/check-mirrored-constants.mjs`）→ wix 版本守卫
@@ -39,7 +39,7 @@ UI 回归探针（`node ui/scripts/probe-ui-*.mjs`）→ 镜像常量守卫
 （`node scripts/check-ui-strings.mjs`）→ 双语文档链接检查（`scripts/check-bilingual.ps1` /
 `.sh`）。
 
-平台差异一律**打印出来，绝不静默跳过**：非 Windows 上会跳过 `host` / `ui/src-tauri` 的 lint 与 check
+平台差异一律**打印出来，绝不静默跳过**：非 Windows 上会跳过 `host-core` / `host-tauri` / `ui/src-tauri` 的 lint 与 check
 （它们需要 webkit2gtk / gtk / librsvg）；PATH 上没有 QEMU + RISC-V GCC 时，跳过需要起 guest 的测试，
 改为跑可移植 crate 的库测试。
 
@@ -136,7 +136,7 @@ I have read the CLA Document and I hereby sign the CLA
 6. **轮次之间清理干净。** 被中断的测试会占用 `target/debug/deps/*.exe`，表现为
    `link.exe 1104`；重跑门禁前先清掉残留进程。
 7. **读运行诊断。** 端到端运行每次都会打印一份
-   （`cargo test -p host --test e2e_ui -- --ignored --nocapture`）：它点名第一个失败的步骤，并引用该
+   （`cargo test -p host-core --test e2e_ui -- --ignored --nocapture`）：它点名第一个失败的步骤，并引用该
    步骤自己的输出。每一行的含义见 [docs/e2e-debugging.md](docs/e2e-debugging.md)。
 8. **临时目录积多了就清一次。** 每个测试都在系统临时目录里留一个工作区且从不清理；
    `scripts/clean-temp.ps1` / `scripts/clean-temp.sh` 会清掉 RiscDom 的条目（默认 dry-run，加

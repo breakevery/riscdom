@@ -40,9 +40,9 @@ placeholder key** used in an early unit test to exercise the masking logic (alre
 with a non-key string in commit `d5daf4f`; it only survives in history). That is a
 single known false positive and does not weaken the rest of the full-history scan.
 
-**Complete tests** (end-to-end for `sandbox` / `agent` / `host`) need a local QEMU
+**Complete tests** (end-to-end for `sandbox` / `agent` / `host-core`) need a local QEMU
 (`qemu-system-riscv64`) and a RISC-V cross compiler (`riscv64-unknown-elf-gcc`), which the
 standard runners do not have; developers run `cargo test` locally.
 
-`host` depends on Tauri and needs system libraries on Linux (webkit2gtk / gtk), so CI does
-not build `host`; the MVP targets Windows, where `host` is linted and checked locally.
+`host-tauri` depends on Tauri and needs system libraries on Linux (webkit2gtk / gtk), so CI does
+not build `host-tauri`; the MVP targets Windows, where `host-core` and `host-tauri` are linted and checked locally.

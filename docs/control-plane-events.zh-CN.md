@@ -8,7 +8,7 @@
 
 **范围。** 命令与查询见 [control-plane-api.zh-CN.md](control-plane-api.zh-CN.md)。本文覆盖推送侧：SSE 分帧、所有事件共用的一个 envelope、逐事件 payload、以及过滤。
 
-**事件从哪来。** `host/src/events.rs` 定义十一个事件名与一个 `EventSink` trait（`emit(&self, event: &str, payload: serde_json::Value)`）。当前有三个实现：`TauriEventSink`（发往 webview）、`RecordingEventSink`（测试）、`LineEventSink`（`worker`，JSON 行写 stderr）。**每个传输都把要发的东西包进下面的 envelope**——SSE sink、Tauri sink（其 webview 在唯一边界处解包）、以及 worker 的行协议。发射点仍然只传原始 payload，因为 envelope 是传输的事：`EventSink::emit` 保持 `(&str, Value)` 签名，没有任何发射点改形状。**v0.9 批次 3 已实现**，连同 §3 标为「有变」的三种 payload 形状；其余八种与宿主发射时完全一致。
+**事件从哪来。** `host-core/src/events.rs` 定义十一个事件名与一个 `EventSink` trait（`emit(&self, event: &str, payload: serde_json::Value)`）。当前有三个实现：`TauriEventSink`（发往 webview）、`RecordingEventSink`（测试）、`LineEventSink`（`worker`，JSON 行写 stderr）。**每个传输都把要发的东西包进下面的 envelope**——SSE sink、Tauri sink（其 webview 在唯一边界处解包）、以及 worker 的行协议。发射点仍然只传原始 payload，因为 envelope 是传输的事：`EventSink::emit` 保持 `(&str, Value)` 签名，没有任何发射点改形状。**v0.9 批次 3 已实现**，连同 §3 标为「有变」的三种 payload 形状；其余八种与宿主发射时完全一致。
 
 ## 1. SSE 协议
 

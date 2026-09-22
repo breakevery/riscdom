@@ -55,7 +55,7 @@ RiscDom 不会替你拉取 QEMU，这是**决定**而不是缺口（[qemu-distri
 让我们成为 GPL-2.0 二进制的分发者。入口就是上面第 1 步。缺东西时应用会告诉你该跑什么 —— 有 `winget` 时
 给 `winget install SoftwareFreedomConservancy.QEMU`，没有就给官网下载页。
 
-（为 v0.4 #4 写的下载器 `host/src/qemu_download.rs` 因上述理由留在仓库里、不接线、规格表为空；应用里没有
+（为 v0.4 #4 写的下载器 `host-core/src/qemu_download.rs` 因上述理由留在仓库里、不接线、规格表为空；应用里没有
 任何地方调用它。）
 
 ## 4. 验证

@@ -13,7 +13,7 @@ watching executors.
 This document covers the push side: SSE framing, one common envelope for all events, the
 per-event payloads, and filtering.
 
-**Where the events come from.** `host/src/events.rs` defines eleven event names and an
+**Where the events come from.** `host-core/src/events.rs` defines eleven event names and an
 `EventSink` trait (`emit(&self, event: &str, payload: serde_json::Value)`). Three
 implementations exist today: `TauriEventSink` (to the webview), `RecordingEventSink`
 (tests), and `LineEventSink` (`worker`, JSON lines on stderr). **Every transport wraps what it

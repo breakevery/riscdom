@@ -11,6 +11,7 @@
 
 ## 1. 快照 —— `v0.8.0` 是最新的发行版（下次正式发布时更新本节）
 
+- **更名遗留的失效引用已清空**（v0.9 A1 第 5 波）。所有**仍然生效**的旧 crate 提及都已改指真正拥有该物的 crate：`cargo test -p host` → `-p host-core`（测试住在那里）、`host/tests/…` → `host-core/tests/…`、`host/src/state.rs` 等 → `host-core/src/…`、`host/src/commands.rs` → `host-tauri/src/commands.rs`、`host/README.md` → `host-tauri/README.md`、`host::` 前缀按所指对象改为 `host_core::` 或 `host_tauri::`。CONTRIBUTING、SECURITY、PROJECT_CONSTITUTION 与 ci.yml 注释里的 crate 清单现在都写两个 crate，`README.md` 的 crate 索引也列出 `host-core` 与 `host-tauri`。历史未动：CHANGELOG、RELEASE_NOTES、决策账本、本文件 §1 与 architecture-evolution 快照仍按当时的事实使用 `host`。非 Windows 的 clippy 缺口本波**刻意不补**。
 - **宿主拆分完成：`host-core` + `host-tauri`**（v0.9 A1 4 波中的第 4 波）。`host` 更名为 `host-tauri`（目录、`[package] name`、workspace member），桌面壳依赖它：`ui/src-tauri/src/lib.rs` 里 57 处 `host::` 全部改为 `host_tauri::`，且每一处都经门面解析，因此外壳只依赖一个 crate，无需直接依赖 `host-core`。清单里的 `tokio` 死依赖已删除（本 crate 与其测试从未用过它）。`cargo tree`：`-p host-core` 0 行 Tauri、`-p host-tauri` 15 行、`-p worker` 与 `-p server` 仍 0 行。`worker` 补上了它一直缺的 README 双语对；`host-tauri/README.md` 说明两 crate 边界；账本新增一条（`docs/decisions.md` §27）。
 - **`worker` 与 `server` 不再链接 Tauri**（v0.9 A1 4 波中的第 3 波）。两者都从 `host` 切到 `host-core`：30 处 `host::` 路径改为 `host_core::`（worker 4 文件 7 处，server 7 文件 23 处——按出现次数全量改，不只 `use` 行），各自的 `Cargo.toml` 依赖也改成可移植半边。`cargo tree -p worker` 与 `-p server` 现在**一个 Tauri crate 都没有**；此前各列出 15 行 `tauri`。逻辑未变——只是 import 路径与各一行依赖。两个 crate 的端到端测试（worker 协议、HTTP + SSE 控制平面）原样通过，工作区测试仍为 418 条。还剩一个消费者：第 4 波把 `host` 更名 `host-tauri` 并搬桌面壳。
 - **宿主的测试随拆分搬迁，且被拆弱的两个守卫恢复完整**（v0.9 A1 4 波中的第 2 波）。39 个集成测试文件全部由 `host/tests` 搬到 `host-core/tests`（`git mv`，保留历史），其 133 处 `host::` 路径改为 `host_core::`——67 条 `use host::`、65 处函数体内路径、1 处文档链接。`host` 现在没有测试、也没有 `[dev-dependencies]`；测试用的是 `host-core` 自己的依赖（`agent`、`audit`、`sandbox`、`serde_json`、`sha2`、`rusqlite`、`zip` / `flate2` + `tar`），因此没有任何依赖被声明两次。第 1 波里悄悄失效的两个守卫在此修好：`scripts/check-mirrored-constants.mjs` 现在同时扫描 `host-core/src` **与** `host/src`（17 个文件，此前只有 3 个），`scripts/gate.sh` 在同一个 clippy 步骤里跑 `-p host-core -p host`（此前 host-core 完全逃过 clippy）。消费者仍未动——那是第 3、4 波。
@@ -214,13 +215,13 @@ v0.5 的发布条件是：有人在干净机器上用真实 API key 走完第 1�
 版本**及其来源**、服务商与模型、预检四步、两次 run 的短指纹、导出文件与其 `audit-verify` 结论，以及
 任何失败的原样错误。那次走查在 `v0.5.0` 发布前**没有发生**，因此它是 **v0.5.x 的补强项**而不是阻塞项
 （§1），由 [../walkthroughs/2026-09-19-preview1-local.md](../walkthroughs/2026-09-19-preview1-local.md)
-那份本地走查代位。第 3–7 步由 `cargo test -p host --test golden_path -- --ignored` 覆盖；第 8 步的
+那份本地走查代位。第 3–7 步由 `cargo test -p host-core --test golden_path -- --ignored` 覆盖；第 8 步的
 比较目前**没有**这样的自动走查（§9）。「实现完成」不是门槛。
 
 ## 9. v0.6 从黄金路径第 8 步开始 —— 该步已交付
 
 v0.6 是两次 run 的自动比较 —— 它们的指纹差在哪些字段 —— 这正是 v0.5 刻意不做完的那一步。**已交付**
-（批次 1–2：`host/src/run_diff.rs`、`AppState::compare_run_fingerprints`、`compare_run_fingerprints`
+（批次 1–2：`host-core/src/run_diff.rs`、`AppState::compare_run_fingerprints`、`compare_run_fingerprints`
 命令，以及审计页两 run 面板下方默认折叠的字段级区块）；等待走查与发布。
 `PROJECT_CONSTITUTION.md` §10 的 v0.5 路线图里那些并行项（QEMU stdio、macOS/Linux、多 VM、增量快照、
 会话加密、多 AI、双语界面）**不是** v0.6 的内容：它们是待选项，可挑可弃。

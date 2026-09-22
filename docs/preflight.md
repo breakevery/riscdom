@@ -49,9 +49,9 @@ failed, and the record says you chose to continue.
 
 ## Where it is implemented
 
-- `host/src/preflight.rs` — the steps' vocabulary, the cache shape, and the banner wait.
-- `host/src/state.rs` — `preflight_status` / `ensure_preflight` / `acknowledge_preflight`
+- `host-core/src/preflight.rs` — the steps' vocabulary, the cache shape, and the banner wait.
+- `host-core/src/state.rs` — `preflight_status` / `ensure_preflight` / `acknowledge_preflight`
   (the runner).
-- `host/src/commands.rs` — `preflight_status` / `run_preflight` / `acknowledge_preflight`,
+- `host-tauri/src/commands.rs` — `preflight_status` / `run_preflight` / `acknowledge_preflight`,
   plus the background run triggered by a path change.
 - `ui/src/lib/preflightView.ts` — the wording the settings tab shows.

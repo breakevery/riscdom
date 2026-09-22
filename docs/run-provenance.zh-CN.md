@@ -29,8 +29,8 @@ run_0192f4c1-8a3d-7c2e-9f10-6b1d4e0a55aa
 - `run_` 前缀便于 grep，并与会话 ID、快照名区分开。
 
 **成本证据：** `uuid 1.26.1` **本来就在** workspace 的 lock 文件里 —— 它经 `tauri-utils` /
-`schemars` 传递引入，而 `host` 无论如何都会构建它们。因此把 `uuid`（带 `v7` feature，其 `getrandom`
-同样已在依赖图中）提为 **`host`** 的直接依赖 —— 生成 ID 的是 host（§4.1），audit 层只把 run ID 当
+`schemars` 传递引入，而 `host-core` 无论如何都会构建它们。因此把 `uuid`（带 `v7` feature，其 `getrandom`
+同样已在依赖图中）提为 **`host-core`** 的直接依赖 —— 生成 ID 的是 host-core（§4.1），audit 层只把 run ID 当
 字符串存 —— 只是新增一条 direct edge 与一个 feature 开关，**不新增第三方 crate**；`audit` 不引入它。
 前缀手写在 `Uuid::now_v7()` 之上，存储层不依赖任何格式化 helper。
 

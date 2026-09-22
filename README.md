@@ -134,10 +134,10 @@ cargo test
 cargo test -p sandbox     # QEMU lifecycle + serial capture + snapshot fallback
 cargo test -p audit       # append-only + hash chain + queries + CLI
 cargo test -p agent       # LLM client + tools + policy + compiler + agent loop
-cargo test -p host        # Tauri backend commands + serial deltas
+cargo test -p host-core        # Tauri backend commands + serial deltas
 
 # end-to-end that needs real QEMU/toolchain (mock LLM)
-cargo test -p host -- --ignored --nocapture
+cargo test -p host-core -- --ignored --nocapture
 
 # frontend build
 cd ui && npm run build
@@ -170,7 +170,7 @@ disk / audit / logs, and status read-outs never contain it. Closing the app inva
   ([`sandbox/docs/snapshot-experiment.md`](sandbox/docs/snapshot-experiment.md)).
 - **Serial source**: pushed by the sandbox's serial reader thread
   (`subscribe_serial` → `serial:chunk`), no longer derived from the audit log; subscribers
-  only receive what arrives after they subscribe (see `host/README.md`).
+  only receive what arrives after they subscribe (see `host-tauri/README.md`).
 - **Platform**: Windows is the platform the golden path is verified on. macOS and Linux packages are
   built by CI (`.app`/`.dmg`, `.deb`/`.rpm`/`.AppImage`) and are **unsigned and not yet walked**; QMP
   over a Unix socket is still not implemented (TCP only).
@@ -208,4 +208,4 @@ behaviour through the contact listed there.
 - [ENVIRONMENT.md](ENVIRONMENT.md) — toolchain and platform limits
 - [CHANGELOG.md](CHANGELOG.md) — version history
 - Per-crate READMEs: [sandbox](sandbox/README.md) · [audit](audit/README.md) ·
-  [agent](agent/README.md) · [host](host/README.md) · [ui](ui/README.md)
+  [agent](agent/README.md) · [host-core](host-core/README.md) · [host-tauri](host-tauri/README.md) · [ui](ui/README.md)

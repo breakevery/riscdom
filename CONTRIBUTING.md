@@ -32,7 +32,7 @@ sh scripts/gate.sh    # Unix
 The gate is the **single list of what "green" means**: CI runs the same file
 (`sh scripts/gate.sh` in `.github/workflows/ci.yml`), so a check cannot drift between CI and a
 developer machine. In order: `cargo fmt --all -- --check` → `cargo clippy -D warnings` (the
-workspace crates `audit` / `sandbox` / `agent` / `host`, and `ui/src-tauri`) → `cargo check` →
+workspace crates `audit` / `sandbox` / `agent` / `host-core` / `host-tauri`, and `ui/src-tauri`) → `cargo check` →
 `cargo test` → `cargo check` for `ui/src-tauri` → `npm run build` →
 the ui regression probes (`node ui/scripts/probe-ui-*.mjs`) → the mirror guard
 (`node scripts/check-mirrored-constants.mjs`) → the wix-version guard
@@ -40,7 +40,7 @@ the ui regression probes (`node ui/scripts/probe-ui-*.mjs`) → the mirror guard
 (`node scripts/check-ui-strings.mjs`) → the bilingual-link check
 (`scripts/check-bilingual.ps1` / `.sh`).
 
-Platform differences are **printed, never skipped silently**: on non-Windows the `host` /
+Platform differences are **printed, never skipped silently**: on non-Windows the `host-core` /
 `ui/src-tauri` lint and check are skipped (Tauri needs webkit2gtk / gtk / librsvg there), and
 without QEMU + a RISC-V GCC the guest-booting tests are skipped in favour of the portable library
 tests.
@@ -155,7 +155,7 @@ Flaky tests cost real time, so diagnose the **layer** before adding any defence.
 6. **Clean up between runs.** Interrupted test runs leave `target/debug/deps/*.exe` locked, which
    surfaces as `link.exe 1104`; stop the leftovers before re-running a gate.
 7. **Read the run diagnosis.** An end-to-end run prints one on every attempt
-   (`cargo test -p host --test e2e_ui -- --ignored --nocapture`); it names the first failing
+   (`cargo test -p host-core --test e2e_ui -- --ignored --nocapture`); it names the first failing
    step and quotes that step's own output. What each line means:
    [docs/e2e-debugging.md](docs/e2e-debugging.md).
 8. **Clean the temp directory when it piles up.** Every test keeps its workspace under the

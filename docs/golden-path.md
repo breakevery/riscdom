@@ -112,10 +112,10 @@ side-by-side view of two runs — §7/§8 below; the field-by-field diff stays v
 
 | Artefact | Covers | Mode |
 |---|---|---|
-| `host/tests/e2e_ui.rs` | workflow 3 end to end (compile → VM → serial → audit) with a **mock LLM**, and prints the 5c-3 failure report | `--ignored` |
-| `host/tests/diagnosis/mod.rs` (+ `run_diagnosis.rs`) | the report itself, wording pinned | normal |
+| `host-core/tests/e2e_ui.rs` | workflow 3 end to end (compile → VM → serial → audit) with a **mock LLM**, and prints the 5c-3 failure report | `--ignored` |
+| `host-core/tests/diagnosis/mod.rs` (+ `run_diagnosis.rs`) | the report itself, wording pinned | normal |
 | `sandbox/tests/snapshot_real.rs`, `snapshot.rs` | real save / restore of a snapshot, with QEMU | normal / ignored |
-| `host/tests/snapshot_commands.rs`, `run_provenance.rs`, `qemu_path_snapshot.rs` | host-level snapshot commands, run records, restore uses the configured QEMU | normal |
+| `host-core/tests/snapshot_commands.rs`, `run_provenance.rs`, `qemu_path_snapshot.rs` | host-level snapshot commands, run records, restore uses the configured QEMU | normal |
 | `audit/tests/verify_bin.rs`, `run_verify_cli.rs`, `run_rebuild_cli.rs` | the CLI behaviours of `audit-verify` / `audit-rebuild` | normal |
 | `agent/tests/real_api.rs` | a real API key, end to end | `--ignored` |
 
@@ -199,7 +199,7 @@ steps 3–7 are exactly what the existing mock-LLM harness already does most of.
 
 | Option | Recommendation | Reasoning and cost |
 |---|---|---|
-| **(a) `--ignored` e2e test, mock LLM, real QEMU**: run a task → save a snapshot → restore it (a second run with a parent) → export the run interval → `audit-verify` the exported file → change one fingerprint field → run again → assert the two fingerprints differ | **Recommended** | Reuses `host/tests/e2e_ui.rs` and the 5c-3 diagnosis harness. Cost: one new test module and a small export path. It cannot cover install/config (steps 1–2) and does not use a real model |
+| **(a) `--ignored` e2e test, mock LLM, real QEMU**: run a task → save a snapshot → restore it (a second run with a parent) → export the run interval → `audit-verify` the exported file → change one fingerprint field → run again → assert the two fingerprints differ | **Recommended** | Reuses `host-core/tests/e2e_ui.rs` and the 5c-3 diagnosis harness. Cost: one new test module and a small export path. It cannot cover install/config (steps 1–2) and does not use a real model |
 | (b) A **manual checklist** in the docs ([golden-path-checklist.md](golden-path-checklist.md)), walked once per release by a person with a real API key | **Recommended, for steps 1–2** | The only honest way to cover installing QEMU and pasting a key. Cost: human time per release, and it must be *recorded* somewhere to count |
 | (c) A **script** that drives the app's commands headlessly (no GUI) | Rejected for v0.5 | Duplicates the e2e test with more machinery and no extra coverage |
 | (d) A GUI automation (click the app) | Rejected for v0.5 | Fragile, and the repo has no harness for it |

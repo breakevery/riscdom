@@ -21,6 +21,13 @@
 
 **宿主拆分完成：`host-core` + `host-tauri`。** 承载 Tauri 命令的 crate 现在按它的实质命名，桌面壳是它唯一的消费者，其下层没有任何东西链接 Tauri。
 
+**文档与注释追上更名。** 所有仍然生效的旧 crate 引用都改指 `host-core`（内核能力、测试）或 `host-tauri`（Tauri 层）；历史一字未动。
+
+### 变更
+
+- **清理失效的 `host` 引用**：根 `README`、`CONTRIBUTING`、`SECURITY`、`PROJECT_CONSTITUTION`、`THIRD_PARTY_NOTICES`、`docs/` 下 11 对双语文件、`ui/README`、`ci.yml` 注释，以及四处源码文档注释——`-p host` → `-p host-core`、`host/tests` → `host-core/tests`、`host/src/…` → `host-core/src/…`（属于 Tauri 层的文件则 → `host-tauri/src/commands.rs`）、`host/README.md` → `host-tauri/README.md`、`host::` → `host_core::` / `host_tauri::`。CHANGELOG、RELEASE_NOTES、决策账本、handoff §1 与 architecture-evolution 快照保留其历史表述。
+- **`ui/scripts/probe-ui-*.mjs`** 与门禁脚本已在第 4 波改好；工作区现已不含任何仍生效的失效引用（`host/src`、`host/tests`、`-p host`、`host::`）。
+
 ### 变更
 
 - **`host` 更名为 `host-tauri`**（目录、`[package] name`、workspace member），桌面壳依赖它：`ui/src-tauri/src/lib.rs` 里 57 处 `host::` 全部改为 `host_tauri::`，经门面解析，因此 `ui/src-tauri` 无需直接依赖 `host-core`。`cargo tree`：`-p host-core` 0 行 Tauri、`-p host-tauri` 15 行、`-p worker` / `-p server` 0 行。

@@ -18,7 +18,7 @@ landed result.
 | 2 | several processes may write one `audit.db` (WAL, `busy_timeout`, `BEGIN IMMEDIATE`, retry) and a failed write is **loud** (`audit:failed`, banner, popup) |
 | 3 | `agent_id` has producers everywhere; snapshots move to a per-agent subdirectory with a read fallback |
 | 4 | the minimal dispatch abstraction: `Task`, `AgentHandle`, `Dispatcher`, local implementation, the remote half deliberately absent |
-| 5 (1/2) | two processes: the `worker` executor binary + `host::StdioExecutorHandle`; stdio + JSON lines; per-executor data dir |
+| 5 (1/2) | two processes: the `worker` executor binary + `host_core::StdioExecutorHandle`; stdio + JSON lines; per-executor data dir |
 | 6 (2/2) | the supervisor: a **non-AI** dispatcher driving several executors concurrently, with a report and a tally |
 
 Not in v0.8, and not pretended: an AI supervisor, a remote (other-machine) executor, preflight
@@ -40,9 +40,9 @@ directory isolation, and a Tauri-free executor binary.
 4. **Supervisor and executor are separate processes.** The executor is the `worker` binary; the
    supervisor is a dispatcher (see §5). Transport is **stdio + JSON lines**, which needs no new
    dependency and makes a dead child an EOF rather than a hung read.
-5. **Known cost.** `worker` depends on `host`, and `host` depends on Tauri unconditionally, so the
-   executor binary links Tauri. It needs no `AppHandle` and no window; making `tauri` optional is a
-   v0.9 cleanup (§7).
+5. **The known cost was paid.** `worker` used to depend on `host`, and so the executor binary
+   linked Tauri — which it needs neither (`AppHandle` nor a window). Since v0.9's A1 wave 3 it
+   depends on `host-core`, so the executor binary links no Tauri crate at all (§7).
 
 ## 3. Decision 2 — agent identity: `<device>-<pid>-<seq>`
 
@@ -81,8 +81,8 @@ directory isolation, and a Tauri-free executor binary.
    an outcome"). **The remote half is deliberately absent** — an executor in another process or on
    another machine implements `AgentHandle` and plugs into the same dispatcher.
 4. **Implementations that exist.** Local: `agent::LocalAgent` (wraps a loop), `agent::LocalDispatcher`
-   (routes by `Task.target`), `host::HostAgentHandle` (the host's own `run_agent` path), and
-   `host::StdioExecutorHandle` (a child process over stdio).
+   (routes by `Task.target`), `host_core::HostAgentHandle` (the host's own `run_agent` path), and
+   `host_core::StdioExecutorHandle` (a child process over stdio).
 5. **Routing rule.** A task names the executor it wants; a task naming an executor that is not in the
    fleet is refused with `NoSuchAgent`. Nothing is sent to a best-guess executor — a wrong executor is
    worse than no executor.
@@ -119,8 +119,9 @@ directory isolation, and a Tauri-free executor binary.
    `LocalDispatcher` stamps the addressed target. Two ways to close it: add an `executor` field to
    `TaskOutcome`, or let `AgentHandle::run` return the child's `TaskOutcome` (the latter changes a
    released trait signature, which is why v0.8 only reported it).
-2. **`tauri` is not optional**, so the executor binary links it. A feature flag on `host` is the
-   cleanup; it is not needed for correctness.
+2. ~~**`tauri` is not optional**, so the executor binary links it.~~ **Closed** in v0.9's A1 wave
+   3: the executor depends on `host-core`, so the crate split — not a feature flag — is what
+   removed the link. Kept as the record of what the cost was.
 3. **The preflight directory** (`<workspace>/.riscdom/preflight`) is still shared and unlocked between
    processes in one workspace; it can be isolated the way snapshots were, or left with
    last-writer-wins.
