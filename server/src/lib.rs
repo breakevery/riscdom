@@ -33,7 +33,7 @@ pub mod routes;
 pub mod sse;
 pub mod token;
 
-pub use auth::{Actor, ActorKind, AuthError, Authn, NoAuth, ReqMeta, TokenAuth};
+pub use auth::{Actor, ActorKind, AuthError, Authn, Capability, NoAuth, ReqMeta, TokenAuth};
 pub use cli::{AuthMode, Cli, DEFAULT_BIND, DEFAULT_HEARTBEAT_MS, USAGE};
 pub use config::ServerConfig;
 pub use envelope::{Frame, ENVELOPE_VERSION};

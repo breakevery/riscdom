@@ -267,6 +267,15 @@ pub struct HttpEventSink {
 }
 
 impl HttpEventSink {
+    /// `agent_id` must be the identity of the [`AppState`](host::AppState) whose
+    /// events this sink carries — that is, `state.agent_id()`, never a fresh or
+    /// per-request value. Identity is a property of the source, so two sinks
+    /// built from one state stamp the same `agent_id` and an event cannot look
+    /// like a different agent depending on which transport carried it.
+    ///
+    /// The one place that owns an `AppState` offers [`Server::sink`](crate::Server::sink),
+    /// which fills this in; callers that only hold the hub must pass it
+    /// explicitly, and it is always the same expression.
     pub fn new(hub: Arc<SseHub>, agent_id: impl Into<String>) -> Self {
         Self {
             hub,

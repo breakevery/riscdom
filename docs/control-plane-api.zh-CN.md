@@ -8,7 +8,7 @@
 
 **这是什么。** RiscDom v0.9 的主线是控制平面：人监督 AI 与 AI 监督 AI 走**同一套** HTTP 接口。在内核看来，来自监工 AI 的指令和来自人的指令都是控制平面授权的指令；审计链靠 `agent_id` 区分二者。本条设计存在的意义，就是避免去建两条会各自演化、最终冲突的控制通道。
 
-**实现状态（v0.9）。** §5 已全部落地——§5.1 的 26 个查询端点、§5.2 的 27 个控制端点、§5.3 的宿主本地端点、§4 的错误模型、带 `Last-Event-ID` 补发与 `gap` 帧的事件 envelope、以及 §3 的 bearer token。仅两条路由为预留：`/v0/resources`（§6 G3）与 `POST /v0/vm/start`（§6 G1），二者都以 `501` 明示。权限**强制**仍属权限中介的职责，留后续批次。
+**实现状态（v0.9）。** §5 已全部落地——§5.1 的 26 个查询端点、§5.2 的 27 个控制端点、§5.3 的宿主本地端点、§4 的错误模型、带 `Last-Event-ID` 补发与 `gap` 帧的事件 envelope、以及 §3 的 bearer token。仅两条路由为预留：`/v0/resources`（§6 G3）与 `POST /v0/vm/start`（§6 G1），二者都以 `501` 明示。权限**强制**（§3）已落地：每条被服务的路由恰好声明一个 capability，actor 不持有时服务端以 `403` 拒绝。
 
 ## 1. 定位与协议
 
@@ -24,11 +24,11 @@
 - 身份：`agent_id` 为 `<device>-<pid>-<seq>`，`task_id` 为 `task-<pid>-<seq>`（v0.8 批次 B）。客户端把二者都当作不透明字符串。
 - 响应体永远不含 API key 或 token。这与宿主的既有不变式一致：前端永远看不到 key。
 
-## 3. 认证
+## 3. 认证与权限
 
 - 客户端发送 `Authorization: Bearer <token>`。
 - **开箱即用时 token 就是一个文件。** 除非以 `--no-auth` 启动，服务程序会装入 `TokenAuth`：首次启动生成 32 字节随机值写入 `<data-dir>/token`（仅属主可读），此后每个请求都必须出示该值。token 从不被打印或记入日志——请从文件里读。加 `--no-auth` 会取消该要求并打印警告，因为控制端点里包含破坏性操作。
-- 控制平面只预留一个钩子，做成 trait 形状，机制日后再定：
+- 控制平面只有一个钩子，做成 trait 形状：
 
 ```rust
 /// 把一个请求解析为发起它的 actor，或拒绝。
@@ -42,13 +42,19 @@ pub struct Actor {
     pub agent_id: String,
     /// `human` / `supervisor` / `executor` —— 仅用于审计叙述。
     pub kind: ActorKind,
+    /// 该 actor 能做什么。处理器运行前，服务端拿路由的 capability 与这个集合比对。
+    pub capabilities: BTreeSet<Capability>,
 }
 ```
 
+- **钩子负责认证，服务端负责授权。** `authorise` 回答的是「调用者是谁」；这个 actor 能不能做这件事是另一个决定，且由服务端作出：每条被服务的路由都恰好声明一个 capability，请求路径会问钩子返回的 actor 是否 `allows` 它，不持有即 `403 forbidden`，`cause` 为 `capability`（`server/src/http.rs`）。钩子也能看到这项要求（`ReqMeta.capability`）以便自行判断，但它**不能**凭空授予：只能返回持有更少的 actor。
+- **capability 是路由表的类型化列**，不是处理器记得去查的字符串（`server/src/routes.rs`）。写不出一条不声明 capability 的路由，也就不存在悄悄跳过检查的路由。
+- **默认拒绝。** 除非 actor 确实持有路由所要的权限，否则一律拒绝；空集合的 actor 什么也到不了。「没有 capability」不可表达。
+- **词汇表就是 §5 表格里的 28 个名字**（`agent.run`、`audit.read`、`runs.control`、`settings.write`……）。v0.9 只有两种 actor 形状：token 持有者（`operator`、`human`）持有全部 28 项；`--no-auth` 的默认持有同一集合，因此两者过了钩子之后行为一致。故 `403` 只可能来自返回更窄 actor 的钩子。按能力细分的 token 属 v1.0；这个集合就是它们日后的填充位置。
 - 钩子返回的 `Actor` 就是该请求写下的每一行审计所携带的身份。「人做的」与「监工 AI 做的」由 `agent_id` 区分，正是 architecture-evolution.md §6 的要求。
-- **token 永不落日志。** 不进访问日志、不进错误、不进审计 detail。钩子返回 `Actor`，原始 token 随即丢弃。
+- **token 永不落日志。** 不进访问日志、不进错误、不进审计 detail。钩子返回 `Actor`，原始 token 随即丢弃；`ReqMeta` 的 `Debug` 亦对其打码，误写的 `{:?}` 也写不出去。
 - **传输安全归调用方（开源版边界）。** 开源版只提供明文 HTTP 加认证钩子，仅此而已。TLS 终止、网络边界、或只绑本地，是部署决策；把控制平面暴露到回环之外的分发方，自行负责把它放在 TLS 之后。这条写在这里，以免有集成者以为开源版替他做了。
-- 未装 `Authn` 时，控制平面对所有请求返回 `unauthorized`（失败关闭）。没有匿名模式。
+- 未装 `Authn` 时，控制平面对所有请求返回 `unauthorized`（失败关闭）。没有匿名模式：`--no-auth` 的钩子是**已安装**的钩子，把所有人授权为 owner，而不是没有认证。
 
 ## 4. 错误模型
 
@@ -88,7 +94,7 @@ pub struct Actor {
 
 ## 5. 端点表
 
-查询类命令为 `GET`。控制类命令为 `POST`。「权限」列是认证层检查的前置条件（如何强制见 §6 缺口 G2）。最后一列是与端点对应的 Tauri 命令名，便于集成者把两个面对齐。
+查询类命令为 `GET`。控制类命令为 `POST`。「权限」列是服务端在处理器运行前检查的前置条件（§3；§6 缺口 G2）。最后一列是与端点对应的 Tauri 命令名，便于集成者把两个面对齐。
 
 ### 5.1 查询类（26）
 
@@ -172,7 +178,7 @@ pub struct Actor {
 - **查询类与控制类均已实现。** `POST /v0/vm/start`（§6 G1）与 `/v0/resources`（§6 G3）在各自的内核工作落地前回 `501`。
 - **报成功的控制操作可能什么都没改。** 宿主的会话改名与删除是幂等的：未知 `session_id` 不算错误（端点回 `204`），而 `/v0/sessions/open` 回 `404`。端点是照搬宿主，而不是另造一套差异。
 - **`POST /v0/toolchain/download` 会真的开始下载**固定的 RISC-V GCC 归档并回 `202`；进度以 `toolchain:download` 事件抵达。
-- **权限是声明、不是强制。** 服务端为每个端点标注权限，并经 `ReqMeta.capability` 交给 `Authn` 钩子；判断 actor **是否持有**该权限是权限中介的事，属后续批次。v0.9 默认（`NoAuth`）下所有查询均放行，`403` 只可能来自自行拒绝的钩子。
+- **权限既声明、也强制。** 每条路由在路由表里标注自己的 capability，处理器运行前服务端拿它与钩子返回的 actor 比对；不持有即 `403 forbidden`，`cause` 为 `"capability"`（§3）。v0.9 默认下每个 actor 都持有全部 28 项，故 `403` 只可能来自返回更窄 actor 的钩子。
 - **参数。** 必填参数缺失或无法解析 → `400 bad_request`，`cause` 为该参数名。`limit` 在宿主命令要求处为必填、其余为可选：`/v0/runs` 默认 20，`/v0/audit/events` 与 `/v0/sessions` 必填。`/v0/workspace/file` 的 `?path=` 会做百分号解码。
 - **`/v0/audit/status` 不消费失败队列。** Tauri 命令会**取走**待报的审计失败；`GET` 不能取，否则一个轮询客户端会吞掉另一个客户端的告警。该端点按现状报告队列。
 - **`/v0/runs/diff` 遇到不存在的 run 回 `internal`。** 宿主把「找不到 run」报成不透明消息而非有类型的 not-found，控制平面若不臆造规则就无法映射成 `404`。一个宿主侧的类型化错误能闭合它；不在本批内。
@@ -182,7 +188,7 @@ pub struct Actor {
 侦察发现四项内核能力没有一等命令。这里逐项明确处置，一项都不静默丢弃。
 
 - **G1 — 启动 VM。** 决定：**独立端点 `POST /v0/vm/start`，v0.9 内预留并返回 `501 not_implemented`。** 内核把 VM 的起停当作能力（architecture-evolution.md §5），而当前 VM 在 `run_agent` 里隐式启动、随后由宿主持有。一个没有归属任务的显式启动尚无生命周期语义，所以现在只预留端点，由后续实现批次补上新的 `AppState` 方法。停止早已是实的（`POST /v0/vm/stop`）。
-- **G2 — permission check。** 决定：**不做端点。** `check(capability)` 是**每个**端点执行前求值的前置条件，不是客户端调用的资源。形状：认证层先解析出 `Actor`（§3），再按 §5 表格中的 capability 在处理器运行前检查。缺权限即 `403 forbidden`。该内核方法本身尚不存在；本批只固定接口。
+- **G2 — permission check。** 决定：**不做端点。** `check(capability)` 是**每个**端点执行前求值的前置条件，不是客户端调用的资源。形状：钩子先解析出 `Actor`（§3），随后请求路径按 §5 表格中的 capability 在处理器运行前检查。缺权限即 `403 forbidden`。该检查已实装：路由表的 capability 是类型化列（`server/src/routes.rs`），判定发生在请求路径中（`server/src/http.rs`）。内核级 `check()` 方法仍不需要，因为路由表就是每个端点的唯一事实来源。
 - **G3 — resource accounting。** 决定：**预留聚合端点 `GET /v0/resources`，v0.9 内返回 `501`。** 已定的形状为 `{ "vm": {"running", "since_ms"}, "runs": {"active", "total"}, "sessions": {"count"}, "downloads": {"active"} }`，由既有的状态查询拼出。不为它新增内核方法；实现时聚合的就是 §5.1 的那些视图。
 - **G4 — abandon stale runs。** 决定：**暴露，`POST /v0/runs/abandon-stale`。** 这是特殊的一个：内核方法已存在（`AppState::abandon_stale_runs`）且启动时被调用，但没有 Tauri 命令包它。响应：`{ "abandoned": [run_id, ...] }`。幂等，可反复调用。
 

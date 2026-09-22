@@ -13,6 +13,21 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **Capabilities are enforced, and the transports agree on identity** (v0.9 batch 5/N).
+  `Capability` is now a typed column of the route table (`server/src/routes.rs`): a route
+  cannot be written without naming one, so no path skips the check. After the `Authn` hook
+  returns its `Actor`, the request path asks whether it `allows` that capability and
+  answers `403 forbidden` with `cause: "capability"` when it does not
+  (`server/src/http.rs`) — default deny, 28 names, and `Actor` carries the set. v0.9 has
+  two actor shapes and both hold everything (the token holder as `operator`, and the
+  `--no-auth` hook), so a `403` only comes from a hook that returns a narrower actor.
+  Identity review: every sink stamps the identity of its **source** — `AppState::agent_id()`
+  — and `Server::sink()` no longer accepts one, so two transports in one process cannot
+  disagree; a new test publishes one event through two sinks and asserts the `agent_id`
+  matches over the wire. Docs: the API document's §3 is now "Authentication and
+  capabilities", the client guide gained a capability section and a secure-deployment
+  example (an nginx front end, `proxy_buffering off` for the stream), and
+  [server/README.md](../server/README.md) says what the token does and does not cover.
 - **The controls, the token and the event replay are in** (v0.9 batch 4). All 27
   `POST` endpoints of `docs/control-plane-api.md` §5.2 answer, plus the reserved
   `POST /v0/vm/start` (501) and `POST /v0/runs/abandon-stale` (G4, implemented); the server
@@ -20,8 +35,8 @@ current request authorising it (§2).
   owner-readable only, compared in constant time, `--no-auth` to opt out — and the event
   stream carries a server-wide frame ordinal, replays from a bounded 1024-frame buffer on
   `Last-Event-ID`, and sends a `gap` frame when the cursor is older than the buffer. Every
-  route declares its capability and hands it to the hook; enforcement is still a later
-  batch.
+  route declares its capability and hands it to the hook (enforcement landed in batch 5/N,
+  above).
 - **The audit store's open path is concurrency-safe now** (fix after v0.9 batch 3).
   Opening one fresh `audit.db` from two processes at once used to fail one of them:
   `PRAGMA journal_mode = WAL` needs exclusive access and answers `SQLITE_BUSY` without
@@ -41,13 +56,14 @@ current request authorising it (§2).
   `message`, `toolchain:download` is tagged `state`); the other eight are untouched.
   The webview unwraps them at its single boundary (`ui/src/api/tauri.ts`); the worker's
   line protocol and the SSE stream carry the envelope as-is. A client walkthrough is in
-  [docs/control-plane-client-guide.md](control-plane-client-guide.md). Still open: the
-  controls (next batch), `gap`/`Last-Event-ID` (next batch), and capability enforcement
-  (a later batch).
+  [docs/control-plane-client-guide.md](control-plane-client-guide.md). All three gaps this
+  bullet lists — the controls, `gap`/`Last-Event-ID` and capability enforcement — were
+  closed by batches 4 and 5/N.
 - **The control plane has a skeleton** (v0.9 batch 2/N). A new `server` crate —
   binary `riscdom-server` — binds the documented surface: `GET /v0/health`,
   `GET /v0/status`, `GET /v0/events` (SSE, the `hello` and `event` frames), the B1
-  error model, and the `Authn` hook with `NoAuth` as the v0.9 default. It is Layer 3
+  error model, and the `Authn` hook (`NoAuth` then; `TokenAuth` became the default in
+  batch 4). It is Layer 3
   over `host` and names no Tauri type (`tauri` is still linked — the known cost). It
   changes no `host` source: `HttpEventSink` goes in as `run_agent`'s `emitter`
   argument. `gap` frames and `Last-Event-ID` replay are **not implemented yet** (next

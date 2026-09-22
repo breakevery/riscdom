@@ -19,8 +19,9 @@ control channels instead of one is the mistake this design exists to avoid.
 endpoints of §5.1, the 27 controls of §5.2, the host-local endpoints of §5.3, the error
 model of §4, the event envelope with `Last-Event-ID` replay and `gap` frames, and the
 bearer token of §3. Only two routes are reserved: `/v0/resources` (§6, G3) and
-`POST /v0/vm/start` (§6, G1), and both say so with `501`. Capability *enforcement* is
-still the permission intermediary's job, a later batch.
+`POST /v0/vm/start` (§6, G1), and both say so with `501`. Capability enforcement (§3) is in: every served
+route declares exactly one capability and the server refuses with `403` when the actor
+does not hold it.
 
 ## 1. Position and protocol
 
@@ -53,7 +54,7 @@ still the permission intermediary's job, a later batch.
 - Nothing in a response body ever contains an API key or a token. This mirrors the host
   invariant that the frontend never sees the key.
 
-## 3. Authentication
+## 3. Authentication and capabilities
 
 - Clients send `Authorization: Bearer <token>`.
 - **Out of the box the token is a file.** The served program installs `TokenAuth` unless it
@@ -62,8 +63,7 @@ still the permission intermediary's job, a later batch.
   token is never printed or logged — read it from the file. With `--no-auth` the
   requirement is dropped and the server prints a warning, because the control endpoints
   include destructive ones.
-- The control plane reserves a single hook, shaped as a trait so the mechanism can be
-  settled later:
+- The control plane has one hook, shaped as a trait:
 
 ```rust
 /// Resolve a request to the actor that made it, or refuse.
@@ -77,14 +77,36 @@ pub struct Actor {
     pub agent_id: String,
     /// `human` / `supervisor` / `executor` — for the audit narrative only.
     pub kind: ActorKind,
+    /// What this actor may do. The server checks the route's capability against
+    /// this set before the handler runs.
+    pub capabilities: BTreeSet<Capability>,
 }
 ```
 
+- **The hook authenticates; the server authorises.** `authorise` answers *who* the caller
+  is. Whether that actor may do the thing is a separate, later decision, and it is the
+  server's: every served route declares exactly one capability, the request path asks the
+  returned actor whether it `allows` that capability, and a request that does not is
+  `403 forbidden` with `cause` set to `capability` (`server/src/http.rs`). The hook
+  sees the requirement too (`ReqMeta.capability`) if it wants to reason about it, but it
+  cannot grant one: it can only return an actor that holds less.
+- **A capability is a typed column of the route table**, not a string a handler remembers
+  to check (`server/src/routes.rs`). There is no way to write down a route without naming
+  its capability, so there is no route that silently skips the check.
+- **Default deny.** An actor is refused unless it positively holds what the route asks for;
+  an actor with an empty set can reach nothing. "No capability" is not expressible.
+- **The vocabulary is the 28 names in the §5 tables** (`agent.run`, `audit.read`,
+  `runs.control`, `settings.write`, …). v0.9 ships two actor shapes: the token holder
+  (`operator`, `human`) holds all 28, and the `--no-auth` default holds the same set, so
+  both behave identically once past the hook. A `403` therefore only comes from a hook
+  that returns a narrower actor. Per-capability tokens are v1.0 work; the set is the shape
+  they will fill in.
 - The `Actor` returned by the hook is what every audit row this request writes carries.
   "A human did it" and "a supervisor AI did it" are distinguished by `agent_id`, exactly
   as architecture-evolution.md §6 requires.
 - **Tokens are never logged.** Not in the access log, not in an error, not in an audit
-  detail. The hook returns an `Actor`; the raw token is dropped.
+  detail. The hook returns an `Actor`; the raw token is dropped. `ReqMeta`'s `Debug`
+  redacts it, so a stray `{:?}` cannot write it either.
 - **Transport security is the caller's responsibility (open-source boundary).** The
   open-source build offers plaintext HTTP plus the auth hook, nothing more. TLS
   termination, a network boundary, or a local-only bind is a deployment decision, and a
@@ -92,7 +114,8 @@ pub struct Actor {
   responsible for putting it behind TLS. This is stated here so no integrator assumes
   the open-source build does it for them.
 - If no `Authn` is installed, the control plane refuses every request with
-  `unauthorized` (fail closed). There is no anonymous mode.
+  `unauthorized` (fail closed). There is no anonymous mode: the `--no-auth` hook is an
+  *installed* hook that authorises everyone as the owner, not an absence of auth.
 
 ## 4. Error model
 
@@ -138,7 +161,7 @@ out of scope for this batch.
 ## 5. Endpoint table
 
 Query commands are `GET`. Control commands are `POST`. "Capability" is the precondition
-the auth layer checks (see §6 gap G2 for how it is enforced). The last column names the
+the server checks before the handler runs (§3; §6 gap G2). The last column names the
 Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 
 ### 5.1 Queries (26)
@@ -235,11 +258,11 @@ the tables above. They are part of this document's surface all the same.
   than inventing a difference.
 - **`POST /v0/toolchain/download` starts a real download** of the pinned RISC-V GCC archive
   and answers `202`; progress arrives as `toolchain:download` events.
-- **Capabilities are declared, not enforced.** The server names each endpoint's capability
-  and hands it to the `Authn` hook through `ReqMeta.capability`; deciding whether an
-  actor *holds* one is the permission intermediary's job, a later batch. Under the v0.9
-  default (`NoAuth`) every query is allowed, and a `403` can only come from a hook that
-  refuses.
+- **Capabilities are declared and enforced.** Every route names its capability in the
+  route table and the server checks it against the actor the hook returned before the
+  handler runs; a missing capability is `403 forbidden` with `cause: "capability"` (§3).
+  Under the v0.9 default every actor holds all 28, so a `403` can only come from a hook
+  that returns a narrower actor.
 - **Parameters.** A required parameter that is missing or unparsable is `400 bad_request`
   with `cause` set to the parameter's name. `limit` is required where the host command
   requires it, and optional elsewhere: `/v0/runs` defaults to 20, while
@@ -267,9 +290,12 @@ resolved explicitly here; none is silently dropped.
   already real (`POST /v0/vm/stop`).
 - **G2 — permission check.** Decision: **not an endpoint.** `check(capability)` is the
   precondition evaluated for *every* endpoint, not a resource a client calls. Its shape:
-  the auth layer resolves the `Actor` (§3), then checks the endpoint's capability from
-  the table in §5 before the handler runs. A missing capability is `403 forbidden`. The
-  kernel method itself does not exist yet; this batch fixes only the interface.
+  the hook resolves the `Actor` (§3), then the request path checks the endpoint's
+  capability from the table in §5 before the handler runs. A missing capability is
+  `403 forbidden`. The check is implemented: the route table's capability is a typed
+  column (`server/src/routes.rs`) and the decision is taken in the request path
+  (`server/src/http.rs`). A kernel-level `check()` method is still not needed, because
+  the route table is the source of truth for every endpoint.
 - **G3 — resource accounting.** Decision: **a reserved aggregate endpoint,
   `GET /v0/resources`, returning `501` in v0.9.** Its settled shape is
   `{ "vm": {"running", "since_ms"}, "runs": {"active", "total"}, "sessions": {"count"},

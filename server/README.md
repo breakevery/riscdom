@@ -12,8 +12,9 @@ human supervisor and an AI supervisor both use. It is **Layer 3** over the kerne
 (`host`, Layer 2) and names no Tauri type. `tauri` is still *linked* because `host`
 depends on it unconditionally — a known cost, not a reference.
 
-This crate is the **skeleton**: two smoke endpoints, the event stream, and the
-authentication hook. The remaining endpoints of the API table are later batches.
+All 53 endpoints of the API tables answer over HTTP, plus the three host-local ones, the
+two reserved routes that say so with `501`, and the event stream. The token is on by
+default and every route's capability is enforced.
 
 ## Build
 
@@ -111,16 +112,29 @@ An operator may provision the file instead of accepting a generated one. `--no-a
 removes the requirement and prints a warning — the control endpoints include destructive
 ones (delete a session, stop the VM, change the LLM configuration).
 
+**What a credential may do.** Authentication and permission are separate decisions: the
+hook says *who* the caller is, and the server decides what that actor may do. Every route
+declares exactly one capability — the 28 names in the API document's §5 tables — and the
+server checks it before the handler runs, answering `403 forbidden` with
+`cause: "capability"` when the actor does not hold it. Default deny: an actor with an empty
+set can reach nothing. The token holder holds all 28, and so does `--no-auth`, so in v0.9 a
+`403` only comes from a custom hook that returns a narrower actor.
+
 The hook is the `Authn` trait, so a distribution can install its own. Refusals map into the
-error model: `401 unauthorized`, `403 forbidden`.
+error model: `401 unauthorized` (no credential, or a wrong one), `403 forbidden`
+(authenticated, not allowed).
 
 A distribution that exposes the control plane beyond the loopback interface is responsible
 for transport security: the open-source build ships plaintext HTTP and the hook, nothing
-more.
+more. Keep the loopback default and terminate TLS at a reverse proxy in front; keep
+`<data-dir>/token` owner-only wherever it is copied or mounted; and never pair
+`--no-auth` with a non-loopback bind — that is "anyone who can reach the port can delete
+sessions and stop the VM". A worked nginx front end is in
+[docs/control-plane-client-guide.md](../docs/control-plane-client-guide.md).
 
 ## Not implemented yet
 
-- **Capability enforcement.** Each route declares its capability and the server hands it to
-  the auth hook, but deciding whether a caller *holds* it is the permission intermediary's
-  job, a later batch. Today the token is the whole gate.
+- **Fine-grained credentials.** Every route's capability is enforced (see Authentication),
+  but v0.9 has exactly one actor with everything: a single token. Per-capability tokens are
+  v1.0 work.
 - **`POST /v0/vm/start`** and **`GET /v0/resources`** answer `501`.

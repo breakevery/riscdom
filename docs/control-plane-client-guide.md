@@ -40,7 +40,8 @@ The token is **never printed or logged** — the start-up line names the file, n
 — so the file is the only place to get it. A deployment may provision the file itself.
 `--no-auth` drops the requirement (a warning is printed): local debugging only, because the
 control endpoints include destructive ones. `401` means the credential was missing or
-wrong; `403` means the hook accepted the caller but refused the action.
+wrong; `403` means it was accepted but its actor does not hold the endpoint's capability
+(see below).
 
 A liveness check and a summary are the two calls that need no parameters:
 
@@ -55,6 +56,80 @@ curl -sS http://127.0.0.1:7821/v0/status
 
 `connections` counts open TCP connections; `sse_subscribers` counts live event streams;
 `agents` is the number of agents this host knows about.
+
+### Capabilities: what a credential may do
+
+Authentication and permission are two decisions. `401` means the server did not accept the
+credential; `403` means it did, and the actor it resolved is not allowed to do *this*.
+
+Every endpoint requires one capability, named in the API document's §5 tables — 28 names
+such as `agent.run`, `audit.read`, `runs.control`, `settings.write` and `vm.control`. The
+server checks it before the handler runs, so a client can plan around it instead of
+discovering it:
+
+```bash
+# The token holder holds all 28, so this succeeds.
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7821/v0/status \
+  -H "Authorization: Bearer $RISCDOM_TOKEN"
+# 200
+
+# No credential at all: refused before any capability is considered.
+curl -sS http://127.0.0.1:7821/v0/status
+# {"code":"unauthorized","message":"missing or invalid bearer token","retryable":false,"cause":null}
+# 401
+
+# An actor that authenticated but does not hold the capability.
+curl -sS -X POST http://127.0.0.1:7821/v0/sessions/clear \
+  -H "Authorization: Bearer $RISCDOM_TOKEN"
+# {"code":"forbidden","message":"the actor may not session.write","retryable":false,"cause":"capability"}
+# 403
+```
+
+The third case does not arise under the v0.9 default: the token holder holds everything and
+`NoAuth` (`--no-auth`) hands out the same set. It is what a distribution's own `Authn` hook
+produces when it returns a narrower actor — and why a client should read `cause` rather than
+assume "authenticated" means "allowed". The rule is default deny: an endpoint is refused
+unless the credential's actor holds exactly the capability its route declares.
+
+### A secure deployment
+
+The loopback default is not a formality: this build speaks plaintext HTTP. Three things
+belong in a deployment that goes further.
+
+1. **Keep the token file to its owner.** `<data-dir>/token` is written `600` on Unix and with
+   an owner-only ACL on Windows, and the server refuses to start if it cannot restrict it.
+   Back it up, copy it or mount it with those permissions intact, and keep the value out of
+   shared shell history (`$(cat …)` keeps it out of `ps`, too).
+2. **Bind narrowly, then put TLS in front.** Keep `--bind 127.0.0.1:7821` and let a reverse
+   proxy own the outside. Terminating TLS is the proxy's job; the server has no TLS.
+3. **Never combine `--no-auth` with a non-loopback bind.** That is "anyone who can reach the
+   port can delete sessions and stop the VM".
+
+A minimal nginx front end (illustrative — the build ships no proxy):
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name riscdom.example.internal;
+    ssl_certificate     /etc/ssl/riscdom/fullchain.pem;
+    ssl_certificate_key /etc/ssl/riscdom/privkey.pem;
+
+    location /v0/ {
+        proxy_pass http://127.0.0.1:7821;
+        # The bearer token is the credential; keep it on this hop.
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header Host $host;
+        # SSE: no buffering, no idle timeout, HTTP/1.1.
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_read_timeout 1h;
+    }
+}
+```
+
+`proxy_buffering off` and the long `proxy_read_timeout` are what keep `/v0/events` a live
+stream instead of a request that ends when the first heartbeat is late.
 
 ## 2. The query endpoints
 
@@ -191,7 +266,7 @@ Treat `code` as the contract and `message` as text for a human. A client should 
 |---|---|---|
 | 400 | `bad_request` | Fix the request; `cause` names the parameter. |
 | 401 | `unauthorized` | Send a valid credential. |
-| 403 | `forbidden` | The caller or the path is not allowed; do not retry. |
+| 403 | `forbidden` | Not allowed: `cause: "capability"` means the actor lacks the endpoint's capability, otherwise the path is outside the workspace. Do not retry. |
 | 404 | `not_found` | The endpoint or the resource is not there. |
 | 405 | `method_not_allowed` | Use the method named in `message`. |
 | 409 | `conflict` | A state clash; re-read the state and decide. |
@@ -341,7 +416,7 @@ Notes a client should know:
 
 ## 7. What is not there yet
 
-- **Capability enforcement.** Each route declares its capability and the server hands it to
-  the auth hook; deciding whether a caller *holds* it is the permission intermediary's job,
-  a later batch. In v0.9 the token is the whole gate.
+- **Fine-grained credentials.** Every route's capability is enforced (see §1); what v0.9 has
+  only one of is credentials. The single token holds everything, so a client cannot be given
+  read-only access to the audit chain alone — per-capability tokens are v1.0 work.
 - **`POST /v0/vm/start`** and **`GET /v0/resources`** answer `501`.

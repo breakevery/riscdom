@@ -7,7 +7,9 @@
 
 use host::AppState;
 use host::EventSink;
-use server::{Authn, HttpEventSink, NoAuth, Server, ServerConfig, TokenAuth, REPLAY_CAPACITY};
+use server::{
+    Authn, Capability, HttpEventSink, NoAuth, Server, ServerConfig, TokenAuth, REPLAY_CAPACITY,
+};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
@@ -44,13 +46,23 @@ fn temp_workspace(tag: &str) -> PathBuf {
 /// Returns the address, a sink that can publish events, and the workspace root
 /// (so a test can build a path the host will accept).
 fn start_server(authn: Arc<dyn Authn>) -> (SocketAddr, HttpEventSink, PathBuf) {
+    let (addr, first, _second, ws) = start_server_with_two_sinks(authn);
+    (addr, first, ws)
+}
+
+/// The same, but handing back **two** sinks built from one identity — which is
+/// what two transports in one process look like.
+fn start_server_with_two_sinks(
+    authn: Arc<dyn Authn>,
+) -> (SocketAddr, HttpEventSink, HttpEventSink, PathBuf) {
     let workspace = temp_workspace("smoke");
     let app = Arc::new(AppState::in_memory(&workspace).expect("in-memory state"));
     let cfg = ServerConfig::new("127.0.0.1:0".parse().expect("addr"))
         .with_heartbeat(None)
         .with_authn(authn);
     let server = Server::new(Arc::clone(&app), cfg);
-    let sink = server.sink(app.agent_id());
+    let first = server.sink();
+    let second = server.sink();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
@@ -64,7 +76,7 @@ fn start_server(authn: Arc<dyn Authn>) -> (SocketAddr, HttpEventSink, PathBuf) {
     std::thread::spawn(move || {
         runtime.block_on(std::future::pending::<()>());
     });
-    (addr, sink, workspace)
+    (addr, first, second, workspace)
 }
 
 /// One request, read to the end of the response (every request asks to close).
@@ -177,6 +189,15 @@ fn last_id(text: &str) -> String {
         .next_back()
         .map(|line| line.trim_start_matches("id: ").to_string())
         .unwrap_or_else(|| panic!("no id in: {text}"))
+}
+
+/// The event envelopes in a stream capture, in the order they arrived.
+fn event_envelopes(text: &str) -> Vec<serde_json::Value> {
+    text.lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .filter_map(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        .filter(|value| value["kind"] == "event")
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -525,6 +546,49 @@ fn a_status_call_with_the_token_still_does_not_leak_it() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn two_transports_agree_on_the_identity_of_one_event() {
+    // The identity of an event comes from the **source** (the `AppState` that
+    // emitted it), not from the transport: two sinks built from one instance must
+    // stamp the same `agent_id`, or the audit reader would see one event as two
+    // different agents depending on where it was sent.
+    let (addr, first, second, _ws) = start_server_with_two_sinks(Arc::new(NoAuth));
+    let (mut stream, _) = open_stream(addr, None, &["\"kind\":\"hello\""]);
+    let payload = serde_json::json!({ "name": "write_source", "arguments": {} });
+    first.emit("agent:tool_call", payload.clone());
+    second.emit("agent:tool_call", payload.clone());
+
+    // Both frames arrive on the one stream; collect them as they do.
+    let mut collected = String::new();
+    let mut buf = [0u8; 8192];
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while event_envelopes(&collected).len() < 2 && Instant::now() < deadline {
+        match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => collected.push_str(&String::from_utf8_lossy(&buf[..n])),
+            Err(_) => break,
+        }
+    }
+
+    let envelopes = event_envelopes(&collected);
+    assert_eq!(envelopes.len(), 2, "one frame per emit: {collected}");
+    let (a, b) = (&envelopes[0], &envelopes[1]);
+    assert_eq!(a["agent_id"], b["agent_id"], "one source, one identity");
+    assert!(a["agent_id"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("local-"));
+    assert_eq!(a["event"], b["event"]);
+    assert_eq!(a["payload"], b["payload"]);
+    assert_eq!(a["version"], b["version"]);
+    assert_eq!(a["kind"], b["kind"]);
+    assert_eq!(a["task_id"], b["task_id"]);
+    // The frame is stamped where it is written, so the two are not necessarily
+    // the same millisecond — but they describe the same instant.
+    let (ta, tb) = (a["ts"].as_i64().expect("ts"), b["ts"].as_i64().expect("ts"));
+    assert!((ta - tb).abs() < 50, "{ta} vs {tb}");
+}
+
+#[test]
 fn the_stream_headers_and_frames_are_the_documented_ones() {
     let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
     let (_stream, text) = open_stream(addr, None, &["\"kind\":\"hello\""]);
@@ -696,26 +760,56 @@ fn a_forbidden_actor_gets_403() {
 #[test]
 fn the_capability_of_each_route_reaches_the_hook() {
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let (addr, _sink, _ws) = start_server(Arc::new(CapabilitySpy {
+    // The actor holds everything, so this test is about what the *routes* ask
+    // for, not about what is allowed.
+    let (addr, _sink, _ws) = start_server(Arc::new(FixedCaps {
         seen: Arc::clone(&seen),
-        denied: "audit.read",
+        held: Capability::ALL.to_vec(),
     }));
-    let (status, _) = get(addr, "/v0/runs?limit=1");
-    assert_eq!(status, 200);
-    let (status, body) = get(addr, "/v0/audit/status");
-    assert_eq!(status, 403, "{body}");
-    assert_eq!(body["code"], "forbidden");
-    let (status, _) = get(addr, "/v0/health");
-    assert_eq!(status, 200);
-    // A control route carries its own capability.
+    for path in ["/v0/runs?limit=1", "/v0/audit/status", "/v0/health"] {
+        let (status, body) = get(addr, path);
+        assert_eq!(status, 200, "{path}: {body}");
+    }
     let (status, _) = call(addr, "POST", "/v0/sessions/clear", "", Some("{}"));
     assert_eq!(status, 204);
 
     let seen = seen.lock().expect("lock").clone();
-    for expected in ["runs.read", "audit.read", "health.read", "session.write"] {
+    for expected in [
+        Capability::RunsRead,
+        Capability::AuditRead,
+        Capability::HealthRead,
+        Capability::SessionWrite,
+    ] {
+        assert!(seen.contains(&expected), "{expected} in {seen:?}");
+    }
+}
+
+#[test]
+fn an_actor_without_the_capability_is_refused_with_403() {
+    // The hook authenticates the caller (it returns an actor) but that actor holds
+    // exactly one capability: the *server* is what refuses the rest.
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (addr, _sink, _ws) = start_server(Arc::new(FixedCaps {
+        seen: Arc::clone(&seen),
+        held: vec![Capability::RunsRead],
+    }));
+
+    let (status, _) = get(addr, "/v0/runs?limit=1");
+    assert_eq!(status, 200, "the one capability it holds");
+
+    for (method, path, body) in [
+        ("GET", "/v0/audit/status", None),
+        ("GET", "/v0/health", None),
+        ("POST", "/v0/sessions/clear", Some("{}")),
+    ] {
+        let (status, raw) = call(addr, method, path, "", body);
+        assert_eq!(status, 403, "{method} {path}: {raw}");
+        let json: serde_json::Value = serde_json::from_str(&raw).expect("JSON");
+        assert_eq!(json["code"], "forbidden");
+        assert_eq!(json["cause"], "capability");
         assert!(
-            seen.contains(&expected.to_string()),
-            "{expected} in {seen:?}"
+            json["message"].as_str().unwrap_or_default().contains('.'),
+            "the message names the capability: {raw}"
         );
     }
 }
@@ -733,24 +827,24 @@ fn the_body_carries_no_secret() {
 // Test hooks
 // ---------------------------------------------------------------------------
 
-/// A test `Authn` that records the capability of every request and refuses one.
-struct CapabilitySpy {
-    seen: Arc<std::sync::Mutex<Vec<String>>>,
-    denied: &'static str,
+/// A test `Authn` that authenticates everyone as an actor holding exactly the
+/// capabilities it was given, and records what each request asked for.
+struct FixedCaps {
+    seen: Arc<std::sync::Mutex<Vec<Capability>>>,
+    held: Vec<Capability>,
 }
 
-impl Authn for CapabilitySpy {
+impl Authn for FixedCaps {
     fn authorise(&self, meta: &server::ReqMeta) -> Result<server::Actor, server::AuthError> {
-        let capability = meta.capability.clone().unwrap_or_default();
-        if let Ok(mut seen) = self.seen.lock() {
-            seen.push(capability.clone());
-        }
-        if capability == self.denied {
-            return Err(server::AuthError::Forbidden);
+        if let Some(capability) = meta.capability {
+            if let Ok(mut seen) = self.seen.lock() {
+                seen.push(capability);
+            }
         }
         Ok(server::Actor {
-            agent_id: "spy".to_string(),
+            agent_id: "limited".to_string(),
             kind: server::ActorKind::Supervisor,
+            capabilities: self.held.iter().copied().collect(),
         })
     }
 }

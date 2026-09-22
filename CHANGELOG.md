@@ -16,6 +16,36 @@ configure the LLM, export the audit — and the server now requires a bearer tok
 every request unless it is started with `--no-auth`. The event stream gained its
 `Last-Event-ID` replay and `gap` frames.
 
+**Every endpoint now checks a capability, and the two transports agree on identity.** The
+control plane does not just name what each route needs: the server checks it against the
+actor the `Authn` hook returned and refuses with `403` when the actor does not hold it.
+The identity a sink stamps is now taken from its source, so one event cannot look like two
+agents.
+
+### Added
+
+- **Capability enforcement.** Every served route declares exactly one capability, as a typed
+  column of the route table (`server/src/routes.rs`) — a route cannot be written without
+  naming one, so no path skips the check. Before the handler runs, the request path asks the
+  `Actor` whether it `allows` that capability and answers `403 forbidden` with
+  `cause: "capability"` if it does not (`server/src/http.rs`). Default deny; the vocabulary
+  is the 28 names of the API document's §5 tables.
+- **`Actor::capabilities`**: the actor a hook returns now carries the set it may use, so a
+  hook can narrow a caller without new plumbing. v0.9 has two shapes — the token holder
+  (`operator`) and the `--no-auth` hook — and both hold all 28, so a `403` only comes from a
+  hook that returns a narrower actor. Per-capability tokens are v1.0 work.
+
+### Changed
+
+- **Identity comes from the source, and the API says so.** `Server::sink()` no longer takes
+  an `agent_id`: it uses `AppState::agent_id()`, so two transports in one process ("two
+  sinks, one event") cannot stamp the same event with different identities. A new end-to-end
+  test publishes one event through two sinks and asserts the `agent_id` matches on the wire.
+  The API document's §3 is now "Authentication and capabilities" and states plainly that the
+  hook authenticates while the server authorises; the client guide gained a capability
+  section and a secure-deployment example (bind narrowly, keep the token file owner-only,
+  terminate TLS at a proxy, and never pair `--no-auth` with a public bind).
+
 ### Added
 
 - **The 27 controls** (`POST`), plus `POST /v0/runs/abandon-stale` (the reserved gap G4)

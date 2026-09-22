@@ -20,10 +20,12 @@ pub struct ReqMeta {
     pub token: Option<String>,
     /// The capability this endpoint requires, read from the route table.
     ///
-    /// *Declared, not enforced* in v0.9: the permission intermediary that decides
-    /// whether an actor holds a capability is a later batch, so [`NoAuth`] ignores
-    /// this. A hook that wants to enforce it already has what it needs.
-    pub capability: Option<String>,
+    /// The hook sees it so a hook *may* reason about it, but the check itself is
+    /// the server's: after `authorise` returns, the request path asks the [`Actor`]
+    /// whether it [`allows`](Actor::allows) this capability and answers `403` if
+    /// it does not. A route cannot express "no capability": the route table's
+    /// column is a [`Capability`], not an `Option`.
+    pub capability: Option<Capability>,
 }
 
 impl fmt::Debug for ReqMeta {
@@ -44,21 +46,170 @@ impl fmt::Debug for ReqMeta {
 ///
 /// `agent_id` maps 1:1 onto the audit chain's `agent_id`, which is how the chain
 /// tells "a human did it" apart from "a supervisor AI did it".
+///
+/// `capabilities` is what the actor may actually do: the server checks the
+/// capability each route declares against this set before the handler runs, so
+/// an actor with an empty set can reach nothing. v0.9 has exactly two shapes —
+/// [`Actor::owner`] (the token holder: everything) and an empty set — and the set
+/// is here so finer-grained actors need no new plumbing later.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Actor {
     /// The identity every audit row this request writes carries.
     pub agent_id: String,
     /// The narrative kind, for the audit reader.
     pub kind: ActorKind,
+    /// What this actor may do.
+    pub capabilities: std::collections::BTreeSet<Capability>,
 }
 
 impl Actor {
-    /// The actor [`NoAuth`] hands out: no identity was proven.
+    /// No identity was proven and nothing is allowed.
     pub fn anonymous() -> Self {
         Self {
             agent_id: "anonymous".to_string(),
             kind: ActorKind::Anonymous,
+            capabilities: std::collections::BTreeSet::new(),
         }
+    }
+
+    /// The v0.9 holder: every capability.
+    pub fn owner() -> Self {
+        Self::named_owner("owner")
+    }
+
+    /// [`Actor::owner`] with an identity of its own.
+    pub fn named_owner(agent_id: impl Into<String>) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+            kind: ActorKind::Human,
+            capabilities: Capability::ALL.iter().copied().collect(),
+        }
+    }
+
+    /// May this actor do `capability`?
+    pub fn allows(&self, capability: Capability) -> bool {
+        self.capabilities.contains(&capability)
+    }
+}
+
+/// One thing an actor may do.
+///
+/// The vocabulary of the API document's §5 tables. Every route declares one, and
+/// because the declaration is a typed column of the route table an undeclared
+/// route is not something that can be written down — the server cannot start
+/// serving a path whose capability nobody named.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Capability {
+    AgentRun,
+    AuditExport,
+    AuditRead,
+    EventsSubscribe,
+    HealthRead,
+    LlmConfigure,
+    LlmRead,
+    PreflightRead,
+    PreflightRun,
+    QemuConfigure,
+    QemuRead,
+    RunsControl,
+    RunsRead,
+    SerialExport,
+    SerialRead,
+    SessionRead,
+    SessionWrite,
+    SettingsRead,
+    SettingsWrite,
+    SnapshotRead,
+    SnapshotWrite,
+    StatusRead,
+    ToolchainConfigure,
+    ToolchainInstall,
+    ToolchainRead,
+    VmControl,
+    VmRead,
+    WorkspaceRead,
+}
+
+impl Capability {
+    /// Every capability: what [`Actor::owner`] holds. A new variant must be added
+    /// here too, which a test enforces.
+    pub const ALL: &'static [Capability] = &[
+        Capability::AgentRun,
+        Capability::AuditExport,
+        Capability::AuditRead,
+        Capability::EventsSubscribe,
+        Capability::HealthRead,
+        Capability::LlmConfigure,
+        Capability::LlmRead,
+        Capability::PreflightRead,
+        Capability::PreflightRun,
+        Capability::QemuConfigure,
+        Capability::QemuRead,
+        Capability::RunsControl,
+        Capability::RunsRead,
+        Capability::SerialExport,
+        Capability::SerialRead,
+        Capability::SessionRead,
+        Capability::SessionWrite,
+        Capability::SettingsRead,
+        Capability::SettingsWrite,
+        Capability::SnapshotRead,
+        Capability::SnapshotWrite,
+        Capability::StatusRead,
+        Capability::ToolchainConfigure,
+        Capability::ToolchainInstall,
+        Capability::ToolchainRead,
+        Capability::VmControl,
+        Capability::VmRead,
+        Capability::WorkspaceRead,
+    ];
+
+    /// The name the route table, the API document and the error body use.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Capability::AgentRun => "agent.run",
+            Capability::AuditExport => "audit.export",
+            Capability::AuditRead => "audit.read",
+            Capability::EventsSubscribe => "events.subscribe",
+            Capability::HealthRead => "health.read",
+            Capability::LlmConfigure => "llm.configure",
+            Capability::LlmRead => "llm.read",
+            Capability::PreflightRead => "preflight.read",
+            Capability::PreflightRun => "preflight.run",
+            Capability::QemuConfigure => "qemu.configure",
+            Capability::QemuRead => "qemu.read",
+            Capability::RunsControl => "runs.control",
+            Capability::RunsRead => "runs.read",
+            Capability::SerialExport => "serial.export",
+            Capability::SerialRead => "serial.read",
+            Capability::SessionRead => "session.read",
+            Capability::SessionWrite => "session.write",
+            Capability::SettingsRead => "settings.read",
+            Capability::SettingsWrite => "settings.write",
+            Capability::SnapshotRead => "snapshot.read",
+            Capability::SnapshotWrite => "snapshot.write",
+            Capability::StatusRead => "status.read",
+            Capability::ToolchainConfigure => "toolchain.configure",
+            Capability::ToolchainInstall => "toolchain.install",
+            Capability::ToolchainRead => "toolchain.read",
+            Capability::VmControl => "vm.control",
+            Capability::VmRead => "vm.read",
+            Capability::WorkspaceRead => "workspace.read",
+        }
+    }
+}
+
+impl fmt::Debug for Capability {
+    /// The canonical name, so a log line reads `capability: Some(audit.read)`
+    /// rather than `Some(AuditRead)`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl fmt::Display for Capability {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -131,7 +282,10 @@ pub struct NoAuth;
 
 impl Authn for NoAuth {
     fn authorise(&self, _meta: &ReqMeta) -> Result<Actor, AuthError> {
-        Ok(Actor::anonymous())
+        // Explicitly the holder of every capability: `--no-auth` means "run
+        // everything", not "run the anonymous actor", so the endpoints behave
+        // exactly as they do with a token.
+        Ok(Actor::owner())
     }
 }
 
@@ -156,12 +310,9 @@ impl Authn for TokenAuth {
     fn authorise(&self, meta: &ReqMeta) -> Result<Actor, AuthError> {
         let presented = meta.token.as_deref().unwrap_or_default();
         if presented.as_bytes().ct_eq(self.token.as_bytes()).into() {
-            Ok(Actor {
-                // The identity an audit reader sees for a token holder. The
-                // chain's own `agent_id` still names the host that wrote the row.
-                agent_id: "operator".to_string(),
-                kind: ActorKind::Human,
-            })
+            // One token, full power (v0.9). The capability check itself lives in
+            // the request path, so a finer-grained hook needs no new plumbing.
+            Ok(Actor::named_owner("operator"))
         } else {
             Err(AuthError::Unauthorized)
         }
@@ -177,17 +328,45 @@ mod tests {
             method: "GET".into(),
             path: "/v0/health".into(),
             token: token.map(str::to_string),
-            capability: Some("health.read".into()),
+            capability: Some(Capability::HealthRead),
         }
     }
 
     #[test]
-    fn no_auth_authorises_every_request_as_anonymous() {
+    fn no_auth_hands_out_the_owner() {
         let actor = NoAuth.authorise(&meta(Some("anything"))).expect("allowed");
-        assert_eq!(actor, Actor::anonymous());
-        assert_eq!(actor.agent_id, "anonymous");
-        assert_eq!(actor.kind, ActorKind::Anonymous);
+        assert_eq!(actor.agent_id, "owner");
+        assert_eq!(actor.kind, ActorKind::Human);
+        for capability in Capability::ALL {
+            assert!(actor.allows(*capability), "{capability}");
+        }
         assert!(NoAuth.authorise(&meta(None)).is_ok());
+    }
+
+    #[test]
+    fn an_anonymous_actor_may_do_nothing() {
+        let actor = Actor::anonymous();
+        assert_eq!(actor.capabilities.len(), 0);
+        assert!(!actor.allows(Capability::AuditRead));
+        assert!(!actor.allows(Capability::HealthRead));
+    }
+
+    #[test]
+    fn the_capability_vocabulary_is_well_formed() {
+        assert_eq!(
+            Capability::ALL.len(),
+            28,
+            "the vocabulary the document lists"
+        );
+        let mut names: Vec<&str> = Capability::ALL.iter().map(Capability::as_str).collect();
+        names.sort_unstable();
+        let unique = names.len();
+        names.dedup();
+        assert_eq!(names.len(), unique, "every name is used once: {names:?}");
+        assert!(names.iter().all(|name| name.contains('.')), "{names:?}");
+        // The owner holds the whole vocabulary, by construction and by check.
+        let owner = Actor::owner();
+        assert_eq!(owner.capabilities.len(), Capability::ALL.len());
     }
 
     #[test]
@@ -211,11 +390,12 @@ mod tests {
     #[test]
     fn token_auth_accepts_only_the_token_it_holds() {
         let auth = TokenAuth::new("a-64-char-token");
-        let ok = auth
+        let actor = auth
             .authorise(&meta(Some("a-64-char-token")))
             .expect("allowed");
-        assert_eq!(ok.agent_id, "operator");
-        assert_eq!(ok.kind, ActorKind::Human);
+        assert_eq!(actor.agent_id, "operator");
+        assert_eq!(actor.kind, ActorKind::Human);
+        assert_eq!(actor.capabilities.len(), Capability::ALL.len());
 
         for wrong in ["", "a-64-char-toke", "a-64-char-tokenn", "A-64-CHAR-TOKEN"] {
             let refused = auth.authorise(&meta(Some(wrong)));

@@ -65,8 +65,13 @@ impl Server {
     ///
     /// This is how the host's events reach the stream without `host` changing:
     /// the sink is a parameter of the run, not a field of the state.
-    pub fn sink(&self, agent_id: &str) -> HttpEventSink {
-        HttpEventSink::new(Arc::clone(&self.hub), agent_id)
+    ///
+    /// It takes no identity argument on purpose. Identity is a property of the
+    /// **source** ([`AppState::agent_id`]), not of the transport, so every sink
+    /// this process builds carries the same one — the rule stated in
+    /// [`HttpEventSink::new`], enforced here by not offering the choice.
+    pub fn sink(&self) -> HttpEventSink {
+        HttpEventSink::new(Arc::clone(&self.hub), self.app.agent_id())
     }
 
     /// Live SSE subscribers right now.
@@ -294,7 +299,7 @@ async fn handle(
     let resolution = routes::resolve(&method, &path);
     let capability = match &resolution {
         Resolution::Query { capability, .. } | Resolution::Local { capability, .. } => {
-            Some((*capability).to_string())
+            Some(*capability)
         }
         _ => None,
     };
@@ -304,8 +309,22 @@ async fn handle(
         token: presented,
         capability,
     };
-    if let Err(err) = shared.authn.authorise(&meta) {
-        return error_response(err.status(), err.code(), err.message(), None);
+    let actor = match shared.authn.authorise(&meta) {
+        Ok(actor) => actor,
+        Err(err) => return error_response(err.status(), err.code(), err.message(), None),
+    };
+    // Default deny: whatever capability the route declares has to be one this
+    // actor holds. The route table cannot express "none", so every served path
+    // is checked; a 404/405 has no capability and is answered below.
+    if let Some(capability) = capability {
+        if !actor.allows(capability) {
+            return error_response(
+                403,
+                "forbidden",
+                &format!("the actor may not {}", capability.as_str()),
+                Some("capability"),
+            );
+        }
     }
 
     match resolution {

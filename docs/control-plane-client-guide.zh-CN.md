@@ -28,7 +28,7 @@ export RISCDOM_TOKEN="$(cat /path/to/data-dir/token)"
 curl -sS http://127.0.0.1:7821/v0/health -H "Authorization: Bearer $RISCDOM_TOKEN"
 ```
 
-token **从不被打印或记入日志**——启动行只报文件路径，不报值——所以文件是拿到它的唯一地方。部署方也可以自行放置该文件。`--no-auth` 取消该要求（会打印警告）：仅用于本地调试，因为控制端点里含破坏性操作。`401` 表示凭证缺失或错误；`403` 表示钩子认了调用者但拒绝了动作。
+token **从不被打印或记入日志**——启动行只报文件路径，不报值——所以文件是拿到它的唯一地方。部署方也可以自行放置该文件。`--no-auth` 取消该要求（会打印警告）：仅用于本地调试，因为控制端点里含破坏性操作。`401` 表示凭证缺失或错误；`403` 表示凭证已认，但它的 actor 不持有该端点的 capability（见下）。
 
 两个无需参数的调用是存活检查与概要：
 
@@ -42,6 +42,65 @@ curl -sS http://127.0.0.1:7821/v0/status
 ```
 
 `connections` 是打开的 TCP 连接数；`sse_subscribers` 是存活的事件流数；`agents` 是本宿主知道的 agent 数。
+
+### capability：一份凭证能做什么
+
+认证与授权是两个决定。`401` 表示服务端不接受该凭证；`403` 表示它接受了，但它解析出的 actor 不被允许做**这件事**。
+
+每个端点要求一个 capability，名字见 API 文档 §5 表格——共 28 个，例如 `agent.run`、`audit.read`、`runs.control`、`settings.write`、`vm.control`。服务端在运行处理器前检查，客户端因此可以事先规划，而不是撞上才知道：
+
+```bash
+# token 持有者持有全部 28 项，此调用成功。
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7821/v0/status \
+  -H "Authorization: Bearer $RISCDOM_TOKEN"
+# 200
+
+# 完全没凭证：在考虑 capability 之前就被拒。
+curl -sS http://127.0.0.1:7821/v0/status
+# {"code":"unauthorized","message":"missing or invalid bearer token","retryable":false,"cause":null}
+# 401
+
+# 通过了认证，但 actor 不持有该 capability。
+curl -sS -X POST http://127.0.0.1:7821/v0/sessions/clear \
+  -H "Authorization: Bearer $RISCDOM_TOKEN"
+# {"code":"forbidden","message":"the actor may not session.write","retryable":false,"cause":"capability"}
+# 403
+```
+
+第三种在 v0.9 默认下不会出现：token 持有者持有全部，`NoAuth`（`--no-auth`）发放同一集合。它出现在分发方自己的 `Authn` 钩子返回更窄 actor 时——也正是「认证通过不等于获准」、客户端要读 `cause` 而不是凭假设的原因。规则是默认拒绝：除非凭证的 actor 恰好持有该路由声明的 capability，该端点一律拒绝。
+
+### 一个安全的部署
+
+回环默认不是走过场：这个构建说的是明文 HTTP。再往外走一步的部署里，有三件事属于它。
+
+1. **token 文件只给属主。** `<data-dir>/token` 在 Unix 上以 `600` 写入，在 Windows 上带仅属主 ACL；收紧不了时服务端拒绝启动。备份、拷贝、挂载时保持这些权限，也让该值远离共享的 shell 历史（`$(cat …)` 同时让它不进 `ps`）。
+2. **绑得窄，再在前面加 TLS。** 保持 `--bind 127.0.0.1:7821`，让反向代理负责对外。终止 TLS 是代理的事；服务端没有 TLS。
+3. **不要把 `--no-auth` 与非回环绑定放在一起。** 那等于「谁能连上这个端口，谁就能删会话、停 VM」。
+
+一份最小 nginx 前置示例（示意——本构建不带代理）：
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name riscdom.example.internal;
+    ssl_certificate     /etc/ssl/riscdom/fullchain.pem;
+    ssl_certificate_key /etc/ssl/riscdom/privkey.pem;
+
+    location /v0/ {
+        proxy_pass http://127.0.0.1:7821;
+        # bearer token 就是凭证；让它留在这一跳。
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header Host $host;
+        # SSE：不缓冲、不设空闲超时、用 HTTP/1.1。
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_read_timeout 1h;
+    }
+}
+```
+
+`proxy_buffering off` 与较长的 `proxy_read_timeout`，是让 `/v0/events` 保持一条活的流、而不是在第一个心跳迟到时就结束的请求的关键。
 
 ## 2. 查询端点
 
@@ -165,7 +224,7 @@ curl -sS 'http://127.0.0.1:7821/v0/resources'
 |---|---|---|
 | 400 | `bad_request` | 改请求；`cause` 指出参数名。 |
 | 401 | `unauthorized` | 带有效凭证。 |
-| 403 | `forbidden` | 调用者或路径不被允许；不要重试。 |
+| 403 | `forbidden` | 不被允许：`cause` 为 `"capability"` 表示 actor 缺少该端点的 capability，否则是路径越出 workspace。不要重试。 |
 | 404 | `not_found` | 端点或资源不存在。 |
 | 405 | `method_not_allowed` | 用 `message` 里指出的方法。 |
 | 409 | `conflict` | 状态冲突；重读状态再决定。 |
@@ -301,5 +360,5 @@ curl -sS -X POST http://127.0.0.1:7821/v0/audit/export \
 
 ## 7. 还没有的东西
 
-- **权限强制。** 每条路由都声明所需权限，服务端也把它交给认证钩子；判断调用者**是否持有**该权限是权限中介的事，属后续批次。v0.9 里 token 就是全部的关卡。
+- **细粒度凭证。** 每条路由的 capability 都已强制（见 §1）；v0.9 缺的只是不止一种凭证。单个 token 持有一切，因此没法只授予「只读审计链」的客户端——按能力细分的 token 属 v1.0。
 - **`POST /v0/vm/start`** 与 **`GET /v0/resources`** 回 `501`。

@@ -4,6 +4,7 @@
 //!
 //! The tables are `docs/control-plane-api.md` §5.1 and §5.2.
 
+use crate::auth::Capability;
 use crate::http::{error_response, json_response, no_content, RespBody};
 use crate::sse::{HttpEventSink, SseHub};
 use host::{AppState, EventSink, HostError};
@@ -80,15 +81,12 @@ pub(crate) enum Action {
 pub(crate) enum Resolution {
     Query {
         action: Action,
-        capability: &'static str,
+        capability: Capability,
         /// `/v0/runs/{run_id}` is the one path with a parameter.
         path_param: Option<(&'static str, String)>,
     },
     /// An endpoint the server answers itself (it needs more than `AppState`).
-    Local {
-        kind: Local,
-        capability: &'static str,
-    },
+    Local { kind: Local, capability: Capability },
     /// The path is served, the method is not. `allowed` lists the methods it is
     /// served under (one path can have two: `/v0/toolchain/download` is a `GET`
     /// status query and a `POST` start).
@@ -111,235 +109,315 @@ pub(crate) enum Local {
 /// through [`ReqMeta::capability`](crate::ReqMeta); enforcing it is the permission
 /// intermediary's job, which is a later batch, so the check is *recorded* and the
 /// endpoint's authorisation today comes from the token alone.
-const ROUTES: &[(&str, &str, &str, Action)] = &[
+const ROUTES: &[(&str, &str, Capability, Action)] = &[
     // ---- queries ----
-    ("GET", "/v0/audit/status", "audit.read", Action::AuditStatus),
-    ("GET", "/v0/audit/events", "audit.read", Action::AuditEvents),
-    ("GET", "/v0/runs", "runs.read", Action::Runs),
-    ("GET", "/v0/runs/diff", "runs.read", Action::RunDiff),
+    (
+        "GET",
+        "/v0/audit/status",
+        Capability::AuditRead,
+        Action::AuditStatus,
+    ),
+    (
+        "GET",
+        "/v0/audit/events",
+        Capability::AuditRead,
+        Action::AuditEvents,
+    ),
+    ("GET", "/v0/runs", Capability::RunsRead, Action::Runs),
+    (
+        "GET",
+        "/v0/runs/diff",
+        Capability::RunsRead,
+        Action::RunDiff,
+    ),
     (
         "GET",
         "/v0/llm/provider-presets",
-        "llm.read",
+        Capability::LlmRead,
         Action::LlmProviderPresets,
     ),
-    ("GET", "/v0/llm/config", "llm.read", Action::LlmConfig),
-    ("GET", "/v0/llm/readiness", "llm.read", Action::LlmReadiness),
+    (
+        "GET",
+        "/v0/llm/config",
+        Capability::LlmRead,
+        Action::LlmConfig,
+    ),
+    (
+        "GET",
+        "/v0/llm/readiness",
+        Capability::LlmRead,
+        Action::LlmReadiness,
+    ),
     (
         "GET",
         "/v0/llm/local-probe",
-        "llm.read",
+        Capability::LlmRead,
         Action::LlmLocalProbe,
     ),
     (
         "GET",
         "/v0/llm/stored-key",
-        "llm.read",
+        Capability::LlmRead,
         Action::LlmStoredKey,
     ),
-    ("GET", "/v0/sessions", "session.read", Action::Sessions),
+    (
+        "GET",
+        "/v0/sessions",
+        Capability::SessionRead,
+        Action::Sessions,
+    ),
     (
         "GET",
         "/v0/sessions/current",
-        "session.read",
+        Capability::SessionRead,
         Action::SessionCurrent,
     ),
-    ("GET", "/v0/snapshots", "snapshot.read", Action::Snapshots),
-    ("GET", "/v0/vm/running", "vm.read", Action::VmRunning),
-    ("GET", "/v0/vm/status", "vm.read", Action::VmStatus),
-    ("GET", "/v0/toolchain", "toolchain.read", Action::Toolchain),
+    (
+        "GET",
+        "/v0/snapshots",
+        Capability::SnapshotRead,
+        Action::Snapshots,
+    ),
+    (
+        "GET",
+        "/v0/vm/running",
+        Capability::VmRead,
+        Action::VmRunning,
+    ),
+    ("GET", "/v0/vm/status", Capability::VmRead, Action::VmStatus),
+    (
+        "GET",
+        "/v0/toolchain",
+        Capability::ToolchainRead,
+        Action::Toolchain,
+    ),
     (
         "GET",
         "/v0/toolchain/download",
-        "toolchain.read",
+        Capability::ToolchainRead,
         Action::ToolchainDownload,
     ),
-    ("GET", "/v0/qemu", "qemu.read", Action::Qemu),
-    ("GET", "/v0/qemu/status", "qemu.read", Action::QemuStatus),
-    ("GET", "/v0/preflight", "preflight.read", Action::Preflight),
+    ("GET", "/v0/qemu", Capability::QemuRead, Action::Qemu),
+    (
+        "GET",
+        "/v0/qemu/status",
+        Capability::QemuRead,
+        Action::QemuStatus,
+    ),
+    (
+        "GET",
+        "/v0/preflight",
+        Capability::PreflightRead,
+        Action::Preflight,
+    ),
     (
         "GET",
         "/v0/settings/theme",
-        "settings.read",
+        Capability::SettingsRead,
         Action::SettingsTheme,
     ),
     (
         "GET",
         "/v0/settings/language",
-        "settings.read",
+        Capability::SettingsRead,
         Action::SettingsLanguage,
     ),
     (
         "GET",
         "/v0/workspace/root",
-        "workspace.read",
+        Capability::WorkspaceRead,
         Action::WorkspaceRoot,
     ),
     (
         "GET",
         "/v0/workspace/files",
-        "workspace.read",
+        Capability::WorkspaceRead,
         Action::WorkspaceFiles,
     ),
     (
         "GET",
         "/v0/workspace/file",
-        "workspace.read",
+        Capability::WorkspaceRead,
         Action::WorkspaceFile,
     ),
-    ("GET", "/v0/serial", "serial.read", Action::Serial),
+    ("GET", "/v0/serial", Capability::SerialRead, Action::Serial),
     // Reserved (§6, G3): served, and answers 501 until the aggregate lands.
-    ("GET", "/v0/resources", "vm.read", Action::Resources),
+    (
+        "GET",
+        "/v0/resources",
+        Capability::VmRead,
+        Action::Resources,
+    ),
     // ---- controls ----
-    ("POST", "/v0/agent/run", "agent.run", Action::AgentRun),
-    ("POST", "/v0/runs/export", "audit.export", Action::RunExport),
+    (
+        "POST",
+        "/v0/agent/run",
+        Capability::AgentRun,
+        Action::AgentRun,
+    ),
+    (
+        "POST",
+        "/v0/runs/export",
+        Capability::AuditExport,
+        Action::RunExport,
+    ),
     (
         "POST",
         "/v0/runs/abandon-stale",
-        "runs.control",
+        Capability::RunsControl,
         Action::RunsAbandonStale,
     ),
     // Reserved (§6, G1): served, and answers 501 until the kernel grows a
     // standalone "start a VM" method.
-    ("POST", "/v0/vm/start", "vm.control", Action::VmStart),
-    ("POST", "/v0/vm/stop", "vm.control", Action::VmStop),
+    (
+        "POST",
+        "/v0/vm/start",
+        Capability::VmControl,
+        Action::VmStart,
+    ),
+    ("POST", "/v0/vm/stop", Capability::VmControl, Action::VmStop),
     (
         "POST",
         "/v0/snapshots/save",
-        "snapshot.write",
+        Capability::SnapshotWrite,
         Action::SnapshotSave,
     ),
     (
         "POST",
         "/v0/snapshots/resume",
-        "snapshot.write",
+        Capability::SnapshotWrite,
         Action::SnapshotResume,
     ),
     (
         "POST",
         "/v0/snapshots/delete",
-        "snapshot.write",
+        Capability::SnapshotWrite,
         Action::SnapshotDelete,
     ),
     (
         "POST",
         "/v0/sessions/create",
-        "session.write",
+        Capability::SessionWrite,
         Action::SessionCreate,
     ),
     (
         "POST",
         "/v0/sessions/open",
-        "session.write",
+        Capability::SessionWrite,
         Action::SessionOpen,
     ),
     (
         "POST",
         "/v0/sessions/rename",
-        "session.write",
+        Capability::SessionWrite,
         Action::SessionRename,
     ),
     (
         "POST",
         "/v0/sessions/delete",
-        "session.write",
+        Capability::SessionWrite,
         Action::SessionDelete,
     ),
     (
         "POST",
         "/v0/sessions/clear",
-        "session.write",
+        Capability::SessionWrite,
         Action::SessionClear,
     ),
     (
         "POST",
         "/v0/toolchain/download",
-        "toolchain.install",
+        Capability::ToolchainInstall,
         Action::ToolchainDownloadStart,
     ),
     (
         "POST",
         "/v0/toolchain/download/cancel",
-        "toolchain.install",
+        Capability::ToolchainInstall,
         Action::ToolchainDownloadCancel,
     ),
     (
         "POST",
         "/v0/toolchain/path",
-        "toolchain.configure",
+        Capability::ToolchainConfigure,
         Action::ToolchainPath,
     ),
     (
         "POST",
         "/v0/toolchain/path/clear",
-        "toolchain.configure",
+        Capability::ToolchainConfigure,
         Action::ToolchainPathClear,
     ),
-    ("POST", "/v0/qemu/path", "qemu.configure", Action::QemuPath),
+    (
+        "POST",
+        "/v0/qemu/path",
+        Capability::QemuConfigure,
+        Action::QemuPath,
+    ),
     (
         "POST",
         "/v0/qemu/path/clear",
-        "qemu.configure",
+        Capability::QemuConfigure,
         Action::QemuPathClear,
     ),
     (
         "POST",
         "/v0/preflight/run",
-        "preflight.run",
+        Capability::PreflightRun,
         Action::PreflightRun,
     ),
     (
         "POST",
         "/v0/preflight/ack",
-        "preflight.run",
+        Capability::PreflightRun,
         Action::PreflightAck,
     ),
     (
         "POST",
         "/v0/audit/alert",
-        "settings.write",
+        Capability::SettingsWrite,
         Action::AuditAlert,
     ),
     (
         "POST",
         "/v0/audit/export",
-        "audit.export",
+        Capability::AuditExport,
         Action::AuditExport,
     ),
     (
         "POST",
         "/v0/settings/theme",
-        "settings.write",
+        Capability::SettingsWrite,
         Action::SettingsThemeSet,
     ),
     (
         "POST",
         "/v0/settings/language",
-        "settings.write",
+        Capability::SettingsWrite,
         Action::SettingsLanguageSet,
     ),
     (
         "POST",
         "/v0/llm/config",
-        "llm.configure",
+        Capability::LlmConfigure,
         Action::LlmConfigSet,
     ),
     (
         "POST",
         "/v0/llm/stored-key/load",
-        "llm.configure",
+        Capability::LlmConfigure,
         Action::LlmStoredKeyLoad,
     ),
     (
         "POST",
         "/v0/llm/config/clear",
-        "llm.configure",
+        Capability::LlmConfigure,
         Action::LlmConfigClear,
     ),
     (
         "POST",
         "/v0/serial/export",
-        "serial.export",
+        Capability::SerialExport,
         Action::SerialExport,
     ),
 ];
@@ -349,10 +427,10 @@ const RUN_PREFIX: &str = "/v0/runs/";
 
 /// The endpoints this crate added to the settled surface (see the API document's
 /// "host-local endpoints"): a liveness check, a summary, and the event stream.
-const LOCAL_ROUTES: &[(&str, Local, &str)] = &[
-    ("/v0/health", Local::Health, "health.read"),
-    ("/v0/status", Local::Status, "status.read"),
-    ("/v0/events", Local::Events, "events.subscribe"),
+const LOCAL_ROUTES: &[(&str, Local, Capability)] = &[
+    ("/v0/health", Local::Health, Capability::HealthRead),
+    ("/v0/status", Local::Status, Capability::StatusRead),
+    ("/v0/events", Local::Events, Capability::EventsSubscribe),
 ];
 
 /// Query-string and body parameters, flattened to strings.
@@ -514,7 +592,7 @@ pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
             return if method == "GET" {
                 Resolution::Local {
                     kind: *kind,
-                    capability,
+                    capability: *capability,
                 }
             } else {
                 Resolution::MethodNotAllowed {
@@ -534,7 +612,7 @@ pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
         if *route_method == method {
             return Resolution::Query {
                 action: *action,
-                capability,
+                capability: *capability,
                 path_param: None,
             };
         }
@@ -553,7 +631,7 @@ pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
         }
         return Resolution::Query {
             action: Action::Run,
-            capability: "runs.read",
+            capability: Capability::RunsRead,
             path_param: Some(("run_id", run_id.to_string())),
         };
     }
@@ -1076,6 +1154,24 @@ fn state_clash(error: HostError) -> Response<RespBody> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_route_declares_a_capability_the_owner_holds() {
+        // A capability the enum has but `ALL` forgot would be a route the owner
+        // could not reach: the check is what keeps the two in step.
+        for (method, path, capability, _) in ROUTES {
+            assert!(
+                Capability::ALL.contains(capability),
+                "{method} {path} declares {capability}"
+            );
+        }
+        for (path, _, capability) in LOCAL_ROUTES {
+            assert!(
+                Capability::ALL.contains(capability),
+                "{path} declares {capability}"
+            );
+        }
+    }
 
     #[test]
     fn the_table_has_the_documented_endpoints() {
