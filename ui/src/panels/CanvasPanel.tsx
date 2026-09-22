@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import * as api from "../api/tauri";
+import { t } from "../i18n/index.ts";
 import type { AppStore } from "../state/appStore";
 
 /**
@@ -131,23 +132,23 @@ export default function CanvasPanel({ store }: { store: AppStore }) {
       .replace(/[:.]/g, "-")}.log`;
     try {
       const bytes = await api.exportSerialLog(name);
-      setNote(`已导出 ${name}（${bytes} 字节）`);
+      setNote(t("canvas.exported", { name, bytes }));
     } catch (e) {
-      setNote(`导出失败：${String(e)}`);
+      setNote(t("canvas.export_failed", { reason: String(e) }));
     }
   };
 
   return (
     <section className="panel">
       <header className="panel-head canvas-head">
-        <span>串口画布</span>
+        <span>{t("canvas.heading")}</span>
         <span className={`vm-state ${store.vmState}`}>{store.vmState}</span>
         <span className="spacer" />
         <button className="ghost tiny" onClick={clear}>
-          清屏
+          {t("canvas.clear")}
         </button>
         <button className="ghost tiny" onClick={() => void exportLog()}>
-          导出串口日志
+          {t("canvas.export")}
         </button>
       </header>
       {note ? <div className="muted small canvas-note">{note}</div> : null}
@@ -155,7 +156,7 @@ export default function CanvasPanel({ store }: { store: AppStore }) {
         <div className="canvas-host" ref={hostRef} />
         {showJump ? (
           <button className="ghost tiny jump-latest" onClick={jumpToLatest}>
-            跳到最新 ↓
+            {t("canvas.jump_latest")}
           </button>
         ) : null}
       </div>

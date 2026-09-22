@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as api from "../api/tauri";
 import { isNearBottom as metricsNearBottom, onRunFinished } from "../lib/scrollRule";
 import { relTime, type AppStore } from "../state/appStore";
+import { t } from "../i18n/index.ts";
 
 export default function ChatPanel({ store }: { store: AppStore }) {
   const [input, setInput] = useState("");
@@ -91,7 +92,7 @@ export default function ChatPanel({ store }: { store: AppStore }) {
       const readiness = await api.getLlmReadiness();
       if (!readiness.ready) {
         store.pushSystem(
-          readiness.suggestion ?? "模型未就绪，请在设置中配置服务商与 API Key。",
+          readiness.suggestion ?? t("chat.not_ready"),
         );
         return;
       }
@@ -105,9 +106,9 @@ export default function ChatPanel({ store }: { store: AppStore }) {
   return (
     <section className="panel">
       <header className="panel-head chat-head">
-        <span>对话框</span>
+        <span>{t("chat.heading")}</span>
         <button className="ghost tiny" onClick={() => setShowSessions((v) => !v)}>
-          会话 ({store.sessions.length})
+          {t("chat.sessions", { count: store.sessions.length })}
         </button>
       </header>
 
@@ -115,7 +116,7 @@ export default function ChatPanel({ store }: { store: AppStore }) {
         <div className="banner warn">
           {store.toolchainDownload.in_progress ? (
             <span>
-              正在下载工具链…
+              {t("chat.toolchain_downloading")}
               {store.toolchainDownload.progress
                 ? ` ${Math.min(
                     100,
@@ -128,7 +129,7 @@ export default function ChatPanel({ store }: { store: AppStore }) {
                 : ""}
             </span>
           ) : (
-            <span>未找到 RISC-V GCC，现在无法编译：请在「设置 → 工具链」中一键下载。</span>
+            <span>{t("chat.toolchain_missing")}</span>
           )}
         </div>
       ) : null}
@@ -137,14 +138,14 @@ export default function ChatPanel({ store }: { store: AppStore }) {
         <div className="session-list">
           <div className="row">
             <button className="ghost tiny" onClick={() => void store.newSession()}>
-              新建会话
+              {t("chat.session_new")}
             </button>
             <button className="ghost tiny" onClick={() => void store.refreshSessions()}>
-              刷新
+              {t("chat.refresh")}
             </button>
           </div>
           {store.sessions.length === 0 ? (
-            <div className="muted small">（暂无会话）</div>
+            <div className="muted small">{t("chat.sessions_empty")}</div>
           ) : null}
           <ul>
             {store.sessions.map((s) => (
@@ -166,21 +167,25 @@ export default function ChatPanel({ store }: { store: AppStore }) {
                 <button
                   className="ghost tiny"
                   onClick={() => {
-                    const next = window.prompt("重命名会话", s.title);
+                    const next = window.prompt(t("chat.rename_prompt"), s.title);
                     if (next && next.trim()) void store.renameSession(s.id, next.trim());
                   }}
                 >
-                  改名
+                  {t("chat.rename")}
                 </button>
                 <button
                   className="ghost tiny"
                   onClick={() => {
-                    if (window.confirm(`删除会话“${s.title}”？此操作不可撤销。`)) {
+                    if (
+                      window.confirm(
+                        t("chat.delete_confirm", { title: s.title }),
+                      )
+                    ) {
                       void store.deleteSession(s.id);
                     }
                   }}
                 >
-                  删除
+                  {t("chat.delete")}
                 </button>
               </li>
             ))}
@@ -191,10 +196,7 @@ export default function ChatPanel({ store }: { store: AppStore }) {
       <div className="scroll-wrap">
         <div className="chat-log" ref={logRef} onScroll={onScroll}>
           {store.messages.length === 0 ? (
-            <div className="muted small">
-              用自然语言描述你想让 AI 在沙箱里做什么，例如：
-              “写一个 RISC-V 裸机 Hello World，编译运行并把串口输出读回来”。
-            </div>
+            <div className="muted small">{t("chat.empty_hint")}</div>
           ) : null}
 
           {store.messages.map((m) =>
@@ -210,8 +212,12 @@ export default function ChatPanel({ store }: { store: AppStore }) {
                       m.ok === undefined ? "off" : m.ok ? "ok" : "bad"
                     }`}
                   />
-                  工具 {m.toolName}
-                  {m.ok === undefined ? "（运行中…）" : m.ok ? "（成功）" : "（失败）"}
+                  {t("chat.tool", { name: m.toolName ?? "" })}
+                  {m.ok === undefined
+                    ? t("chat.tool_running")
+                    : m.ok
+                      ? t("chat.tool_ok")
+                      : t("chat.tool_failed")}
                 </summary>
                 {m.toolArgs ? <pre className="kv">args: {m.toolArgs}</pre> : null}
                 {m.toolResult !== undefined ? (
@@ -226,7 +232,7 @@ export default function ChatPanel({ store }: { store: AppStore }) {
           )}
 
           {store.busy && !store.streaming ? (
-            <div className="msg assistant muted">思考中…</div>
+            <div className="msg assistant muted">{t("chat.thinking")}</div>
           ) : null}
 
           {/* Live streamed assistant text; replaced by the final content. */}
@@ -241,7 +247,7 @@ export default function ChatPanel({ store }: { store: AppStore }) {
 
         {showJump ? (
           <button className="ghost tiny jump-latest" onClick={jumpToLatest}>
-            有新消息 ↓
+            {t("chat.new_messages")}
           </button>
         ) : null}
       </div>
@@ -249,7 +255,7 @@ export default function ChatPanel({ store }: { store: AppStore }) {
       <div className="chat-input">
         <textarea
           value={input}
-          placeholder="描述任务…（Enter 发送，Shift+Enter 换行）"
+          placeholder={t("chat.input_placeholder")}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -259,7 +265,7 @@ export default function ChatPanel({ store }: { store: AppStore }) {
           }}
         />
         <button disabled={!canSend} onClick={() => void submit()}>
-          {store.busy ? "运行中…" : "发送"}
+          {store.busy ? t("chat.running") : t("chat.send")}
         </button>
       </div>
     </section>

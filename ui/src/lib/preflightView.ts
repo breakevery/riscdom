@@ -3,8 +3,11 @@
  *
  * Dependency-free so `ui/scripts/probe-ui-preflight.mjs` can import the shipped
  * module directly: what the settings tab says about a preflight result is decided
- * here, not inside JSX.
+ * here, not inside JSX. Its one import is the i18n registry, itself dependency-free
+ * (v0.8 batch 2).
  */
+import { t } from "../i18n/index.ts";
+import type { StringKey } from "../i18n/index.ts";
 
 export interface PreflightRowLike {
   step: string;
@@ -24,29 +27,30 @@ export interface PreflightLike {
   overridden: boolean;
 }
 
-const STEP_LABELS: Record<string, string> = {
-  gcc_runs: "工具链可运行",
-  gcc_compiles: "编译最小 guest",
-  qemu_runs: "QEMU 可运行",
-  guest_boots: "guest 启动并回显 banner",
+const STEP_LABELS: Record<string, StringKey | undefined> = {
+  gcc_runs: "preflight.step.gcc_runs",
+  gcc_compiles: "preflight.step.gcc_compiles",
+  qemu_runs: "preflight.step.qemu_runs",
+  guest_boots: "preflight.step.guest_boots",
 };
 
 /** Human label for a step id; an unknown id is shown verbatim. */
 export function stepLabel(step: string): string {
-  return STEP_LABELS[step] ?? step;
+  const key = STEP_LABELS[step];
+  return key ? t(key) : step;
 }
 
 /** Mark for a row state; an unknown state is shown as "未检查". */
 export function rowStateLabel(state: string): string {
   switch (state) {
     case "ok":
-      return "通过";
+      return t("preflight.state.ok");
     case "failed":
-      return "失败";
+      return t("preflight.state.failed");
     case "not_run":
-      return "未跑";
+      return t("preflight.state.not_run");
     default:
-      return "未检查";
+      return t("preflight.state.unchecked");
   }
 }
 
@@ -57,15 +61,15 @@ export function preflightHeadline(p: PreflightLike | null): string {
     // (「重新预检」), which read like a link but was plain text. The button beside
     // the sentence is the only clickable thing, so the sentence points at it
     // instead of impersonating it.
-    return "尚未预检：改完工具链 / QEMU 路径后会自动跑一次；右侧按钮可随时手动触发。";
+    return t("preflight.headline.unchecked");
   }
   if (p.ok) {
-    return "预检通过：这套环境实际能编译并启动 guest。";
+    return t("preflight.headline.ok");
   }
   if (p.overridden) {
-    return "预检未通过，但你已选择继续（该选择已记录）。";
+    return t("preflight.headline.overridden");
   }
-  return `预检未通过：卡在「${stepLabel(p.failed_step ?? "")}」。`;
+  return t("preflight.headline.failed", { step: stepLabel(p.failed_step ?? "") });
 }
 
 /**
@@ -81,11 +85,13 @@ export function shouldOfferOverride(p: PreflightLike | null): boolean {
 export function progressLine(step: string | null, state: string | null): string {
   if (!step) return "";
   if (step === "done") {
-    return state === "ok" ? "预检完成：全部通过。" : "预检完成：有步骤未通过。";
+    return state === "ok"
+      ? t("preflight.progress.done_ok")
+      : t("preflight.progress.done_failed");
   }
   const what = stepLabel(step);
-  if (state === "running") return `正在检查：${what}…`;
-  if (state === "ok") return `已通过：${what}`;
-  if (state === "failed") return `未通过：${what}`;
+  if (state === "running") return t("preflight.progress.running", { step: what });
+  if (state === "ok") return t("preflight.progress.ok", { step: what });
+  if (state === "failed") return t("preflight.progress.failed", { step: what });
   return what;
 }

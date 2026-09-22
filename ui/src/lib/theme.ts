@@ -3,8 +3,10 @@
  *
  * Dependency-free so `ui/scripts/probe-ui-theme.mjs` can import the shipped rules:
  * what comes next in the three-state cycle, what "system" resolves to right now,
- * and the one place that writes `data-theme`.
+ * and the one place that writes `data-theme`. Its one import is the i18n registry,
+ * itself dependency-free (v0.8 batch 2).
  */
+import { t } from "../i18n/index.ts";
 
 export type Theme = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
@@ -27,11 +29,11 @@ export function nextTheme(current: Theme): Theme {
 export function themeLabel(theme: Theme): string {
   switch (parseTheme(theme)) {
     case "light":
-      return "浅色";
+      return t("theme.light");
     case "dark":
-      return "深色";
+      return t("theme.dark");
     default:
-      return "跟随系统";
+      return t("theme.system");
   }
 }
 
@@ -56,8 +58,10 @@ export function applyTheme(
 /** One line for the settings page. */
 export function themeSummary(theme: Theme, resolved: ResolvedTheme): string {
   const parsed = parseTheme(theme);
-  const name = resolved === "dark" ? "深色" : "浅色";
-  return parsed === "system" ? `跟随系统（当前${name}）` : `固定为${name}`;
+  const name = resolved === "dark" ? t("theme.dark") : t("theme.light");
+  return parsed === "system"
+    ? t("theme.summary.system", { name })
+    : t("theme.summary.fixed", { name });
 }
 
 /**

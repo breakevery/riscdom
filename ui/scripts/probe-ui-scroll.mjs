@@ -75,10 +75,13 @@ if (preFix) {
     false,
   );
   check("the tool row shows a status dot", /className=\{`dot \$\{/.test(src), true);
-  check("the tool row names the running state", src.includes("（运行中…）"), true);
+  // v0.8 batch 2: the tool row's words are registry keys now, so the probe
+  // matches the keys the panel renders rather than a literal (the registry check
+  // guarantees both languages carry them).
+  check("the tool row names the running state", /t\("chat\.tool_running"\)/.test(src), true);
   check(
     "the tool row names success and failure",
-    src.includes("（成功）") && src.includes("（失败）"),
+    /t\("chat\.tool_ok"\)/.test(src) && /t\("chat\.tool_failed"\)/.test(src),
     true,
   );
 }

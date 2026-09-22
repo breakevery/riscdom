@@ -5,9 +5,11 @@
  * module directly and check what the settings tab renders — there is no JS test
  * harness in this repository and new dependencies are off the table. Its one
  * import is the i18n registry (`../i18n/index.ts`), itself dependency-free and
- * probe-importable (v0.7 batch 1): the four diff strings below are keys there now.
+ * probe-importable (v0.7 batch 1): the four diff strings below are keys there now,
+ * and the run labels followed in v0.8 batch 2.
  */
 import { t } from "../i18n/index.ts";
+import type { StringKey } from "../i18n/index.ts";
 
 /** The fields of a run the list needs (a subset of the backend `RunView`). */
 export interface RunLike {
@@ -45,28 +47,29 @@ export interface RunRow {
   exportable: boolean;
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  open: "进行中",
-  ok: "完成",
-  failed: "失败",
-  interrupted: "已中断",
-  abandoned: "已放弃",
+const STATUS_LABELS: Record<string, StringKey | undefined> = {
+  open: "run.status.open",
+  ok: "run.status.ok",
+  failed: "run.status.failed",
+  interrupted: "run.status.interrupted",
+  abandoned: "run.status.abandoned",
 };
 
 /** Human label for a run status; an unknown status is shown verbatim. */
 export function statusLabel(status: string): string {
-  return STATUS_LABELS[status] ?? status;
+  const key = STATUS_LABELS[status];
+  return key ? t(key) : status;
 }
 
 /** Coarse "when": the list only has to say how long ago a run started. */
 export function formatWhen(ms: number, nowMs: number): string {
   const seconds = Math.max(0, Math.round((nowMs - ms) / 1000));
-  if (seconds < 60) return `${seconds} 秒前`;
+  if (seconds < 60) return t("run.when.seconds", { n: seconds });
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 60) return t("run.when.minutes", { n: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.round(hours / 24)} 天前`;
+  if (hours < 24) return t("run.when.hours", { n: hours });
+  return t("run.when.days", { n: Math.round(hours / 24) });
 }
 
 /**
@@ -92,12 +95,12 @@ export function toRunRows(runs: RunLike[], nowMs: number): RunRow[] {
 
 /** How a run's source snapshot is spelled; a run from scratch has none. */
 export function snapshotLabel(snapshot: string | null): string {
-  return snapshot ? `恢复自 ${snapshot}` : "";
+  return snapshot ? t("run.restored_from", { snapshot }) : "";
 }
 
 /** What the list says when the log has no runs yet. */
 export function runsEmptyText(): string {
-  return "暂无运行记录：跑一次之后，这里会出现带配置指纹的 run。";
+  return t("run.empty");
 }
 
 // ----- Audit export (v0.5 batch 2) -----------------------------------------

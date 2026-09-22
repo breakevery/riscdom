@@ -18,6 +18,7 @@ import path from "node:path";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..");
 const MODULE = path.join(REPO, "ui", "src", "lib", "preflightView.ts");
+const I18N = path.join(REPO, "ui", "src", "i18n", "index.ts");
 const TAB = path.join(REPO, "ui", "src", "settings", "ToolchainTab.tsx");
 const STORE = path.join(REPO, "ui", "src", "state", "appStore.ts");
 const API = path.join(REPO, "ui", "src", "api", "tauri.ts");
@@ -31,6 +32,11 @@ function check(name, ok, detail) {
 }
 
 const view = await import(pathToFileURL(MODULE).href);
+const i18n = await import(pathToFileURL(I18N).href);
+// The Chinese assertions below are the labels the app ships in its other language;
+// the registry's default is English, so pin it (v0.8 batch 2, when these strings
+// moved into the registry).
+i18n.setLanguage("zh");
 console.log(`# preflight wording (${path.relative(REPO, MODULE)})\n`);
 
 const ok = {

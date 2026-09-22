@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useAppStore } from "../state/appStore";
+import { t } from "../i18n/index.ts";
 import {
   RESIZER_W,
   clampChatWidth,
@@ -44,10 +45,10 @@ function writeChatWidth(width: number): void {
 function elapsedLabel(sinceMs: number | null): string {
   if (sinceMs === null) return "";
   const seconds = Math.max(0, Math.round((Date.now() - sinceMs) / 1000));
-  if (seconds < 60) return `运行 ${seconds} 秒`;
+  if (seconds < 60) return t("app.vm.uptime.seconds", { n: seconds });
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `运行 ${minutes} 分钟`;
-  return `运行 ${(minutes / 60).toFixed(1)} 小时`;
+  if (minutes < 60) return t("app.vm.uptime.minutes", { n: minutes });
+  return t("app.vm.uptime.hours", { n: (minutes / 60).toFixed(1) });
 }
 
 export default function AppShell() {
@@ -116,7 +117,7 @@ export default function AppShell() {
         {view === "settings" ? (
           <>
             <button className="ghost tiny" onClick={() => setView("main")}>
-              ← 返回
+              {t("app.back")}
             </button>
             <span className="spacer" />
             <span className="brand">RiscDom</span>
@@ -130,18 +131,20 @@ export default function AppShell() {
                 className="vm-badge"
                 title={
                   store.vmStatus.running
-                    ? `VM ${elapsedLabel(store.vmStatus.sinceMs)}（跨 run 保持；仅在你要求时停止）`
-                    : "VM 已停止"
+                    ? t("app.vm.badge_title", {
+                        uptime: elapsedLabel(store.vmStatus.sinceMs),
+                      })
+                    : t("app.vm.stopped")
                 }
               >
                 <span className={`dot ${store.vmStatus.running ? "ok" : "off"}`} />
-                {store.vmStatus.running ? "VM 运行中" : "VM 已停止"}
+                {store.vmStatus.running ? t("app.vm.running") : t("app.vm.stopped")}
               </span>
             ) : null}
             <button
               className="ghost tiny gear"
-              title="设置（Esc 关闭）"
-              aria-label="设置"
+              title={t("app.settings_title")}
+              aria-label={t("settings.heading")}
               onClick={() => setView("settings")}
             >
               {/* Inline gear icon (no icon library). */}

@@ -164,6 +164,102 @@ const EN = {
   "snapshot.delete": "Delete",
   "snapshot.workspace": "Workspace",
   "snapshot.files": "{count} files",
+
+  // Chat panel (v0.8, 2/2).
+  "chat.heading": "Chat",
+  "chat.sessions": "Sessions ({count})",
+  "chat.session_new": "New session",
+  "chat.session_default_title": "New session",
+  "chat.refresh": "Refresh",
+  "chat.sessions_empty": "(no sessions yet)",
+  "chat.rename_prompt": "Rename the session",
+  "chat.rename": "Rename",
+  "chat.delete_confirm": 'Delete the session "{title}"? This cannot be undone.',
+  "chat.delete": "Delete",
+  "chat.empty_hint":
+    "Describe in plain language what you want the AI to do inside the sandbox, for example: “write a RISC-V bare-metal Hello World, compile and run it, and read the serial output back”.",
+  "chat.tool": "Tool {name}",
+  "chat.tool_running": "(running…)",
+  "chat.tool_ok": "(ok)",
+  "chat.tool_failed": "(failed)",
+  "chat.thinking": "Thinking…",
+  "chat.new_messages": "New messages ↓",
+  "chat.input_placeholder": "Describe the task… (Enter sends, Shift+Enter adds a line)",
+  "chat.running": "Running…",
+  "chat.send": "Send",
+  "chat.not_ready":
+    "The model is not ready. Configure a provider and an API key in Settings.",
+  "chat.toolchain_downloading": "Downloading the toolchain…",
+  "chat.toolchain_missing":
+    "RISC-V GCC was not found, so nothing can be compiled yet: use the one-click download in Settings → Toolchain.",
+
+  // Serial canvas (v0.8, 2/2).
+  "canvas.heading": "Serial canvas",
+  "canvas.clear": "Clear",
+  "canvas.export": "Export the serial log",
+  "canvas.exported": "Exported {name} ({bytes} bytes)",
+  "canvas.export_failed": "Export failed: {reason}",
+  "canvas.jump_latest": "Jump to latest ↓",
+
+  // Run list (v0.8, 2/2).
+  "run.status.open": "in progress",
+  "run.status.ok": "finished",
+  "run.status.failed": "failed",
+  "run.status.interrupted": "interrupted",
+  "run.status.abandoned": "abandoned",
+  "run.when.seconds": "{n} seconds ago",
+  "run.when.minutes": "{n} minutes ago",
+  "run.when.hours": "{n} hours ago",
+  "run.when.days": "{n} days ago",
+  "run.restored_from": "restored from {snapshot}",
+  "run.empty":
+    "No runs yet: after one run, runs with their configuration fingerprint appear here.",
+
+  // Preflight wording (v0.8, 2/2).
+  "preflight.step.gcc_runs": "the toolchain runs",
+  "preflight.step.gcc_compiles": "compiling a minimal guest",
+  "preflight.step.qemu_runs": "QEMU runs",
+  "preflight.step.guest_boots": "the guest boots and echoes the banner",
+  "preflight.state.ok": "passed",
+  "preflight.state.failed": "failed",
+  "preflight.state.not_run": "not run",
+  "preflight.state.unchecked": "unchecked",
+  "preflight.headline.unchecked":
+    "Not checked yet: it runs by itself after you change the toolchain / QEMU path, and the button on the right runs it now.",
+  "preflight.headline.ok":
+    "Preflight passed: this environment really compiles and boots a guest.",
+  "preflight.headline.overridden":
+    "Preflight failed, but you chose to continue (the choice is recorded).",
+  "preflight.headline.failed": "Preflight failed: stuck at “{step}”.",
+  "preflight.progress.done_ok": "Preflight finished: everything passed.",
+  "preflight.progress.done_failed": "Preflight finished: a step failed.",
+  "preflight.progress.running": "Checking: {step}…",
+  "preflight.progress.ok": "Passed: {step}",
+  "preflight.progress.failed": "Failed: {step}",
+
+  // Theme labels (v0.8, 2/2).
+  "theme.light": "Light",
+  "theme.dark": "Dark",
+  "theme.system": "Follow the system",
+  "theme.summary.system": "follows the system (currently {name})",
+  "theme.summary.fixed": "fixed to {name}",
+
+  // App chrome (v0.8, 2/2).
+  "app.back": "← Back",
+  "app.vm.running": "VM running",
+  "app.vm.stopped": "VM stopped",
+  "app.vm.badge_title": "VM {uptime} (kept across runs; stopped only when you ask)",
+  "app.vm.uptime.seconds": "running {n} s",
+  "app.vm.uptime.minutes": "running {n} min",
+  "app.vm.uptime.hours": "running {n} h",
+  "app.settings_title": "Settings (Esc closes)",
+
+  // File pickers and run-export notes (v0.8, 2/2).
+  "toolchain.pick_gcc_title": "Pick riscv64-unknown-elf-gcc",
+  "toolchain.pick_qemu_title": "Pick qemu-system-riscv64",
+  "audit.export_done": "Exported {lines} lines of {runId} to {target}",
+  "audit.export_failed":
+    "Could not export {runId}: {reason} (exports must stay inside the workspace)",
 } as const;
 
 /** A key of the registry. */
@@ -304,6 +400,97 @@ const ZH: Record<StringKey, string> = {
   "snapshot.delete": "删除",
   "snapshot.workspace": "工作区",
   "snapshot.files": "{count} 个文件",
+
+  // Chat panel (v0.8, 2/2).
+  "chat.heading": "对话框",
+  "chat.sessions": "会话 ({count})",
+  "chat.session_new": "新建会话",
+  "chat.session_default_title": "新会话",
+  "chat.refresh": "刷新",
+  "chat.sessions_empty": "（暂无会话）",
+  "chat.rename_prompt": "重命名会话",
+  "chat.rename": "改名",
+  "chat.delete_confirm": "删除会话“{title}”？此操作不可撤销。",
+  "chat.delete": "删除",
+  "chat.empty_hint":
+    "用自然语言描述你想让 AI 在沙箱里做什么，例如：“写一个 RISC-V 裸机 Hello World，编译运行并把串口输出读回来”。",
+  "chat.tool": "工具 {name}",
+  "chat.tool_running": "（运行中…）",
+  "chat.tool_ok": "（成功）",
+  "chat.tool_failed": "（失败）",
+  "chat.thinking": "思考中…",
+  "chat.new_messages": "有新消息 ↓",
+  "chat.input_placeholder": "描述任务…（Enter 发送，Shift+Enter 换行）",
+  "chat.running": "运行中…",
+  "chat.send": "发送",
+  "chat.not_ready": "模型未就绪，请在设置中配置服务商与 API Key。",
+  "chat.toolchain_downloading": "正在下载工具链…",
+  "chat.toolchain_missing":
+    "未找到 RISC-V GCC，现在无法编译：请在「设置 → 工具链」中一键下载。",
+
+  // Serial canvas (v0.8, 2/2).
+  "canvas.heading": "串口画布",
+  "canvas.clear": "清屏",
+  "canvas.export": "导出串口日志",
+  "canvas.exported": "已导出 {name}（{bytes} 字节）",
+  "canvas.export_failed": "导出失败：{reason}",
+  "canvas.jump_latest": "跳到最新 ↓",
+
+  // Run list (v0.8, 2/2).
+  "run.status.open": "进行中",
+  "run.status.ok": "完成",
+  "run.status.failed": "失败",
+  "run.status.interrupted": "已中断",
+  "run.status.abandoned": "已放弃",
+  "run.when.seconds": "{n} 秒前",
+  "run.when.minutes": "{n} 分钟前",
+  "run.when.hours": "{n} 小时前",
+  "run.when.days": "{n} 天前",
+  "run.restored_from": "恢复自 {snapshot}",
+  "run.empty": "暂无运行记录：跑一次之后，这里会出现带配置指纹的 run。",
+
+  // Preflight wording (v0.8, 2/2).
+  "preflight.step.gcc_runs": "工具链可运行",
+  "preflight.step.gcc_compiles": "编译最小 guest",
+  "preflight.step.qemu_runs": "QEMU 可运行",
+  "preflight.step.guest_boots": "guest 启动并回显 banner",
+  "preflight.state.ok": "通过",
+  "preflight.state.failed": "失败",
+  "preflight.state.not_run": "未跑",
+  "preflight.state.unchecked": "未检查",
+  "preflight.headline.unchecked":
+    "尚未预检：改完工具链 / QEMU 路径后会自动跑一次；右侧按钮可随时手动触发。",
+  "preflight.headline.ok": "预检通过：这套环境实际能编译并启动 guest。",
+  "preflight.headline.overridden": "预检未通过，但你已选择继续（该选择已记录）。",
+  "preflight.headline.failed": "预检未通过：卡在「{step}」。",
+  "preflight.progress.done_ok": "预检完成：全部通过。",
+  "preflight.progress.done_failed": "预检完成：有步骤未通过。",
+  "preflight.progress.running": "正在检查：{step}…",
+  "preflight.progress.ok": "已通过：{step}",
+  "preflight.progress.failed": "未通过：{step}",
+
+  // Theme labels (v0.8, 2/2).
+  "theme.light": "浅色",
+  "theme.dark": "深色",
+  "theme.system": "跟随系统",
+  "theme.summary.system": "跟随系统（当前{name}）",
+  "theme.summary.fixed": "固定为{name}",
+
+  // App chrome (v0.8, 2/2).
+  "app.back": "← 返回",
+  "app.vm.running": "VM 运行中",
+  "app.vm.stopped": "VM 已停止",
+  "app.vm.badge_title": "VM {uptime}（跨 run 保持；仅在你要求时停止）",
+  "app.vm.uptime.seconds": "运行 {n} 秒",
+  "app.vm.uptime.minutes": "运行 {n} 分钟",
+  "app.vm.uptime.hours": "运行 {n} 小时",
+  "app.settings_title": "设置（Esc 关闭）",
+
+  // File pickers and run-export notes (v0.8, 2/2).
+  "toolchain.pick_gcc_title": "选择 riscv64-unknown-elf-gcc",
+  "toolchain.pick_qemu_title": "选择 qemu-system-riscv64",
+  "audit.export_done": "已导出 {runId} 的 {lines} 行记录：{target}",
+  "audit.export_failed": "导出 {runId} 失败：{reason}（只能导出到工作区内）",
 };
 
 /** The registry itself: language -> key -> template. */

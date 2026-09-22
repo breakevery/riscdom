@@ -36,6 +36,10 @@ function check(name, ok, detail) {
 
 const runs = await import(pathToFileURL(MODULE).href);
 const i18n = await import(pathToFileURL(I18N).href);
+// The Chinese assertions below are the labels the app ships in its other language;
+// the registry's default is English, so pin it (v0.8 batch 2, when these strings
+// moved into the registry).
+i18n.setLanguage("zh");
 console.log(`# run list (${path.relative(REPO, MODULE)})\n`);
 
 const now = 1_700_000_000_000;

@@ -18,6 +18,7 @@ import path from "node:path";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..");
 const MODULE = path.join(REPO, "ui", "src", "lib", "theme.ts");
+const I18N = path.join(REPO, "ui", "src", "i18n", "index.ts");
 const TAB = path.join(REPO, "ui", "src", "settings", "AppearanceTab.tsx");
 const TABS = path.join(REPO, "ui", "src", "settings", "SettingsTabs.tsx");
 const STORE = path.join(REPO, "ui", "src", "state", "appStore.ts");
@@ -36,6 +37,11 @@ function check(name, ok, detail) {
 }
 
 const theme = await import(pathToFileURL(MODULE).href);
+const i18n = await import(pathToFileURL(I18N).href);
+// The Chinese assertions below are the labels the app ships in its other language;
+// the registry's default is English, so pin it (v0.8 batch 2, when these strings
+// moved into the registry).
+i18n.setLanguage("zh");
 console.log(`# theme rules (${path.relative(REPO, MODULE)})\n`);
 
 check("the cycle is three-state", theme.THEMES.join(",") === "light,dark,system");

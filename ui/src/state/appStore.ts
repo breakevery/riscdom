@@ -16,6 +16,7 @@ import {
   resolveLanguage,
   setLanguage as setUiLanguage,
   subscribe as subscribeLanguage,
+  t,
 } from "../i18n/index.ts";
 import type { Language, LanguageChoice } from "../i18n/index.ts";
 
@@ -317,9 +318,9 @@ export function useAppStore(): AppStore {
         });
         if (!target) return; // a cancelled dialog exports nothing
         const lines = await api.exportRunAudit(runId, target);
-        setRunExportNote(`已导出 ${runId} 的 ${lines} 行记录：${target}`);
+        setRunExportNote(t("audit.export_done", { runId, lines, target }));
       } catch (e) {
-        setRunExportNote(`导出 ${runId} 失败：${String(e)}（只能导出到工作区内）`);
+        setRunExportNote(t("audit.export_failed", { runId, reason: String(e) }));
       }
     },
     [workspaceRoot],
@@ -520,7 +521,7 @@ export function useAppStore(): AppStore {
 
   const newSession = useCallback(async () => {
     try {
-      const id = await api.createSession("新会话");
+      const id = await api.createSession(t("chat.session_default_title"));
       setMessages([]);
       setStreaming("");
       setStreamingActive(false);
@@ -685,7 +686,7 @@ export function useAppStore(): AppStore {
       const selected = await open({
         multiple: false,
         directory: false,
-        title: "选择 riscv64-unknown-elf-gcc",
+        title: t("toolchain.pick_gcc_title"),
         filters: executableFilters("RISC-V GCC", navigator.userAgent),
       });
       const path = pickedPath(selected);
@@ -700,7 +701,7 @@ export function useAppStore(): AppStore {
       const selected = await open({
         multiple: false,
         directory: false,
-        title: "选择 qemu-system-riscv64",
+        title: t("toolchain.pick_qemu_title"),
         filters: executableFilters("QEMU", navigator.userAgent),
       });
       const path = pickedPath(selected);
