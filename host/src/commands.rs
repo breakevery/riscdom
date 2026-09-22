@@ -228,10 +228,28 @@ pub async fn get_current_session_id(state: State<'_, AppState>) -> Result<Option
     Ok(state.current_session_id())
 }
 
-/// Audit event count + chain status.
+/// Audit event count + chain status, plus the pending write failures (v0.8).
+///
+/// The failures are **taken** by this call: the panel is told about each one
+/// once, and anything not yet announced is sent as an `audit:failed` event first.
 #[tauri::command]
-pub async fn get_audit_status(state: State<'_, AppState>) -> Result<AuditStatusView, String> {
-    state.audit_status().map_err(|e| e.user_message())
+pub async fn get_audit_status(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<AuditStatusView, String> {
+    let mut view = state.audit_status().map_err(|e| e.user_message())?;
+    let emitter: Arc<dyn crate::events::EventSink> = Arc::new(TauriEventSink::new(app));
+    state.emit_audit_failures(emitter.as_ref());
+    view.failures = state.take_audit_failures();
+    Ok(view)
+}
+
+/// Turn the audit-failure alert (banner + popup) on or off (v0.8).
+#[tauri::command]
+pub async fn set_audit_alert(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    state
+        .set_alert_on_audit_failure(enabled)
+        .map_err(|e| e.user_message())
 }
 
 /// The stored UI theme preference: `light` / `dark` / `system` (v0.4 #11a).

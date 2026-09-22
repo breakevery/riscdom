@@ -13,9 +13,20 @@ use std::sync::{Arc, Mutex};
 ///
 /// `record` takes `&mut self` so implementations may hold a non-synchronised
 /// resource; cross-thread sharing is handled by wrapping the sink in a `Mutex`.
+///
+/// It **returns the outcome** (v0.8): a failed write is never silently dropped,
+/// and the sink retries a locked database before giving up.
 pub trait AuditSink: Send + Sync {
-    fn record(&mut self, event: AuditEvent);
+    fn record(&mut self, event: AuditEvent) -> Result<(), AuditError>;
 }
+
+/// Called when a write failed after the retries, so a host can surface it (v0.8).
+///
+/// It is deliberately a callback on the *sink* rather than a return value each
+/// producer would have to handle: the sandbox and the agent loop share the very
+/// same sink object as the host, and they have nowhere to put an error. The
+/// reporter is what makes "no silent loss" hold for every producer at once.
+pub type AuditFailureReporter = Arc<dyn Fn(&AuditError) + Send + Sync>;
 
 /// An [`AuditSink`] that writes to an [`AuditStore`].
 ///
@@ -23,6 +34,9 @@ pub trait AuditSink: Send + Sync {
 /// shared with an independent verifier / reader.
 pub struct SqliteAuditSink {
     store: Arc<Mutex<AuditStore>>,
+    /// Told about a write that failed after the retries (v0.8). Never invoked
+    /// while the store lock is held.
+    reporter: Option<AuditFailureReporter>,
 }
 
 impl SqliteAuditSink {
@@ -30,12 +44,22 @@ impl SqliteAuditSink {
     pub fn new(store: AuditStore) -> Self {
         Self {
             store: Arc::new(Mutex::new(store)),
+            reporter: None,
         }
     }
 
     /// Wrap an already-shared store.
     pub fn from_shared(store: Arc<Mutex<AuditStore>>) -> Self {
-        Self { store }
+        Self {
+            store,
+            reporter: None,
+        }
+    }
+
+    /// Report write failures to `reporter` (the host queues them for its alert).
+    pub fn with_reporter(mut self, reporter: AuditFailureReporter) -> Self {
+        self.reporter = Some(reporter);
+        self
     }
 
     /// A handle to the underlying store (for reading / verification).
@@ -54,12 +78,19 @@ impl SqliteAuditSink {
 }
 
 impl AuditSink for SqliteAuditSink {
-    fn record(&mut self, event: AuditEvent) {
-        // Auditing must never take the caller down; a poisoned/locked store
-        // simply drops the event (in practice impossible: single writer).
-        if let Ok(mut store) = self.store.lock() {
-            let _ = store.append(event);
+    fn record(&mut self, event: AuditEvent) -> Result<(), AuditError> {
+        // The store lock is released before the reporter runs, so a reporter that
+        // touches any host-side queue cannot deadlock against a writer.
+        let result = match self.store.lock() {
+            Ok(mut store) => store.append(event).map(|_| ()),
+            Err(_) => Err(AuditError::Other("audit store mutex poisoned".into())),
+        };
+        if let Err(error) = &result {
+            if let Some(reporter) = &self.reporter {
+                reporter(error);
+            }
         }
+        result
     }
 }
 
@@ -83,9 +114,9 @@ impl FileAuditSink {
 }
 
 impl AuditSink for FileAuditSink {
-    fn record(&mut self, event: AuditEvent) {
+    fn record(&mut self, event: AuditEvent) -> Result<(), AuditError> {
         if let Some(parent) = self.path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            std::fs::create_dir_all(parent)?;
         }
         let line = serde_json::json!({
             "timestamp_ms": event.timestamp_ms,
@@ -93,14 +124,11 @@ impl AuditSink for FileAuditSink {
             "action": event.action,
             "detail": event.detail,
         });
-        if let (Ok(text), Ok(mut file)) = (
-            serde_json::to_string(&line),
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&self.path),
-        ) {
-            let _ = writeln!(file, "{text}");
-        }
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
+        writeln!(file, "{}", serde_json::to_string(&line)?)?;
+        Ok(())
     }
 }

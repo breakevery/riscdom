@@ -144,6 +144,9 @@ const EN = {
   "audit.clear_selection": "Clear the selection",
   "audit.select_run": "Select {id}",
   "audit.export": "Export",
+  "audit.alert.heading": "Some audit writes failed and were not recorded:",
+  "audit.alert.toggle": "Alert me when an audit write fails",
+  "audit.alert.title": "Audit write failed",
 
   // Snapshot tab (v0.8, settings group).
   "snapshot.count": "{count} snapshots",
@@ -381,6 +384,9 @@ const ZH: Record<StringKey, string> = {
   "audit.clear_selection": "清除选择",
   "audit.select_run": "选择 {id}",
   "audit.export": "导出",
+  "audit.alert.heading": "有审计写入失败，未能记录：",
+  "audit.alert.toggle": "审计写入失败时提醒我",
+  "audit.alert.title": "审计写入失败",
 
   // Snapshot tab (v0.8, settings group).
   "snapshot.count": "{count} 个快照",

@@ -38,6 +38,7 @@ fn save_then_load_round_trips() {
         preflight: None,
         theme: None,
         language: None,
+        alert_on_audit_failure: false,
     };
     settings.save(&path).expect("save");
     assert!(path.is_file(), "{path:?}");
@@ -94,6 +95,45 @@ fn a_manual_toolchain_survives_a_restart() {
     restarted.clear_toolchain_path().expect("clear");
     let after_clear = AppState::in_memory(&workspace).expect("state");
     assert_ne!(after_clear.probe_toolchain().source, "Manual");
+}
+
+#[test]
+fn the_audit_alert_defaults_on_and_round_trips_off() {
+    let workspace = unique_dir("audit-alert");
+    let state = AppState::in_memory(&workspace).expect("state");
+
+    // v0.8: on by default, including before the user ever touches the setting.
+    assert!(state.alert_on_audit_failure());
+    assert!(state.audit_status().expect("status").alert_on_failure);
+
+    state.set_alert_on_audit_failure(false).expect("set false");
+    assert!(!state.alert_on_audit_failure());
+    assert!(
+        !state.audit_status().expect("status").alert_on_failure,
+        "the status view carries the setting, so the tab can render the toggle"
+    );
+
+    // "Restart": the choice comes back from settings.json.
+    let restarted = AppState::in_memory(&workspace).expect("state");
+    assert!(!restarted.alert_on_audit_failure());
+    let text = std::fs::read_to_string(restarted.settings_path()).expect("settings.json");
+    assert!(text.contains("\"alert_on_audit_failure\": false"), "{text}");
+
+    restarted
+        .set_alert_on_audit_failure(true)
+        .expect("set true");
+    assert!(AppState::in_memory(&workspace)
+        .expect("state")
+        .alert_on_audit_failure());
+}
+
+#[test]
+fn a_wrongly_typed_audit_alert_degrades_to_the_default() {
+    // The field is a bool; a hand-edited file that says anything else must not be
+    // able to make the interface shout (or whisper) by accident.
+    let path = unique_dir("audit-alert-bad").join("settings.json");
+    std::fs::write(&path, br#"{"version": 1, "alert_on_audit_failure": "yes"}"#).expect("write");
+    assert!(LocalSettings::load(&path).alert_on_audit_failure);
 }
 
 #[test]

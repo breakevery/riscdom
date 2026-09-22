@@ -12,8 +12,21 @@
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见
 行为变化。
 
+**v0.8 批次 2 —— 多进程可以共写同一个 `audit.db`，写入失败会响。** `audit.db` 是**有意共享**的（每个
+workspace 一条链），而这正是多 Agent 运行时需要的：多个进程追加同一个文件。连接现在以 WAL 模式打开，
+带 5 秒 busy timeout 与 `synchronous=NORMAL`；一次 append 在**读取 head 之前**先拿写锁
+（`BEGIN IMMEDIATE`）；被锁住的库会先退避重试再报错。仍失败的写入**绝不静默丢弃**：
+`AuditSink::record` 返回错误，sink 通知 host，host 记日志、发 `audit:failed` 事件，并（默认）在
+*设置 → 审计*里给出横幅与弹窗。只有「告警」可以被关掉。
+
 ### 变更
 
+- **审计写入支持多进程**（v0.8 批次 2）：`journal_mode=WAL`、`busy_timeout=5s` 与
+  `synchronous=NORMAL` 集中在连接打开处设置（`audit::store`）；被锁的 append 最多重试 5 次，退避
+  20/40/80/160 ms；而「读 head + 插入」这一对现在跑在 `BEGIN IMMEDIATE` 里 —— 没有后者，单靠 WAL 仍然会
+  让两个写者链到同一行上、把链分叉（新增的并发测试抓住了这一点）。`AuditSink::record` 改为返回
+  `Result<(), AuditError>`，不再把失败的写入丢在地上；sandbox 与 agent loop 的调用点经
+  `audit::report_failure` 上报。链结构、哈希公式、历史行与 append-only 触发器全部未动。
 - **app data 目录改为注入，不再是全局**（v0.8 批次 1）：`host::paths` 此前把默认 data 目录存在
   `OnceLock` 里，谁先调用谁生效，之后的调用被静默忽略 —— 同一进程里的第二个 `AppState` 无法拥有自己的
   data 目录。默认值现为可重复设置的 `RwLock`，并且 `AppState::with_data_dir(workspace, data_dir)` 把
@@ -25,6 +38,10 @@
 
 ### 新增
 
+- **审计失败告警**（v0.8 批次 2）：`settings.json` 增加 `alert_on_audit_failure`（默认 `true`，因此升级
+  不会把它关掉），*设置 → 审计*里有开关与横幅，新失败还会弹出对话框 —— 为此授予
+  `dialog:allow-message` 权限，并由对话框探针钉住权限集合。`audit:failed` 事件与日志行不受该设置影响。
+  新增命令：`set_audit_alert`。
 - **每条审计事件带 `agent_id`**（v0.8 批次 1）：`AuditEvent` 增加可选字段 `agent_id`（用 builder
   `with_agent` 设置），存入新增的 `audit_events.agent_id` 列，旧库在下次打开时自动补上。它位于链**旁边**：
   哈希公式、`prev_hash` 链接、以及每一行既有的 `hash` 全部不动，因此 v0.8 之前的链仍按原样通过校验。

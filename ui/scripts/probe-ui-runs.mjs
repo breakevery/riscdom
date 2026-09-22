@@ -26,6 +26,7 @@ const TAB = path.join(REPO, "ui", "src", "settings", "AuditTab.tsx");
 const API = path.join(REPO, "ui", "src", "api", "tauri.ts");
 const SHELL = path.join(REPO, "ui", "src-tauri", "src", "lib.rs");
 const STORE = path.join(REPO, "ui", "src", "state", "appStore.ts");
+const HOST_CMDS = path.join(REPO, "host", "src", "commands.rs");
 
 let failures = 0;
 
@@ -324,6 +325,28 @@ check(
 check(
   "the RunView shape carries the source snapshot",
   /resumed_from_snapshot:\s*string\s*\|\s*null/.test(api),
+);
+
+// The audit-failure alert (v0.8): the tab renders the banner and the toggle, the
+// store wraps the command, and the command exists on both sides.
+check(
+  "AuditTab shows the failure banner",
+  /auditStatus\?\.failures/.test(tab) && /t\("audit\.alert\.heading"\)/.test(tab),
+);
+check(
+  "AuditTab offers the alert toggle",
+  /t\("audit\.alert\.toggle"\)/.test(tab) && /store\.setAuditAlert\(/.test(tab),
+);
+check(
+  "AuditTab pops a dialog only under the setting",
+  /alertOn && failures\.length > 0/.test(tab) && /from "@tauri-apps\/plugin-dialog"/.test(tab),
+);
+check("the store wraps set_audit_alert", /api\.setAuditAlert\(/.test(store));
+check("the wrapper calls `set_audit_alert`", api.includes('"set_audit_alert"'));
+check("`set_audit_alert` is registered in the shell", shell.includes("commands::set_audit_alert"));
+check(
+  "`set_audit_alert` exists in the host",
+  readFileSync(HOST_CMDS, "utf8").includes("pub async fn set_audit_alert"),
 );
 
 // The field-level diff, wired end to end (v0.6 batch 1).

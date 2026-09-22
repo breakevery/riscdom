@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+import { message } from "@tauri-apps/plugin-dialog";
 import type { AppStore } from "../state/appStore";
 import { t } from "../i18n/index.ts";
 import {
@@ -29,6 +31,23 @@ export default function AuditTab({ store }: { store: AppStore }) {
       ? diffFailedText(store.diffError)
       : diffLoadingText();
 
+  // Audit-write failures (v0.8). `get_audit_status` takes them, so this list is
+  // what the host has not shown yet; the alert setting only decides whether the
+  // interface shouts — the event and the log line are unconditional.
+  const failures = store.auditStatus?.failures ?? [];
+  const alertOn = store.auditStatus?.alert_on_failure ?? true;
+  const alertedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!alertOn || failures.length === 0) return;
+    const signature = failures.join("\n");
+    if (alertedRef.current === signature) return;
+    alertedRef.current = signature;
+    void message(signature, {
+      title: t("audit.alert.title"),
+      kind: "warning",
+    });
+  }, [alertOn, failures]);
+
   return (
     <>
       <div className="status-line">
@@ -48,6 +67,21 @@ export default function AuditTab({ store }: { store: AppStore }) {
           {t("audit.refresh")}
         </button>
       </div>
+
+      {alertOn && failures.length > 0 ? (
+        <div className="banner warn">
+          <span>{t("audit.alert.heading")}</span>
+          <span className="muted small">{failures.join(" · ")}</span>
+        </div>
+      ) : null}
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={alertOn}
+          onChange={(e) => void store.setAuditAlert(e.target.checked)}
+        />
+        <span>{t("audit.alert.toggle")}</span>
+      </label>
 
       {/* v0.5 batch 11: the filter follows the input instead of applying on blur —
           waiting for focus to leave hid the effect of what had just been typed. */}

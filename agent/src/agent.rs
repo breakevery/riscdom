@@ -168,7 +168,9 @@ impl AgentLoop {
 
     fn emit(&self, action: &str, detail: serde_json::Value) {
         if let Ok(mut sink) = self.audit.lock() {
-            sink.record(AuditEvent::new("agent", action, detail));
+            if let Err(error) = sink.record(AuditEvent::new("agent", action, detail)) {
+                audit::report_failure(&error);
+            }
         }
     }
 

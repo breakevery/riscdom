@@ -71,7 +71,8 @@ fn concurrent_appends_keep_chain_intact() {
                 audit
                     .lock()
                     .expect("lock")
-                    .record(ev(t * 100 + i, "sandbox", "tick"));
+                    .record(ev(t * 100 + i, "sandbox", "tick"))
+                    .expect("record");
             }
         }));
     }

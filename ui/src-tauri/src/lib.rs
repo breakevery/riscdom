@@ -37,6 +37,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             host::commands::get_audit_status,
+            host::commands::set_audit_alert,
             host::commands::list_audit_events,
             host::commands::list_runs,
             host::commands::get_run,

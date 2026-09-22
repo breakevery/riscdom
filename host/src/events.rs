@@ -24,6 +24,11 @@ pub const EV_AGENT_STREAM_DONE: &str = "agent:stream:done";
 pub const EV_VM_STATE: &str = "vm:state";
 /// Environment preflight progress (v0.4 batch 3).
 pub const EV_PREFLIGHT: &str = "preflight:progress";
+/// An audit write failed after its retries (v0.8).
+///
+/// Always sent, whatever the alert setting says: the alert (banner + popup) is
+/// what can be switched off, the event and its log line cannot.
+pub const EV_AUDIT_FAILED: &str = "audit:failed";
 
 /// Anything that can deliver an event to the frontend.
 pub trait EventSink: Send + Sync {

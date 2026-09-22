@@ -56,10 +56,15 @@ const caps = JSON.parse(readFileSync(CAPS, "utf8"));
 check("the JS plugin is a dependency", Boolean(pkg.dependencies["@tauri-apps/plugin-dialog"]), pkg.dependencies["@tauri-apps/plugin-dialog"]);
 check("the Rust plugin is a dependency", /tauri-plugin-dialog\s*=\s*"2"/.test(cargo));
 check("the shell initialises the plugin", /tauri_plugin_dialog::init\(\)/.test(shell));
-// v0.5 batch 1 granted `dialog:allow-save` for the audit export. The set is pinned so
-// the permission cannot grow quietly: exactly the two dialog permissions, each with a
-// caller, and never the blanket `dialog:default`.
-const DIALOG_PERMISSIONS = ["dialog:allow-open", "dialog:allow-save"];
+// v0.5 batch 1 granted `dialog:allow-save` for the audit export; v0.8 added
+// `dialog:allow-message` for the audit-failure popup. The set is pinned so the
+// permission cannot grow quietly: exactly the dialog permissions we use, each
+// with a caller, and never the blanket `dialog:default`.
+const DIALOG_PERMISSIONS = [
+  "dialog:allow-open",
+  "dialog:allow-save",
+  "dialog:allow-message",
+];
 const granted = caps.permissions
   .filter((p) => p.startsWith("dialog:"))
   .sort()

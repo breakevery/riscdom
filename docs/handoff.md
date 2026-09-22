@@ -95,6 +95,16 @@ section when the next release ships)
   pre-v0.8 chain still verifies. And **one VM slot per `AppState`** is pinned by a test rather than
   assumed. Code, not documentation: two new audit tests and one new host test (`multi_instance.rs`),
   and no change on the golden path.
+- **Audit writes now survive several processes, and a failure is loud** (v0.8 batch 2): `audit.db` is
+  shared on purpose (one chain per workspace), so the connection opens in **WAL** with a 5 s
+  `busy_timeout` and `synchronous=NORMAL`; an append takes the write lock **before** reading the head
+  (`BEGIN IMMEDIATE` — without it two writers chained onto the same row and forked the chain, which the
+  new concurrency test caught); and a locked append is retried 5× with 20/40/80/160 ms backoff before it
+  reports. `AuditSink::record` now returns `Result<(), AuditError>` instead of dropping the event; the
+  sink tells the host, which logs it, emits `audit:failed` and (by default) shows a banner + dialog in
+  *Settings → Audit*. **Product decision: the alert is on by default and the user may switch it off;
+  the event and the log line cannot be switched off.** The chain structure, the hash formula, the
+  historical rows and the triggers are untouched.
 - Open items: the temp directories under `%TEMP%` have not been cleaned (the deletion confirmation
   was never granted; 144 `riscdom-*` entries were counted on 2026-09-21); CLA.md awaits a lawyer's
   eye; **the clean-machine walk by someone else has not happened** — still a v0.5.x strengthening item

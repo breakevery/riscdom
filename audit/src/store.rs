@@ -5,9 +5,26 @@ use crate::event::{AuditEvent, StoredEvent};
 use crate::hash::{compute_hash, GENESIS_PREV_HASH};
 use crate::run::{RebuildReport, RunRecord, RunStatus};
 use rusqlite::types::Value;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::io::Write;
 use std::path::Path;
+use std::time::Duration;
+
+/// How many times [`AuditStore::append`] retries a **locked** database (v0.8).
+///
+/// A lock that survives this budget is returned as an error — an audit event is
+/// never dropped silently.
+pub const APPEND_MAX_ATTEMPTS: u32 = 5;
+
+/// First backoff step; it doubles per retry (v0.8): 20 / 40 / 80 / 160 ms.
+pub const APPEND_BACKOFF_BASE: Duration = Duration::from_millis(20);
+
+/// How long a writer waits inside SQLite for another process's lock (v0.8).
+///
+/// Multi-process writing is the normal case for the multi-agent runtime, so this
+/// is deliberately generous: the alternative is a failed append and a missing
+/// row.
+pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Schema + append-only triggers.
 ///
@@ -150,9 +167,66 @@ impl AuditStore {
     }
 
     fn init_schema(&self) -> Result<(), AuditError> {
+        Self::configure_connection(&self.conn)?;
         self.conn.execute_batch(SCHEMA)?;
         self.migrate_events_table()?;
         self.migrate_runs_table()?;
+        Ok(())
+    }
+
+    /// The connection settings that make several processes writing one
+    /// `audit.db` behave (v0.8).
+    ///
+    /// - `journal_mode = WAL` — a property of the *file*, so it survives the
+    ///   connection and an existing database is switched on first open. WAL is
+    ///   what lets a reader and a writer (or two writers, one waiting) coexist
+    ///   instead of failing each other;
+    /// - `busy_timeout` — how long SQLite itself waits for the lock before
+    ///   answering `SQLITE_BUSY` (per connection, so set on every open);
+    /// - `synchronous = NORMAL` — the durability level WAL is designed around:
+    ///   a commit survives a process crash, and the cheap fsync is dropped.
+    ///
+    /// This touches no schema, no chain row and no trigger: it is transport-level
+    /// only. `:memory:` has no WAL to offer and reports `memory`, which is fine.
+    fn configure_connection(conn: &Connection) -> Result<(), AuditError> {
+        // The busy timeout goes on **first**. Switching a database to WAL takes a
+        // brief exclusive lock, and with SQLite's default timeout of zero that
+        // fails instantly — `SQLITE_BUSY` — while another process is writing. The
+        // concurrency test caught exactly that (`open` racing another connection).
+        conn.busy_timeout(BUSY_TIMEOUT)?;
+        // WAL is a property of the *file*, so an existing database is switched
+        // once and every later open reads the answer back instead of taking the
+        // lock again.
+        let mode: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
+        if !mode.eq_ignore_ascii_case("wal") && mode != "memory" {
+            let _mode: String =
+                conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))?;
+        }
+        conn.execute_batch("PRAGMA synchronous = NORMAL;")?;
+        Ok(())
+    }
+
+    /// The connection's journal mode (`wal` for a file database, `memory` for
+    /// an in-memory one). Diagnostics and tests.
+    pub fn journal_mode(&self) -> Result<String, AuditError> {
+        Ok(self
+            .conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))?)
+    }
+
+    /// The connection's current `busy_timeout`, in milliseconds.
+    pub fn busy_timeout_ms(&self) -> Result<i64, AuditError> {
+        Ok(self
+            .conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))?)
+    }
+
+    /// Shorten (or lengthen) this connection's busy timeout.
+    ///
+    /// The default is [`BUSY_TIMEOUT`]; the setter exists so a caller — and the
+    /// exhaustion test — can wait far less than five seconds.
+    pub fn set_busy_timeout(&self, timeout: Duration) -> Result<(), AuditError> {
+        self.conn.busy_timeout(timeout)?;
         Ok(())
     }
 
@@ -218,14 +292,67 @@ impl AuditStore {
     }
 
     /// Append an event, chaining it onto the current head.
+    ///
+    /// A **locked** database (another process is writing the same file) is
+    /// retried with exponential backoff up to [`APPEND_MAX_ATTEMPTS`]; a lock
+    /// that survives the retries is returned as an error, never dropped (v0.8).
     pub fn append(&mut self, event: AuditEvent) -> Result<StoredEvent, AuditError> {
-        let prev_hash = self
-            .last_hash()?
+        self.append_with(event, APPEND_MAX_ATTEMPTS, APPEND_BACKOFF_BASE)
+    }
+
+    /// [`Self::append`] with an explicit attempt budget and backoff base.
+    ///
+    /// Exposed so a caller can fail fast, and so the exhaustion path has a
+    /// deterministic test instead of one that waits out the real budget.
+    pub fn append_with(
+        &mut self,
+        event: AuditEvent,
+        attempts: u32,
+        backoff_base: Duration,
+    ) -> Result<StoredEvent, AuditError> {
+        let budget = attempts.max(1);
+        let mut attempt: u32 = 1;
+        loop {
+            match self.append_once(&event) {
+                Ok(stored) => return Ok(stored),
+                Err(error) => {
+                    if attempt >= budget || !is_lock_error(&error) {
+                        return Err(error);
+                    }
+                    // 20 / 40 / 80 / 160 ms; the busy timeout covers the bulk of
+                    // the wait, this only spaces the attempts out.
+                    std::thread::sleep(backoff_base * 2u32.pow(attempt - 1));
+                    attempt += 1;
+                }
+            }
+        }
+    }
+
+    /// One append attempt: take the write lock, read the head, hash, insert.
+    ///
+    /// The whole sequence runs inside `BEGIN IMMEDIATE`, so the write lock is
+    /// held **before** the head is read. That matters for more than tidiness: with
+    /// a plain read-then-insert, two processes can both read the same head and
+    /// both chain onto it, which forks the chain — WAL and a busy timeout make the
+    /// writers wait for each other, but only an immediate transaction makes the
+    /// second one read the head the first one wrote. (The concurrency test caught
+    /// exactly that fork before this was here.)
+    fn append_once(&mut self, event: &AuditEvent) -> Result<StoredEvent, AuditError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let prev_hash: String = tx
+            .query_row(
+                "SELECT hash FROM audit_events ORDER BY id DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?
             .unwrap_or_else(|| GENESIS_PREV_HASH.to_string());
         let detail_json = serde_json::to_string(&event.detail)?;
-        let hash = compute_hash(&prev_hash, &event, &detail_json);
+        let hash = compute_hash(&prev_hash, event, &detail_json);
 
-        self.conn.execute(
+        tx.execute(
             "INSERT INTO audit_events \
              (timestamp_ms, actor, action, detail_json, prev_hash, hash, agent_id) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -240,10 +367,11 @@ impl AuditStore {
             ],
         )?;
 
-        let id = self.conn.last_insert_rowid();
+        let id = tx.last_insert_rowid();
+        tx.commit()?;
         Ok(StoredEvent {
             id,
-            event,
+            event: event.clone(),
             prev_hash,
             hash,
         })
@@ -576,6 +704,19 @@ impl AuditStore {
         }
         Ok(findings)
     }
+}
+
+/// Is this SQLite answering "another writer holds the lock"?
+///
+/// Only these two answers are worth retrying: any other failure (a broken
+/// schema, a disk error) will fail again the same way.
+fn is_lock_error(error: &AuditError) -> bool {
+    matches!(
+        error,
+        AuditError::Sqlite(rusqlite::Error::SqliteFailure(err, _))
+            if err.code == rusqlite::ErrorCode::DatabaseBusy
+                || err.code == rusqlite::ErrorCode::DatabaseLocked
+    )
 }
 
 /// Write events, in the order given, as JSONL.

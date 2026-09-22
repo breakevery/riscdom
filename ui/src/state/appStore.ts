@@ -51,6 +51,11 @@ export interface AppStore {
    * to land (v0.5 batch 11).
    */
   refreshAudit: (actorOverride?: string) => Promise<void>;
+  /**
+   * Turn the audit-failure alert (banner + popup) on or off (v0.8). The
+   * `audit:failed` event and the log line are not affected.
+   */
+  setAuditAlert: (enabled: boolean) => Promise<void>;
   runs: api.RunView[];
   refreshRuns: () => Promise<void>;
   /**
@@ -294,6 +299,21 @@ export function useAppStore(): AppStore {
       }
     },
     [auditActorFilter],
+  );
+
+  // The audit-failure alert (v0.8): the setting lives in settings.json like the
+  // theme and the language. Persisting it and refreshing the status is all this
+  // does — the event and the log line are sent whatever the choice.
+  const setAuditAlert = useCallback(
+    async (enabled: boolean) => {
+      try {
+        await api.setAuditAlert(enabled);
+        await refreshAudit();
+      } catch (e) {
+        setLastError(String(e));
+      }
+    },
+    [refreshAudit],
   );
 
   // Runs come from the host's derived index (v0.4 1d). Nothing here mutates a
@@ -897,6 +917,7 @@ export function useAppStore(): AppStore {
     llmStatus,
     refreshLlmStatus: refresh,
     auditStatus,
+    setAuditAlert,
     auditEvents,
     auditActorFilter,
     setAuditActorFilter,

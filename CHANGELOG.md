@@ -12,8 +12,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the
 architecture re-assessment named are cleared. Nothing on the golden path changes.
 
+**v0.8 batch 2 — several processes can write one `audit.db`, and a failed write is loud.**
+`audit.db` is shared on purpose (one chain per workspace), which is exactly what the multi-agent
+runtime needs: several processes appending to the same file. The connection now opens in WAL mode
+with a five-second busy timeout and `synchronous=NORMAL`; an append takes the write lock **before**
+it reads the head (`BEGIN IMMEDIATE`); and a locked database is retried with backoff before it is
+reported. A write that still fails is **never dropped silently**: `AuditSink::record` returns the
+error, the sink tells the host, and the host logs it, sends an `audit:failed` event and — by
+default — shows a banner and a popup in *Settings → Audit*. Only the alert can be switched off.
+
 ### Changed
 
+- **Audit writes survive several processes** (v0.8 batch 2): `journal_mode=WAL`, `busy_timeout=5s`
+and `synchronous=NORMAL` are set in one place when the connection opens (`audit::store`); a locked
+append is retried up to five times with 20/40/80/160 ms backoff; and the read-head-then-insert pair
+runs inside `BEGIN IMMEDIATE` — without that last part WAL alone still let two writers chain onto
+the same row and fork the chain (the new concurrency test caught it). `AuditSink::record` now
+returns `Result<(), AuditError>` instead of dropping a failed event on the floor; the sandbox and
+agent-loop call sites report through `audit::report_failure`. The chain structure, the hash formula,
+the historical rows and the append-only triggers are untouched.
 - **The app-data directory is injected, not global** (v0.8 batch 1): `host::paths` kept its default
 data directory in a `OnceLock`, so the first caller won and every later caller was silently ignored —
 a second `AppState` in one process could not have its own data directory. The default is now a
@@ -26,6 +43,11 @@ instances keep separate chains and separate slots — so nothing re-shares them 
 
 ### Added
 
+- **The audit-failure alert** (v0.8 batch 2): `settings.json` gains `alert_on_audit_failure`
+(default `true`, so an upgrade cannot switch it off), *Settings → Audit* shows the toggle and a
+banner, and a new failure also raises a dialog — the `dialog:allow-message` permission is granted
+for it, and the dialog probe pins the permission set. The `audit:failed` event and the log line are
+sent whatever the setting says. New command: `set_audit_alert`.
 - **`agent_id` on every audit event** (v0.8 batch 1): `AuditEvent` gains an optional `agent_id` (set
 with the `with_agent` builder), stored in a new `audit_events.agent_id` column that an older database
 picks up on the next open. It sits **beside** the chain: the hash formula, the `prev_hash` linkage

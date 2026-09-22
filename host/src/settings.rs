@@ -31,6 +31,18 @@ pub struct LocalSettings {
     /// UI language preference: `system`, `en` or `zh` (v0.7 batch 2).
     #[serde(default)]
     pub language: Option<String>,
+    /// Alert (banner + popup) when an audit write fails (v0.8).
+    ///
+    /// Defaults to `true`, including for a settings file written before this
+    /// field existed: the log line and the `audit:failed` event are always sent,
+    /// this only controls whether the interface shouts about it.
+    #[serde(default = "default_alert_on_audit_failure")]
+    pub alert_on_audit_failure: bool,
+}
+
+/// The alert is on unless the user turns it off (v0.8).
+fn default_alert_on_audit_failure() -> bool {
+    true
 }
 
 impl Default for LocalSettings {
@@ -42,6 +54,7 @@ impl Default for LocalSettings {
             preflight: None,
             theme: None,
             language: None,
+            alert_on_audit_failure: true,
         }
     }
 }

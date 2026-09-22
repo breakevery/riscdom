@@ -3,7 +3,7 @@
 use crate::error::HostError;
 use crate::events::{
     EventSink, EV_AGENT_FINAL, EV_AGENT_ITERATION, EV_AGENT_STREAM_DELTA, EV_AGENT_STREAM_DONE,
-    EV_AGENT_TOOL_CALL, EV_AGENT_TOOL_RESULT, EV_SERIAL_CHUNK, EV_VM_STATE,
+    EV_AGENT_TOOL_CALL, EV_AGENT_TOOL_RESULT, EV_AUDIT_FAILED, EV_SERIAL_CHUNK, EV_VM_STATE,
 };
 use crate::keyring::{user_for_provider, InMemoryKeyring, KeyringBackend, OsKeyring, SERVICE};
 use crate::run_diff::{self, FingerprintFieldDiff};
@@ -22,10 +22,16 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// How many audit-write failures the host keeps queued for the alert (v0.8).
+///
+/// The newest failures are the ones that describe the current state, so an older
+/// one is dropped once the queue is full.
+pub const AUDIT_FAILURE_QUEUE_CAP: usize = 32;
 
 /// The constitution is embedded so the desktop app works without the repo.
 const CONSTITUTION: &str = include_str!("../../AGENTS.md");
@@ -296,6 +302,12 @@ impl From<ChainStatus> for ChainStatusView {
 pub struct AuditStatusView {
     pub count: usize,
     pub chain: ChainStatusView,
+    /// Whether the audit-failure alert is on (v0.8). The setting, not the state:
+    /// the event and the log line are sent either way.
+    pub alert_on_failure: bool,
+    /// Audit writes that failed and have not been shown yet (v0.8).
+    /// `get_audit_status` takes them, so the panel is told once.
+    pub failures: Vec<String>,
 }
 
 /// A stored audit event, shaped for the frontend.
@@ -371,6 +383,13 @@ impl From<AgentOutcome> for AgentOutcomeView {
 pub struct AppState {
     pub audit: Arc<Mutex<AuditStore>>,
     pub sink: Arc<Mutex<dyn AuditSink>>,
+    /// Audit writes that failed after the retries, waiting to be surfaced
+    /// (v0.8). The sink's reporter pushes here, so a failure raised inside the
+    /// sandbox or the agent loop — not only inside the host — reaches the UI.
+    audit_failures: Arc<Mutex<Vec<String>>>,
+    /// How many of them an [`EventSink`] has already been told about, so the
+    /// `audit:failed` event is not repeated on every refresh.
+    audit_failures_emitted: Arc<AtomicUsize>,
     /// Host-owned VM slot: a VM started during a run stays here after the run
     /// ends, so later runs reuse the same guest (v0.2 host-owned lifecycle).
     pub vm_slot: Arc<Mutex<Option<RiscVVirtualMachine>>>,
@@ -637,12 +656,33 @@ impl AppState {
             .and_then(|store| store.all().ok())
             .and_then(|events| events.last().map(|e| e.id))
             .unwrap_or(0);
-        let sink: Arc<Mutex<dyn AuditSink>> = Arc::new(Mutex::new(SqliteAuditSink::from_shared(
-            Arc::clone(&shared),
-        )));
+        let audit_failures: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink: Arc<Mutex<dyn AuditSink>> = {
+            // v0.8: a write that fails after the retries is queued in
+            // `audit_failures` and surfaced by the host (log + `audit:failed`
+            // event + the audit tab's alert). The reporter runs with the store
+            // lock released.
+            let reporter_queue = Arc::clone(&audit_failures);
+            let reporter: audit::AuditFailureReporter =
+                Arc::new(move |error: &audit::AuditError| {
+                    audit::report_failure(error);
+                    if let Ok(mut failures) = reporter_queue.lock() {
+                        failures.push(error.to_string());
+                        if failures.len() > AUDIT_FAILURE_QUEUE_CAP {
+                            let excess = failures.len() - AUDIT_FAILURE_QUEUE_CAP;
+                            failures.drain(0..excess);
+                        }
+                    }
+                });
+            Arc::new(Mutex::new(
+                SqliteAuditSink::from_shared(Arc::clone(&shared)).with_reporter(reporter),
+            ))
+        };
         let state = Self {
             audit: shared,
             sink,
+            audit_failures,
+            audit_failures_emitted: Arc::new(AtomicUsize::new(0)),
             vm_slot: Arc::new(Mutex::new(None)),
             toolchain_path: Mutex::new(None),
             qemu_path: Mutex::new(None),
@@ -1742,10 +1782,14 @@ impl AppState {
         }
     }
 
-    /// Record a host-originated audit event (best effort).
+    /// Record a host-originated audit event.
+    ///
+    /// The result is not handled here on purpose: the sink's reporter already
+    /// queues a failure (and writes the log line), so a host event that could not
+    /// be written still reaches the alert path (v0.8).
     fn emit_host(&self, action: &str, detail: serde_json::Value) {
         if let Ok(mut sink) = self.sink.lock() {
-            sink.record(audit::AuditEvent::new("host", action, detail));
+            let _ = sink.record(audit::AuditEvent::new("host", action, detail));
         }
     }
 
@@ -2199,10 +2243,38 @@ impl AppState {
         Ok(())
     }
 
+    /// Is the audit-failure alert on? `true` when the user never chose (v0.8).
+    pub fn alert_on_audit_failure(&self) -> bool {
+        self.settings
+            .lock()
+            .ok()
+            .map(|settings| settings.alert_on_audit_failure)
+            .unwrap_or(true)
+    }
+
+    /// Turn the audit-failure alert (banner + popup) on or off.
+    ///
+    /// The `audit:failed` event and the log line are **not** affected — they are
+    /// always sent; this only decides whether the interface shouts.
+    pub fn set_alert_on_audit_failure(&self, enabled: bool) -> Result<(), HostError> {
+        if let Ok(mut settings) = self.settings.lock() {
+            settings.alert_on_audit_failure = enabled;
+        }
+        self.save_settings();
+        self.emit_host(
+            "host.audit_alert.set",
+            serde_json::json!({ "enabled": enabled }),
+        );
+        Ok(())
+    }
+
     // ----- Audit ------------------------------------------------------------
 
     /// Event count + chain status.
     pub fn audit_status(&self) -> Result<AuditStatusView, HostError> {
+        // Read the setting before taking the chain lock: the two mutexes are then
+        // never held in opposite orders.
+        let alert_on_failure = self.alert_on_audit_failure();
         let store = self
             .audit
             .lock()
@@ -2210,7 +2282,67 @@ impl AppState {
         Ok(AuditStatusView {
             count: store.count()?,
             chain: ChainStatusView::from(audit::verify_chain(&store)?),
+            alert_on_failure,
+            failures: Vec::new(),
         })
+    }
+
+    // ----- Audit write failures (v0.8) -------------------------------------
+
+    /// Audit-write failures queued by the sink's reporter and not taken yet.
+    pub fn audit_failures(&self) -> Vec<String> {
+        self.audit_failures
+            .lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_default()
+    }
+
+    /// Queue an audit-write failure.
+    ///
+    /// The sink's reporter calls this for the host. It is public so the
+    /// surfacing path can be tested without arranging a real database lock.
+    pub fn push_audit_failure(&self, message: &str) {
+        if let Ok(mut failures) = self.audit_failures.lock() {
+            failures.push(message.to_string());
+            if failures.len() > AUDIT_FAILURE_QUEUE_CAP {
+                let excess = failures.len() - AUDIT_FAILURE_QUEUE_CAP;
+                failures.drain(0..excess);
+            }
+        }
+    }
+
+    /// Tell `emitter` about every failure it has not been told about yet.
+    ///
+    /// This is the **event half** of the failure channel and it is not optional:
+    /// the log line is written by the reporter and this event is sent whatever
+    /// the alert setting says. Returns how many were announced.
+    pub fn emit_audit_failures(&self, emitter: &dyn EventSink) -> usize {
+        let failures = match self.audit_failures.lock() {
+            Ok(guard) => guard.clone(),
+            Err(_) => return 0,
+        };
+        let already = self.audit_failures_emitted.load(Ordering::Relaxed);
+        let mut announced = 0;
+        for message in failures.iter().skip(already) {
+            emitter.emit(EV_AUDIT_FAILED, serde_json::json!({ "error": message }));
+            announced += 1;
+        }
+        self.audit_failures_emitted
+            .store(failures.len(), Ordering::Relaxed);
+        announced
+    }
+
+    /// Take the queued failures (the audit panel is told once).
+    ///
+    /// Clears the "already announced" cursor with them, so the next failure
+    /// starts a fresh alert.
+    pub fn take_audit_failures(&self) -> Vec<String> {
+        let taken = match self.audit_failures.lock() {
+            Ok(mut guard) => std::mem::take(&mut *guard),
+            Err(_) => Vec::new(),
+        };
+        self.audit_failures_emitted.store(0, Ordering::Relaxed);
+        taken
     }
 
     // ----- Runs (v0.4 1d) ---------------------------------------------------
@@ -2917,6 +3049,9 @@ impl AppState {
             EV_AGENT_FINAL,
             serde_json::to_value(&view).unwrap_or(serde_json::Value::Null),
         );
+        // Anything the audit layer could not write during this run is announced
+        // here (v0.8): after the run, while the emitter is still in hand.
+        self.emit_audit_failures(emitter.as_ref());
         Ok(view)
     }
 }

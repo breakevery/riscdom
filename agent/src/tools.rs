@@ -304,7 +304,9 @@ fn tool_compile(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<Strin
 
 fn emit_compile(ctx: &ToolContext, action: &str, detail: serde_json::Value) {
     if let Ok(mut sink) = ctx.audit.lock() {
-        sink.record(audit::AuditEvent::new("agent", action, detail));
+        if let Err(error) = sink.record(audit::AuditEvent::new("agent", action, detail)) {
+            audit::report_failure(&error);
+        }
     }
 }
 

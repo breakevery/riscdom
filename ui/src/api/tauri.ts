@@ -14,6 +14,10 @@ export interface ChainStatus {
 export interface AuditStatus {
   count: number;
   chain: ChainStatus;
+  /** Whether the audit-failure alert is on (v0.8). */
+  alert_on_failure: boolean;
+  /** Audit writes that failed and have not been shown yet (v0.8). */
+  failures: string[];
 }
 
 export interface LlmStatus {
@@ -97,6 +101,10 @@ export const setTheme = (theme: string) => invoke<void>("set_theme", { theme });
 export const getLanguage = () => invoke<string>("get_language");
 
 export const setLanguage = (language: string) => invoke<void>("set_language", { language });
+
+/** Turn the audit-failure alert (banner + popup) on or off (v0.8). */
+export const setAuditAlert = (enabled: boolean) =>
+  invoke<void>("set_audit_alert", { enabled });
 
 /** Environment preflight (v0.4 batch 3). */
 export interface PreflightRow {

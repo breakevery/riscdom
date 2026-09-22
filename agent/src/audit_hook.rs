@@ -20,7 +20,9 @@ const MAX_DETAIL_STR: usize = 4096;
 
 fn emit(sink: &Arc<Mutex<dyn AuditSink>>, action: &str, detail: serde_json::Value) {
     if let Ok(mut s) = sink.lock() {
-        s.record(AuditEvent::new(AUDIT_ACTOR, action, detail));
+        if let Err(error) = s.record(AuditEvent::new(AUDIT_ACTOR, action, detail)) {
+            audit::report_failure(&error);
+        }
     }
 }
 

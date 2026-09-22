@@ -262,11 +262,13 @@ impl RiscVVirtualMachine {
                                 guard.extend_from_slice(&chunk[..n]);
                             }
                             if let Ok(mut sink) = audit.lock() {
-                                sink.record(AuditEvent::new(
+                                if let Err(error) = sink.record(AuditEvent::new(
                                     AUDIT_ACTOR,
                                     "serial.read",
                                     serde_json::json!({ "bytes": n }),
-                                ));
+                                )) {
+                                    audit::report_failure(&error);
+                                }
                             }
                             // 2. then notify the observer (never blocks the
                             //    reader; a panic is caught and audited).
@@ -279,11 +281,13 @@ impl RiscVVirtualMachine {
                                     }));
                                 if outcome.is_err() {
                                     if let Ok(mut sink) = audit.lock() {
-                                        sink.record(AuditEvent::new(
+                                        if let Err(error) = sink.record(AuditEvent::new(
                                             AUDIT_ACTOR,
                                             "sandbox.serial.observer_panic",
                                             serde_json::json!({ "bytes": n }),
-                                        ));
+                                        )) {
+                                            audit::report_failure(&error);
+                                        }
                                     }
                                 }
                             }
@@ -561,11 +565,13 @@ impl RiscVVirtualMachine {
                 Err(e) => {
                     let reason = e.to_string();
                     if let Ok(mut sink) = audit.lock() {
-                        sink.record(AuditEvent::new(
+                        if let Err(error) = sink.record(AuditEvent::new(
                             AUDIT_ACTOR,
                             "sandbox.snapshot.resume.retry",
                             serde_json::json!({ "attempt": attempt, "reason": reason }),
-                        ));
+                        )) {
+                            audit::report_failure(&error);
+                        }
                     }
                     reasons.push(format!("attempt {attempt}: {reason}"));
                     if attempt < RESUME_ATTEMPTS {
@@ -612,10 +618,12 @@ impl RiscVVirtualMachine {
             .join(format!("{name}.{SNAPSHOT_JSON_EXT}"))
     }
 
-    /// Record an audit event (best-effort: never fails the caller).
+    /// Record an audit event (a failed write is reported, never silent — v0.8).
     fn emit(&self, action: &str, detail: serde_json::Value) {
         if let Ok(mut sink) = self.audit.lock() {
-            sink.record(AuditEvent::new(AUDIT_ACTOR, action, detail));
+            if let Err(error) = sink.record(AuditEvent::new(AUDIT_ACTOR, action, detail)) {
+                audit::report_failure(&error);
+            }
         }
     }
 

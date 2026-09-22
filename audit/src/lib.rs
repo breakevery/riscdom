@@ -7,6 +7,8 @@
 //!   `BEFORE DELETE` 触发器硬保证 append-only。
 //! - 每条事件带 `prev_hash` / `hash`，构成 SHA-256 hash chain；`verify_chain`
 //!   可定位到第一个断裂的事件 id。
+//! - 连接启用 `journal_mode=WAL` + `busy_timeout`（v0.8）：多进程写同一文件时
+//!   互不阻塞；写入被锁的重试有上限，耗尽后**返回错误**，绝不静默丢弃。
 //! - 不存在任何 UPDATE / DELETE / 关闭开关 API。
 //!
 //! 依赖方向：`sandbox → audit`。本 crate **不依赖** sandbox。
@@ -27,5 +29,14 @@ pub use run::{
     RunEndPayload, RunRecord, RunStartPayload, RunStatus, ACTION_RUN_ABANDONED, ACTION_RUN_END,
     ACTION_RUN_START, FINGERPRINT_SCHEMA_V1, SHORT_FINGERPRINT_LEN,
 };
-pub use sink::{AuditSink, FileAuditSink, SqliteAuditSink};
-pub use store::{AuditStore, EventFilter};
+pub use sink::{AuditFailureReporter, AuditSink, FileAuditSink, SqliteAuditSink};
+pub use store::{AuditStore, EventFilter, APPEND_BACKOFF_BASE, APPEND_MAX_ATTEMPTS, BUSY_TIMEOUT};
+
+/// The default failure reporter: put it where a human will see it.
+///
+/// A producer that cannot surface an error any other way (the sandbox, the agent
+/// loop) calls this, so a failed audit write is never silent (v0.8). The host
+/// does not use it — it has a queue and an alert instead.
+pub fn report_failure(error: &AuditError) {
+    eprintln!("audit: failed to write an audit event: {error}");
+}
