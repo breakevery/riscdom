@@ -190,7 +190,7 @@ curl -sS 'http://127.0.0.1:7821/v0/workspace/file?path=src%2Fmain.c'
 curl -sS 'http://127.0.0.1:7821/v0/serial'              # {"buffer":"hello from riscv\n"}
 ```
 
-`?path=` 会做百分号解码，所以 `src%2Fmain.c` 与 `src/main.c` 是同一个请求。读取会过 workspace 策略检查：越出根目录即 `403`。
+`?path=` 会做百分号解码，所以 `src%2Fmain.c` 与 `src/main.c` 是同一个请求。读取会过 workspace 策略检查：越出根目录的路径属于调用方参数不可用，即 `400`，`cause` 为 `"path"`。
 
 ### 预留的聚合端点
 
@@ -222,9 +222,9 @@ curl -sS 'http://127.0.0.1:7821/v0/resources'
 
 | 状态 | `code` | 该怎么做 |
 |---|---|---|
-| 400 | `bad_request` | 改请求；`cause` 指出参数名。 |
+| 400 | `bad_request` | 改请求；`cause` 指出参数名——包括 workspace 策略拒绝的路径（`cause: "path"`）。 |
 | 401 | `unauthorized` | 带有效凭证。 |
-| 403 | `forbidden` | 不被允许：`cause` 为 `"capability"` 表示 actor 缺少该端点的 capability，否则是路径越出 workspace。不要重试。 |
+| 403 | `forbidden` | 不被允许：`cause` 为 `"capability"` 表示 actor 缺少该端点的 capability。这个状态只用于认证与授权。不要重试。 |
 | 404 | `not_found` | 端点或资源不存在。 |
 | 405 | `method_not_allowed` | 用 `message` 里指出的方法。 |
 | 409 | `conflict` | 状态冲突；重读状态再决定。 |
@@ -348,11 +348,13 @@ curl -sS -X POST http://127.0.0.1:7821/v0/settings/theme \
 curl -sS -X POST http://127.0.0.1:7821/v0/audit/export \
   -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
   -d '{"path":"/abs/path/inside/the/workspace/audit.jsonl"}'
+# {"events_exported":42}
 ```
 
 客户端应当知道的几点：
 
 - **多数控制端点回 `204`**（无内容），返回值的回 `200`，而后台开工的（`agent/run`、`preflight/run`、`toolchain/download`）回 `202`——这些请盯事件流。
+- **两条审计导出答的是事件数**（`events_exported`），因为写进去的就是事件；`/v0/serial/export` 答 `bytes_written`，因为写进去的就是字节。
 - **参数会被校验**：缺失或不可用即 `400`，`cause` 指出参数名。
 - **状态冲突回 `409`**（没跑 VM 时 `save`、`resume` 未知快照回 `404`、没有下载在跑时 `toolchain/download/cancel`）。
 - **`POST /v0/toolchain/download` 会真的下载**固定的 RISC-V GCC 归档。
@@ -433,7 +435,7 @@ riscdom toolchain download --wait
 - **销毁类命令先问**（`vm stop`、`snapshots resume`、`snapshots delete`、`sessions delete`、
   `sessions clear-all`、`llm clear`、`qemu clear`、`toolchain clear`）：终端上弹提示，`--yes`
   提前回答；stdin 不是终端时直接拒绝（退出码 `2`）——脚本必须显式写 `--yes`。
-- **退出码**把 §4 的状态码变成脚本可分叉的东西：`0` 成功、`1` 本地失败（连不上、没有 token）、`2` 用法或 `400`、`3` 被拒或 `5xx`、`4` `401`/`403`（导出路径上 workspace 策略的 `403` 也是它）。
+- **退出码**把 §4 的状态码变成脚本可分叉的东西：`0` 成功、`1` 本地失败（连不上、没有 token）、`2` 用法或 `400`、`3` 被拒或 `5xx`、`4` `401`/`403`（认证与授权；workspace 策略拒绝的路径属于上面的 `400`，故为退出码 `2`）。
 - **token**：本地模式取自 `<data-dir>/token`；远程模式按 `--token-file`、`RISCDOM_TOKEN`、`--token` 的顺序取。从不被打印。
 
 完整表格（含人类模式形状）见 [../cli/README.zh-CN.md](../cli/README.zh-CN.md)。

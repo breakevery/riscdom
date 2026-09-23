@@ -141,9 +141,9 @@ Codes and HTTP status mapping:
 
 | `code` | HTTP | When |
 |---|---|---|
-| `bad_request` | 400 | Malformed JSON, missing required field, bad `path`/`run_id`. |
+| `bad_request` | 400 | Malformed JSON, missing required field, bad `path`/`run_id` — including a path the workspace policy refuses (it escapes the workspace, or it traverses with `..`), which carries `cause: "path"`. |
 | `unauthorized` | 401 | No token, or the hook refused the token. |
-| `forbidden` | 403 | Authenticated, but the actor lacks the endpoint's capability. |
+| `forbidden` | 403 | Authenticated, but the actor lacks the endpoint's capability. **`403` is only ever authentication or authorisation**; a parameter the server cannot use is a `400`. |
 | `not_found` | 404 | Unknown `run_id`, `session_id`, snapshot name. |
 | `method_not_allowed` | 405 | The path is served, but not under this method; `message` names the one to use. |
 | `conflict` | 409 | A state clash: VM absent on `resume`, a download already running. |
@@ -200,7 +200,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
 | `/v0/agent/run` | POST | `agent.run` | `{ "user_input": string }` | `AgentOutcomeView` | `run_agent` |
-| `/v0/runs/export` | POST | `audit.export` | `{ "run_id", "path" }` | `{ "bytes_written": number }` | `export_run_audit` |
+| `/v0/runs/export` | POST | `audit.export` | `{ "run_id", "path" }` | `{ "events_exported": number }` | `export_run_audit` |
 | `/v0/vm/stop` | POST | `vm.control` | — | `204 No Content` | `stop_current_vm` |
 | `/v0/snapshots/save` | POST | `snapshot.write` | `{ "name": string }` | `{ "bytes_written": number }` | `save_snapshot_real` |
 | `/v0/snapshots/resume` | POST | `snapshot.write` | `{ "name": string }` | `204 No Content` | `resume_from_snapshot_real` |
@@ -219,7 +219,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/preflight/run` | POST | `preflight.run` | — | `202 { "state": "running" }` | `run_preflight` |
 | `/v0/preflight/ack` | POST | `preflight.run` | — | `PreflightView` | `acknowledge_preflight` |
 | `/v0/audit/alert` | POST | `settings.write` | `{ "enabled": bool }` | `204 No Content` | `set_audit_alert` |
-| `/v0/audit/export` | POST | `audit.export` | `{ "path": string }` | `{ "bytes_written": number }` | `export_audit_jsonl` |
+| `/v0/audit/export` | POST | `audit.export` | `{ "path": string }` | `{ "events_exported": number }` | `export_audit_jsonl` |
 | `/v0/settings/theme` | POST | `settings.write` | `{ "theme": string }` | `204 No Content` | `set_theme` |
 | `/v0/settings/language` | POST | `settings.write` | `{ "language": string }` | `204 No Content` | `set_language` |
 | `/v0/llm/config` | POST | `llm.configure` | `{ "api_key", "base_url", "model", "provider_id"?, "remember"? }` | `204 No Content` | `set_llm_config` |
@@ -250,6 +250,16 @@ the tables above. They are part of this document's surface all the same.
 
 ### 5.4 Notes on the tables
 
+- **The two audit exports answer a count of events, not bytes.** The host's
+  `write_events_jsonl` returns `events.len()`, so `/v0/audit/export` and
+  `/v0/runs/export` answer `{ "events_exported": number }` — the field name says what
+  the number is. `/v0/serial/export` writes the captured serial text and really does
+  answer a byte count, so it keeps `bytes_written`.
+- **A path outside the workspace is a `400`, not a `403`.** The export and
+  `/v0/workspace/file` paths go through the host's workspace policy, and a path it
+  refuses (one that escapes the root, or one that traverses with `..`) is the
+  caller's parameter being unusable: `400 bad_request` with `cause: "path"`. `403`
+  is reserved for the capability check of §3.
 - **Queries and controls are implemented.** `POST /v0/vm/start` (§6, G1) and
   `/v0/resources` (§6, G3) answer `501` until their kernel work lands.
 - **A control that reports success may have been a no-op.** The host's session rename and

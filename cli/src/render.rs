@@ -64,19 +64,19 @@ pub fn human(command: &Command, reply: &Reply) -> String {
 
 /// What an export wrote, and where.
 ///
-/// The two audit exports answer with the number of **events** they wrote (the
-/// host's `write_events_jsonl` returns `events.len()`) while the serial export
-/// answers with a **byte** count — both under the field name `bytes_written`.
-/// The CLI prints what the number actually is instead of repeating the field
-/// name's claim.
+/// The two audit exports answer with the number of **events** they wrote — the
+/// field says so, `events_exported` — while the serial export answers with a
+/// `bytes_written` byte count. The CLI prints what the number is.
 fn export_written(command: &Command, value: &Value) -> String {
-    let count = number(value, "bytes_written");
     let Some(path) = command.output_path() else {
-        return format!("wrote {count}");
+        return format!("wrote {}", number(value, "bytes_written"));
     };
     match command {
-        Command::ExportSerialLog { .. } => format!("wrote {count} bytes to {path}"),
+        Command::ExportSerialLog { .. } => {
+            format!("wrote {} bytes to {path}", number(value, "bytes_written"))
+        }
         _ => {
+            let count = number(value, "events_exported");
             let unit = if count == "1" { "event" } else { "events" };
             format!("exported {count} {unit} to {path}")
         }
@@ -634,9 +634,9 @@ mod tests {
 
     #[test]
     fn an_export_says_how_much_it_wrote_and_where() {
-        // The audit exports count events; the serial export counts bytes. Both
-        // arrive as `bytes_written`, and the human line says which is which.
-        let one = reply(r#"{"bytes_written":1}"#);
+        // The audit exports answer `events_exported`; the serial export answers
+        // `bytes_written`. The human line says which is which.
+        let one = reply(r#"{"events_exported":1}"#);
         assert_eq!(
             human(
                 &Command::ExportAuditJsonl {
@@ -646,7 +646,7 @@ mod tests {
             ),
             "exported 1 event to audit.jsonl"
         );
-        let many = reply(r#"{"bytes_written":42}"#);
+        let many = reply(r#"{"events_exported":42}"#);
         assert_eq!(
             human(
                 &Command::ExportRunAudit {

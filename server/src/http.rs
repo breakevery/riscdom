@@ -7,6 +7,7 @@
 use crate::auth::{Authn, ReqMeta};
 use crate::config::ServerConfig;
 use crate::io::TokioIo;
+use crate::log::{self, LogLevel};
 use crate::routes::{self, Local, Resolution};
 use crate::sse::{HttpEventSink, Replay, SseHub, CHANNEL_CAPACITY};
 use futures_util::stream;
@@ -89,6 +90,7 @@ impl Server {
             hub: Arc::clone(&self.hub),
             started: self.started,
             connections: Arc::new(AtomicUsize::new(0)),
+            log_level: self.cfg.log_level,
         });
         let task = tokio::spawn(accept_loop(listener, shared));
         Ok(Running { local_addr, task })
@@ -120,9 +122,16 @@ struct Shared {
     hub: Arc<SseHub>,
     started: Instant,
     connections: Arc<AtomicUsize>,
+    /// How much the library logs (off unless the operator asked).
+    log_level: LogLevel,
 }
 
 impl Shared {
+    /// One runtime line, if the operator asked for lines at this level.
+    fn log(&self, level: LogLevel, message: impl std::fmt::Display) {
+        log::line(self.log_level, level, message);
+    }
+
     fn uptime_ms(&self) -> u64 {
         self.started.elapsed().as_millis() as u64
     }
@@ -255,7 +264,7 @@ async fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
         let (stream, peer) = match listener.accept().await {
             Ok(pair) => pair,
             Err(e) => {
-                eprintln!("riscdom-server: accept failed: {e}");
+                shared.log(LogLevel::Error, format!("accept failed: {e}"));
                 continue;
             }
         };
@@ -264,9 +273,9 @@ async fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
         let shared = Arc::clone(&shared);
         tokio::spawn(async move {
             let _guard = guard;
-            if let Err(e) = serve(stream, shared).await {
+            if let Err(e) = serve(stream, shared.clone()).await {
                 // The peer and the error only: a request's credential never gets here.
-                eprintln!("riscdom-server: connection from {peer} ended: {e}");
+                shared.log(LogLevel::Info, format!("connection from {peer} ended: {e}"));
             }
         });
     }
@@ -357,11 +366,14 @@ async fn handle(
             }
             let app = Arc::clone(&shared.app);
             let hub = Arc::clone(&shared.hub);
+            let log_level = shared.log_level;
             // The host's work is synchronous, and some of it is heavy (a compile,
             // a `--version` probe, a download): it runs off the async runtime, so
             // a request never stalls the event stream.
-            match tokio::task::spawn_blocking(move || routes::dispatch(action, &params, &app, &hub))
-                .await
+            match tokio::task::spawn_blocking(move || {
+                routes::dispatch(action, &params, &app, &hub, log_level)
+            })
+            .await
             {
                 Ok(response) => response,
                 Err(_) => error_response(500, "internal", "the request task failed", None),

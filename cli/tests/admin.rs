@@ -132,8 +132,7 @@ fn the_exports_write_into_the_workspace_and_say_how_much() {
     assert_eq!(text.lines().count(), 1, "one event, one line: {text}");
 
     // `--out` is passed through as the endpoint's `path`, and the number that
-    // comes back is the number of events written (the host's field is called
-    // `bytes_written`; the CLI says "events" because that is what it is).
+    // comes back is the number of events written (the field is `events_exported`).
     let output = run_in(
         &workspace,
         &data_dir,
@@ -145,7 +144,9 @@ fn the_exports_write_into_the_workspace_and_say_how_much() {
         .expect("read the export")
         .lines()
         .count();
-    assert_eq!(json_stdout(&output)["bytes_written"], sub_lines as i64);
+    let body = json_stdout(&output);
+    assert_eq!(body["events_exported"], sub_lines as i64, "{body}");
+    assert!(body.get("bytes_written").is_none(), "{body}");
 
     // The serial log: nothing has been captured, so it is an empty file.
     let output = run_in(&workspace, &data_dir, &["export", "serial-log"]);
@@ -183,7 +184,7 @@ fn the_exports_write_into_the_workspace_and_say_how_much() {
 }
 
 #[test]
-fn an_export_outside_the_workspace_is_refused() {
+fn an_export_outside_the_workspace_is_a_bad_request() {
     let workspace = unique_dir("escape-ws");
     let data_dir = unique_dir("escape-data");
     let output = run_in(
@@ -197,10 +198,13 @@ fn an_export_outside_the_workspace_is_refused() {
             "../escaped.jsonl",
         ],
     );
-    // The host's workspace policy answers `403 forbidden`; the CLI's status map
-    // turns every `403` into exit 4.
-    assert_eq!(exit_code(&output), 4, "stderr: {}", stderr(&output));
-    assert_eq!(error_body(&output)["code"], "forbidden");
+    // The path is the *caller's* parameter, so the workspace policy answers the
+    // documented `400 bad_request` with `cause: "path"` — not a `403`, which this
+    // control plane reserves for authentication and authorisation.
+    assert_eq!(exit_code(&output), 2, "stderr: {}", stderr(&output));
+    let body = error_body(&output);
+    assert_eq!(body["code"], "bad_request", "{body}");
+    assert_eq!(body["cause"], "path", "{body}");
     assert!(!workspace
         .parent()
         .expect("parent")
@@ -422,13 +426,9 @@ fn the_toolchain_download_acknowledges_and_waiting_watches_it_finish() {
     let text = stdout(&output);
     assert!(text.contains("toolchain:download"), "{text}");
     assert!(text.trim_end().ends_with("download ok"), "{text}");
-    // The embedded server may log the stream's abrupt close (see the report);
-    // what must not be there is a failed download.
-    assert!(
-        !stderr(&output).contains("toolchain download failed"),
-        "{}",
-        stderr(&output)
-    );
+    // The library's runtime logging is off by default, which is what keeps an
+    // embedded server from writing into the CLI's own stderr.
+    assert!(stderr(&output).is_empty(), "stderr: {}", stderr(&output));
 
     // The same wait, in JSON: the envelopes verbatim, one per line, and no
     // closing line (the exit code is the summary there).

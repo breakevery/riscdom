@@ -31,8 +31,11 @@ riscdom-server --bind 127.0.0.1:7821 --workspace ./my-workspace
 | `--heartbeat-ms <n>` | `15000` | SSE 心跳周期；`0` 关闭。 |
 | `--auth` | 开 | 要求 `<data-dir>/token` 里的 bearer token（默认）。 |
 | `--no-auth` | | 取消该要求并打印警告：仅用于本地调试。 |
+| `--log-level <off\|error\|info>` | `off` | stderr 上的运行日志行：`off` 一行不写，`error` 写失败（accept 失败、下载或预检以错误告终），`info` 再加每条异常结束的连接一行。**默认关闭，因为 CLI 会内嵌本服务端**，那里 stderr 属于调用方。 |
 
 `--help` 打印同一张表。退出码：`0` 正常停止，`1` workspace 或 bind 失败，`2` 用法错误。用 `Ctrl+C` 停止。
+
+启动横幅、用法文本与致命错误**不在** `--log-level` 之后：它们是本二进制自己的控制台输出，且内嵌场景根本不会跑到这个 `main`。
 
 默认只绑回环是刻意的：本构建提供**明文 HTTP**，未明确指定时不会监听公网接口。
 

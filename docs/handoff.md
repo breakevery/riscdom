@@ -13,6 +13,23 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The interface tells the truth, and the library's log is opt-in** (v0.9 CLI batch 6/N).
+  Four small things C3/C4 left behind, fixed together. The two audit exports answered a field
+  named `bytes_written` while returning the number of **events** (`write_events_jsonl`
+  returns `events.len()`): they answer `events_exported` now, and `/v0/serial/export`, which
+  really does write bytes, keeps `bytes_written` — so the batch 5/N note above reads as
+  history. A path the workspace policy refuses was a `403 forbidden`, which reads as an
+  authorisation decision when it is really the caller's parameter: it is
+  `400 bad_request` with `cause: "path"` now, and `403` is left to authentication and
+  authorisation (the capability check in `http.rs` and the `Authn` hook — the tests that pin
+  those are unchanged). The library's runtime lines became optional:
+  `http.rs`'s `connection … ended` and `accept failed` and `routes.rs`'s
+  `toolchain download failed` / `preflight failed` go through
+  `ServerConfig::with_log_level` — `--log-level <off|error|info>`, **off by default** — which
+  is what keeps an embedded server out of the CLI's stderr: the rough edge batch 4/N
+  reported, now closed. `main.rs`'s start-up banner, usage text and fatal errors stay
+  unconditional: they are the binary's own console output, and an embedded server never runs
+  that `main`. The two stale `../host/src/run_diff.rs` links in this section are fixed too.
 - **The CLI line is done: five batches, and every control endpoint is a command**
   (v0.9 CLI batch 5/N). The last seventeen endpoints of `docs/control-plane-api.md` §5.2
   landed as commands — three exports (`export audit-jsonl`, `export run-audit <run_id>`,
@@ -242,7 +259,7 @@ current request authorising it (§2).
   were built under the `0.6.0-preview.1` name, so the v0.7.0 release dispatched `bundle` again to get
   `0.7.0`-named ones — which is what it shipped.
 - **`v0.6.0-preview.1` is released as a pre-release** (v0.6 batches 1–2, released in batch 4): two
-  runs are compared field by field — the data layer and the API ([../host/src/run_diff.rs](../host/src/run_diff.rs),
+  runs are compared field by field — the data layer and the API ([../host-core/src/run_diff.rs](../host-core/src/run_diff.rs),
   `AppState::compare_run_fingerprints`, the `compare_run_fingerprints` command) and the collapsed
   block under the audit tab's two-run panel. A pre-release takes **no Latest marker**, so the marker
   stayed on `v0.5.0` at the time (it has since moved to `v0.7.0`, and now to `v0.8.0`).

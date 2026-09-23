@@ -4,10 +4,13 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::log::LogLevel;
+
 /// What `--help` prints.
 pub const USAGE: &str = "\
 usage: riscdom-server [--bind <addr>] [--workspace <dir>] [--data-dir <dir>]
                       [--heartbeat-ms <n>] [--auth | --no-auth]
+                      [--log-level <off|error|info>]
 
   --bind          address to listen on (default 127.0.0.1:7821, or $RISCDOM_BIND)
   --workspace     the workspace this host owns (default: the current directory);
@@ -17,6 +20,8 @@ usage: riscdom-server [--bind <addr>] [--workspace <dir>] [--data-dir <dir>]
   --heartbeat-ms  SSE heartbeat period, 0 disables it (default 15000)
   --auth          require the bearer token in <data-dir>/token (the default)
   --no-auth       do not require a token; prints a warning, for local debugging
+  --log-level     runtime log lines on stderr: off (default), error (failures),
+                  info (also one line per connection that ended badly)
 ";
 
 /// Whether the endpoints ask for a token.
@@ -36,6 +41,8 @@ pub struct Cli {
     pub data_dir: Option<PathBuf>,
     pub heartbeat: Option<Duration>,
     pub auth: AuthMode,
+    /// How much the library logs. `Off` unless `--log-level` says otherwise.
+    pub log_level: LogLevel,
 }
 
 /// The default bind, when neither the flag nor the environment says otherwise.
@@ -59,6 +66,7 @@ impl Cli {
         let mut data_dir: Option<PathBuf> = None;
         let mut heartbeat_ms = DEFAULT_HEARTBEAT_MS;
         let mut auth = AuthMode::Token;
+        let mut log_level = LogLevel::Off;
 
         let mut args = args.into_iter();
         while let Some(flag) = args.next() {
@@ -72,6 +80,7 @@ impl Cli {
                         .parse()
                         .map_err(|e| format!("--heartbeat-ms {raw:?} is not a number: {e}"))?;
                 }
+                "--log-level" => log_level = LogLevel::parse(&next_value(&mut args, &flag)?)?,
                 "--auth" => auth = AuthMode::Token,
                 "--no-auth" => auth = AuthMode::None,
                 other => return Err(format!("unknown argument {other:?}")),
@@ -92,6 +101,7 @@ impl Cli {
             data_dir,
             heartbeat,
             auth,
+            log_level,
         })
     }
 }
@@ -134,12 +144,22 @@ mod tests {
     }
 
     #[test]
+    fn the_log_level_defaults_to_off() {
+        assert_eq!(parse(&[]).log_level, LogLevel::Off);
+        assert_eq!(parse(&["--log-level", "error"]).log_level, LogLevel::Error);
+        assert_eq!(parse(&["--log-level", "info"]).log_level, LogLevel::Info);
+        assert_eq!(parse(&["--log-level", "off"]).log_level, LogLevel::Off);
+    }
+
+    #[test]
     fn a_usage_error_is_reported_not_guessed() {
         for args in [
             vec!["--bind"],
             vec!["--nope"],
             vec!["--heartbeat-ms", "soon"],
             vec!["--bind", "not-an-address"],
+            vec!["--log-level"],
+            vec!["--log-level", "verbose"],
         ] {
             assert!(
                 Cli::parse(args.iter().map(|a| a.to_string()).collect()).is_err(),

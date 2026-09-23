@@ -204,6 +204,24 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
   **`cli/src/render.rs`** 新增三个渲染分支（导出的计数、`202` 确认、预检步骤表），
   而十四条 `204` 应答沿用既有的空 body 路径继续打 `ok`。
 
+**接口说实话，库的日志变成可选项。** CLI 几批留下的四件小事，合并修完：两个导出字段改名以说明数的是什么、workspace 路径拒绝从 `403` 改成 `400`、服务端的运行日志放到一个默认关闭的开关之后——这正是把内嵌服务端挡在 CLI 的 stderr 之外的关键。
+
+### 变更
+
+- **`POST /v0/audit/export` 与 `POST /v0/runs/export` 答 `events_exported`**，不再是
+  `bytes_written`：宿主的 `write_events_jsonl` 返回 `events.len()`，旧字段名描述的是该端点
+  从未做过的事。`POST /v0/serial/export` 确实按字节写，保留 `bytes_written`。CLI 据此渲染
+  `exported N events to <path>` 与 `wrote N bytes to <path>`。
+- **workspace 策略拒绝的路径是 `400 bad_request`、`cause: "path"`**，不再是 `403 forbidden`：
+  它属于调用方参数不可用，而 `403` 留给认证与授权（capability 检查与 `Authn` 钩子，钉它们的
+  测试未动）。该规则覆盖两条审计导出、序列日志导出与 `/v0/workspace/file`。
+- **库的运行日志默认关闭、需显式开启**：`riscdom-server` 上是
+  `--log-level <off|error|info>`，库调用方用 `ServerConfig::with_log_level`。`error` 写失败
+  （accept 失败、下载或预检以错误告终），`info` 再加每条异常结束的 `connection … ended`。
+  此前无条件输出的四处现在只由该开关决定；二进制自己的启动横幅、用法文本与致命错误原样保留，
+  因为内嵌场景根本不会跑那个 `main`。
+- **`docs/handoff.md` §1** 去掉两处失效的 `../host/src/run_diff.rs` 链接（该文件自 A1 拆分起就住在 `host-core`）。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

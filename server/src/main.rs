@@ -68,7 +68,8 @@ async fn run(cli: Cli, app: Arc<AppState>) {
     };
     let config = ServerConfig::new(cli.bind)
         .with_heartbeat(cli.heartbeat)
-        .with_authn(authn);
+        .with_authn(authn)
+        .with_log_level(cli.log_level);
     let server = Server::new(app, config);
     match server.start().await {
         Ok(running) => {

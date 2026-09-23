@@ -230,7 +230,8 @@ curl -sS 'http://127.0.0.1:7821/v0/serial'              # {"buffer":"hello from 
 ```
 
 `?path=` is percent-decoded, so `src%2Fmain.c` and `src/main.c` are the same request. A
-read is checked against the workspace policy: outside the root, it is `403`.
+read is checked against the workspace policy: a path that leaves the root is the caller's
+parameter being unusable, so it is `400` with `cause: "path"`.
 
 ### The reserved aggregate
 
@@ -264,9 +265,9 @@ Treat `code` as the contract and `message` as text for a human. A client should 
 
 | Status | `code` | What to do |
 |---|---|---|
-| 400 | `bad_request` | Fix the request; `cause` names the parameter. |
+| 400 | `bad_request` | Fix the request; `cause` names the parameter — including a workspace path the policy refuses (`cause: "path"`). |
 | 401 | `unauthorized` | Send a valid credential. |
-| 403 | `forbidden` | Not allowed: `cause: "capability"` means the actor lacks the endpoint's capability, otherwise the path is outside the workspace. Do not retry. |
+| 403 | `forbidden` | Not allowed: `cause: "capability"` means the actor lacks the endpoint's capability. This status is only ever authentication or authorisation. Do not retry. |
 | 404 | `not_found` | The endpoint or the resource is not there. |
 | 405 | `method_not_allowed` | Use the method named in `message`. |
 | 409 | `conflict` | A state clash; re-read the state and decide. |
@@ -400,6 +401,7 @@ curl -sS -X POST http://127.0.0.1:7821/v0/settings/theme \
 curl -sS -X POST http://127.0.0.1:7821/v0/audit/export \
   -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
   -d '{"path":"/abs/path/inside/the/workspace/audit.jsonl"}'
+# {"events_exported":42}
 ```
 
 Notes a client should know:
@@ -407,6 +409,9 @@ Notes a client should know:
 - **A `204` answers most controls** (nothing to say), `200` answers the ones that return a
   value, and `202` answers the ones that start work in the background (`agent/run`,
   `preflight/run`, `toolchain/download`) — watch the stream for those.
+- **The two audit exports answer a count of events** (`events_exported`), because that is
+  what they write; `/v0/serial/export` answers `bytes_written`, because that is what it
+  writes.
 - **Parameters are validated**: a missing or unusable one is `400` with `cause` naming it.
 - **State clashes are `409`** (`save` with no VM running, `resume` of an unknown snapshot is
   `404`, `toolchain/download/cancel` with nothing running).
@@ -500,7 +505,8 @@ riscdom toolchain download --wait
   not a terminal — a script has to say `--yes`.
 - **Exit codes** turn the status codes of §4 into something a script can branch on: `0` success,
   `1` a local failure (no connection, no token), `2` usage or `400`, `3` refused or `5xx`,
-  `4` `401`/`403` (which is also what the workspace policy's `403` on an export path becomes).
+  `4` `401`/`403` (authentication and authorisation; a workspace path the policy refuses is
+  the `400` above, so it exits `2`).
 - **The token** comes from `<data-dir>/token` in local mode and from `--token-file`,
   `RISCDOM_TOKEN` or `--token` (in that order) in remote mode. It is never printed.
 

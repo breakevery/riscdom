@@ -41,9 +41,13 @@ riscdom-server --bind 127.0.0.1:7821 --workspace ./my-workspace
 | `--heartbeat-ms <n>` | `15000` | SSE heartbeat period; `0` disables it. |
 | `--auth` | on | Require the bearer token in `<data-dir>/token` (the default). |
 | `--no-auth` | | Drop the requirement and print a warning: for local debugging. |
+| `--log-level <off\|error\|info>` | `off` | Runtime log lines on stderr: `off` writes none, `error` writes failures (a failed accept, a download or preflight that ended badly), `info` adds one line per connection that ended badly. **Off by default because the CLI embeds this server**, and there the stderr belongs to the caller. |
 
 `--help` prints the same table. Exit codes: `0` clean stop, `1` workspace or bind failure,
 `2` usage error. Stop it with `Ctrl+C`.
+
+The start-up banner, the usage text and the fatal errors are **not** behind `--log-level`:
+they are this binary's own console output, and an embedded server never runs this `main`.
 
 The loopback default is deliberate: this build serves **plaintext HTTP**, so it does not
 listen on a public interface unless you tell it to.

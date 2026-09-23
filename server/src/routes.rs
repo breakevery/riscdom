@@ -6,6 +6,7 @@
 
 use crate::auth::Capability;
 use crate::http::{error_response, json_response, no_content, RespBody};
+use crate::log::{self, LogLevel};
 use crate::sse::{HttpEventSink, SseHub};
 use host_core::{AppState, EventSink, HostError};
 use hyper::{Response, StatusCode};
@@ -649,6 +650,7 @@ pub(crate) fn dispatch(
     params: &Params,
     app: &Arc<AppState>,
     hub: &Arc<SseHub>,
+    log_level: LogLevel,
 ) -> Response<RespBody> {
     match action {
         // ---- queries ----
@@ -781,8 +783,8 @@ pub(crate) fn dispatch(
                 Err(e) => return host_error(e),
             }
             match app.export_run_audit(run_id, path.to_string()) {
-                Ok(bytes_written) => {
-                    ok_json(&serde_json::json!({ "bytes_written": bytes_written }))
+                Ok(events_exported) => {
+                    ok_json(&serde_json::json!({ "events_exported": events_exported }))
                 }
                 Err(e) => host_error(e),
             }
@@ -925,7 +927,11 @@ pub(crate) fn dispatch(
                 };
                 if let Err(e) = app.download_toolchain_now(&spec, &dest_root, cancel, &mut on_event)
                 {
-                    eprintln!("riscdom-server: toolchain download failed: {e}");
+                    log::line(
+                        log_level,
+                        LogLevel::Error,
+                        format!("toolchain download failed: {e}"),
+                    );
                 }
             });
             accepted(&serde_json::json!({ "state": "started" }))
@@ -975,7 +981,7 @@ pub(crate) fn dispatch(
             let app = Arc::clone(app);
             std::thread::spawn(move || {
                 if let Err(e) = app.ensure_preflight(true, Some(emitter)) {
-                    eprintln!("riscdom-server: preflight failed: {e}");
+                    log::line(log_level, LogLevel::Error, format!("preflight failed: {e}"));
                 }
             });
             accepted(&serde_json::json!({ "state": "running" }))
@@ -993,8 +999,8 @@ pub(crate) fn dispatch(
         },
         Action::AuditExport => match params.required("path") {
             Ok(path) => match app.export_audit_jsonl(path.to_string()) {
-                Ok(bytes_written) => {
-                    ok_json(&serde_json::json!({ "bytes_written": bytes_written }))
+                Ok(events_exported) => {
+                    ok_json(&serde_json::json!({ "events_exported": events_exported }))
                 }
                 Err(e) => host_error(e),
             },
@@ -1117,11 +1123,16 @@ fn result_json<T: serde::Serialize>(result: Result<T, HostError>) -> Response<Re
 
 /// Map a host error into the documented error model (§4).
 fn host_error(error: HostError) -> Response<RespBody> {
+    // A path the workspace policy refuses is the *caller's parameter* being
+    // unusable — the boundary is what they asked to cross — so it is a `400`
+    // naming the parameter. `403` is reserved for authentication and
+    // authorisation: the capability check in `http.rs` and `auth.rs`'s hook.
+    if matches!(error, HostError::Policy(_)) {
+        return error_response(400, "bad_request", &error.user_message(), Some("path"));
+    }
     let (status, code) = match &error {
         // "no LLM / no QEMU / no toolchain configured" is the documented 503.
         HostError::NotConfigured(_) => (503, "unavailable"),
-        // A workspace read outside the policy is a refusal, not a failure.
-        HostError::Policy(_) => (403, "forbidden"),
         _ => (500, "internal"),
     };
     error_response(status, code, &error.user_message(), None)

@@ -73,13 +73,13 @@ Three `POST`s that hand the *server* a path to write:
 
 - **`--out` is the server's path, not the CLI's.** It is resolved against the
   workspace root, so a relative name is a workspace file and the host writes it;
-  anything that escapes the workspace (a `..`, an absolute path outside) is
-  refused with `403`. The CLI never receives the file's contents.
+  a path that escapes the workspace (a `..`, an absolute path outside) is the
+  caller's parameter being unusable, and is refused with `400` and
+  `cause: "path"`. The CLI never receives the file's contents.
 - **The defaults** are `audit.jsonl`, `run-<run_id>.jsonl` and `serial.log`, all
   relative to the workspace.
-- **What the number counts** differs: the two audit exports answer with the number
-  of **events**, the serial export with a **byte** count (the control plane's
-  field is named `bytes_written` for all three).
+- **What the number counts** differs, and the field names say so: the two audit
+  exports answer `events_exported`, the serial export answers `bytes_written`.
 - **The parent directory has to exist** — an export does not create directories.
 - An unknown `run_id` is `404`; a run that is still open has nothing to close its
   record and is refused.
@@ -240,7 +240,7 @@ unreadable, or that the credential was refused, and nothing more.
 | `1` | a local failure: no connection, no token file, no workspace, no runtime |
 | `2` | a usage error, or the control plane rejected the request (`400`) |
 | `3` | the control plane refused or failed (`404` / `405` / `409` / `5xx`) |
-| `4` | authentication failed (`401` / `403`) — including the workspace policy's `403` on an export path |
+| `4` | authentication failed (`401` / `403`); a workspace path the policy refuses is the `400` above |
 
 Scripts can rely on these: `riscdom health --json || handle_failure "$?"`.
 

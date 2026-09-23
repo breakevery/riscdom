@@ -380,7 +380,7 @@ fn every_control_endpoint_answers() {
             "/v0/audit/export",
             format!(r#"{{"path":"{sessions}"}}"#),
             200,
-            "bytes_written",
+            "events_exported",
         ),
         (
             "/v0/settings/theme",
@@ -453,6 +453,48 @@ fn the_two_offline_unsafe_controls_are_routed_without_being_called() {
     for path in ["/v0/toolchain/download", "/v0/preflight/run"] {
         let (status, _) = call(addr, "POST", path, "", Some("{}"));
         assert_eq!(status, 403, "{path}");
+    }
+}
+
+#[test]
+fn a_path_outside_the_workspace_is_a_bad_request() {
+    // The workspace boundary is the caller's *parameter* being unusable, so the
+    // policy answers the documented `400 bad_request` with `cause: "path"`.
+    // `403` belongs to authentication and authorisation and stays there (see the
+    // `RefuseAll` tests below).
+    let (addr, _sink, ws) = start_server(Arc::new(NoAuth));
+    let outside = ws.parent().expect("parent").join("escaped.jsonl");
+    // Built rather than formatted: a Windows path in a quoted JSON string needs
+    // its backslashes escaped, which `serde_json` knows and a `format!` does not.
+    let outside_body = serde_json::json!({ "path": outside.to_string_lossy() }).to_string();
+    let cases = [
+        (
+            "POST",
+            "/v0/audit/export",
+            Some(outside_body),
+            "outside workspace",
+        ),
+        (
+            "POST",
+            "/v0/serial/export",
+            Some(r#"{"path":"../escaped.log"}"#.to_string()),
+            "traversal",
+        ),
+        (
+            "GET",
+            "/v0/workspace/file?path=../escaped.txt",
+            None,
+            "traversal",
+        ),
+    ];
+    for (method, path, body, needle) in cases {
+        let (status, raw) = call(addr, method, path, "", body.as_deref());
+        assert_eq!(status, 400, "{method} {path}: {raw}");
+        let json: serde_json::Value = serde_json::from_str(&raw).expect("JSON");
+        assert_eq!(json["code"], "bad_request", "{path}: {raw}");
+        assert_eq!(json["cause"], "path", "{path}: {raw}");
+        let message = json["message"].as_str().expect("message");
+        assert!(message.contains(needle), "{path}: {raw}");
     }
 }
 

@@ -11,6 +11,7 @@
 
 ## 1. 快照 —— `v0.8.0` 是最新的发行版（下次正式发布时更新本节）
 
+- **接口说实话，库的日志变成可选项**（v0.9 CLI 批次 6/N）。C3/C4 留下的四件小事，合并修完。两条审计导出答的字段叫 `bytes_written`，返回的却是**事件数**（`write_events_jsonl` 返回 `events.len()`）：现在答 `events_exported`；而确实按字节写的 `/v0/serial/export` 保留 `bytes_written`——所以上面批次 5/N 那条读起来就是历史。workspace 策略拒绝的路径此前是 `403 forbidden`，读起来像授权判定，实际却是调用方参数问题：现在是 `400 bad_request` 加 `cause: "path"`，`403` 只留给认证与授权（`http.rs` 的 capability 检查与 `Authn` 钩子——钉这两者的测试未动）。库的运行日志行变成可选：`http.rs` 的 `connection … ended` 与 `accept failed`、`routes.rs` 的 `toolchain download failed` / `preflight failed` 都过 `ServerConfig::with_log_level`——`--log-level <off|error|info>`，**默认 off**——这正是把内嵌服务端挡在 CLI 的 stderr 之外的关键：批次 4/N 报告的粗糙点，现已闭环。`main.rs` 的启动横幅、用法文本与致命错误仍无条件输出：它们是二进制自己的控制台输出，内嵌场景根本不会跑到那个 `main`。另外本节两处失效的 `../host/src/run_diff.rs` 链接也已修正。
 - **CLI 线收尾：五批，且每一个控制端点都有了子命令**（v0.9 CLI 批次 5/N）。`docs/control-plane-api.md` §5.2 剩下的十七个端点全部落地——三个导出（`export audit-jsonl`、`export run-audit <run_id>`、`export serial-log`）与十四个按批次 4 定的分组方式归类的管理配置命令（`llm set|clear|load-key`、`qemu path|clear`、`toolchain download|cancel|path|clear`、`preflight run|ack`、`audit alert set <on|off>`、`theme set`、`language set`）。加上批次 4 的十二个，27 个控制端点已全部可从 shell 触及，另加表外的两个（`vm start` → 预留的 `501`、`runs abandon-stale`）。查询半边未动：仍是批次 2/N 的六个只读命令。
   随之而来两件事。**`--api-key` / `--api-key-file` / `--remember`**：模型的 key 可以直接写在命令行（会警告，与 `--token` 完全一样）或从文件读，只有加 `--remember` 才会存进操作系统凭据存储。**`--wait`**：`toolchain download --wait` 与 `preflight run --wait` 在发请求**之前**先订阅 `/v0/events`，打印该工作所属事件族的帧（`toolchain:download` / `preflight:progress`），并以**工作本身**的判定退出——下载失败或预检某一步失败即 `3`。
   途中记下三个事实，每一个都塑造了实现：**`--out` 是服务端的路径**，相对于 workspace 根解析（逃出 workspace 即策略的 `403`），CLI 从头到尾拿不到文件；**两条审计导出的 `bytes_written` 是事件数、不是字节数**（序列日志导出才是字节数），所以人类模式那行会说明是哪种；**`preflight:progress` 没有“结束”事件**，所以 `--wait` 结束于 fail-fast 的第一个 `failed`，或最后一步的 `ok`（步骤表取自宿主自己的 `preflight::STEPS`）。已知粗糙处，只报告未修：内嵌 `--follow`/`--wait` 若在流仍打开时退出，可能把服务端那行 `connection … ended` 留在 CLI 的 stderr 上。
@@ -70,7 +71,7 @@
   路径验证过的平台。当时的 CI 包是在 `0.6.0-preview.1` 名字下构建的，所以 v0.7.0 发布时重新 dispatch 了
   `bundle` 以取得 `0.7.0` 名字的包 —— 它发布的就是那些。
 - **`v0.6.0-preview.1` 已作为预发布版发布**（v0.6 批次 1–2，批次 4 发布）：两次 run 逐字段对比 —— 数据层
-  与 API（[../host/src/run_diff.rs](../host/src/run_diff.rs)、`AppState::compare_run_fingerprints`、
+  与 API（[../host-core/src/run_diff.rs](../host-core/src/run_diff.rs)、`AppState::compare_run_fingerprints`、
   `compare_run_fingerprints` 命令）以及审计页两 run 面板下方那个默认折叠的区块。预发布版**不持有 Latest
   标记**，因此当时 Latest 仍在 `v0.5.0`（此后已先后移到 `v0.7.0`、`v0.8.0`）。附件：`RiscDom_0.6.0-preview.1_x64_en-US.msi` 与
   `RiscDom_0.6.0-preview.1_x64-setup.exe`，构建时带 `bundle.windows.wix.version = "0.6.0"`（WiX 不接受

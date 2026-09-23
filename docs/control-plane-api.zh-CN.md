@@ -80,9 +80,9 @@ pub struct Actor {
 
 | `code` | HTTP | 何时 |
 |---|---|---|
-| `bad_request` | 400 | JSON 畸形、缺必填字段、`path`/`run_id` 非法。 |
+| `bad_request` | 400 | JSON 畸形、缺必填字段、`path`/`run_id` 非法——包括 workspace 策略拒绝的路径（逃出 workspace，或带 `..` 穿越），其 `cause` 为 `"path"`。 |
 | `unauthorized` | 401 | 无 token，或钩子拒绝了 token。 |
-| `forbidden` | 403 | 已认证，但 actor 缺少该端点的 capability。 |
+| `forbidden` | 403 | 已认证，但 actor 缺少该端点的 capability。**`403` 只用于认证与授权**；服务端用不了的参数是 `400`。 |
 | `not_found` | 404 | 未知 `run_id`、`session_id`、快照名。 |
 | `method_not_allowed` | 405 | 路径存在，但不接受该方法；`message` 指出该用哪个。 |
 | `conflict` | 409 | 状态冲突：`resume` 时无 VM、下载已在跑。 |
@@ -132,7 +132,7 @@ pub struct Actor {
 | 端点 | 方法 | 权限 | 请求 | 响应 | 对应 Tauri 命令 |
 |---|---|---|---|---|---|
 | `/v0/agent/run` | POST | `agent.run` | `{ "user_input": string }` | `AgentOutcomeView` | `run_agent` |
-| `/v0/runs/export` | POST | `audit.export` | `{ "run_id", "path" }` | `{ "bytes_written": number }` | `export_run_audit` |
+| `/v0/runs/export` | POST | `audit.export` | `{ "run_id", "path" }` | `{ "events_exported": number }` | `export_run_audit` |
 | `/v0/vm/stop` | POST | `vm.control` | — | `204 No Content` | `stop_current_vm` |
 | `/v0/snapshots/save` | POST | `snapshot.write` | `{ "name": string }` | `{ "bytes_written": number }` | `save_snapshot_real` |
 | `/v0/snapshots/resume` | POST | `snapshot.write` | `{ "name": string }` | `204 No Content` | `resume_from_snapshot_real` |
@@ -151,7 +151,7 @@ pub struct Actor {
 | `/v0/preflight/run` | POST | `preflight.run` | — | `202 { "state": "running" }` | `run_preflight` |
 | `/v0/preflight/ack` | POST | `preflight.run` | — | `PreflightView` | `acknowledge_preflight` |
 | `/v0/audit/alert` | POST | `settings.write` | `{ "enabled": bool }` | `204 No Content` | `set_audit_alert` |
-| `/v0/audit/export` | POST | `audit.export` | `{ "path": string }` | `{ "bytes_written": number }` | `export_audit_jsonl` |
+| `/v0/audit/export` | POST | `audit.export` | `{ "path": string }` | `{ "events_exported": number }` | `export_audit_jsonl` |
 | `/v0/settings/theme` | POST | `settings.write` | `{ "theme": string }` | `204 No Content` | `set_theme` |
 | `/v0/settings/language` | POST | `settings.write` | `{ "language": string }` | `204 No Content` | `set_language` |
 | `/v0/llm/config` | POST | `llm.configure` | `{ "api_key", "base_url", "model", "provider_id"?, "remember"? }` | `204 No Content` | `set_llm_config` |
@@ -175,6 +175,13 @@ pub struct Actor {
 
 ### 5.4 表格附注
 
+- **两条审计导出给的是事件数，不是字节数。** 宿主的 `write_events_jsonl` 返回
+  `events.len()`，因此 `/v0/audit/export` 与 `/v0/runs/export` 答
+  `{ "events_exported": number }`——字段名说的就是数的是什么。`/v0/serial/export` 写的是捕获到的
+  串口文本，确实按字节计数，因此保留 `bytes_written`。
+- **逃出 workspace 的路径是 `400`，不是 `403`。** 导出与 `/v0/workspace/file` 的路径都过宿主的
+  workspace 策略，策略拒绝的路径（逃出根目录，或带 `..` 穿越）属于调用方参数不可用：
+  `400 bad_request`，`cause: "path"`。`403` 留给 §3 的 capability 检查。
 - **查询类与控制类均已实现。** `POST /v0/vm/start`（§6 G1）与 `/v0/resources`（§6 G3）在各自的内核工作落地前回 `501`。
 - **报成功的控制操作可能什么都没改。** 宿主的会话改名与删除是幂等的：未知 `session_id` 不算错误（端点回 `204`），而 `/v0/sessions/open` 回 `404`。端点是照搬宿主，而不是另造一套差异。
 - **`POST /v0/toolchain/download` 会真的开始下载**固定的 RISC-V GCC 归档并回 `202`；进度以 `toolchain:download` 事件抵达。

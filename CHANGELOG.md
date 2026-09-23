@@ -368,6 +368,33 @@ configuration commands — so every control in the API document is a shell comma
   acknowledgement, the preflight's step table), while the fourteen `204` answers keep
   printing `ok` through the empty-body path that was already there.
 
+**The interface tells the truth, and the library's log is opt-in.** Four small things the
+CLI batches left behind, fixed together: two export fields renamed to say what they count,
+a workspace-path refusal moved from `403` to `400`, and the server's runtime logging put
+behind a switch that defaults to off — which is what keeps an embedded server out of the
+CLI's stderr.
+
+### Changed
+
+- **`POST /v0/audit/export` and `POST /v0/runs/export` answer `events_exported`**, not
+  `bytes_written`: the host's `write_events_jsonl` returns `events.len()`, so the old field
+  name described something the endpoint never did. `POST /v0/serial/export` really does write
+  bytes and keeps `bytes_written`. The CLI renders `exported N events to <path>` and
+  `wrote N bytes to <path>` accordingly.
+- **A path the workspace policy refuses is a `400 bad_request` with `cause: "path"`**, not a
+  `403 forbidden`: it is the caller's parameter being unusable, and `403` is reserved for
+  authentication and authorisation (the capability check and the `Authn` hook, whose tests
+  pin `403` unchanged). The rule covers the two audit exports, the serial export and
+  `/v0/workspace/file`.
+- **The library's runtime logging is off by default and opt-in**: `--log-level <off|error|info>`
+  on `riscdom-server`, `ServerConfig::with_log_level` for a library caller. `error` writes
+  failures (a failed accept, a download or preflight that ended badly), `info` adds the
+  per-connection `connection … ended` line. The four sites that used to write unconditionally
+  are the switch's only callers; the binary's own start-up banner, usage text and fatal
+  errors stay as they were, because an embedded server never runs that `main`.
+- **`docs/handoff.md` §1** lost its two stale `../host/src/run_diff.rs` links (the file has
+  lived in `host-core` since the A1 split).
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the
