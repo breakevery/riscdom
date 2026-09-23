@@ -23,6 +23,20 @@
 
 **文档与注释追上更名。** 所有仍然生效的旧 crate 引用都改指 `host-core`（内核能力、测试）或 `host-tauri`（Tauri 层）；历史一字未动。
 
+**有 CLI 了，而且是控制平面客户端。** `riscdom` 在 shell 里驱动控制平面——与桌面应用同一套 HTTP 接口——本地模式把控制平面起在自己的进程里。
+
+### 新增
+
+- **`cli`，新的 workspace crate，含 `riscdom` 二进制**：八个只读子命令（`health`、`status`、`agents`、`runs list` / `runs get <id>`、`audit status`、`audit events`、`snapshots list`），每条都是对控制平面的 HTTP 调用。
+- **两种模式、一条代码路径**：`--remote host:port` 连已在运行的 `riscdom-server`；不加则在**本进程内**把控制平面起在 `127.0.0.1:0` 并对其说 HTTP。CLI 从不直接调 `AppState`。
+- **`--json`** 原样透传控制平面的应答（失败时把错误体打到 stderr）；人类模式打印表格与 `key value` 行。
+- **退出码**：`0` 成功、`1` 本地失败、`2` 用法或 `400`、`3` 被拒或 `5xx`、`4` `401`/`403`。见 `cli/README.md`。
+- **token 处理**：本地模式经 `riscdom-server` 同一套代码读取（首次运行时生成）`<data-dir>/token`；远程模式优先 `--token-file`，其次 `RISCDOM_TOKEN`，最后才是 `--token`——且会警告，因为它会落入 shell history。token 从不被打印或记录。
+
+### 变更
+
+- **`scripts/gate.sh`** 用 `--no-deps` lint `-p cli -p host-core -p host-tauri`：新 crate 被覆盖，同时不把（从未被 lint 过的）`server` crate 自身的问题拖进门禁。
+
 ### 变更
 
 - **清理失效的 `host` 引用**：根 `README`、`CONTRIBUTING`、`SECURITY`、`PROJECT_CONSTITUTION`、`THIRD_PARTY_NOTICES`、`docs/` 下 11 对双语文件、`ui/README`、`ci.yml` 注释，以及四处源码文档注释——`-p host` → `-p host-core`、`host/tests` → `host-core/tests`、`host/src/…` → `host-core/src/…`（属于 Tauri 层的文件则 → `host-tauri/src/commands.rs`）、`host/README.md` → `host-tauri/README.md`、`host::` → `host_core::` / `host_tauri::`。CHANGELOG、RELEASE_NOTES、决策账本、handoff §1 与 architecture-evolution 快照保留其历史表述。

@@ -13,6 +13,17 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The CLI is a control-plane client now** (v0.9 CLI batch 2/N). A new `cli` crate (bin
+  `riscdom`) speaks HTTP to the control plane and nothing else: with `--remote host:port` it talks
+  to a running `riscdom-server`, and without it it starts the control plane **inside its own
+  process** on `127.0.0.1:0` (a port the OS picks) — one code path for both, so `riscdom` never
+  calls `AppState` directly. Eight read-only commands (`health`, `status`, `agents`,
+  `runs list|get`, `audit status|events`, `snapshots list`), `--json` passing the control
+  plane's JSON through unchanged, tables in human mode, and exit codes `0`/1/2/3/4 (success /
+  local / usage-or-400 / refused-or-5xx / 401-403). The token comes from `<data-dir>/token`
+  locally (generated on first use by the same code `riscdom-server` runs) or from
+  `--token-file` > `RISCDOM_TOKEN` > `--token` remotely; it is never printed. No new crate
+  entered the lock file, and the gate's clippy step now covers `-p cli` too.
 - **The stale references the rename left behind are gone** (v0.9 A1 wave 5). Every *live*
   mention of the pre-split crate now points at the crate that owns the thing: `cargo test -p host`
   → `-p host-core` (the tests live there), `host/tests/…` → `host-core/tests/…`,

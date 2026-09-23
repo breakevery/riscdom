@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["host-core", "host-tauri", "sandbox", "audit", "agent", "worker", "server"]
+members = ["cli", "host-core", "host-tauri", "sandbox", "audit", "agent", "worker", "server"]
 exclude = ["ui"]
 
 [workspace.package]

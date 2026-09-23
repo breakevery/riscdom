@@ -392,3 +392,24 @@ guard and the clippy step cover both crates. The work was four waves — core + 
 guards, worker/server, rename + shell — each green on its own, with no temporarily-red intermediate
 state. The crate names are load-bearing: `host-core` says "no webview", `host-tauri` says
 "webview only".
+
+## 28. The CLI: placement, modes and exit codes
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; the skeleton and the read-only commands landed in v0.9
+
+**Decision**: The CLI is a new `cli` crate with the `riscdom` binary. It is a **client of the
+control plane**: every command goes through HTTP, and the local mode starts the control plane
+inside the CLI process on `127.0.0.1:0`. Exit codes: `0` success, `1` local failure, `2` usage
+or `400`, `3` refused or `5xx`, `4` `401`/`403`.
+
+**Why**: Putting it in `server` would have made one crate both the served process and its client;
+putting it in `host-tauri` would have linked Tauri into a headless tool. Since a local call and a
+remote call must behave identically, the local mode has nothing to gain from reaching past HTTP
+into `AppState` — and a great deal to lose, because then only the remote path would be exercised.
+
+**Impact**: The CLI depends on `server` (for the embedded mode), `host-core`, `reqwest` and
+`serde_json` — all already in the lock file; no argument-parsing crate was added, the CLI parses by
+hand like `riscdom-server`, `worker` and the two `audit` binaries. `--json` passes the control
+plane's JSON through unchanged, and the token is never printed or logged. The gate's clippy step
+covers `-p cli` with `--no-deps`, so the crate is linted without pulling `server`'s own
+(pre-existing) findings into the gate. The control commands and `--follow` are the next batch.

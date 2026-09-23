@@ -42,6 +42,33 @@ it links Tauri.
 crate now points at `host-core` (kernel capability, tests) or `host-tauri` (the Tauri layer);
 history is untouched.
 
+**There is a CLI, and it is a control-plane client.** `riscdom` drives the control plane from a
+shell — the same HTTP interface the desktop app uses — with the local mode starting the control
+plane inside its own process.
+
+### Added
+
+- **`cli`, a new workspace crate with the `riscdom` binary**: eight read-only commands
+  (`health`, `status`, `agents`, `runs list` / `runs get <id>`, `audit status`,
+  `audit events`, `snapshots list`), each one HTTP against the control plane.
+- **Two modes, one code path**: `--remote host:port` talks to a running `riscdom-server`;
+  without it the CLI starts the control plane on `127.0.0.1:0` **inside its own process** and
+  speaks HTTP to that. The CLI never calls `AppState` directly.
+- **`--json`** passes the control plane's answer through unchanged (the error object on stderr
+  when it fails); human mode prints tables and `key value` lines.
+- **Exit codes**: `0` success, `1` local failure, `2` usage or `400`, `3` refused or
+  `5xx`, `4` `401`/`403`. Documented in `cli/README.md`.
+- **Token handling**: local mode reads (and, on first use, generates) `<data-dir>/token` through
+  the same code `riscdom-server` runs; remote mode prefers `--token-file`, then
+  `RISCDOM_TOKEN`, and only then `--token` — which warns, because it lands in the shell history.
+  The token is never printed or logged.
+
+### Changed
+
+- **`scripts/gate.sh`** lints `-p cli -p host-core -p host-tauri` with `--no-deps`, so the new
+  crate is covered without dragging the (never-linted) `server` crate's own findings into the
+  gate.
+
 ### Changed
 
 - **Stale `host` references repointed** across the root `README`, `CONTRIBUTING`,

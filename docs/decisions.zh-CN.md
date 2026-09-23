@@ -279,3 +279,13 @@
 **理由**：`tauri` 此前被无条件链接，于是 `worker` 与 `server`——两个从不接触 webview 的无头进程——把一整套 GUI 工具链拖进了每次构建。拆 crate 才能把「链接 Tauri」从宿主的固有属性变成进程自己的选择。
 
 **影响**：边界就是「是否需要 webview」这一问，且依赖只朝一个方向：`host-tauri → host-core → {agent, sandbox, audit}`。`worker` 与 `server` 依赖 `host-core` 且不含任何 Tauri crate（`cargo tree -p worker` / `-p server` 可验）；桌面壳只依赖 `host-tauri`，因为后者再导出了可移植面（`pub use host_core::*`）。39 个集成测试住在 `host-core/tests`；镜像常量守卫与 clippy 步骤覆盖两个 crate。工作分四波完成——core + 门面、测试 + 守卫、worker/server、更名 + 外壳——每波自身可绿，没有「暂时红」的中间态。crate 名本身即文档：`host-core` 说「无 webview」，`host-tauri` 说「只有 webview」。
+
+## 28. CLI：落点、模式与退出码
+
+**日期**：2026-09-23 ｜ **状态**：已定；骨架与只读子命令已随 v0.9 落地
+
+**决策**：CLI 是新 crate `cli`，二进制 `riscdom`。它是**控制平面的客户端**：每条命令都经 HTTP，本地模式在 CLI 进程内、`127.0.0.1:0` 上把控制平面起起来。退出码：`0` 成功、`1` 本地失败、`2` 用法或 `400`、`3` 被拒或 `5xx`、`4` `401`/`403`。
+
+**理由**：放进 `server` 会让同一个 crate 既是被服务的进程又是它的客户端；放进 `host-tauri` 会把 Tauri 链进一个无头工具。既然本地调用与远程调用必须表现一致，本地模式绕过 HTTP 直接摸 `AppState` 就毫无收益——代价却很大：那样只有远程路径会被真正走到。
+
+**影响**：CLI 依赖 `server`（内嵌模式）、`host-core`、`reqwest`、`serde_json`——全部已在锁文件内；没有新增参数解析 crate，CLI 像 `riscdom-server`、`worker` 与两个 `audit` 二进制一样手写解析。`--json` 原样透传控制平面的 JSON；token 从不被打印或记录。门禁的 clippy 步骤以 `--no-deps` 覆盖 `-p cli`，于是新 crate 被 lint，同时不会把 `server` 自身（既有）的问题拖进门禁。控制类子命令与 `--follow` 属下一批。

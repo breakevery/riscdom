@@ -414,7 +414,41 @@ Notes a client should know:
 - **`POST /v0/vm/start` answers `501`** (reserved: today the VM starts inside a run), and so
   does `GET /v0/resources`.
 
-## 7. What is not there yet
+## 7. Driving the control plane from the CLI
+
+`riscdom` is the reference client, and the fastest way to check that a control plane answers
+what this document says it answers. It is a client in the strict sense: every command is an HTTP
+request, and the local mode simply starts the control plane inside its own process on a loopback
+port the OS picks.
+
+```bash
+riscdom health --json                 # against a control plane it starts itself
+riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # against one that is already up
+```
+
+| Command | Endpoint |
+|---|---|
+| `riscdom health` | `GET /v0/health` |
+| `riscdom status` / `riscdom agents` | `GET /v0/status` |
+| `riscdom runs list [--limit <n>]` | `GET /v0/runs` |
+| `riscdom runs get <run_id>` | `GET /v0/runs/<run_id>` |
+| `riscdom audit status` | `GET /v0/audit/status` |
+| `riscdom audit events [--limit <n>]` | `GET /v0/audit/events` |
+| `riscdom snapshots list` | `GET /v0/snapshots` |
+
+- **`--json`** prints exactly what the control plane sent — the same fields §2 and §5 document —
+  so a client built against this document can be debugged with it. Failures print the error
+  object of §4 on **stderr**.
+- **Exit codes** turn the status codes of §4 into something a script can branch on: `0` success,
+  `1` a local failure (no connection, no token), `2` usage or `400`, `3` refused or `5xx`,
+  `4` `401`/`403`.
+- **The token** comes from `<data-dir>/token` in local mode and from `--token-file`,
+  `RISCDOM_TOKEN` or `--token` (in that order) in remote mode. It is never printed.
+
+The full table, including the human-mode shapes, is in
+[../cli/README.md](../cli/README.md).
+
+## 8. What is not there yet
 
 - **Fine-grained credentials.** Every route's capability is enforced (see §1); what v0.9 has
   only one of is credentials. The single token holds everything, so a client cannot be given

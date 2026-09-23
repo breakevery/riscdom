@@ -358,7 +358,32 @@ curl -sS -X POST http://127.0.0.1:7821/v0/audit/export \
 - **`POST /v0/toolchain/download` 会真的下载**固定的 RISC-V GCC 归档。
 - **`POST /v0/vm/start` 回 `501`**（预留：今天 VM 在运行内部启动），`GET /v0/resources` 同样。
 
-## 7. 还没有的东西
+## 7. 用 CLI 驱动控制平面
+
+`riscdom` 是参考客户端，也是「这个控制平面到底答不答本文档所说的东西」最快的核对方式。它是严格意义上的客户端：每条命令都是一次 HTTP 请求，而本地模式只不过是在自己进程内、由内核挑一个回环端口把控制平面起起来。
+
+```bash
+riscdom health --json                 # 对着它自己起的控制平面
+riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # 对着已经跑着的那个
+```
+
+| 子命令 | 端点 |
+|---|---|
+| `riscdom health` | `GET /v0/health` |
+| `riscdom status` / `riscdom agents` | `GET /v0/status` |
+| `riscdom runs list [--limit <n>]` | `GET /v0/runs` |
+| `riscdom runs get <run_id>` | `GET /v0/runs/<run_id>` |
+| `riscdom audit status` | `GET /v0/audit/status` |
+| `riscdom audit events [--limit <n>]` | `GET /v0/audit/events` |
+| `riscdom snapshots list` | `GET /v0/snapshots` |
+
+- **`--json`** 打印的就是控制平面发来的原文——§2、§5 记录的那些字段——因此照着本文档写出的客户端可以用它来调试。失败时把 §4 的错误体打到 **stderr**。
+- **退出码**把 §4 的状态码变成脚本可分叉的东西：`0` 成功、`1` 本地失败（连不上、没有 token）、`2` 用法或 `400`、`3` 被拒或 `5xx`、`4` `401`/`403`。
+- **token**：本地模式取自 `<data-dir>/token`；远程模式按 `--token-file`、`RISCDOM_TOKEN`、`--token` 的顺序取。从不被打印。
+
+完整表格（含人类模式形状）见 [../cli/README.zh-CN.md](../cli/README.zh-CN.md)。
+
+## 8. 还没有的东西
 
 - **细粒度凭证。** 每条路由的 capability 都已强制（见 §1）；v0.9 缺的只是不止一种凭证。单个 token 持有一切，因此没法只授予「只读审计链」的客户端——按能力细分的 token 属 v1.0。
 - **`POST /v0/vm/start`** 与 **`GET /v0/resources`** 回 `501`。
