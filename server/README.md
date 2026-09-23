@@ -13,7 +13,7 @@ portable half (`host-core`, Layer 2) and links **no Tauri crate** — `cargo tre
 names none. (Before v0.9's A1 wave 3 it did, because it depended on `host`, which depends on
 `tauri` unconditionally.)
 
-All 53 endpoints of the API tables answer over HTTP, plus the three host-local ones, the
+All 56 endpoints of the API tables answer over HTTP, plus the three host-local ones, the
 two reserved routes that say so with `501`, and the event stream. The token is on by
 default and every route's capability is enforced.
 
@@ -60,7 +60,13 @@ listen on a public interface unless you tell it to.
 | `/v0/status` | GET | `{"status","version","uptime_ms","connections","sse_subscribers","agents","agent_id"}` |
 | `/v0/events` | GET | The SSE event stream (`text/event-stream`, replayable with `Last-Event-ID`). |
 | `/v0/runs`, `/v0/sessions`, `/v0/snapshots`, `/v0/llm/…`, `/v0/preflight`, `/v0/serial` | GET | The rest of the query surface: see the API document's §5.1. |
-| `/v0/sessions/create`, `/v0/settings/theme`, … | POST | The 27 controls of §5.2: sessions, snapshots, VM, toolchain, preflight, LLM config, exports. |
+| `/v0/sessions/create`, `/v0/settings/theme`, … | POST | The 29 controls of §5.2: sessions, snapshots, VM, toolchain, QEMU, preflight, LLM config, exports. |
+
+`/v0/qemu/download` is the one path in the QEMU family served under both methods: `GET` asks
+whether a download is running, `POST` would start one. **Today the `POST` answers `503
+unavailable` with the install guidance**: RiscDom guides the user to a QEMU they install
+themselves and pins no release (`docs/qemu-distribution.md` §5). The toolchain's
+`/v0/toolchain/download` is the same pair, and there the download is real.
 
 Everything else answers `404` with the error model of the API document:
 

@@ -16,7 +16,7 @@ from the control plane; the audit chain tells them apart by `agent_id`. Building
 control channels instead of one is the mistake this design exists to avoid.
 
 **Implementation status (v0.9).** Everything in §5 is implemented — the 26 query
-endpoints of §5.1, the 27 controls of §5.2, the host-local endpoints of §5.3, the error
+endpoints of §5.1, the 29 controls of §5.2, the host-local endpoints of §5.3, the error
 model of §4, the event envelope with `Last-Event-ID` replay and `gap` frames, and the
 bearer token of §3. Only two routes are reserved: `/v0/resources` (§6, G3) and
 `POST /v0/vm/start` (§6, G1), and both say so with `501`. Capability enforcement (§3) is in: every served
@@ -164,7 +164,7 @@ Query commands are `GET`. Control commands are `POST`. "Capability" is the preco
 the server checks before the handler runs (§3; §6 gap G2). The last column names the
 Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 
-### 5.1 Queries (26)
+### 5.1 Queries (27)
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
@@ -187,6 +187,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/toolchain/download` | GET | `toolchain.read` | — | `ToolchainDownloadStatus` | `toolchain_download_status` |
 | `/v0/qemu` | GET | `qemu.read` | — | `QemuView` | `probe_qemu` |
 | `/v0/qemu/status` | GET | `qemu.read` | — | `QemuView` | `get_qemu_status` |
+| `/v0/qemu/download` | GET | `qemu.read` | — | `QemuDownloadStatus` | `qemu_download_status` |
 | `/v0/preflight` | GET | `preflight.read` | — | `PreflightView` | `preflight_status` |
 | `/v0/settings/theme` | GET | `settings.read` | — | `{ "theme": string }` | `get_theme` |
 | `/v0/settings/language` | GET | `settings.read` | — | `{ "language": string }` | `get_language` |
@@ -195,7 +196,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/workspace/file` | GET | `workspace.read` | query: `path` | `{ "content": string }` | `read_workspace_file` |
 | `/v0/serial` | GET | `serial.read` | — | `{ "buffer": string }` | `get_serial_buffer` |
 
-### 5.2 Controls (27) — implemented in v0.9 batch 4
+### 5.2 Controls (29) — implemented in v0.9 batch 4, extended by sandbox F1
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
@@ -215,6 +216,8 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/toolchain/path` | POST | `toolchain.configure` | `{ "path": string }` | `204 No Content` | `set_toolchain_path` |
 | `/v0/toolchain/path/clear` | POST | `toolchain.configure` | — | `204 No Content` | `clear_toolchain_path` |
 | `/v0/qemu/path` | POST | `qemu.configure` | `{ "path": string }` | `204 No Content` | `set_qemu_path` |
+| `/v0/qemu/download` | POST | `qemu.configure` | — | `202 { "state": "started" }`, or `503 unavailable` on every platform today (see the note below) | `start_qemu_download` |
+| `/v0/qemu/download/cancel` | POST | `qemu.configure` | — | `202 { "state": "cancelling" }`, or `409` when nothing is running | `cancel_qemu_download` |
 | `/v0/qemu/path/clear` | POST | `qemu.configure` | — | `204 No Content` | `clear_qemu_path` |
 | `/v0/preflight/run` | POST | `preflight.run` | — | `202 { "state": "running" }` | `run_preflight` |
 | `/v0/preflight/ack` | POST | `preflight.run` | — | `PreflightView` | `acknowledge_preflight` |
@@ -250,6 +253,12 @@ the tables above. They are part of this document's surface all the same.
 
 ### 5.4 Notes on the tables
 
+- **`POST /v0/qemu/download` refuses, by decision, on every platform.** RiscDom guides
+  the user to a QEMU they install themselves (`docs/qemu-distribution.md` §5): no release is
+  pinned, so the endpoint answers `503 unavailable` with `cause: "qemu"` and the install
+  guidance in `message`, and it claims no download slot. Everything behind it — the slot,
+  the status, the cancel, the `qemu:download` event family and the adoption step — is
+  complete, so pinning a release later is a **data change**: the answer becomes `202`.
 - **The two audit exports answer a count of events, not bytes.** The host's
   `write_events_jsonl` returns `events.len()`, so `/v0/audit/export` and
   `/v0/runs/export` answer `{ "events_exported": number }` — the field name says what

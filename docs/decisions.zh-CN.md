@@ -299,3 +299,13 @@
 **理由**：`400` 的应答方式是直接把一个现成的 response 交给调用方——正是这个形状让处理器保持可读；但 hyper 的 `Response` 有 128+ 字节，于是每个携带它的 `Result` 在体积上主要由错误构成（`clippy::result_large_err`）。装箱把大值放到真正产生它的那条路径背后的指针里，代价只是构造错误时的一次分配——成功路径上零成本。
 
 **影响**：调用方写 `return *response`，因此同一条路径上传的仍是同一个值：行为不变，只换了地址。这些方法挂在一个 `pub(crate)` 类型上，所以 crate 之外看不到该签名。`server` 现在也在门禁的 clippy 步骤里——正是它最初让这六处浮出水面。
+
+## 30. 两套装配共用一个形状
+
+**日期**：2026-09-23 ｜ **状态**：已定；随 v0.9 沙箱批次 F1 落地
+
+**决策**：「装配一个资源」只有一个形状，工具链与 QEMU 都用它：*spec*（`version`、`url`、`sha256`、`archive_kind`、`install_subdir`）→ 分块*下载*（带取消标志）→ *sha256 校验* → *Zip-Slip 守卫的解压* → *采用*（校验结果并写进 `settings.json`）→ *审计事件*（`host.<resource>.download.start|done|failed|cancelled`）→ *SSE 事件族*（`<resource>:download`，内部标签枚举、标签为 `state`）→ `AppState` 里每资源一个*槽*（`begin` / `status` / `cancel` / `finish`）。
+
+**理由**：两种资源是同一个问题的两个实例——一个被 pin、受完整性校验的二进制，需要被抓取、验证、安装并设为当前——而客户端应当对两者读同一套词汇。共用形状也是让「沙箱 = 内核 + 工具链 + QEMU」（F2）变成「给资源起名」而不是「为每种资源新造一套机制」的前提。
+
+**影响**：QEMU 下载的 payload 标签从 `kind` 改为 `state`，CLI 的 `--wait` 终止判定变成两族共用的一个函数，因此已按一族写好的客户端已经能读另一族。**形状是共用的，但并未抽象**：没有通用的 `Resource` trait 或 spec 类型，F1 刻意不加——两个模块仍是各自独立的文件与类型，这份重复是「在 F2 说出抽象是什么之前不猜」的、已被记录在案的代价。工具链的语义未变。`spec_for_current_platform` 仍是 QEMU 的平台分支，且今天在每个平台都拒绝（`docs/qemu-distribution.md` §5）：共用形状意味着将来 pin 一个发布版只是改一张表的数据变更。

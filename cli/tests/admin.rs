@@ -465,6 +465,51 @@ fn cancelling_when_nothing_is_running_is_a_conflict() {
 }
 
 #[test]
+fn the_qemu_download_reports_the_unpinned_decision() {
+    // No QEMU release is pinned (the project guides instead of downloading), so the
+    // endpoint answers the documented `503 unavailable` with `cause: "qemu"` and the
+    // guidance — on every platform. Nothing is downloaded, and nothing can be.
+    let output = run("qemu-download", &["--json", "qemu", "download"]);
+    assert_eq!(exit_code(&output), 3, "stderr: {}", stderr(&output));
+    let body = error_body(&output);
+    assert_eq!(body["code"], "unavailable", "{body}");
+    assert_eq!(body["cause"], "qemu", "{body}");
+    let message = body["message"].as_str().expect("message");
+    assert!(message.contains("QEMU"), "{message}");
+    assert!(output.stdout.is_empty(), "nothing on stdout");
+
+    // `--wait` must not turn the refusal into a hang: the request is refused
+    // before anything is subscribed to, and the CLI exits with the same code.
+    let waited = run("qemu-download-wait", &["qemu", "download", "--wait"]);
+    assert_eq!(exit_code(&waited), 3, "stderr: {}", stderr(&waited));
+    assert!(
+        stderr(&waited).contains("unavailable"),
+        "{}",
+        stderr(&waited)
+    );
+
+    // Nothing was installed, and the status says so.
+    let status = run("qemu-status", &["qemu", "status"]);
+    assert_eq!(exit_code(&status), 0, "stderr: {}", stderr(&status));
+    assert_eq!(stdout(&status).trim(), "in_progress false\nlast_event  -");
+}
+
+#[test]
+fn cancelling_a_qemu_download_that_is_not_running_is_a_conflict() {
+    let output = run("qemu-cancel", &["--json", "qemu", "cancel"]);
+    assert_eq!(exit_code(&output), 3, "stderr: {}", stderr(&output));
+    let body = error_body(&output);
+    assert_eq!(body["code"], "conflict", "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("message")
+            .contains("no QEMU download"),
+        "{body}"
+    );
+}
+
+#[test]
 fn the_preflight_acknowledgement_answers() {
     // `preflight run` is not driven here (it compiles and boots a guest); its
     // `ack` half is safe: it records the escape hatch and answers with the view.

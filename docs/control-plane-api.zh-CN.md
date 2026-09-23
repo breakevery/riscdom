@@ -8,7 +8,7 @@
 
 **这是什么。** RiscDom v0.9 的主线是控制平面：人监督 AI 与 AI 监督 AI 走**同一套** HTTP 接口。在内核看来，来自监工 AI 的指令和来自人的指令都是控制平面授权的指令；审计链靠 `agent_id` 区分二者。本条设计存在的意义，就是避免去建两条会各自演化、最终冲突的控制通道。
 
-**实现状态（v0.9）。** §5 已全部落地——§5.1 的 26 个查询端点、§5.2 的 27 个控制端点、§5.3 的宿主本地端点、§4 的错误模型、带 `Last-Event-ID` 补发与 `gap` 帧的事件 envelope、以及 §3 的 bearer token。仅两条路由为预留：`/v0/resources`（§6 G3）与 `POST /v0/vm/start`（§6 G1），二者都以 `501` 明示。权限**强制**（§3）已落地：每条被服务的路由恰好声明一个 capability，actor 不持有时服务端以 `403` 拒绝。
+**实现状态（v0.9）。** §5 已全部落地——§5.1 的 27 个查询端点、§5.2 的 29 个控制端点、§5.3 的宿主本地端点、§4 的错误模型、带 `Last-Event-ID` 补发与 `gap` 帧的事件 envelope、以及 §3 的 bearer token。仅两条路由为预留：`/v0/resources`（§6 G3）与 `POST /v0/vm/start`（§6 G1），二者都以 `501` 明示。权限**强制**（§3）已落地：每条被服务的路由恰好声明一个 capability，actor 不持有时服务端以 `403` 拒绝。
 
 ## 1. 定位与协议
 
@@ -96,7 +96,7 @@ pub struct Actor {
 
 查询类命令为 `GET`。控制类命令为 `POST`。「权限」列是服务端在处理器运行前检查的前置条件（§3；§6 缺口 G2）。最后一列是与端点对应的 Tauri 命令名，便于集成者把两个面对齐。
 
-### 5.1 查询类（26）
+### 5.1 查询类（27）
 
 | 端点 | 方法 | 权限 | 请求 | 响应 | 对应 Tauri 命令 |
 |---|---|---|---|---|---|
@@ -119,6 +119,7 @@ pub struct Actor {
 | `/v0/toolchain/download` | GET | `toolchain.read` | — | `ToolchainDownloadStatus` | `toolchain_download_status` |
 | `/v0/qemu` | GET | `qemu.read` | — | `QemuView` | `probe_qemu` |
 | `/v0/qemu/status` | GET | `qemu.read` | — | `QemuView` | `get_qemu_status` |
+| `/v0/qemu/download` | GET | `qemu.read` | — | `QemuDownloadStatus` | `qemu_download_status` |
 | `/v0/preflight` | GET | `preflight.read` | — | `PreflightView` | `preflight_status` |
 | `/v0/settings/theme` | GET | `settings.read` | — | `{ "theme": string }` | `get_theme` |
 | `/v0/settings/language` | GET | `settings.read` | — | `{ "language": string }` | `get_language` |
@@ -127,7 +128,7 @@ pub struct Actor {
 | `/v0/workspace/file` | GET | `workspace.read` | query：`path` | `{ "content": string }` | `read_workspace_file` |
 | `/v0/serial` | GET | `serial.read` | — | `{ "buffer": string }` | `get_serial_buffer` |
 
-### 5.2 控制类（27）—— 已于 v0.9 批次 4 实装
+### 5.2 控制类（29）—— 已于 v0.9 批次 4 实装，沙箱 F1 扩充
 
 | 端点 | 方法 | 权限 | 请求 | 响应 | 对应 Tauri 命令 |
 |---|---|---|---|---|---|
@@ -148,6 +149,8 @@ pub struct Actor {
 | `/v0/toolchain/path/clear` | POST | `toolchain.configure` | — | `204 No Content` | `clear_toolchain_path` |
 | `/v0/qemu/path` | POST | `qemu.configure` | `{ "path": string }` | `204 No Content` | `set_qemu_path` |
 | `/v0/qemu/path/clear` | POST | `qemu.configure` | — | `204 No Content` | `clear_qemu_path` |
+| `/v0/qemu/download` | POST | `qemu.configure` | — | `202 { "state": "started" }`；今天是每个平台都 `503 unavailable`（见下方注记） | `start_qemu_download` |
+| `/v0/qemu/download/cancel` | POST | `qemu.configure` | — | `202 { "state": "cancelling" }`；没在跑则 `409` | `cancel_qemu_download` |
 | `/v0/preflight/run` | POST | `preflight.run` | — | `202 { "state": "running" }` | `run_preflight` |
 | `/v0/preflight/ack` | POST | `preflight.run` | — | `PreflightView` | `acknowledge_preflight` |
 | `/v0/audit/alert` | POST | `settings.write` | `{ "enabled": bool }` | `204 No Content` | `set_audit_alert` |
@@ -175,6 +178,10 @@ pub struct Actor {
 
 ### 5.4 表格附注
 
+- **`POST /v0/qemu/download` 按决定在每个平台上都拒绝。** RiscDom 引导用户自己安装 QEMU
+  （`docs/qemu-distribution.md` §5）：没有 pin 任何发布版，因此该端点答 `503 unavailable`、
+  `cause: "qemu"`，`message` 里是安装指引，且不会占下载槽。它背后的东西——槽、状态、取消、
+  `qemu:download` 事件族与采用步骤——都已齐备，所以将来 pin 一个版本是**数据变更**：答案会变成 `202`。
 - **两条审计导出给的是事件数，不是字节数。** 宿主的 `write_events_jsonl` 返回
   `events.len()`，因此 `/v0/audit/export` 与 `/v0/runs/export` 答
   `{ "events_exported": number }`——字段名说的就是数的是什么。`/v0/serial/export` 写的是捕获到的

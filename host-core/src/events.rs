@@ -37,8 +37,21 @@ pub const EV_AGENT_FINAL: &str = "agent:final";
 /// New serial output (incremental), pushed by the sandbox via the agent's
 /// serial observer (`AgentLoop::subscribe_serial`).
 pub const EV_SERIAL_CHUNK: &str = "serial:chunk";
-/// One-click toolchain download progress (`DownloadEvent` payload).
+/// Download progress for the pinned RISC-V toolchain (v0.9: shared shape with
+/// [`EV_QEMU_DOWNLOAD`]).
+///
+/// The payload is the internally tagged `DownloadEvent` enum under the tag `state`:
+/// `started` / `progress` / `verifying` / `extracting` / `done` / `failed` /
+/// `cancelled`.
 pub const TOOLCHAIN_DOWNLOAD: &str = "toolchain:download";
+
+/// Download progress for the pinned QEMU build (v0.9 sandbox F1).
+///
+/// The same payload shape as [`TOOLCHAIN_DOWNLOAD`]: the two assemblies report
+/// themselves the same way, so a client reads one vocabulary for both. Today no QEMU
+/// release is pinned (`docs/qemu-distribution.md` §5), so the only thing this family
+/// carries is the refusal.
+pub const EV_QEMU_DOWNLOAD: &str = "qemu:download";
 /// Incremental assistant text from the LLM stream (`AgentLoop::subscribe_stream`).
 pub const EV_AGENT_STREAM_DELTA: &str = "agent:stream:delta";
 /// The LLM stream finished.

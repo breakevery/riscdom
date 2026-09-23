@@ -15,9 +15,17 @@
 //! So [`spec_for_current_platform`] refuses and hands back [`install_guidance`], and the manual path
 //! in `docs/qemu-setup.md` is the way in.
 //!
+//! Wiring (v0.9 sandbox F1): the *caller* now exists — `AppState::begin_qemu_download` /
+//! `qemu_download_status` / `cancel_qemu_download` / `download_qemu_now`, the three
+//! `POST`/`GET /v0/qemu/download` endpoints, the three Tauri commands and `riscdom qemu
+//! download|cancel|status`. With no pinned spec they all report the refusal and the
+//! guidance; pinning a release later stays a **data change**, exactly as this module
+//! promised. The event payload's tag is `state` (it was `kind`), so the SSE family
+//! and the audit payload have the same shape as `toolchain:download` — one shape for
+//! both assemblies.
+//!
 //! Everything below the spec table is written and exercised by tests against a loopback server
-//! (`host-core/tests/qemu_download.rs`), so pinning a real release later would be a data change, not a
-//! code change. Nothing calls it today.
+//! (`host-core/tests/qemu_download.rs`).
 //!
 //! `QemuDownloadEvent::Failed` is emitted by the *caller* (it owns the error text);
 //! this module emits Started / Progress / Verifying / Extracting / Done /
@@ -64,8 +72,12 @@ impl QemuDownloadSpec {
 }
 
 /// Progress / lifecycle events for the UI.
+///
+/// The tag is `state`, the same one `toolchain_download::DownloadEvent` uses and the
+/// same one `docs/control-plane-events.md` describes: one shape for both assemblies
+/// (v0.9 sandbox F1).
 #[derive(Debug, Clone, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(tag = "state", rename_all = "kebab-case")]
 pub enum QemuDownloadEvent {
     Started { total_bytes: Option<u64> },
     Progress { downloaded: u64, total: Option<u64> },

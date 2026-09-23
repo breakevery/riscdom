@@ -82,6 +82,22 @@ pub struct ToolchainDownloadStatus {
     pub last_event: Option<DownloadEvent>,
 }
 
+/// In-flight QEMU download bookkeeping (v0.9 sandbox F1).
+///
+/// The mirror of [`ToolchainDownloadState`]: two assemblies, one shape.
+#[derive(Debug)]
+pub struct QemuDownloadState {
+    pub cancel: Arc<AtomicBool>,
+    pub started_at: std::time::Instant,
+}
+
+/// QEMU download status for the UI / polling clients.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct QemuDownloadStatus {
+    pub in_progress: bool,
+    pub last_event: Option<crate::qemu_download::QemuDownloadEvent>,
+}
+
 /// QEMU status shown in the UI (v0.3 5b-1a).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct QemuView {
@@ -410,11 +426,16 @@ pub struct AppState {
     /// In-flight toolchain download (v0.3 #3b). `Arc` so the worker thread can
     /// be handed the cancel flag and clear the slot when it finishes.
     pub toolchain_download: Arc<Mutex<Option<ToolchainDownloadState>>>,
+    /// In-flight QEMU download (v0.9 sandbox F1); the same shape, including the
+    /// `Arc` for the same reason.
+    pub qemu_download: Arc<Mutex<Option<QemuDownloadState>>>,
     /// When the host-owned VM started (epoch ms); shared with the audit bridge,
     /// which learns about VM starts/stops from the sandbox's audit events.
     vm_started_at_ms: Arc<Mutex<Option<i64>>>,
     /// Last download event seen, kept after the download ends (for polling).
     toolchain_download_last: Mutex<Option<DownloadEvent>>,
+    /// The same for QEMU.
+    qemu_download_last: Mutex<Option<crate::qemu_download::QemuDownloadEvent>>,
     /// Non-secret local settings mirrored to `settings.json`.
     settings: Mutex<LocalSettings>,
     /// Where `settings.json` lives.
@@ -698,8 +719,10 @@ impl AppState {
             toolchain_path: Mutex::new(None),
             qemu_path: Mutex::new(None),
             toolchain_download: Arc::new(Mutex::new(None)),
+            qemu_download: Arc::new(Mutex::new(None)),
             vm_started_at_ms: Arc::new(Mutex::new(None)),
             toolchain_download_last: Mutex::new(None),
+            qemu_download_last: Mutex::new(None),
             settings: Mutex::new(LocalSettings::default()),
             settings_path: crate::paths::settings_path(),
             data_dir: crate::paths::default_data_dir(),
@@ -1152,6 +1175,159 @@ impl AppState {
                 } else {
                     self.emit_host(
                         "host.toolchain.download.failed",
+                        serde_json::json!({
+                            "version": spec.version,
+                            "code": code,
+                            "error": e.to_string(),
+                        }),
+                    );
+                }
+                Err(HostError::Other(format!("{code}: {e}")))
+            }
+        }
+    }
+
+    // ----- QEMU download (v0.9 sandbox F1) ----------------------------------
+
+    /// Where downloaded QEMU builds live (`<data-dir>/qemu`).
+    ///
+    /// One directory per resource, one versioned subdirectory inside it: the same
+    /// layout as [`Self::toolchain_dir`].
+    pub fn qemu_dir(&self) -> PathBuf {
+        crate::paths::qemu_dir_in(&self.data_dir)
+    }
+
+    /// Claim the QEMU download slot. Errors when one is already running.
+    ///
+    /// The mirror of [`Self::begin_toolchain_download`]. Today no QEMU release is
+    /// pinned, so a caller refuses (`unpinned_platform`) **before** claiming this
+    /// slot; the slot exists so that pinning one is a data change, not a rewrite.
+    pub fn begin_qemu_download(
+        &self,
+        spec: &crate::qemu_download::QemuDownloadSpec,
+    ) -> Result<Arc<AtomicBool>, HostError> {
+        let mut slot = self
+            .qemu_download
+            .lock()
+            .map_err(|_| HostError::Other("download lock poisoned".into()))?;
+        if slot.is_some() {
+            return Err(HostError::Other("download already in progress".into()));
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        *slot = Some(QemuDownloadState {
+            cancel: Arc::clone(&cancel),
+            started_at: std::time::Instant::now(),
+        });
+        drop(slot);
+        self.emit_host(
+            "host.qemu.download.start",
+            serde_json::json!({ "version": spec.version }),
+        );
+        Ok(cancel)
+    }
+
+    /// Ask an in-flight QEMU download to stop.
+    pub fn cancel_qemu_download(&self) -> Result<(), HostError> {
+        let slot = self
+            .qemu_download
+            .lock()
+            .map_err(|_| HostError::Other("download lock poisoned".into()))?;
+        match slot.as_ref() {
+            Some(state) => {
+                state.cancel.store(true, Ordering::Relaxed);
+                Ok(())
+            }
+            None => Err(HostError::Other("no download in progress".into())),
+        }
+    }
+
+    /// Current QEMU download status (also valid when idle: the last event is kept).
+    pub fn qemu_download_status(&self) -> QemuDownloadStatus {
+        let in_progress = self
+            .qemu_download
+            .lock()
+            .map(|slot| slot.is_some())
+            .unwrap_or(false);
+        let last_event = self
+            .qemu_download_last
+            .lock()
+            .ok()
+            .and_then(|event| event.clone());
+        QemuDownloadStatus {
+            in_progress,
+            last_event,
+        }
+    }
+
+    /// Record one QEMU download event (progress reporting + polling).
+    pub fn record_qemu_download_event(&self, event: crate::qemu_download::QemuDownloadEvent) {
+        if let Ok(mut last) = self.qemu_download_last.lock() {
+            *last = Some(event);
+        }
+    }
+
+    /// Release the QEMU download slot (called when the worker finishes).
+    pub fn finish_qemu_download(&self) {
+        if let Ok(mut slot) = self.qemu_download.lock() {
+            *slot = None;
+        }
+    }
+
+    /// Download, verify and install, then adopt the emulator as the active one.
+    ///
+    /// The mirror of [`Self::download_toolchain_now`], including the adoption step:
+    /// a QEMU that installs but does not run is `not_runnable`, not a success.
+    pub fn download_qemu_now(
+        &self,
+        spec: &crate::qemu_download::QemuDownloadSpec,
+        dest_root: &Path,
+        cancel: Arc<AtomicBool>,
+        on_event: &mut dyn FnMut(crate::qemu_download::QemuDownloadEvent),
+    ) -> Result<PathBuf, HostError> {
+        let mut forward = |event: crate::qemu_download::QemuDownloadEvent| {
+            self.record_qemu_download_event(event.clone());
+            on_event(event);
+        };
+        let result =
+            crate::qemu_download::download_and_install(spec, dest_root, &cancel, &mut forward);
+
+        match result {
+            Ok(emulator) => {
+                let path = emulator.display().to_string();
+                let adopted = self.set_qemu_path(&path);
+                self.finish_qemu_download();
+                match adopted {
+                    Ok(()) => {
+                        self.emit_host(
+                            "host.qemu.download.done",
+                            serde_json::json!({ "version": spec.version, "path": path }),
+                        );
+                        Ok(emulator)
+                    }
+                    Err(e) => {
+                        self.emit_host(
+                            "host.qemu.download.failed",
+                            serde_json::json!({
+                                "version": spec.version,
+                                "code": "not_runnable",
+                                "error": e.to_string(),
+                            }),
+                        );
+                        Err(e)
+                    }
+                }
+            }
+            Err(e) => {
+                let code = e.code();
+                self.finish_qemu_download();
+                if matches!(e, crate::qemu_download::QemuDownloadError::Cancelled) {
+                    self.emit_host(
+                        "host.qemu.download.cancelled",
+                        serde_json::json!({ "version": spec.version }),
+                    );
+                } else {
+                    self.emit_host(
+                        "host.qemu.download.failed",
                         serde_json::json!({
                             "version": spec.version,
                             "code": code,

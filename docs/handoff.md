@@ -13,6 +13,33 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **QEMU is wired like the toolchain, and the refusal is the recorded decision** (v0.9
+  sandbox F1). The F reconnaissance found one asymmetry: `toolchain_download` ran end to end
+  (host methods, endpoints, events, CLI) while `qemu_download` was **code without a caller**.
+  The caller exists now, in the toolchain's exact shape: `AppState::begin_qemu_download` /
+  `qemu_download_status` / `cancel_qemu_download` / `download_qemu_now` (plus
+  `record_qemu_download_event` / `finish_qemu_download` and `qemu_dir()`), the audit events
+  `host.qemu.download.start|done|failed|cancelled`, the SSE family `qemu:download`, the three
+  Tauri commands, the three endpoints (`GET`/`POST /v0/qemu/download`, `POST
+  /v0/qemu/download/cancel`, capability `qemu.read` / `qemu.configure`) and the three CLI
+  commands (`qemu download [--wait]` / `cancel` / `status`). **What is not wired is a
+  download**, and that is by decision: `spec_for_current_platform()` refuses on every
+  platform (`docs/qemu-distribution.md` §5 — RiscDom guides the user to a QEMU they install
+  themselves, and pins no release, because upstream publishes no Windows binary and a guessed
+  digest is a silent integrity hole), so `POST /v0/qemu/download` answers `503 unavailable`
+  with `cause: "qemu"` and the guidance, and claims no slot. Everything behind that refusal
+  is exercised by tests against a loopback fixture, so **pinning a release later is a data
+  change**: the answer becomes `202` and the rest already works. Two shapes became one:
+  `QemuDownloadEvent`'s payload tag is now `state` (it was `kind`), the same vocabulary
+  `toolchain:download` uses, and the CLI's `--wait` terminal predicate is now one function
+  (`download_terminal`) shared by both families. `docs/control-plane-api.md` §5.1/§5.2 are
+  27 queries and 29 controls (was 26/27), `docs/control-plane-events.md` has twelve events
+  (was eleven, §3 table row 12), and `docs/decisions.md` §29 records the shared assembly
+  shape. Two asymmetries left standing, reported not fixed: `host-tauri` still writes an
+  unconditional `eprintln!` on a toolchain-download failure (F1's QEMU command deliberately
+  does not — C6's log switch covers `server` only), and `paths.rs` gained `qemu_dir_in` but no
+  process-wide `qemu_dir()`, because the toolchain's process-wide counterpart has no callers
+  either.
 - **The interface tells the truth, and the library's log is opt-in** (v0.9 CLI batch 6/N).
   Four small things C3/C4 left behind, fixed together. The two audit exports answered a field
   named `bytes_written` while returning the number of **events** (`write_events_jsonl`

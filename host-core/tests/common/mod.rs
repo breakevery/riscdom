@@ -237,6 +237,19 @@ pub fn toolchain_archive_with_executable() -> (Vec<u8>, String) {
     ])
 }
 
+/// Archive bytes whose QEMU emulator really runs (so adoption succeeds).
+///
+/// The QEMU counterpart of [`toolchain_archive_with_executable`]: the same fake
+/// executable, under the name the QEMU downloader looks for.
+pub fn qemu_archive_with_executable() -> (Vec<u8>, String) {
+    let emulator = fake_executable_bytes();
+    let entry = qemu_entry();
+    build_archive(&[
+        (entry.as_str(), emulator.as_slice()),
+        ("qemu/README.txt", b"qemu fixture\n".as_slice()),
+    ])
+}
+
 /// Does `dir` exist and contain at least one file?
 pub fn dir_has_files(dir: &Path) -> bool {
     std::fs::read_dir(dir)

@@ -8,13 +8,13 @@
 
 **范围。** 命令与查询见 [control-plane-api.zh-CN.md](control-plane-api.zh-CN.md)。本文覆盖推送侧：SSE 分帧、所有事件共用的一个 envelope、逐事件 payload、以及过滤。
 
-**事件从哪来。** `host-core/src/events.rs` 定义十一个事件名与一个 `EventSink` trait（`emit(&self, event: &str, payload: serde_json::Value)`）。当前有三个实现：`TauriEventSink`（发往 webview）、`RecordingEventSink`（测试）、`LineEventSink`（`worker`，JSON 行写 stderr）。**每个传输都把要发的东西包进下面的 envelope**——SSE sink、Tauri sink（其 webview 在唯一边界处解包）、以及 worker 的行协议。发射点仍然只传原始 payload，因为 envelope 是传输的事：`EventSink::emit` 保持 `(&str, Value)` 签名，没有任何发射点改形状。**v0.9 批次 3 已实现**，连同 §3 标为「有变」的三种 payload 形状；其余八种与宿主发射时完全一致。
+**事件从哪来。** `host-core/src/events.rs` 定义十二个事件名与一个 `EventSink` trait（`emit(&self, event: &str, payload: serde_json::Value)`）。当前有三个实现：`TauriEventSink`（发往 webview）、`RecordingEventSink`（测试）、`LineEventSink`（`worker`，JSON 行写 stderr）。**每个传输都把要发的东西包进下面的 envelope**——SSE sink、Tauri sink（其 webview 在唯一边界处解包）、以及 worker 的行协议。发射点仍然只传原始 payload，因为 envelope 是传输的事：`EventSink::emit` 保持 `(&str, Value)` 签名，没有任何发射点改形状。**v0.9 批次 3 已实现**，连同 §3 标为「有变」的三种 payload 形状；其余八种与宿主发射时完全一致。
 
 ## 1. SSE 协议
 
 - **内容类型。** `text/event-stream; charset=utf-8`，带 `Cache-Control: no-cache` 与 `Connection: keep-alive`。
 - **端点。** `GET /v0/events`。流以 `200` 打开；连接保持到客户端关闭或服务端停止。
-- **帧只用 `id:` 与 `data:`，不设 `event:` 字段。** *决定与理由：* 设置 SSE 的 `event` 字段会让浏览器的 `EventSource` 派发到具名监听器、不再触发 `onmessage`，从而强迫客户端注册十一个监听器。不设则每帧都进一个 `onmessage` 处理器，由 envelope 的 `event` 字段负责路由。一个处理器，一个路由。
+- **帧只用 `id:` 与 `data:`，不设 `event:` 字段。** *决定与理由：* 设置 SSE 的 `event` 字段会让浏览器的 `EventSource` 派发到具名监听器、不再触发 `onmessage`，从而强迫客户端注册十二个监听器。不设则每帧都进一个 `onmessage` 处理器，由 envelope 的 `event` 字段负责路由。一个处理器，一个路由。
 - **心跳。** 每 15 秒一行注释（以 `:` 开头），既防止中间设备关闭空闲流，也让客户端能察觉断开的连接：
 
 ```text
@@ -39,7 +39,7 @@ data: {"version":1,"kind":"hello","event":null,"agent_id":"server","task_id":nul
 
 ## 2. 统一 envelope
 
-每帧都携带同一个对象。这是本批的核心产出：十一个事件各保留自己的 payload，但都装进一个 envelope，字段各有唯一含义。
+每帧都携带同一个对象。这是本批的核心产出：十二个事件各保留自己的 payload，但都装进一个 envelope，字段各有唯一含义。
 
 ```json
 {
@@ -57,7 +57,7 @@ data: {"version":1,"kind":"hello","event":null,"agent_id":"server","task_id":nul
 |---|---|---|---|
 | `version` | integer | 是 | envelope schema 版本。v0.9 为 `1`。 |
 | `kind` | string | 是 | 帧种类：`event` / `hello` / `gap`（见下）。 |
-| `event` | string \| null | 是 | 十一个名字之一；`hello` / `gap` 时为 `null`。 |
+| `event` | string \| null | 是 | 十二个名字之一；`hello` / `gap` 时为 `null`。 |
 | `agent_id` | string | 是 | 引发该事件的 agent，`<device>-<pid>-<seq>`。 |
 | `task_id` | string \| null | 是 | 所属的派发任务；与任务无关时为 `null`。 |
 | `ts` | integer | 是 | epoch 毫秒。 |
@@ -65,7 +65,7 @@ data: {"version":1,"kind":"hello","event":null,"agent_id":"server","task_id":nul
 
 v0.9 的 `kind` 取值：
 
-- `event` —— 十一个事件之一；由 `event` 命名。
+- `event` —— 十二个事件之一；由 `event` 命名。
 - `hello` —— 流已开启；`payload.buffer` 与 `payload.filters` 描述它。
 - `gap` —— 请求的重放 id 太旧、无法重放；`payload.lost_after` 是服务端仍持有的最旧 id。看到 `gap` 的客户端必须从查询重新同步（见 API 文档），而不是假定什么都没漏。
 
@@ -78,7 +78,7 @@ v0.9 的 `kind` 取值：
 - **改字段含义、改类型、或删字段，升 `version`。** 这个升版是客户端获知「必须改」的唯一信号，所以只留给这三种情况。
 - v0.9 内 envelope 顶层字段冻结：新增顶层字段也算升 `version`，因为校验 envelope 的客户端会被迫修改。
 
-## 3. 十一个事件，规范化
+## 3. 十二个事件，规范化
 
 这里统一 payload 键名，使得「按本文写的客户端」在发射点被规范化（后续批次）之后依然可用。「有变」指与今日 payload 的映射不是恒等映射；其余保持键名，只是被包进 envelope。
 
@@ -95,9 +95,10 @@ v0.9 的 `kind` 取值：
 | 9 | `preflight:progress` | `{step, state, detail}` | `{step, state, detail}` | 否 |
 | 10 | `audit:failed` | `{error}` | `{message}` | **是** |
 | 11 | `toolchain:download` | 内部标签枚举：`{"kind":"progress","downloaded":d,"total":n}` 等 | `{state, ...}`——同样的字段，标签改为 `state` | **是** |
+| 12 | `qemu:download`（v0.9 沙箱 F1） | 内部标签枚举：`{"kind":"progress",…}` 等 | `{state, ...}`——同样的字段，标签改为 `state`，与工具链同形 | **是** |
 
-十一个中有**三个**改形状，**八个**是恒等映射。
-**三种改动均已在 v0.9 批次 3 落地**（在发射点处）：envelope 包裹它们，下表这些键就是客户端今天在 `payload` 里看到的。
+十二个中有**四个**改形状，**八个**是恒等映射。
+**三种改动均已在 v0.9 批次 3 落地**（第四种在 F1 批次），在发射点处：envelope 包裹它们，下表这些键就是客户端今天在 `payload` 里看到的。
 
 ### 3.1 旧 → 新迁移
 
@@ -121,13 +122,15 @@ v0.9 的 `kind` 取值：
 | `{"kind":"failed","reason":r}` | `{"state":"failed","reason":r}` |
 | `{"kind":"cancelled"}` | `{"state":"cancelled"}` |
 
+`qemu:download`（v0.9 沙箱 F1）迁移方式**完全相同**——同一个枚举、同一个标签——所以一张表就能描述两种装配的下载。区别只在帧出现的可能性：工具链那一族承载真实下载，而 QEMU 那一族今天会拒绝（没有 pin 任何发布版，`docs/qemu-distribution.md` §5），所以它承载的是拒绝而不是进度。
+
 ## 4. 过滤
 
 客户端可订阅子集。这是 v0.9 的设计形状，机制在实现批次里建。
 
 - **查询参数，可重复：**
   `GET /v0/events?event=agent:tool_call&event=vm:state&agent_id=dev-12345-1&task_id=task-12345-1`
-  - `event` —— 十一个名字之一；重复即选多个。缺省为全部。
+  - `event` —— 十二个名字之一；重复即选多个。缺省为全部。
   - `agent_id` —— 选某个 agent 的事件。
   - `task_id` —— 选某个任务的事件。
 - **服务端过滤。** 服务端在写入前丢弃不匹配的帧，因此过滤后的流不会让客户端为它不关心的事件耗带宽。

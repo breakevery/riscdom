@@ -138,7 +138,12 @@ fn waiting_for(command: &Command) -> Option<Waiting> {
         Command::ToolchainDownload => Some(Waiting {
             event: "toolchain:download",
             label: "download",
-            terminal: toolchain_terminal,
+            terminal: download_terminal,
+        }),
+        Command::QemuDownload => Some(Waiting {
+            event: "qemu:download",
+            label: "qemu download",
+            terminal: download_terminal,
         }),
         Command::PreflightRun => Some(Waiting {
             event: "preflight:progress",
@@ -149,11 +154,14 @@ fn waiting_for(command: &Command) -> Option<Waiting> {
     }
 }
 
-/// `toolchain:download` is over when the download says so.
+/// A download is over when it says so.
 ///
-/// `Cancelled` is in the terminal set because the event exists: this CLI does not
+/// One predicate for both assemblies: the toolchain and QEMU families carry the same
+/// `state` vocabulary, which is the point of the shared shape (v0.9 sandbox F1).
+///
+/// `cancelled` is in the terminal set because the event exists: this CLI does not
 /// cancel, so seeing it means something else did, and the download did not finish.
-fn toolchain_terminal(payload: &serde_json::Value) -> Option<bool> {
+fn download_terminal(payload: &serde_json::Value) -> Option<bool> {
     match payload.get("state").and_then(serde_json::Value::as_str) {
         Some("done") => Some(true),
         Some("failed") | Some("cancelled") => Some(false),
@@ -412,25 +420,25 @@ mod tests {
     fn the_download_is_over_at_done_or_failed() {
         for not_yet in ["started", "progress", "verifying", "extracting"] {
             assert_eq!(
-                toolchain_terminal(&serde_json::json!({ "state": not_yet })),
+                download_terminal(&serde_json::json!({ "state": not_yet })),
                 None,
                 "{not_yet}"
             );
         }
         assert_eq!(
-            toolchain_terminal(&serde_json::json!({ "state": "done", "install_path": "p" })),
+            download_terminal(&serde_json::json!({ "state": "done", "install_path": "p" })),
             Some(true)
         );
         assert_eq!(
-            toolchain_terminal(&serde_json::json!({ "state": "failed", "reason": "no network" })),
+            download_terminal(&serde_json::json!({ "state": "failed", "reason": "no network" })),
             Some(false)
         );
         assert_eq!(
-            toolchain_terminal(&serde_json::json!({ "state": "cancelled" })),
+            download_terminal(&serde_json::json!({ "state": "cancelled" })),
             Some(false)
         );
         // A payload without a state says nothing about being over.
-        assert_eq!(toolchain_terminal(&serde_json::json!({})), None);
+        assert_eq!(download_terminal(&serde_json::json!({})), None);
     }
 
     #[test]
@@ -480,6 +488,12 @@ mod tests {
             "toolchain:download"
         );
         assert_eq!(
+            waiting_for(&Command::QemuDownload)
+                .expect("qemu download")
+                .event,
+            "qemu:download"
+        );
+        assert_eq!(
             waiting_for(&Command::PreflightRun)
                 .expect("preflight")
                 .event,
@@ -487,5 +501,6 @@ mod tests {
         );
         assert!(waiting_for(&Command::Health).is_none());
         assert!(waiting_for(&Command::PreflightAck).is_none());
+        assert!(waiting_for(&Command::QemuCancel).is_none());
     }
 }

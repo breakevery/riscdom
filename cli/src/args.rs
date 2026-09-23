@@ -56,6 +56,11 @@ configuration commands:
   llm load-key <provider_id>    load a stored key from the OS credential store
   qemu path <file>              use this QEMU binary
   qemu clear                    forget it (asks)
+  qemu download [--wait]        install the pinned QEMU build; --wait prints
+                                progress until it finishes (today this refuses and
+                                prints how to install QEMU yourself)
+  qemu cancel                   cancel a running QEMU download
+  qemu status                   whether a QEMU download is running
   toolchain download [--wait]   download the pinned RISC-V toolchain; --wait
                                 prints progress until it finishes
   toolchain cancel              cancel a running download
@@ -72,8 +77,9 @@ options:
   --yes                         confirm a destructive command without a prompt
                                 (required when stdin is not a terminal)
   --follow                      `run` only: print the event stream while running
-  --wait                        `toolchain download` / `preflight run` only:
-                                print progress until the work finishes
+  --wait                        `toolchain download` / `preflight run` / `qemu
+                                download` only: print progress until the work
+                                finishes
   --out <path>                  where an export writes (server-side, resolved
                                 against the workspace root)
   --api-key <key>               the model's API key (warns: it lands in the
@@ -180,6 +186,9 @@ pub enum Command {
         path: String,
     },
     QemuClear,
+    QemuDownload,
+    QemuCancel,
+    QemuStatus,
     ToolchainDownload,
     ToolchainCancel,
     ToolchainPath {
@@ -210,7 +219,8 @@ impl Command {
             | Command::RunsGet { .. }
             | Command::AuditStatus
             | Command::AuditEvents { .. }
-            | Command::SnapshotsList => "GET",
+            | Command::SnapshotsList
+            | Command::QemuStatus => "GET",
             _ => "POST",
         }
     }
@@ -247,6 +257,8 @@ impl Command {
             Command::LlmLoadKey { .. } => "/v0/llm/stored-key/load".to_string(),
             Command::QemuPath { .. } => "/v0/qemu/path".to_string(),
             Command::QemuClear => "/v0/qemu/path/clear".to_string(),
+            Command::QemuDownload | Command::QemuStatus => "/v0/qemu/download".to_string(),
+            Command::QemuCancel => "/v0/qemu/download/cancel".to_string(),
             Command::ToolchainDownload => "/v0/toolchain/download".to_string(),
             Command::ToolchainCancel => "/v0/toolchain/download/cancel".to_string(),
             Command::ToolchainPath { .. } => "/v0/toolchain/path".to_string(),
@@ -459,9 +471,16 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
     if follow && !matches!(command, Command::Run { .. }) {
         return Err("--follow is only meaningful for `run`".to_string());
     }
-    if wait && !matches!(command, Command::ToolchainDownload | Command::PreflightRun) {
+    if wait
+        && !matches!(
+            command,
+            Command::ToolchainDownload | Command::PreflightRun | Command::QemuDownload
+        )
+    {
         return Err(
-            "--wait is only meaningful for `toolchain download` and `preflight run`".to_string(),
+            "--wait is only meaningful for `toolchain download`, `preflight run` and \
+             `qemu download`"
+                .to_string(),
         );
     }
     Ok(Parsed::Command(Box::new(Args {
@@ -554,6 +573,9 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
             path: path.to_string(),
         }),
         (Some("qemu"), Some("clear"), None, None) => Some(Command::QemuClear),
+        (Some("qemu"), Some("download"), None, None) => Some(Command::QemuDownload),
+        (Some("qemu"), Some("cancel"), None, None) => Some(Command::QemuCancel),
+        (Some("qemu"), Some("status"), None, None) => Some(Command::QemuStatus),
         (Some("toolchain"), Some("download"), None, None) => Some(Command::ToolchainDownload),
         (Some("toolchain"), Some("cancel"), None, None) => Some(Command::ToolchainCancel),
         (Some("toolchain"), Some("path"), Some(path), None) => Some(Command::ToolchainPath {
@@ -593,6 +615,7 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
         (Some("qemu" | "toolchain"), Some("path"), None) => {
             Err(format!("{} path needs a <file>", w0.unwrap_or_default()))
         }
+        (Some("qemu"), Some(other), _) => Err(format!("unknown qemu subcommand {other:?}")),
         (Some("audit"), Some("alert"), Some("set")) => {
             Err("audit alert set needs on|off".to_string())
         }
@@ -1357,6 +1380,57 @@ mod tests {
                 theme: "mauve".to_string()
             }
         );
+    }
+
+    #[test]
+    fn the_qemu_download_commands_parse() {
+        assert_eq!(command(&["qemu", "download"]), Command::QemuDownload);
+        assert_eq!(command(&["qemu", "cancel"]), Command::QemuCancel);
+        assert_eq!(command(&["qemu", "status"]), Command::QemuStatus);
+        // `status` is the one read-only member of the family, so it is the one GET.
+        assert_eq!(Command::QemuStatus.method(), "GET");
+        assert_eq!(Command::QemuDownload.method(), "POST");
+        assert_eq!(Command::QemuCancel.method(), "POST");
+        assert_eq!(Command::QemuDownload.request_path(), "/v0/qemu/download");
+        assert_eq!(Command::QemuStatus.request_path(), "/v0/qemu/download");
+        assert_eq!(
+            Command::QemuCancel.request_path(),
+            "/v0/qemu/download/cancel"
+        );
+        assert_eq!(Command::QemuDownload.body(), None);
+        assert_eq!(Command::QemuCancel.body(), None);
+        assert_eq!(Command::QemuStatus.body(), None);
+        // Starting a download is not destructive, so nothing asks first (the
+        // toolchain's `download` does not either); the clears still do.
+        assert_eq!(Command::QemuDownload.confirmation(), None);
+        assert_eq!(Command::QemuCancel.confirmation(), None);
+        assert!(Command::QemuClear.confirmation().is_some());
+    }
+
+    #[test]
+    fn wait_also_belongs_to_the_qemu_download() {
+        assert!(args_of(&["qemu", "download", "--wait"]).wait);
+        assert!(args_of(&["--wait", "qemu", "download"]).wait);
+        assert!(!args_of(&["qemu", "download"]).wait);
+        for args in [
+            vec!["qemu", "status", "--wait"],
+            vec!["qemu", "cancel", "--wait"],
+        ] {
+            let refused = parse_words(&args);
+            assert!(refused.is_err(), "{args:?} should not parse");
+            assert!(refused.expect_err("refused").contains("--wait"), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn an_incomplete_qemu_command_is_refused() {
+        for args in [
+            vec!["qemu", "download", "now"],
+            vec!["qemu", "nope"],
+            vec!["qemu", "status", "extra"],
+        ] {
+            assert!(parse_words(&args).is_err(), "{args:?} should not parse");
+        }
     }
 
     #[test]

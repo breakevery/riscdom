@@ -222,6 +222,34 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
   因为内嵌场景根本不会跑那个 `main`。
 - **`docs/handoff.md` §1** 去掉两处失效的 `../host/src/run_diff.rs` 链接（该文件自 A1 拆分起就住在 `host-core`）。
 
+**两套装配就是一个形状：QEMU 与工具链同样接线，而它的拒绝是已定决策。** 侦察发现 `qemu_download` 是有代码没 caller；F1 把 caller 补齐——槽、状态、取消、采用、审计、事件族、Tauri 命令、端点、CLI——形状与工具链完全一致，而把「下载」本身按决定留在未接线状态（没有 pin 任何 QEMU 发布版；本项目引导安装而不代为下载）。
+
+### 新增
+
+- **QEMU 下载接线**（`host-core`）：`AppState::begin_qemu_download` / `qemu_download_status` /
+  `cancel_qemu_download` / `download_qemu_now`，另加 `record_qemu_download_event`、
+  `finish_qemu_download` 与 `qemu_dir()`。槽是独立的（`qemu_download`），所以工具链下载
+  进行中不会阻塞 QEMU 下载。
+- **审计事件** `host.qemu.download.start|done|failed|cancelled`，与工具链那四个一一对应。
+- **`qemu:download`**，第十二个 SSE 事件，payload 形状与工具链一致（内部标签枚举，标签为
+  `state`）：`started` / `progress` / `verifying` / `extracting` / `done` / `failed` / `cancelled`。
+- **三个 Tauri 命令**（`start_qemu_download`、`cancel_qemu_download`、`qemu_download_status`），
+  已在桌面外壳注册；本批不接 UI。
+- **三个端点**：`GET /v0/qemu/download`（`qemu.read`）、`POST /v0/qemu/download` 与
+  `POST /v0/qemu/download/cancel`（`qemu.configure`）——API 表现已为 27 查询 + 29 控制。
+- **三个 CLI 子命令**：`qemu download [--wait]`、`qemu cancel`、`qemu status`。
+- **`QemuDownloadStatus`** 与 **`paths::qemu_dir_in`**（`<data-dir>/qemu`，版本并列、不清理）。
+
+### 变更
+
+- **`QemuDownloadEvent` 的 payload 标签改为 `state`**，不再是 `kind`：两种下载用同一套词汇
+  自报，客户端因此只用读一种形状。
+- **CLI 的 `--wait` 只剩一个终止判定**（`download_terminal`），两个下载族共用，而不是每资源一份。
+- **`spec_for_current_platform` 就是平台分支，而它在每个平台都拒绝**：没有 pin 任何 QEMU 发布版
+  （`docs/qemu-distribution.md` §5），因此 `POST /v0/qemu/download` 答 `503 unavailable`、
+  `cause: "qemu"` 并附安装指引，也不占槽。拒绝之后的每一层都由回环夹具测试覆盖，所以将来 pin
+  一个版本只是数据变更。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

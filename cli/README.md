@@ -94,6 +94,9 @@ Three `POST`s that hand the *server* a path to write:
 | `llm load-key <provider_id>` | `POST /v0/llm/stored-key/load` | `ok`, or `404` when nothing is stored for that provider |
 | `qemu path <file>` | `POST /v0/qemu/path` | `ok`, or `400` when the file will not run |
 | `qemu clear` | `POST /v0/qemu/path/clear` | confirmation, then `ok` |
+| `qemu download [--wait]` | `POST /v0/qemu/download` | today `503` with the install guidance — no QEMU release is pinned |
+| `qemu cancel` | `POST /v0/qemu/download/cancel` | `409` when nothing is running |
+| `qemu status` | `GET /v0/qemu/download` | whether a download is running, and the last event |
 | `toolchain download [--wait]` | `POST /v0/toolchain/download` | `download started` (`202`) |
 | `toolchain cancel` | `POST /v0/toolchain/download/cancel` | `download cancelling`, or `409` when nothing is running |
 | `toolchain path <file>` | `POST /v0/toolchain/path` | `ok`, or `400` when the file will not run |
@@ -109,13 +112,18 @@ Three `POST`s that hand the *server* a path to write:
 - **`--remember`** also stores the key in the OS credential store; without it the
   key lives only in the running host, and the next start will not have it.
 - **`--wait`** subscribes to the event stream *before* starting the work, prints
-  the frames that belong to it (`toolchain:download`, `preflight:progress`) and
-  closes with `download ok` / `preflight failed`. The exit code is the **work's**
-  verdict: a failed download or a failed preflight exits `3`. Without `--wait` the
-  command prints the `202` acknowledgement and returns at once.
+  the frames that belong to it (`toolchain:download`, `qemu:download`,
+  `preflight:progress`) and closes with `download ok` / `preflight failed`. The exit
+  code is the **work's** verdict: a failed download or a failed preflight exits `3`.
+  Without `--wait` the command prints the `202` acknowledgement and returns at once.
 - **The two path setters hand the host a file** and it checks that the file exists
   *and runs* (`--version`); that is why `qemu path` / `toolchain path` can answer
   `400` for a path that looks fine.
+- **`qemu download` refuses on every platform, by decision**: RiscDom guides the user
+  to a QEMU they install themselves (`docs/qemu-distribution.md` §5) and pins no
+  release, so the control plane answers `503 unavailable` with the install guidance
+  and the CLI prints it. `qemu status` still works (it reports idle), and the three
+  commands are wired end to end, so pinning a release later would be a data change.
 - **The vocabularies are the server's** (`theme`, `language`): the CLI passes the
   value through and does not second-guess it.
 

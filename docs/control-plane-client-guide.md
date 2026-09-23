@@ -133,7 +133,7 @@ stream instead of a request that ends when the first heartbeat is late.
 
 ## 2. The query endpoints
 
-26 endpoints, all `GET`. The responses are the host's view types; their fields are the ones
+27 endpoints, all `GET`. The responses are the host's view types; their fields are the ones
 in `host-core/src/state.rs`. Everything is JSON.
 
 ### Audit and runs
@@ -362,7 +362,7 @@ complete.
 
 ## 6. The control endpoints
 
-27 `POST` endpoints, the API table's §5.2. All of them need the token (that is the point
+29 `POST` endpoints, the API table's §5.2. All of them need the token (that is the point
 of the batch that added them: they include destructive operations).
 
 ```bash
@@ -412,6 +412,22 @@ Notes a client should know:
 - **The two audit exports answer a count of events** (`events_exported`), because that is
   what they write; `/v0/serial/export` answers `bytes_written`, because that is what it
   writes.
+- **`POST /v0/qemu/download` refuses today, on every platform, by decision.** RiscDom guides
+  the user to a QEMU they install themselves (`docs/qemu-distribution.md` §5) and pins no
+  release, so the endpoint answers `503 unavailable` with `cause: "qemu"` and the guidance in
+  `message` — and it claims no download slot. Its `GET` (status) and
+  `/v0/qemu/download/cancel` are live, so a client can already code against the pair the way
+  it codes against the toolchain's:
+
+  ```bash
+  curl -sS http://127.0.0.1:7821/v0/qemu/download -H "Authorization: Bearer ***"
+  # {"in_progress":false,"last_event":null}
+
+  curl -sS -X POST http://127.0.0.1:7821/v0/qemu/download -H "Authorization: Bearer ***" -d '{}'
+  # {"code":"unavailable","message":"no QEMU download is pinned for windows-x86_64: …","cause":"qemu"}
+  # 503
+  ```
+
 - **Parameters are validated**: a missing or unusable one is `400` with `cause` naming it.
 - **State clashes are `409`** (`save` with no VM running, `resume` of an unknown snapshot is
   `404`, `toolchain/download/cancel` with nothing running).

@@ -46,6 +46,8 @@ pub fn human(command: &Command, reply: &Reply) -> String {
         Command::ToolchainDownload | Command::ToolchainCancel | Command::PreflightRun => {
             acknowledged(command, value)
         }
+        Command::QemuDownload | Command::QemuCancel => acknowledged(command, value),
+        Command::QemuStatus => download_status(value),
         Command::PreflightAck => preflight_view(value),
         // Every remaining configuration endpoint answers `204`: nothing to say,
         // which the empty-body branch above already turned into `ok`.
@@ -87,6 +89,7 @@ fn export_written(command: &Command, value: &Value) -> String {
 fn acknowledged(command: &Command, value: &Value) -> String {
     let what = match command {
         Command::ToolchainDownload | Command::ToolchainCancel => "download",
+        Command::QemuDownload | Command::QemuCancel => "qemu download",
         Command::PreflightRun => "preflight",
         _ => "request",
     };
@@ -94,6 +97,21 @@ fn acknowledged(command: &Command, value: &Value) -> String {
         Some(state) => format!("{what} {state}"),
         None => "ok".to_string(),
     }
+}
+
+/// `{ "in_progress": bool, "last_event": … }` — a download's status query.
+fn download_status(value: &Value) -> String {
+    let last = value
+        .get("last_event")
+        .filter(|event| !event.is_null())
+        .and_then(|event| event.get("state"))
+        .and_then(Value::as_str)
+        .unwrap_or("-")
+        .to_string();
+    format!(
+        "in_progress {}\nlast_event  {last}",
+        text(value, "in_progress")
+    )
 }
 
 /// `PreflightView`: the steps the host checked, and what it found.
@@ -689,6 +707,29 @@ mod tests {
         assert_eq!(
             human(&Command::PreflightRun, &reply(r#"{"state":"running"}"#)),
             "preflight running"
+        );
+        assert_eq!(
+            human(&Command::QemuDownload, &reply(r#"{"state":"started"}"#)),
+            "qemu download started"
+        );
+        assert_eq!(
+            human(&Command::QemuCancel, &reply(r#"{"state":"cancelling"}"#)),
+            "qemu download cancelling"
+        );
+    }
+
+    #[test]
+    fn a_download_status_names_the_last_state() {
+        let idle = reply(r#"{"in_progress":false,"last_event":null}"#);
+        assert_eq!(
+            human(&Command::QemuStatus, &idle),
+            "in_progress false\nlast_event  -"
+        );
+        let running =
+            reply(r#"{"in_progress":true,"last_event":{"state":"progress","downloaded":1}}"#);
+        assert_eq!(
+            human(&Command::QemuStatus, &running),
+            "in_progress true\nlast_event  progress"
         );
     }
 

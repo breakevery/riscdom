@@ -82,6 +82,9 @@ riscdom [options] <command> [args]
 | `llm load-key <provider_id>` | `POST /v0/llm/stored-key/load` | `ok`；该服务商没存 key 则为 `404` |
 | `qemu path <file>` | `POST /v0/qemu/path` | `ok`；文件跑不起来则为 `400` |
 | `qemu clear` | `POST /v0/qemu/path/clear` | 先确认，再 `ok` |
+| `qemu download [--wait]` | `POST /v0/qemu/download` | 今天答 `503` 并附安装指引——没有 pin 任何 QEMU 发布版 |
+| `qemu cancel` | `POST /v0/qemu/download/cancel` | 没在跑则为 `409` |
+| `qemu status` | `GET /v0/qemu/download` | 是否在下载，以及最后一个事件 |
 | `toolchain download [--wait]` | `POST /v0/toolchain/download` | `download started`（`202`） |
 | `toolchain cancel` | `POST /v0/toolchain/download/cancel` | `download cancelling`；没在跑则为 `409` |
 | `toolchain path <file>` | `POST /v0/toolchain/path` | `ok`；文件跑不起来则为 `400` |
@@ -97,11 +100,15 @@ riscdom [options] <command> [args]
 - **`--remember`** 还会把 key 存进操作系统凭据存储；不加它，key 只活在当前宿主里，
   下次启动就没有了。
 - **`--wait`** 在开工**之前**先订阅事件流，打印属于该工作的帧（`toolchain:download`、
-  `preflight:progress`），最后一行是 `download ok` / `preflight failed`。退出码是
-  **工作本身**的判定：下载失败或预检失败都退出 `3`。不加 `--wait` 则只打 `202` 确认
-  就立即返回。
+  `qemu:download`、`preflight:progress`），最后一行是 `download ok` / `preflight failed`。
+  退出码是**工作本身**的判定：下载失败或预检失败都退出 `3`。不加 `--wait` 则只打 `202`
+  确认就立即返回。
 - **两条 path setter 把文件交给宿主**，由宿主检查它存在**且能跑**（`--version`）；
   这就是 `qemu path` / `toolchain path` 会对看着没问题的路径答 `400` 的原因。
+- **`qemu download` 按决定在每个平台都拒绝**：RiscDom 引导用户自己安装 QEMU
+  （`docs/qemu-distribution.md` §5）、不 pin 发布版，因此控制平面答 `503 unavailable`
+  并附安装指引，CLI 原样打印。`qemu status` 照常可用（报空闲），三条命令端到端都已接线，
+  所以将来 pin 一个版本只是数据变。
 - **取值集合属于服务端**（`theme`、`language`）：CLI 原样透传，不替它猜。
 
 ## 选项

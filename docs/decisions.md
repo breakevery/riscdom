@@ -432,3 +432,30 @@ built — never on the success path.
 the same path: no behaviour change, only its address. The helpers are `pub` on a
 `pub(crate)` type, so nothing outside the crate sees the signature. `server` is now inside the
 gate's clippy step, which is what surfaced the six sites in the first place.
+
+## 30. The two assemblies share one shape
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; landed with the v0.9 sandbox batch F1
+
+**Decision**: "Assembling a resource" has one shape, and the toolchain and QEMU both use it:
+a *spec* (`version`, `url`, `sha256`, `archive_kind`, `install_subdir`) → a *download* in
+chunks with a cancel flag → a *sha256 check* → a *Zip-Slip-guarded extraction* → an
+*adoption* step that validates the result and writes it into `settings.json` → *audit events*
+(`host.<resource>.download.start|done|failed|cancelled`) → an *SSE family*
+(`<resource>:download`, the internally tagged enum under the tag `state`) → one *slot* per
+resource in `AppState` (`begin` / `status` / `cancel` / `finish`).
+
+**Why**: The two resources are two instances of one problem — a pinned, integrity-checked
+binary that has to be fetched, verified, installed and made current — and a client should read
+one vocabulary for both. Sharing the shape is also what makes "sandbox = kernel + toolchain +
+QEMU" (F2) a matter of naming resources rather than of inventing a mechanism per resource.
+
+**Impact**: The QEMU download's payload tag moved from `kind` to `state` and the CLI's `--wait`
+terminal test became one function for both families, so an existing client of one family
+already speaks the other. **The shape is shared, not abstracted**: there is no generic
+`Resource` trait or spec type, and F1 deliberately did not add one — the two modules stay
+separate files with separate types, and the duplication is the documented cost of not
+guessing at the abstraction before F2 names what it is. Nothing about the toolchain's
+semantics changed. `spec_for_current_platform` remains the platform branch for QEMU, and it
+refuses on every platform today (`docs/qemu-distribution.md` §5): the shared shape means
+pinning a release later is a data change in one table.

@@ -104,7 +104,7 @@ server {
 
 ## 2. 查询端点
 
-共 26 个，全部 `GET`。应答是宿主的视图类型，字段见 `host-core/src/state.rs`。一律 JSON。
+共 27 个，全部 `GET`。应答是宿主的视图类型，字段见 `host-core/src/state.rs`。一律 JSON。
 
 ### 审计与运行
 
@@ -310,7 +310,7 @@ curl -sS -N http://127.0.0.1:7821/v0/events \
 
 ## 6. 控制端点
 
-27 个 `POST` 端点，即 API 表的 §5.2。它们全部需要 token（这正是引入它们的那一批的要点：其中包含破坏性操作）。
+29 个 `POST` 端点，即 API 表的 §5.2。它们全部需要 token（这正是引入它们的那一批的要点：其中包含破坏性操作）。
 
 ```bash
 # 跑一轮 agent。进度以 `agent:*` 事件抵达事件流。
@@ -355,6 +355,20 @@ curl -sS -X POST http://127.0.0.1:7821/v0/audit/export \
 
 - **多数控制端点回 `204`**（无内容），返回值的回 `200`，而后台开工的（`agent/run`、`preflight/run`、`toolchain/download`）回 `202`——这些请盯事件流。
 - **两条审计导出答的是事件数**（`events_exported`），因为写进去的就是事件；`/v0/serial/export` 答 `bytes_written`，因为写进去的就是字节。
+- **`POST /v0/qemu/download` 今天在每个平台上都按决定拒绝。** RiscDom 引导用户自己安装 QEMU
+  （`docs/qemu-distribution.md` §5）、不 pin 发布版，因此该端点答 `503 unavailable`、
+  `cause: "qemu"`，`message` 里是安装指引——且不会占下载槽。它的 `GET`（状态）与
+  `/v0/qemu/download/cancel` 都是活的，所以客户端现在就可以像对着工具链那对一样写代码：
+
+  ```bash
+  curl -sS http://127.0.0.1:7821/v0/qemu/download -H "Authorization: Bearer ***"
+  # {"in_progress":false,"last_event":null}
+
+  curl -sS -X POST http://127.0.0.1:7821/v0/qemu/download -H "Authorization: Bearer ***" -d '{}'
+  # {"code":"unavailable","message":"no QEMU download is pinned for windows-x86_64: …","cause":"qemu"}
+  # 503
+  ```
+
 - **参数会被校验**：缺失或不可用即 `400`，`cause` 指出参数名。
 - **状态冲突回 `409`**（没跑 VM 时 `save`、`resume` 未知快照回 `404`、没有下载在跑时 `toolchain/download/cancel`）。
 - **`POST /v0/toolchain/download` 会真的下载**固定的 RISC-V GCC 归档。

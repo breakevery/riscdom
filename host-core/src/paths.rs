@@ -66,6 +66,16 @@ pub fn toolchain_dir_in(base: &Path) -> PathBuf {
     dir
 }
 
+/// Directory for downloaded QEMU builds **inside** `base` (created if missing).
+///
+/// The same shape as [`toolchain_dir_in`]: one directory per resource, one
+/// versioned subdirectory inside it, and nothing pruned (F1).
+pub fn qemu_dir_in(base: &Path) -> PathBuf {
+    let dir = base.join("qemu");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
 /// Path of the sessions database **inside** `base`.
 pub fn sessions_db_path_in(base: &Path) -> PathBuf {
     base.join("sessions.db")

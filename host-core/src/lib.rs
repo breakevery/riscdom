@@ -41,7 +41,7 @@ pub use run_diff::{diff_fingerprints, FingerprintFieldDiff, FINGERPRINT_FIELDS};
 pub use session::{SessionMessage, SessionMeta, SessionStore};
 pub use state::{
     AgentOutcomeView, AppState, AuditStatusView, ChainStatusView, LlmConfigInput, LlmConfigStatus,
-    LlmReadiness, LocalProbeResult, LocalProviderInfo, ProviderPresetView, QemuView, RunView,
-    SessionDetailView, SnapshotMetaView, StoredEventView, ToolchainDownloadStatus, ToolchainView,
-    VmStatusView,
+    LlmReadiness, LocalProbeResult, LocalProviderInfo, ProviderPresetView, QemuDownloadStatus,
+    QemuView, RunView, SessionDetailView, SnapshotMetaView, StoredEventView,
+    ToolchainDownloadStatus, ToolchainView, VmStatusView,
 };

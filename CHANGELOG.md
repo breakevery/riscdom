@@ -395,6 +395,45 @@ CLI's stderr.
 - **`docs/handoff.md` §1** lost its two stale `../host/src/run_diff.rs` links (the file has
   lived in `host-core` since the A1 split).
 
+**The two assemblies are one shape: QEMU is wired like the toolchain, and its refusal is the
+recorded decision.** The reconnaissance found `qemu_download` was code without a caller; F1
+adds the caller — slot, status, cancel, adoption, audit, event family, Tauri commands,
+endpoints, CLI — in the toolchain's exact shape, while leaving the download itself unwired by
+decision (no QEMU release is pinned; the project guides instead of fetching).
+
+### Added
+
+- **The QEMU download wiring** (`host-core`): `AppState::begin_qemu_download` /
+  `qemu_download_status` / `cancel_qemu_download` / `download_qemu_now`, plus
+  `record_qemu_download_event`, `finish_qemu_download` and `qemu_dir()`. The slot is its own
+  (`qemu_download`), so a running toolchain download never blocks a QEMU one.
+- **Audit events** `host.qemu.download.start|done|failed|cancelled`, mirroring the
+  toolchain's four.
+- **`qemu:download`**, the twelfth SSE event, with the toolchain's payload shape (the
+  internally tagged enum under the tag `state`): `started` / `progress` / `verifying` /
+  `extracting` / `done` / `failed` / `cancelled`.
+- **Three Tauri commands** (`start_qemu_download`, `cancel_qemu_download`,
+  `qemu_download_status`), registered in the desktop shell. The UI is not wired to them in
+  this batch.
+- **Three endpoints**: `GET /v0/qemu/download` (`qemu.read`), `POST /v0/qemu/download` and
+  `POST /v0/qemu/download/cancel` (`qemu.configure`) — the API tables are 27 queries and 29
+  controls now.
+- **Three CLI commands**: `qemu download [--wait]`, `qemu cancel`, `qemu status`.
+- **`QemuDownloadStatus`** and **`paths::qemu_dir_in`** (`<data-dir>/qemu`, versions side by
+  side, nothing pruned).
+
+### Changed
+
+- **`QemuDownloadEvent`'s payload tag is `state`**, not `kind`: the two downloads report
+  themselves with one vocabulary, which is what lets a client read one shape for both.
+- **The CLI's `--wait` has one terminal predicate** (`download_terminal`) for both download
+  families instead of one per resource.
+- **`spec_for_current_platform` is the platform branch, and it refuses everywhere**: no QEMU
+  release is pinned (`docs/qemu-distribution.md` §5), so `POST /v0/qemu/download` answers
+  `503 unavailable` with `cause: "qemu"` and the install guidance, and claims no slot. Every
+  layer behind the refusal is tested against a loopback fixture, so pinning a release later
+  is a data change.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

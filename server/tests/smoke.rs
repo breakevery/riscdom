@@ -247,6 +247,7 @@ fn every_query_endpoint_answers() {
         ("/v0/toolchain/download", 200, "in_progress"),
         ("/v0/qemu", 200, "found"),
         ("/v0/qemu/status", 200, "found"),
+        ("/v0/qemu/download", 200, "in_progress"),
         ("/v0/preflight", 200, "rows"),
         ("/v0/settings/theme", 200, "theme"),
         ("/v0/settings/language", 200, "language"),
@@ -257,7 +258,11 @@ fn every_query_endpoint_answers() {
         // Reserved: served, and answers 501 until the aggregate lands.
         ("/v0/resources", 501, "code"),
     ];
-    assert_eq!(cases.len(), 27, "26 queries plus the reserved aggregate");
+    assert_eq!(
+        cases.len(),
+        28,
+        "26 query rows, the path-parameter query, and the reserved aggregate"
+    );
     for (path, want_status, key) in cases {
         let (status, body) = get(addr, path);
         assert_eq!(status, *want_status, "{path}: {body}");
@@ -413,14 +418,19 @@ fn every_control_endpoint_answers() {
             200,
             "bytes_written",
         ),
+        // QEMU download (v0.9 sandbox F1): nothing is running, so a cancel is the
+        // documented conflict. The *start* is not in this table on purpose — see
+        // `a_qemu_download_is_refused_because_no_release_is_pinned`.
+        ("/v0/qemu/download/cancel", "{}".to_string(), 409, "code"),
         // §6 G1: reserved.
         ("/v0/vm/start", "{}".to_string(), 501, "code"),
     ];
-    // 27 controls of §5.2, minus the two that would reach outside the machine
-    // (`toolchain/download` fetches an archive, `preflight/run` compiles and
-    // boots a guest), plus the reserved `POST /v0/vm/start` and
-    // `POST /v0/runs/abandon-stale`.
-    assert_eq!(cases.len(), 27, "29 POST routes - 2 offline-unsafe");
+    // 27 controls of §5.2, minus the three that would reach outside the machine
+    // (`toolchain/download` fetches an archive, `preflight/run` compiles and boots a
+    // guest, and `qemu/download` would fetch one if a release were pinned), plus the
+    // reserved `POST /v0/vm/start`, `POST /v0/runs/abandon-stale` and the QEMU cancel
+    // (nothing is running, so it is the documented conflict).
+    assert_eq!(cases.len(), 28, "31 POST rows - 3 offline-unsafe");
 
     for (path, body, want_status, key) in &cases {
         let (status, raw) = call(addr, "POST", path, "", Some(body));
@@ -434,14 +444,16 @@ fn every_control_endpoint_answers() {
 }
 
 #[test]
-fn the_two_offline_unsafe_controls_are_routed_without_being_called() {
-    // One fetches an archive, the other compiles and boots a guest, so neither is
-    // *called* here. A 405 on the path proves the route exists (it is served under
-    // another method) without running the action.
+fn the_three_offline_unsafe_controls_are_routed_without_being_called() {
+    // One fetches an archive, one compiles and boots a guest, and the third would
+    // fetch one the day a release is pinned, so none of them is *called* here. A 405
+    // on the path proves the route exists (it is served under another method)
+    // without running the action.
     let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
     for (method, path) in [
         ("GET", "/v0/preflight/run"),
         ("PUT", "/v0/toolchain/download"),
+        ("PUT", "/v0/qemu/download"),
     ] {
         let (status, raw) = call(addr, method, path, "", None);
         assert_eq!(status, 405, "{method} {path}: {raw}");
@@ -450,10 +462,43 @@ fn the_two_offline_unsafe_controls_are_routed_without_being_called() {
     }
     // And a hook that refuses everything stops them before they do anything.
     let (addr, _sink, _ws) = start_server(Arc::new(RefuseAll));
-    for path in ["/v0/toolchain/download", "/v0/preflight/run"] {
+    for path in [
+        "/v0/toolchain/download",
+        "/v0/preflight/run",
+        "/v0/qemu/download",
+    ] {
         let (status, _) = call(addr, "POST", path, "", Some("{}"));
         assert_eq!(status, 403, "{path}");
     }
+}
+
+#[test]
+fn a_qemu_download_is_refused_because_no_release_is_pinned() {
+    // The recorded decision (`docs/qemu-distribution.md` §5): RiscDom guides the user
+    // to a QEMU they install themselves and pins no release, so the spec lookup
+    // refuses on every platform and the endpoint answers the documented
+    // `503 unavailable` with `cause: "qemu"` and the guidance in `message`.
+    //
+    // Calling it is safe **because** of that refusal: the handler resolves the spec
+    // before it claims a slot or spawns anything. If a release is ever pinned this
+    // test is wrong on purpose — the answer becomes `202 {state:started}` and the
+    // route joins the offline-unsafe list above.
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let (status, body) = post(addr, "/v0/qemu/download", "{}");
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(body["code"], "unavailable", "{body}");
+    assert_eq!(body["cause"], "qemu", "{body}");
+    let message = body["message"].as_str().expect("message");
+    assert!(message.contains("QEMU"), "{message}");
+    assert!(message.contains("no QEMU download is pinned"), "{message}");
+    // Nothing started, so the status query still says idle...
+    let (status, body) = get(addr, "/v0/qemu/download");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["in_progress"], false, "{body}");
+    // ...and no slot was claimed, so a cancel is still the conflict.
+    let (status, body) = post(addr, "/v0/qemu/download/cancel", "{}");
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["code"], "conflict", "{body}");
 }
 
 #[test]

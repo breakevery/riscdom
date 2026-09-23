@@ -61,6 +61,10 @@ pub(crate) enum Action {
     SessionClear,
     ToolchainDownloadStart,
     ToolchainDownloadCancel,
+    /// QEMU download (v0.9 sandbox F1): the same three shapes as the toolchain's.
+    QemuDownload,
+    QemuDownloadStart,
+    QemuDownloadCancel,
     ToolchainPath,
     ToolchainPathClear,
     QemuPath,
@@ -197,6 +201,12 @@ const ROUTES: &[(&str, &str, Capability, Action)] = &[
         "/v0/toolchain/download",
         Capability::ToolchainRead,
         Action::ToolchainDownload,
+    ),
+    (
+        "GET",
+        "/v0/qemu/download",
+        Capability::QemuRead,
+        Action::QemuDownload,
     ),
     ("GET", "/v0/qemu", Capability::QemuRead, Action::Qemu),
     (
@@ -336,6 +346,18 @@ const ROUTES: &[(&str, &str, Capability, Action)] = &[
         "/v0/toolchain/download/cancel",
         Capability::ToolchainInstall,
         Action::ToolchainDownloadCancel,
+    ),
+    (
+        "POST",
+        "/v0/qemu/download",
+        Capability::QemuConfigure,
+        Action::QemuDownloadStart,
+    ),
+    (
+        "POST",
+        "/v0/qemu/download/cancel",
+        Capability::QemuConfigure,
+        Action::QemuDownloadCancel,
     ),
     (
         "POST",
@@ -950,6 +972,72 @@ pub(crate) fn dispatch(
                 Err(e) => host_error(e),
             }
         }
+        Action::QemuDownload => ok_json(&app.qemu_download_status()),
+        Action::QemuDownloadStart => {
+            // Today this refuses on every platform, and that is the recorded
+            // decision (`docs/qemu-distribution.md` §5): RiscDom guides the user to
+            // a QEMU they install themselves instead of fetching one, so no release
+            // is pinned and `spec_for_current_platform` hands back the guidance. The
+            // platform branch lives **here**, so pinning a release later is a data
+            // change and the rest of this arm already works.
+            let spec = match host_core::qemu_download::spec_for_current_platform() {
+                Ok(spec) => spec,
+                Err(e) => {
+                    return error_response(503, "unavailable", &e.to_string(), Some("qemu"));
+                }
+            };
+            if app.qemu_download_status().in_progress {
+                return error_response(
+                    409,
+                    "conflict",
+                    "a QEMU download is already running",
+                    Some("download"),
+                );
+            }
+            let cancel = match app.begin_qemu_download(&spec) {
+                Ok(cancel) => cancel,
+                Err(e) => return host_error(e),
+            };
+            // The download is blocking, so it runs on its own thread and reports
+            // progress through the stream, exactly as the toolchain's does.
+            let state = hub.clone();
+            let app = Arc::clone(app);
+            std::thread::spawn(move || {
+                let sink = HttpEventSink::new(Arc::clone(&state), app.agent_id());
+                let dest_root = app.qemu_dir();
+                let mut on_event = |event: host_core::qemu_download::QemuDownloadEvent| {
+                    app.record_qemu_download_event(event.clone());
+                    sink.emit(
+                        host_core::events::EV_QEMU_DOWNLOAD,
+                        serde_json::to_value(&event).unwrap_or(serde_json::Value::Null),
+                    );
+                };
+                // A failure reaches the caller through the audit event and the
+                // status query; `log_level` covers the operator who asked for it.
+                if let Err(e) = app.download_qemu_now(&spec, &dest_root, cancel, &mut on_event) {
+                    log::line(
+                        log_level,
+                        LogLevel::Error,
+                        format!("qemu download failed: {e}"),
+                    );
+                }
+            });
+            accepted(&serde_json::json!({ "state": "started" }))
+        }
+        Action::QemuDownloadCancel => {
+            if !app.qemu_download_status().in_progress {
+                return error_response(
+                    409,
+                    "conflict",
+                    "no QEMU download is running",
+                    Some("download"),
+                );
+            }
+            match app.cancel_qemu_download() {
+                Ok(()) => accepted(&serde_json::json!({ "state": "cancelling" })),
+                Err(e) => host_error(e),
+            }
+        }
         // The two path setters: their only `Other` failure is "the path you gave
         // is not usable", which the API document calls `bad_request`.
         Action::ToolchainPath => match params.required("path") {
@@ -1194,12 +1282,13 @@ mod tests {
             .iter()
             .filter(|(method, ..)| *method == "POST")
             .count();
-        // 26 queries (one of them the `/v0/runs/{run_id}` pattern, so 25 rows)
-        // plus the reserved aggregate.
-        assert_eq!(queries, 26, "query rows");
+        // 26 queries (one of them the `/v0/runs/{run_id}` pattern, so 25 rows),
+        // plus the reserved aggregate and the QEMU download status (v0.9 F1).
+        assert_eq!(queries, 27, "query rows");
         // The 27 controls of §5.2, plus the reserved `POST /v0/vm/start` and
-        // `POST /v0/runs/abandon-stale` (§6, G1 and G4).
-        assert_eq!(controls, 29, "control rows");
+        // `POST /v0/runs/abandon-stale` (§6, G1 and G4), plus the QEMU download
+        // start and cancel (v0.9 F1).
+        assert_eq!(controls, 31, "control rows");
     }
 
     #[test]
@@ -1274,6 +1363,33 @@ mod tests {
         }
         // And anything else names both, rather than pretending there is one.
         match resolve("DELETE", "/v0/toolchain/download") {
+            Resolution::MethodNotAllowed { allowed } => assert_eq!(allowed, "GET, POST"),
+            other => panic!("DELETE: {other:?}"),
+        }
+
+        // The QEMU download is the same shape for the other resource.
+        match resolve("GET", "/v0/qemu/download") {
+            Resolution::Query {
+                action: Action::QemuDownload,
+                ..
+            } => {}
+            other => panic!("GET: {other:?}"),
+        }
+        match resolve("POST", "/v0/qemu/download") {
+            Resolution::Query {
+                action: Action::QemuDownloadStart,
+                ..
+            } => {}
+            other => panic!("POST: {other:?}"),
+        }
+        match resolve("POST", "/v0/qemu/download/cancel") {
+            Resolution::Query {
+                action: Action::QemuDownloadCancel,
+                ..
+            } => {}
+            other => panic!("POST cancel: {other:?}"),
+        }
+        match resolve("DELETE", "/v0/qemu/download") {
             Resolution::MethodNotAllowed { allowed } => assert_eq!(allowed, "GET, POST"),
             other => panic!("DELETE: {other:?}"),
         }

@@ -6,7 +6,7 @@
 
 `riscdom-server` 是作为进程形态的 RiscDom 控制平面：人监工与 AI 监工共用同一套 HTTP + SSE 接口。它是架在内核门面的可移植半边（`host-core`，Layer 2）之上的 **Layer 3**，并且**不链接任何 Tauri crate**——`cargo tree -p server` 里一个都没有。（v0.9 A1 第 3 波之前是会链接的，因为它依赖 `host`，而 `host` 无条件依赖 `tauri`。）
 
-API 表格里的 53 个端点全部可经 HTTP 调用，另有三个宿主本地端点、两条以 `501` 明示的预留路由，以及事件流。token 默认开启，且每条路由的 capability 都会被强制。
+API 表格里的 56 个端点全部可经 HTTP 调用，另有三个宿主本地端点、两条以 `501` 明示的预留路由，以及事件流。token 默认开启，且每条路由的 capability 都会被强制。
 
 ## 编译
 
@@ -47,7 +47,12 @@ riscdom-server --bind 127.0.0.1:7821 --workspace ./my-workspace
 | `/v0/status` | GET | `{"status","version","uptime_ms","connections","sse_subscribers","agents","agent_id"}` |
 | `/v0/events` | GET | SSE 事件流（`text/event-stream`，可用 `Last-Event-ID` 补发）。 |
 | `/v0/runs`、`/v0/sessions`、`/v0/snapshots`、`/v0/llm/…`、`/v0/preflight`、`/v0/serial` | GET | 查询面其余部分：见 API 文档 §5.1。 |
-| `/v0/sessions/create`、`/v0/settings/theme` 等 | POST | §5.2 的 27 个控制端点：会话、快照、VM、工具链、预检、LLM 配置、导出。 |
+| `/v0/sessions/create`、`/v0/settings/theme` 等 | POST | §5.2 的 29 个控制端点：会话、快照、VM、工具链、QEMU、预检、LLM 配置、导出。 |
+
+`/v0/qemu/download` 是 QEMU 家族里唯一条两种方法都服务的路径：`GET` 问是否在下载，`POST` 则
+会发起一次。**今天 `POST` 答 `503 unavailable` 并附安装指引**：RiscDom 引导用户自己安装
+QEMU，没有 pin 任何发布版（`docs/qemu-distribution.md` §5）。工具链的
+`/v0/toolchain/download` 是同一对方法，而那边下载是真的。
 
 其余路径一律以 API 文档定义的错误模型回 `404`：
 

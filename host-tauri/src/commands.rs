@@ -4,14 +4,14 @@
 //! [`HostError`] and never contains secrets.
 
 use crate::events::TauriEventSink;
-use crate::events::TOOLCHAIN_DOWNLOAD;
+use crate::events::{EV_QEMU_DOWNLOAD, TOOLCHAIN_DOWNLOAD};
 use crate::preflight::PreflightView;
 use crate::run_diff::FingerprintFieldDiff;
 use crate::state::QemuView;
 use crate::state::{
     AgentOutcomeView, AppState, AuditStatusView, LlmConfigStatus, LlmReadiness, LocalProbeResult,
-    ProviderPresetView, RunView, SessionDetailView, SnapshotMetaView, StoredEventView,
-    ToolchainDownloadStatus, ToolchainView, VmStatusView,
+    ProviderPresetView, QemuDownloadStatus, RunView, SessionDetailView, SnapshotMetaView,
+    StoredEventView, ToolchainDownloadStatus, ToolchainView, VmStatusView,
 };
 use crate::SessionMeta;
 use std::sync::Arc;
@@ -63,6 +63,56 @@ pub async fn toolchain_download_status(
     state: State<'_, AppState>,
 ) -> Result<ToolchainDownloadStatus, String> {
     Ok(state.toolchain_download_status())
+}
+
+/// Start the one-click QEMU download.
+///
+/// Today every platform answers `Err` with the install guidance: the project
+/// guides users to a QEMU they install themselves (`docs/qemu-distribution.md` §5)
+/// and pins no release, so the spec lookup is what refuses. The rest of this
+/// command is the toolchain's shape, so pinning a release later needs no code here.
+#[tauri::command]
+pub async fn start_qemu_download(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let spec = crate::qemu_download::spec_for_current_platform().map_err(|e| e.to_string())?;
+    let cancel = state
+        .begin_qemu_download(&spec)
+        .map_err(|e| e.user_message())?;
+
+    // The download is blocking (`reqwest::blocking`), so keep it off the async
+    // runtime; the app handle gives the worker access to the managed state.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let emitter: Arc<dyn crate::events::EventSink> =
+            Arc::new(TauriEventSink::new(app.clone(), state.agent_id()));
+        let mut on_event = |event: crate::qemu_download::QemuDownloadEvent| {
+            if let Ok(payload) = serde_json::to_value(&event) {
+                emitter.emit(EV_QEMU_DOWNLOAD, payload);
+            }
+        };
+        // The destination belongs to the instance, like the toolchain's.
+        // A failure is carried by `host.qemu.download.failed` and by the status
+        // the next caller reads; this closure has no caller left to tell.
+        let dest_root = state.qemu_dir();
+        let _ = state.download_qemu_now(&spec, &dest_root, cancel, &mut on_event);
+    });
+    Ok(())
+}
+
+/// Ask an in-flight QEMU download to stop.
+#[tauri::command]
+pub async fn cancel_qemu_download(state: State<'_, AppState>) -> Result<(), String> {
+    state.cancel_qemu_download().map_err(|e| e.user_message())
+}
+
+/// Whether a QEMU download is running, plus the last event seen.
+#[tauri::command]
+pub async fn qemu_download_status(
+    state: State<'_, AppState>,
+) -> Result<QemuDownloadStatus, String> {
+    Ok(state.qemu_download_status())
 }
 
 /// List snapshots on disk (real `.mig` and reboot-fallback `.json`).
