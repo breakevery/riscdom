@@ -362,6 +362,23 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 - **`PortLease` 的释放只删自己的号码一次**（`HashSet::remove`，原为 `Vec::retain`——那会把所有相同项一起删掉，属潜在隐患，现在连误写都不可能）。
 - **`HELD_PORTS` 改为集合**：`LazyLock<Mutex<HashSet<u16>>>`，因为 `HashSet::new` 无法初始化 `static`（其 hasher 需要运行时种子）。`relay::reserve` 就是一次 `insert`；`leased_ports()` 签名不变，而它的顺序从来不是契约（无人读取顺序）。
 
+**一个 actor 可以申请改动沙箱，由另一个 actor 裁决。** 沙箱表面原本只有一写（切换，需要 `sandbox.switch`）。现在多了一条**申请队列**：agent——或任何能跑 agent 的 actor——可以提出申请，而持有该请求 `action` 所隐含 capability 的 actor 来裁决。裁决不切换任何东西：切换仍是另一次带授权的调用，所以申请是一份意图账本，不是排好队的命令。
+
+### 新增
+
+- **申请队列**（v0.9 沙箱 F2c）。`POST /v0/sandboxes/requests`（`agent.run`）落一条申请——`{action: switch|define|assemble, sandbox?, reason?}`——并答 `201` 带 `req-<pid>-<seq>`（自己的命名空间，不是任务那个）。`GET /v0/sandboxes/requests?status=`（`sandbox.read`）列出它，新的在前。两条决策（`…/{id}/approve`、`…/{id}/reject`）无请求体，答 `200` 带记录，且是终局：再决一次是 `409`，id 未知是 `404`。
+- **`sandbox.assemble`，第 31 个 capability**：把节点搬走、与给它一个要跑的新定义，是两种权力，所以一条决策需要它的请求所要求的那一个——`switch` 申请要 `sandbox.switch`，`define` / `assemble` 要 `sandbox.assemble`。
+- **`SandboxRequester`，agent crate 的两个沙箱工具**：`request_sandbox`（落一条申请、答出 id）与 `sandbox_status`（现在跑什么、什么在等）。宿主用克隆的子句柄实现该 trait 并注入 loop——loop 不能持有 `Arc<AppState>`，因为它就住在里面。
+- **四条 Tauri 命令**（`request_sandbox`、`list_sandbox_requests`、`approve_sandbox_request`、`reject_sandbox_request`），已注册但未与界面接线（D 线）。
+- **三个 CLI 子命令**：`sandboxes requests [--status <s>]`、`sandboxes requests approve <id>`、`sandboxes requests reject <id>`。两条决策像 `sandboxes switch` 一样先确认，非终端 stdin 直接拒绝。
+- **`sandbox:request`，第 14 个 SSE 事件**：`{id, status, requester, action}`，每次变化一条（`pending`，然后 `approved` / `rejected`）。
+
+### 变更
+
+- **路由声明的 capability 不总是全部检查。** 两条决策声明 `sandbox.read`——决策者先要看得见队列——由处理器再拿该请求自己的 `action` 所隐含的 capability 对 actor 做检查，这也是 `dispatch` 现在接收它的原因。API 文档从「每个 capability 都至少有一条路由」改成「都在某处被强制」：`sandbox.assemble` 在那个处理器里被强制，直到装配端点落地。
+- **文档里的 capability 计数为 31**，§5.1 / §5.2 携带 32 / 33 个端点：API 文档（双语）、`server/README`（双语）与客户端指南（双语）。
+- **`all_events_are_named` 重新列全十四个事件**，事件文档 §3 表格有十四行。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

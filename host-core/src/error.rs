@@ -25,9 +25,10 @@ pub enum HostError {
 
     /// No sandbox definition carries that name (v0.9 sandbox F2b).
     ///
-    /// The four sandbox variants carry a machine-readable code in their `Display`
+    /// The sandbox variants carry a machine-readable code in their `Display`
     /// (`sandbox_not_found`, `sandbox_qemu_missing`, `sandbox_toolchain_missing`,
-    /// `sandbox_kernel_missing`), so a caller can branch on the reason without
+    /// `sandbox_kernel_missing`, `sandbox_request_not_found`,
+    /// `sandbox_request_decided`), so a caller can branch on the reason without
     /// matching prose, and `user_message` is still what the interface shows.
     #[error("sandbox_not_found: {0}")]
     SandboxNotFound(String),
@@ -51,6 +52,17 @@ pub enum HostError {
     /// reason.
     #[error("sandbox_start_failed: {0}")]
     SandboxStart(String),
+
+    /// No sandbox request carries that id (v0.9 sandbox F2c).
+    #[error("sandbox_request_not_found: {0}")]
+    SandboxRequestNotFound(String),
+
+    /// The request was already decided (v0.9 sandbox F2c).
+    ///
+    /// A decision is not reversible (F2c decision 5): the second one is a `409`,
+    /// not a silent overwrite of who decided what.
+    #[error("sandbox_request_decided: {0}")]
+    SandboxRequestDecided(String),
 
     #[error("{0}")]
     Other(String),

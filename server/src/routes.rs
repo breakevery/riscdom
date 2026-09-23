@@ -6,11 +6,11 @@
 //!
 //! The tables are `docs/control-plane-api.md` §5.1 and §5.2.
 
-use crate::auth::Capability;
+use crate::auth::{Actor, Capability};
 use crate::http::{error_response, json_response, no_content, RespBody};
 use crate::log::{self, LogLevel};
 use crate::sse::{HttpEventSink, SseHub};
-use host_core::{AppState, EventSink, HostError};
+use host_core::{AppState, EventSink, HostError, SandboxAction, SandboxRequestStatus};
 use hyper::{Response, StatusCode};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -89,6 +89,13 @@ pub(crate) enum Action {
     SerialExport,
     /// The sandbox switch (v0.9 sandbox F2b-2): the one write on that surface.
     SandboxSwitch,
+    /// The request queue, read (v0.9 sandbox F2c).
+    SandboxRequests,
+    /// Leave a request (v0.9 sandbox F2c).
+    SandboxRequestCreate,
+    /// Decide a request: the two halves of the one write the queue allows.
+    SandboxRequestApprove,
+    SandboxRequestReject,
 }
 
 /// What a request resolves to.
@@ -279,6 +286,15 @@ const ROUTES: &[(&str, &str, Capability, Action)] = &[
         "/v0/sandboxes/candidates",
         Capability::SandboxRead,
         Action::SandboxCandidates,
+    ),
+    // The request queue (v0.9 sandbox F2c). Its two decisions (`approve` /
+    // `reject`) carry an id, so they are pattern routes like `/v0/runs/{run_id}`
+    // — resolved below, and deliberately not rows here.
+    (
+        "GET",
+        "/v0/sandboxes/requests",
+        Capability::SandboxRead,
+        Action::SandboxRequests,
     ),
     // Reserved (§6, G3): served, and answers 501 until the aggregate lands.
     (
@@ -477,6 +493,12 @@ const ROUTES: &[(&str, &str, Capability, Action)] = &[
         Capability::SandboxSwitch,
         Action::SandboxSwitch,
     ),
+    (
+        "POST",
+        "/v0/sandboxes/requests",
+        Capability::AgentRun,
+        Action::SandboxRequestCreate,
+    ),
 ];
 
 /// `/v0/runs/{run_id}` is the one path with a parameter.
@@ -645,6 +667,30 @@ fn run_id_from(path: &str) -> Option<&str> {
     Some(rest)
 }
 
+/// `/v0/sandboxes/requests/<id>`, the request decisions' path.
+const SANDBOX_REQUESTS_PREFIX: &str = "/v0/sandboxes/requests/";
+
+/// The `<id>` of `/v0/sandboxes/requests/<id>/(approve|reject)`, when the path is
+/// exactly that shape.
+///
+/// A third path with a parameter, and the first with **two** segments after it.
+/// The tail names the decision, so one extractor answers for both routes and an
+/// unknown tail is simply not a route. `sandbox_name_from` never sees these paths:
+/// it refuses anything whose rest contains a `/`, and this one has two.
+fn sandbox_request_decision_from(path: &str) -> Option<(&str, Action)> {
+    let rest = path.strip_prefix(SANDBOX_REQUESTS_PREFIX)?;
+    let (id, decision) = rest.rsplit_once('/')?;
+    if id.is_empty() || id.contains('/') {
+        return None;
+    }
+    let action = match decision {
+        "approve" => Action::SandboxRequestApprove,
+        "reject" => Action::SandboxRequestReject,
+        _ => return None,
+    };
+    Some((id, action))
+}
+
 /// The `<name>` of `/v0/sandboxes/<name>`, when the path is exactly that shape.
 ///
 /// The literal sub-paths of `/v0/sandboxes/…` are their own routes. The two that
@@ -717,6 +763,22 @@ pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
             path_param: Some(("run_id", run_id.to_string())),
         };
     }
+    if let Some((id, action)) = sandbox_request_decision_from(path) {
+        if method != "POST" {
+            return Resolution::MethodNotAllowed {
+                allowed: "POST".to_string(),
+            };
+        }
+        // The gate is `sandbox.read` — a decider has to be able to see the queue
+        // it decides on. Which capability the *decision* needs follows from the
+        // request's own `action`, so it is checked in the handler, where the id is
+        // resolved and the actor is in hand (F2c decision 1).
+        return Resolution::Query {
+            action,
+            capability: Capability::SandboxRead,
+            path_param: Some(("request_id", id.to_string())),
+        };
+    }
     if let Some(name) = sandbox_name_from(path) {
         if method != "GET" {
             return Resolution::MethodNotAllowed {
@@ -738,12 +800,19 @@ const THEMES: &[&str] = &["light", "dark", "system"];
 const LANGUAGES: &[&str] = &["system", "en", "zh"];
 
 /// Run one endpoint against the host and shape the answer.
+///
+/// `actor` is the authenticated caller. Most routes never look at it — the hook
+/// already checked the capability the route declares — but a decision on a
+/// sandbox request does: which capability it needs follows from the request's own
+/// `action`, and only the handler knows the request (F2c decision 1).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn dispatch(
     action: Action,
     params: &Params,
     app: &Arc<AppState>,
     hub: &Arc<SseHub>,
     log_level: LogLevel,
+    actor: &Actor,
 ) -> Response<RespBody> {
     match action {
         // ---- queries ----
@@ -891,6 +960,95 @@ pub(crate) fn dispatch(
             "resource accounting is reserved and not implemented yet",
             Some("resources"),
         ),
+        // The request queue (v0.9 sandbox F2c). A request is a ledger entry, not a
+        // command: it says what an actor wants, and someone who holds the
+        // capability decides. Neither read nor write here switches anything.
+        Action::SandboxRequests => {
+            let status = match params.get("status") {
+                None => None,
+                Some(raw) => match SandboxRequestStatus::parse(raw) {
+                    Some(status) => Some(status),
+                    None => {
+                        return error_response(
+                            400,
+                            "bad_request",
+                            &format!("unknown status {raw:?}"),
+                            Some("status"),
+                        )
+                    }
+                },
+            };
+            ok_json(&serde_json::json!({ "requests": app.list_sandbox_requests(status) }))
+        }
+        Action::SandboxRequestCreate => {
+            let raw = match params.required("action") {
+                Ok(raw) => raw,
+                Err(response) => return *response,
+            };
+            let Some(action) = SandboxAction::parse(raw) else {
+                return error_response(
+                    400,
+                    "bad_request",
+                    &format!("unknown action {raw:?}: expected switch, define or assemble"),
+                    Some("action"),
+                );
+            };
+            let sandbox = params.get("sandbox").map(str::to_string);
+            let reason = params.get("reason").map(str::to_string);
+            let emitter: Arc<dyn host_core::EventSink> =
+                Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
+            // Who asked: the caller's own identity. An agent with `agent.run` and
+            // no `sandbox.switch` lands here and nowhere else (F2c decision 1).
+            match app.request_sandbox(
+                &actor.agent_id,
+                action,
+                sandbox,
+                // The body carries no definition: registering one is the assemble
+                // endpoint's job, and a path is not something a model names.
+                None,
+                reason,
+                emitter,
+            ) {
+                // 201: something was created, and its id is the whole answer.
+                Ok(view) => created_json(&serde_json::json!({ "id": view.id })),
+                Err(e) => host_error(e),
+            }
+        }
+        Action::SandboxRequestApprove | Action::SandboxRequestReject => {
+            let id = match params.required("request_id") {
+                Ok(id) => id,
+                Err(response) => return *response,
+            };
+            // Two checks, in this order on purpose: resolving the request is what
+            // says which capability the decision needs, so `404` comes first — and
+            // then the capability the request's action implies is checked against
+            // the actor the hook handed us (F2c decision 1).
+            let wanted = match app.sandbox_request_action(id) {
+                Ok(action) => capability_for_action(action),
+                Err(e) => return sandbox_request_error(e),
+            };
+            if !actor.allows(wanted) {
+                return error_response(
+                    403,
+                    "forbidden",
+                    &format!("the actor may not {}", wanted.as_str()),
+                    Some("capability"),
+                );
+            }
+            let approve = matches!(action, Action::SandboxRequestApprove);
+            let emitter: Arc<dyn host_core::EventSink> =
+                Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
+            let decided = if approve {
+                app.approve_sandbox_request(id, &actor.agent_id, emitter)
+            } else {
+                app.reject_sandbox_request(id, &actor.agent_id, emitter)
+            };
+            match decided {
+                // 200 with the record: what the decision landed on, not just "ok".
+                Ok(view) => ok_json(&view),
+                Err(e) => sandbox_request_error(e),
+            }
+        }
 
         // ---- controls ----
         Action::AgentRun => {
@@ -1316,6 +1474,38 @@ pub(crate) fn dispatch(
     }
 }
 
+/// A `201` with the created resource's body.
+fn created_json(value: &serde_json::Value) -> Response<RespBody> {
+    json_response(StatusCode::CREATED, value)
+}
+
+/// The capability a decision on a request needs, read from what it asks for
+/// (v0.9 sandbox F2c, decision 1).
+///
+/// Switching is one power, assembling a definition another: an actor trusted to
+/// move the node is not automatically trusted to give it a new definition to run.
+fn capability_for_action(action: SandboxAction) -> Capability {
+    match action {
+        SandboxAction::Switch => Capability::SandboxSwitch,
+        SandboxAction::Define | SandboxAction::Assemble => Capability::SandboxAssemble,
+    }
+}
+
+/// A request's own refusals: an id nobody knows is a `404`; a second decision on
+/// the same request is a `409`, because the first one stands.
+fn sandbox_request_error(error: HostError) -> Response<RespBody> {
+    match &error {
+        HostError::SandboxRequestNotFound(id) => error_response(
+            404,
+            "not_found",
+            &format!("no sandbox request {id:?}"),
+            Some("id"),
+        ),
+        HostError::SandboxRequestDecided(_) => state_clash(error),
+        _ => host_error(error),
+    }
+}
+
 /// A `200` with the serialised value.
 fn ok_json<T: serde::Serialize>(value: &T) -> Response<RespBody> {
     match serde_json::to_value(value) {
@@ -1436,15 +1626,21 @@ mod tests {
             .iter()
             .filter(|(method, ..)| *method == "POST")
             .count();
-        // 30 queries (two of them patterns — `/v0/runs/{run_id}` and
-        // `/v0/sandboxes/{name}` — so 28 rows), plus the reserved aggregate and
+        // 31 queries (two of them patterns — `/v0/runs/{run_id}` and
+        // `/v0/sandboxes/{name}` — so 29 rows), plus the reserved aggregate and
         // the QEMU download status (v0.9 F1) and the three sandbox queries
-        // (v0.9 sandbox F2a-2).
-        assert_eq!(queries, 30, "query rows");
+        // (v0.9 sandbox F2a-2) and the request queue (v0.9 sandbox F2c).
+        //
+        // The two request decisions (`approve` / `reject`) carry an id, so they
+        // are pattern routes like `/v0/runs/{run_id}` and are **not** rows here —
+        // the count is rows, and a pattern is not one.
+        assert_eq!(queries, 31, "query rows");
         // The 27 controls of §5.2, plus the reserved `POST /v0/vm/start` and
         // `POST /v0/runs/abandon-stale` (§6, G1 and G4), plus the QEMU download
-        // start and cancel (v0.9 F1) and the sandbox switch (v0.9 sandbox F2b-2).
-        assert_eq!(controls, 32, "control rows");
+        // start and cancel (v0.9 F1), the sandbox switch (v0.9 sandbox F2b-2) and
+        // the request queue's create (v0.9 sandbox F2c) — its two decisions are
+        // pattern routes, as above.
+        assert_eq!(controls, 33, "control rows");
     }
 
     #[test]
@@ -1530,8 +1726,8 @@ mod tests {
             }
         }
         // `switch` is a route of its own since F2b-2 (`POST`-only, so a `GET` is a
-        // `405`), while `assemble` and `requests` are still nothing, and none of
-        // the three is a definition.
+        // `405`), `requests` since F2c (served under both methods), while
+        // `assemble` is still nothing — and none of them is a definition.
         match resolve("GET", "/v0/sandboxes/switch") {
             Resolution::MethodNotAllowed { allowed } => assert_eq!(allowed, "POST"),
             other => panic!("GET /v0/sandboxes/switch: {other:?}"),
@@ -1547,9 +1743,78 @@ mod tests {
             }
             other => panic!("POST /v0/sandboxes/switch: {other:?}"),
         }
-        for path in ["/v0/sandboxes/assemble", "/v0/sandboxes/requests"] {
+        assert!(
+            matches!(
+                resolve("GET", "/v0/sandboxes/assemble"),
+                Resolution::NotFound
+            ),
+            "the assemble endpoint is not built yet (F2c decision 4 keeps it out)"
+        );
+        match resolve("GET", "/v0/sandboxes/requests") {
+            Resolution::Query {
+                action: Action::SandboxRequests,
+                capability,
+                path_param,
+            } => {
+                assert_eq!(capability, Capability::SandboxRead);
+                assert!(path_param.is_none());
+            }
+            other => panic!("GET /v0/sandboxes/requests: {other:?}"),
+        }
+        match resolve("POST", "/v0/sandboxes/requests") {
+            Resolution::Query {
+                action: Action::SandboxRequestCreate,
+                capability,
+                ..
+            } => {
+                // An ask is what `agent.run` may leave behind: the capability the
+                // *decision* needs is the handler's business.
+                assert_eq!(capability, Capability::AgentRun);
+            }
+            other => panic!("POST /v0/sandboxes/requests: {other:?}"),
+        }
+        // The two decisions carry the id, and answer with the gate's capability:
+        // which one the decision *needs* follows from the request's action, so it
+        // is checked in the handler (F2c decision 1).
+        for (path, wanted) in [
+            (
+                "/v0/sandboxes/requests/req-1-1/approve",
+                Action::SandboxRequestApprove,
+            ),
+            (
+                "/v0/sandboxes/requests/req-1-1/reject",
+                Action::SandboxRequestReject,
+            ),
+        ] {
+            match resolve("POST", path) {
+                Resolution::Query {
+                    action,
+                    capability,
+                    path_param,
+                } => {
+                    assert_eq!(action, wanted, "{path}");
+                    assert_eq!(capability, Capability::SandboxRead, "{path}");
+                    assert_eq!(
+                        path_param,
+                        Some(("request_id", "req-1-1".to_string())),
+                        "{path}"
+                    );
+                }
+                other => panic!("POST {path}: {other:?}"),
+            }
             assert!(
-                matches!(resolve("GET", path), Resolution::NotFound),
+                matches!(resolve("GET", path), Resolution::MethodNotAllowed { .. }),
+                "GET {path}"
+            );
+        }
+        // Anything else under that path is not a route at all.
+        for path in [
+            "/v0/sandboxes/requests/req-1-1",
+            "/v0/sandboxes/requests/req-1-1/delete",
+            "/v0/sandboxes/requests/a/b/approve",
+        ] {
+            assert!(
+                matches!(resolve("POST", path), Resolution::NotFound),
                 "{path}"
             );
         }

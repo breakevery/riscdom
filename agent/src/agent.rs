@@ -7,7 +7,7 @@ use crate::error::AgentError;
 use crate::llm::LlmClient;
 use crate::message::{ChatMessage, ChatRequest, StreamEvent};
 use crate::policy::WorkspacePolicy;
-use crate::tools::{execute_tool, tools_json, ToolContext};
+use crate::tools::{execute_tool, tools_json, SandboxRequester, ToolContext};
 use audit::{AuditEvent, AuditSink};
 use sandbox::vm::RiscVVirtualMachine;
 use serde::{Deserialize, Serialize};
@@ -60,6 +60,9 @@ pub struct AgentLoop {
     qemu_exe: Option<std::path::PathBuf>,
     /// Who this loop is, for the audit chain's `agent_id` (v0.8 batch B).
     agent_id: String,
+    /// The host's sandbox request surface (v0.9 sandbox F2c); `None` when the host
+    /// injects none, and the two sandbox tools report exactly that.
+    sandbox_requester: Option<Arc<dyn SandboxRequester>>,
 }
 
 impl AgentLoop {
@@ -135,7 +138,17 @@ impl AgentLoop {
             stream_observers: Arc::new(Mutex::new(Vec::new())),
             external_vm,
             qemu_exe: None,
+            sandbox_requester: None,
         })
+    }
+
+    /// Use the host's sandbox request surface (v0.9 sandbox F2c).
+    ///
+    /// The host owns the queue and injects the handle the way it injects the
+    /// compiler and the QEMU path; `None` (the default) means this host has no
+    /// such surface, and the tools say so rather than quietly doing nothing.
+    pub fn with_sandbox_requester(&mut self, requester: Option<Arc<dyn SandboxRequester>>) {
+        self.sandbox_requester = requester;
     }
 
     /// Hand out a handle to the serial subscriber list so it can outlive this
@@ -342,6 +355,7 @@ impl AgentLoop {
                         serial_observers: Arc::clone(&self.serial_observers),
                         qemu_exe: &self.qemu_exe,
                         agent_id: &self.agent_id,
+                        requester: self.sandbox_requester.as_ref(),
                     };
                     match execute_tool(&call.function.name, &call.function.arguments, &mut ctx) {
                         Ok(result) => result,
@@ -356,6 +370,7 @@ impl AgentLoop {
                         serial_observers: Arc::clone(&self.serial_observers),
                         qemu_exe: &self.qemu_exe,
                         agent_id: &self.agent_id,
+                        requester: self.sandbox_requester.as_ref(),
                     };
                     match execute_tool(&call.function.name, &call.function.arguments, &mut ctx) {
                         Ok(result) => result,

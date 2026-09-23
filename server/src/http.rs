@@ -367,11 +367,12 @@ async fn handle(
             let app = Arc::clone(&shared.app);
             let hub = Arc::clone(&shared.hub);
             let log_level = shared.log_level;
+            let actor = actor.clone();
             // The host's work is synchronous, and some of it is heavy (a compile,
             // a `--version` probe, a download): it runs off the async runtime, so
             // a request never stalls the event stream.
             match tokio::task::spawn_blocking(move || {
-                routes::dispatch(action, &params, &app, &hub, log_level)
+                routes::dispatch(action, &params, &app, &hub, log_level, &actor)
             })
             .await
             {

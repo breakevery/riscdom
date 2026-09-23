@@ -27,6 +27,7 @@ pub mod preflight;
 pub mod qemu_download;
 pub mod run_diff;
 pub mod sandbox_def;
+pub mod sandbox_request;
 pub mod session;
 pub mod settings;
 pub mod state;
@@ -34,7 +35,7 @@ pub mod toolchain_download;
 
 pub use dispatch::{local_dispatcher, HostAgentHandle};
 pub use error::HostError;
-pub use events::{EventSink, EV_PREFLIGHT, EV_SANDBOX_SWITCH};
+pub use events::{EventSink, EV_PREFLIGHT, EV_SANDBOX_REQUEST, EV_SANDBOX_SWITCH};
 pub use executor::{StdioExecutorHandle, DEFAULT_EXECUTOR_TIMEOUT};
 pub use keyring::{KeyringBackend, OsKeyring, SERVICE};
 pub use preflight::{PreflightCache, PreflightRow, PreflightView};
@@ -42,6 +43,10 @@ pub use run_diff::{diff_fingerprints, FingerprintFieldDiff, FINGERPRINT_FIELDS};
 pub use sandbox_def::{
     CandidateView, CandidatesView, SandboxDef, SandboxSource, SandboxView, DEFAULT_SANDBOX_NAME,
     NO_VERSION,
+};
+pub use sandbox_request::{
+    SandboxAction, SandboxRequest, SandboxRequestService, SandboxRequestStatus, SandboxRequestView,
+    SandboxRequests,
 };
 pub use session::{SessionMessage, SessionMeta, SessionStore};
 pub use state::{

@@ -145,6 +145,18 @@ pub enum Command {
     SandboxesSwitch {
         name: String,
     },
+    /// The request queue (v0.9 sandbox F2c), read-only, optionally filtered.
+    SandboxesRequests {
+        status: Option<String>,
+    },
+    /// The two decisions. Both need the capability the request's action implies,
+    /// so both lean on the server's answer rather than guessing here.
+    SandboxesRequestsApprove {
+        id: String,
+    },
+    SandboxesRequestsReject {
+        id: String,
+    },
     // ---- control ----
     Run {
         task: String,
@@ -243,6 +255,7 @@ impl Command {
             | Command::SandboxesCurrent
             | Command::SandboxesCandidates
             | Command::SandboxesShow { .. }
+            | Command::SandboxesRequests { .. }
             | Command::QemuStatus => "GET",
             _ => "POST",
         }
@@ -267,6 +280,18 @@ impl Command {
                 format!("/v0/sandboxes/{}", url_encode(name))
             }
             Command::SandboxesSwitch { .. } => "/v0/sandboxes/switch".to_string(),
+            Command::SandboxesRequests { status: None } => "/v0/sandboxes/requests".to_string(),
+            Command::SandboxesRequests {
+                status: Some(status),
+            } => {
+                format!("/v0/sandboxes/requests?status={}", url_encode(status))
+            }
+            Command::SandboxesRequestsApprove { id } => {
+                format!("/v0/sandboxes/requests/{}/approve", url_encode(id))
+            }
+            Command::SandboxesRequestsReject { id } => {
+                format!("/v0/sandboxes/requests/{}/reject", url_encode(id))
+            }
             Command::Run { .. } => "/v0/agent/run".to_string(),
             Command::VmStop => "/v0/vm/stop".to_string(),
             Command::VmStart => "/v0/vm/start".to_string(),
@@ -356,6 +381,11 @@ impl Command {
             }
             Command::LlmLoadKey { provider_id } => Some(json!({ "provider_id": provider_id })),
             Command::SandboxesSwitch { name } => Some(json!({ "name": name })),
+            // The two decisions take no body: the id is in the path, and who
+            // decided is the caller's own identity.
+            Command::SandboxesRequestsApprove { .. } | Command::SandboxesRequestsReject { .. } => {
+                Some(json!({}))
+            }
             Command::QemuPath { path } | Command::ToolchainPath { path } => {
                 Some(json!({ "path": path }))
             }
@@ -381,6 +411,14 @@ impl Command {
                 "Switch this node's sandbox to {name:?}? The running VM is stopped and started again."
             )),
             Command::SnapshotsDelete { name } => Some(format!("Delete snapshot {name:?}?")),
+            // The two decisions are permission actions: approving lets someone
+            // else's change happen, so it asks the same way a switch does.
+            Command::SandboxesRequestsApprove { id } => {
+                Some(format!("Approve sandbox request {id:?}?"))
+            }
+            Command::SandboxesRequestsReject { id } => {
+                Some(format!("Reject sandbox request {id:?}?"))
+            }
             Command::SessionsDelete { session_id } => {
                 Some(format!("Delete session {session_id:?}?"))
             }
@@ -442,6 +480,8 @@ pub enum Parsed {
 struct Flags {
     limit: Option<usize>,
     out: Option<String>,
+    /// `--status <s>`: the request queue's filter (v0.9 sandbox F2c).
+    status: Option<String>,
     api_key: Option<String>,
     api_key_file: Option<PathBuf>,
     base_url: Option<String>,
@@ -484,6 +524,7 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
             "--token-file" => token_file = Some(PathBuf::from(value("--token-file")?)),
             "--token" => token = Some(value("--token")?),
             "--out" => flags.out = Some(value("--out")?),
+            "--status" => flags.status = Some(value("--status")?),
             "--api-key" => flags.api_key = Some(value("--api-key")?),
             "--api-key-file" => flags.api_key_file = Some(PathBuf::from(value("--api-key-file")?)),
             "--base-url" => flags.base_url = Some(value("--base-url")?),
@@ -564,6 +605,18 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
         (Some("sandboxes"), Some("switch"), Some(name), None) => Some(Command::SandboxesSwitch {
             name: name.to_string(),
         }),
+        // The request queue (v0.9 sandbox F2c). `requests approve <id>` is exactly
+        // the four words the parser reaches; the filter is a flag, not a word, so
+        // it can sit anywhere the other flags may.
+        (Some("sandboxes"), Some("requests"), None, None) => Some(Command::SandboxesRequests {
+            status: flags.status.clone(),
+        }),
+        (Some("sandboxes"), Some("requests"), Some("approve"), Some(id)) => {
+            Some(Command::SandboxesRequestsApprove { id: id.to_string() })
+        }
+        (Some("sandboxes"), Some("requests"), Some("reject"), Some(id)) => {
+            Some(Command::SandboxesRequestsReject { id: id.to_string() })
+        }
         (Some("run"), Some(task), None, None) => Some(Command::Run {
             task: task.to_string(),
         }),
@@ -664,6 +717,12 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
         (Some("sandboxes"), Some("show"), None) => Err("sandboxes show needs a <name>".to_string()),
         (Some("sandboxes"), Some("switch"), None) => {
             Err("sandboxes switch needs a <name>".to_string())
+        }
+        (Some("sandboxes"), Some("requests"), Some("approve" | "reject")) => {
+            Err("sandboxes requests approve|reject needs an <id>".to_string())
+        }
+        (Some("sandboxes"), Some("requests"), Some(other)) => {
+            Err(format!("unknown requests subcommand {other:?}"))
         }
         (Some("sandboxes"), Some(other), _) => {
             Err(format!("unknown sandboxes subcommand {other:?}"))
@@ -1579,6 +1638,84 @@ mod tests {
     }
 
     #[test]
+    fn the_request_commands_parse() {
+        // The queue reads: `GET`, no body, nothing to confirm.
+        assert_eq!(
+            command(&["sandboxes", "requests"]),
+            Command::SandboxesRequests { status: None }
+        );
+        assert_eq!(
+            args_of(&["sandboxes", "requests", "--status", "pending"]).command,
+            Command::SandboxesRequests {
+                status: Some("pending".to_string())
+            }
+        );
+        assert_eq!(
+            Command::SandboxesRequests { status: None }.request_path(),
+            "/v0/sandboxes/requests"
+        );
+        assert_eq!(
+            Command::SandboxesRequests {
+                status: Some("pending".to_string())
+            }
+            .request_path(),
+            "/v0/sandboxes/requests?status=pending"
+        );
+        assert_eq!(Command::SandboxesRequests { status: None }.method(), "GET");
+        assert_eq!(Command::SandboxesRequests { status: None }.body(), None);
+        assert_eq!(
+            Command::SandboxesRequests { status: None }.confirmation(),
+            None
+        );
+
+        // The two decisions are `POST`s to the request's own path, with a body
+        // (the actor's identity is the caller's, not a field) and a question.
+        for (command, verb) in [
+            (
+                Command::SandboxesRequestsApprove {
+                    id: "req-1-2".to_string(),
+                },
+                "approve",
+            ),
+            (
+                Command::SandboxesRequestsReject {
+                    id: "req-1-2".to_string(),
+                },
+                "reject",
+            ),
+        ] {
+            assert_eq!(command.method(), "POST");
+            assert_eq!(
+                command.request_path(),
+                format!("/v0/sandboxes/requests/req-1-2/{verb}")
+            );
+            assert_eq!(command.body(), Some(serde_json::json!({})));
+            let question = command.confirmation().expect("a permission action asks");
+            assert!(question.contains("req-1-2"), "{question}");
+        }
+        assert_eq!(
+            command(&["sandboxes", "requests", "approve", "req-1-2"]),
+            Command::SandboxesRequestsApprove {
+                id: "req-1-2".to_string()
+            }
+        );
+        assert_eq!(
+            command(&["sandboxes", "requests", "reject", "req-1-2"]),
+            Command::SandboxesRequestsReject {
+                id: "req-1-2".to_string()
+            }
+        );
+        // An id is percent-encoded like a name.
+        assert_eq!(
+            Command::SandboxesRequestsApprove {
+                id: "a/b".to_string()
+            }
+            .request_path(),
+            "/v0/sandboxes/requests/a%2Fb/approve"
+        );
+    }
+
+    #[test]
     fn an_incomplete_sandboxes_command_is_refused() {
         for args in [
             vec!["sandboxes"],
@@ -1586,6 +1723,12 @@ mod tests {
             vec!["sandboxes", "switch"],
             vec!["sandboxes", "nope"],
             vec!["sandboxes", "list", "extra"],
+            // The two decisions need their id, and a third word is not a verb.
+            // (A fifth word is not examined at all — the parser reads four, which
+            // is true of every command here, not just these.)
+            vec!["sandboxes", "requests", "approve"],
+            vec!["sandboxes", "requests", "reject"],
+            vec!["sandboxes", "requests", "delete", "req-1-1"],
         ] {
             assert!(parse_words(&args).is_err(), "{args:?} should not parse");
         }

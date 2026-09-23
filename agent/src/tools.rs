@@ -71,6 +71,33 @@ impl ToolSpec {
     }
 }
 
+/// What the sandbox tools need from the host (v0.9 sandbox F2c).
+///
+/// The `agent` crate cannot name `host_core::AppState` — the dependency runs
+/// `host-core → agent` — so the host injects this the way it already injects the
+/// VM slot and the audit sink: a small trait it implements over its own state.
+///
+/// `request` enqueues an ask; it does **not** switch anything. Approval is a
+/// separate, authorised call, which is the whole point of the surface: an agent
+/// that may not switch can still say what it would like switched.
+///
+/// Both methods answer with a message on failure: the text goes straight back to
+/// the model as the tool result, exactly like a tool's own error.
+pub trait SandboxRequester: Send + Sync {
+    /// Enqueue a request for `action` (`switch` / `define` / `assemble`).
+    ///
+    /// The answer is the new request's id; the model reports it to the user.
+    fn request(
+        &self,
+        action: &str,
+        sandbox: Option<&str>,
+        reason: Option<&str>,
+    ) -> Result<String, String>;
+
+    /// What this node is running now, and what is still waiting for a decision.
+    fn status(&self) -> Result<String, String>;
+}
+
 /// Runtime context shared by tool executions.
 ///
 /// NOTE: `vm` is `&mut Option<..>` (not `Option<&mut ..>`) so `start_vm` /
@@ -87,6 +114,10 @@ pub struct ToolContext<'a> {
     /// The agent this tool call belongs to (v0.8 batch B): stamped onto the
     /// events the tools write, and used to keep this agent's snapshots apart.
     pub agent_id: &'a str,
+    /// The host's sandbox request surface (v0.9 sandbox F2c). `None` when the
+    /// host injects none — then the two sandbox tools say so instead of
+    /// pretending the ask went somewhere.
+    pub requester: Option<&'a Arc<dyn SandboxRequester>>,
 }
 
 /// Build a serial observer that fans out to every live subscriber.
@@ -169,6 +200,30 @@ pub fn tool_specs() -> Vec<ToolSpec> {
             description: "List files in the workspace (relative paths).".into(),
             parameters: obj(serde_json::json!({}), vec![]),
         },
+        ToolSpec {
+            name: "request_sandbox".into(),
+            description: "Ask the user to switch this node to another sandbox, or to \
+                          assemble one. This does NOT switch anything by itself: it \
+                          leaves a request the user (or a supervisor) approves or \
+                          rejects. Use it when the user asks for a sandbox you do not \
+                          have, and tell them the id it returns."
+                .into(),
+            parameters: obj(
+                serde_json::json!({
+                    "action": {"type": "string", "description": "switch, define or assemble"},
+                    "sandbox": {"type": "string", "description": "the sandbox to switch to"},
+                    "reason": {"type": "string", "description": "why the change is wanted"}
+                }),
+                vec!["action"],
+            ),
+        },
+        ToolSpec {
+            name: "sandbox_status".into(),
+            description: "Report the sandbox this node is running and the sandbox \
+                          requests still waiting for a decision."
+                .into(),
+            parameters: obj(serde_json::json!({}), vec![]),
+        },
     ]
 }
 
@@ -204,6 +259,8 @@ pub fn execute_tool(name: &str, args: &str, ctx: &mut ToolContext) -> Result<Str
         "read_serial" => tool_read_serial(ctx),
         "stop_vm" => tool_stop_vm(ctx),
         "list_workspace" => tool_list_workspace(ctx),
+        "request_sandbox" => tool_request_sandbox(&parsed, ctx),
+        "sandbox_status" => tool_sandbox_status(ctx),
         other => Err(AgentError::Tool(format!("unknown tool: {other}"))),
     };
 
@@ -446,6 +503,44 @@ fn tool_list_workspace(ctx: &mut ToolContext) -> Result<String, AgentError> {
     } else {
         Ok(files.join("\n"))
     }
+}
+
+/// The host's sandbox request surface, or the reason there is none.
+fn requester(ctx: &ToolContext) -> Result<Arc<dyn SandboxRequester>, AgentError> {
+    ctx.requester.cloned().ok_or_else(|| {
+        AgentError::Tool(
+            "this host exposes no sandbox request surface; the user has to make the change "
+                .to_string()
+                + "through the interface",
+        )
+    })
+}
+
+fn tool_request_sandbox(
+    args: &serde_json::Value,
+    ctx: &mut ToolContext,
+) -> Result<String, AgentError> {
+    let action = arg_str(args, "action")?;
+    match action {
+        "switch" | "define" | "assemble" => {}
+        other => {
+            return Err(AgentError::Tool(format!(
+                "unknown action {other:?}: expected switch, define or assemble"
+            )))
+        }
+    }
+    let sandbox = args.get("sandbox").and_then(|v| v.as_str());
+    let reason = args.get("reason").and_then(|v| v.as_str());
+    let id = requester(ctx)?
+        .request(action, sandbox, reason)
+        .map_err(AgentError::Tool)?;
+    Ok(format!(
+        "requested {action}; the id is {id} — it is waiting for approval"
+    ))
+}
+
+fn tool_sandbox_status(ctx: &mut ToolContext) -> Result<String, AgentError> {
+    requester(ctx)?.status().map_err(AgentError::Tool)
 }
 
 fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), AgentError> {

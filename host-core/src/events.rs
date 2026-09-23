@@ -75,6 +75,16 @@ pub const EV_AUDIT_FAILED: &str = "audit:failed";
 /// way: a client that sees `ok: false` reads `reason` for the code.
 pub const EV_SANDBOX_SWITCH: &str = "sandbox:switch";
 
+/// A sandbox **request** changed state (v0.9 sandbox F2c): one at `pending` when
+/// an actor that may not switch leaves an ask behind, then one at `approved` or
+/// `rejected` when another actor decides it.
+///
+/// The payload is [`sandbox_request_payload`]: `{id, status, requester, action}`.
+/// `status` is one of the four names of the request's own enum (`expired` is
+/// reserved — v0.9 sets no TTL), and approving does **not** perform the change:
+/// the switch is a second, authorised call.
+pub const EV_SANDBOX_REQUEST: &str = "sandbox:request";
+
 /// The envelope schema version (v0.9 line). A payload field added later does not
 /// bump it; a change to a field's meaning, type, or presence does.
 pub const ENVELOPE_VERSION: u32 = 1;
@@ -196,6 +206,20 @@ pub fn sandbox_switch_payload(
         "to": to,
         "ok": ok,
         "reason": reason,
+    })
+}
+
+/// The `sandbox:request` payload.
+///
+/// `requester` is the actor that left the ask (an agent id, or the interface's)
+/// and `action` is what it wants — the same vocabulary the API's request body
+/// uses, so a client reads one set of names for both surfaces.
+pub fn sandbox_request_payload(id: &str, status: &str, requester: &str, action: &str) -> Value {
+    serde_json::json!({
+        "id": id,
+        "status": status,
+        "requester": requester,
+        "action": action,
     })
 }
 
@@ -419,9 +443,10 @@ mod tests {
 
     #[test]
     fn all_events_are_named() {
-        // A guard against a name drifting: the doc lists thirteen. The list was
-        // eleven while `qemu:download` (F1) was missing from it — a guard that
-        // misses an event is not a guard (v0.9 sandbox F2b-2).
+        // A guard against a name drifting: the doc lists fourteen. The list was
+        // eleven while `qemu:download` (F1) was missing from it, and thirteen
+        // before `sandbox:request` (F2c) — a guard that misses an event is not a
+        // guard (v0.9 sandbox F2b-2, F2c).
         let names = [
             EV_AGENT_ITERATION,
             EV_AGENT_TOOL_CALL,
@@ -436,8 +461,9 @@ mod tests {
             TOOLCHAIN_DOWNLOAD,
             EV_QEMU_DOWNLOAD,
             EV_SANDBOX_SWITCH,
+            EV_SANDBOX_REQUEST,
         ];
-        assert_eq!(names.len(), 13);
+        assert_eq!(names.len(), 14);
         // Every name is unique, so a copy-paste cannot hide a missing one.
         let mut sorted = names.to_vec();
         sorted.sort_unstable();
@@ -469,6 +495,22 @@ mod tests {
 
         let env = wrap(EV_SANDBOX_SWITCH, fresh);
         assert_envelope(&env, EV_SANDBOX_SWITCH);
+    }
+
+    #[test]
+    fn the_request_payload_names_the_ask_and_its_state() {
+        let pending = sandbox_request_payload("req-9-3", "pending", "local-7-1", "switch");
+        assert_eq!(pending["id"], "req-9-3");
+        assert_eq!(pending["status"], "pending");
+        assert_eq!(pending["requester"], "local-7-1");
+        assert_eq!(pending["action"], "switch");
+        // Four keys, no more: a client branches on names, and the meanings do not
+        // change with the state (an `approved` frame carries the same four).
+        assert_eq!(pending.as_object().map(|o| o.len()), Some(4));
+
+        let env = wrap(EV_SANDBOX_REQUEST, pending);
+        assert_envelope(&env, EV_SANDBOX_REQUEST);
+        assert_eq!(EV_SANDBOX_REQUEST, "sandbox:request");
     }
 
     #[test]

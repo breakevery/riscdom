@@ -322,13 +322,15 @@ fn every_query_endpoint_answers() {
         ("/v0/sandboxes/current", 200, "current"),
         ("/v0/sandboxes/candidates", 200, "toolchains"),
         ("/v0/sandboxes/default", 200, "name"),
+        // The request queue (v0.9 sandbox F2c): empty until someone asks.
+        ("/v0/sandboxes/requests", 200, "requests"),
         // Reserved: served, and answers 501 until the aggregate lands.
         ("/v0/resources", 501, "code"),
     ];
     assert_eq!(
         cases.len(),
-        32,
-        "30 query rows, the two path-parameter queries, and the reserved aggregate"
+        33,
+        "31 query rows, the two path-parameter queries, and the reserved aggregate"
     );
     for (path, want_status, key) in cases {
         let (status, body) = get(addr, path);
@@ -401,7 +403,8 @@ fn a_sandbox_name_is_a_path_parameter_and_a_literal_sub_path_is_not() {
         // a `GET` is a `405` and never a definition that happens to be called that.
         ("/v0/sandboxes/switch", 405),
         ("/v0/sandboxes/assemble", 404),
-        ("/v0/sandboxes/requests", 404),
+        // `requests` is served since F2c, so it is no longer a 404 here.
+        ("/v0/sandboxes/requests", 200),
     ] {
         let (status, body) = get(addr, path);
         assert_eq!(status, want, "{path}: {body}");
@@ -430,6 +433,205 @@ fn a_sandbox_switch_without_the_capability_is_403() {
     let (status, body) = post(addr, "/v0/sandboxes/switch", r#"{"name":"default"}"#);
     assert_eq!(status, 403, "{body}");
     assert_eq!(body["code"], "forbidden");
+}
+
+#[test]
+fn a_sandbox_request_without_the_capability_is_403() {
+    // The queue's two faces, refused by the server before the handler runs
+    // (v0.9 sandbox F2c): reading it needs `sandbox.read`, leaving an ask needs
+    // `agent.run` — an actor that may run an agent may say what it wants.
+    let (addr, _sink, _ws) = start_server(Arc::new(RefuseAll));
+    let (status, body) = get(addr, "/v0/sandboxes/requests");
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["code"], "forbidden");
+    let (status, body) = post(
+        addr,
+        "/v0/sandboxes/requests",
+        r#"{"action":"switch","sandbox":"blink"}"#,
+    );
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["code"], "forbidden");
+}
+
+#[test]
+fn an_ask_lands_in_the_queue_and_the_queue_reads_back() {
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+
+    let (status, body) = get(addr, "/v0/sandboxes/requests");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["requests"].as_array().map(Vec::len),
+        Some(0),
+        "nothing asked yet: {body}"
+    );
+
+    let (status, body) = post(
+        addr,
+        "/v0/sandboxes/requests",
+        r#"{"action":"switch","sandbox":"blink","reason":"needs more memory"}"#,
+    );
+    assert_eq!(status, 201, "{body}");
+    let id = body["id"].as_str().expect("an id").to_string();
+    assert!(id.starts_with("req-"), "its own namespace: {id}");
+
+    // The pending filter is the one an approver reads.
+    let (status, body) = get(addr, "/v0/sandboxes/requests?status=pending");
+    assert_eq!(status, 200, "{body}");
+    let rows = body["requests"].as_array().expect("an array");
+    assert_eq!(rows.len(), 1, "{body}");
+    assert_eq!(rows[0]["id"], serde_json::json!(id));
+    assert_eq!(rows[0]["action"], "switch");
+    assert_eq!(rows[0]["sandbox"], "blink");
+    assert_eq!(rows[0]["reason"], "needs more memory");
+    assert_eq!(rows[0]["status"], "pending");
+    assert!(rows[0]["decided_by"].is_null());
+    assert!(rows[0]["decided_at_ms"].is_null());
+    assert!(rows[0]["requested_at_ms"].as_u64().unwrap_or(0) > 0);
+    assert!(
+        !rows[0]["requester_agent_id"]
+            .as_str()
+            .unwrap_or_default()
+            .is_empty(),
+        "the ask names who asked: {body}"
+    );
+
+    // A filter nobody knows is a `400`, not an empty queue.
+    let (status, body) = get(addr, "/v0/sandboxes/requests?status=maybe");
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["code"], "bad_request");
+    assert_eq!(body["cause"], "status");
+}
+
+#[test]
+fn an_ask_without_a_usable_action_is_a_400() {
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    for (body, cause) in [(r#"{}"#, "action"), (r#"{"action":"reboot"}"#, "action")] {
+        let (status, reply) = post(addr, "/v0/sandboxes/requests", body);
+        assert_eq!(status, 400, "{body}: {reply}");
+        assert_eq!(reply["code"], "bad_request");
+        assert_eq!(reply["cause"], cause, "{body}: {reply}");
+    }
+    // Nothing reached the queue.
+    let (status, body) = get(addr, "/v0/sandboxes/requests");
+    assert_eq!(status, 200);
+    assert_eq!(body["requests"].as_array().map(Vec::len), Some(0), "{body}");
+}
+
+#[test]
+fn a_decision_needs_the_capability_the_request_asks_for() {
+    // The gate is `sandbox.read` — a decider has to see the queue — and the
+    // decision itself needs what the request's `action` implies. Here the actor
+    // may switch, so a *switch* request goes through…
+    let (addr, _sink, _ws) = start_server(Arc::new(FixedCaps {
+        seen: Arc::new(std::sync::Mutex::new(Vec::new())),
+        held: vec![
+            Capability::AgentRun,
+            Capability::SandboxRead,
+            Capability::SandboxSwitch,
+        ],
+    }));
+
+    let (status, body) = post(
+        addr,
+        "/v0/sandboxes/requests",
+        r#"{"action":"switch","sandbox":"blink"}"#,
+    );
+    assert_eq!(status, 201, "{body}");
+    let switch_id = body["id"].as_str().expect("an id").to_string();
+
+    let (status, body) = post(
+        addr,
+        &format!("/v0/sandboxes/requests/{switch_id}/approve"),
+        "{}",
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["status"], "approved");
+    assert!(!body["decided_by"].as_str().unwrap_or_default().is_empty());
+    assert!(body["decided_at_ms"].as_u64().unwrap_or(0) > 0);
+
+    // …while an *assemble* request does not: switching is one power, giving the
+    // node a new definition to run is another (F2c decision 1).
+    let (status, body) = post(
+        addr,
+        "/v0/sandboxes/requests",
+        r#"{"action":"assemble","sandbox":"big"}"#,
+    );
+    assert_eq!(status, 201, "{body}");
+    let assemble_id = body["id"].as_str().expect("an id").to_string();
+    let (status, body) = post(
+        addr,
+        &format!("/v0/sandboxes/requests/{assemble_id}/approve"),
+        "{}",
+    );
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["code"], "forbidden");
+    assert_eq!(body["cause"], "capability");
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("sandbox.assemble"),
+        "the message names the capability it wanted: {body}"
+    );
+
+    // The refused decision changed nothing.
+    let (status, body) = get(addr, "/v0/sandboxes/requests?status=pending");
+    assert_eq!(status, 200, "{body}");
+    let rows = body["requests"].as_array().expect("an array");
+    assert_eq!(rows.len(), 1, "{body}");
+    assert_eq!(rows[0]["id"], serde_json::json!(assemble_id));
+}
+
+#[test]
+fn a_decision_is_final_and_an_unknown_id_is_a_404() {
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let (status, body) = post(
+        addr,
+        "/v0/sandboxes/requests",
+        r#"{"action":"switch","sandbox":"blink"}"#,
+    );
+    assert_eq!(status, 201, "{body}");
+    let id = body["id"].as_str().expect("an id").to_string();
+
+    let (status, body) = post(addr, &format!("/v0/sandboxes/requests/{id}/reject"), "{}");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["status"], "rejected");
+
+    // The second decision is a `409`: the first one stands.
+    let (status, body) = post(addr, &format!("/v0/sandboxes/requests/{id}/approve"), "{}");
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["code"], "conflict");
+
+    // And an id nobody knows is a `404` naming the id.
+    for path in [
+        "/v0/sandboxes/requests/req-0-404/approve",
+        "/v0/sandboxes/requests/req-0-404/reject",
+    ] {
+        let (status, body) = post(addr, path, "{}");
+        assert_eq!(status, 404, "{path}: {body}");
+        assert_eq!(body["code"], "not_found");
+        assert_eq!(body["cause"], "id");
+    }
+}
+
+#[test]
+fn a_request_is_never_the_thing_that_switches() {
+    // Approving changes a record and nothing else (F2c decision 4): the running
+    // sandbox is untouched, and the definition the request named need not even
+    // exist — that is the switch's business, when someone calls it.
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let (_, before) = get(addr, "/v0/sandboxes/current");
+    let (status, body) = post(
+        addr,
+        "/v0/sandboxes/requests",
+        r#"{"action":"switch","sandbox":"no-such-sandbox"}"#,
+    );
+    assert_eq!(status, 201, "{body}");
+    let id = body["id"].as_str().expect("an id").to_string();
+    let (status, body) = post(addr, &format!("/v0/sandboxes/requests/{id}/approve"), "{}");
+    assert_eq!(status, 200, "{body}");
+    let (_, after) = get(addr, "/v0/sandboxes/current");
+    assert_eq!(before, after, "approving moved the node");
 }
 
 #[test]

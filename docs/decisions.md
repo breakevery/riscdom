@@ -602,3 +602,39 @@ signature changed and no call site changed: `leased_ports()` keeps returning `Ve
 order was never a contract), and `agent` / `host-core` / `sandbox::vm` are untouched.
 `sandbox/README.md` states the contract for callers, and `port_race.rs` (ignored) keeps
 walking the inter-process window as a stress test.
+
+## 36. A sandbox request is an ask; the decision is another actor's, and it executes nothing
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; landed with the v0.9 sandbox F2c batch
+
+**Decision**: Asking for a sandbox change and making one are **two surfaces**. `POST
+/v0/sandboxes/switch` still changes the node and still needs `sandbox.switch`;
+`POST /v0/sandboxes/requests` leaves a request instead, and needs only `agent.run` — the
+actor that may run an agent may say what it wants. Deciding a request (`approve` / `reject`)
+first needs `sandbox.read`, because a decider has to be able to see the queue, and then the
+capability the request's own `action` implies: `sandbox.switch` for a `switch`, and
+**`sandbox.assemble`** (the 31st capability) for `define` / `assemble`. Moving a node and
+giving it a new definition to run are different powers, and the vocabulary now says so.
+
+**Why**: The alternative — a route table that names one capability per route — cannot
+express "whichever this request asks for": the table is a static column checked before the
+handler runs, and the action is only known once the request is resolved. So the two
+decisions declare `sandbox.read` as their gate and the handler checks the precise capability
+against the actor, which is why `dispatch` now receives the actor. The consequence is
+recorded rather than hidden: the document's "every capability in the vocabulary has at least
+one route" became "is enforced somewhere", because `sandbox.assemble` has no route of its
+own until the assemble endpoint lands — it is enforced inside that handler, where a decision
+knows what it is deciding.
+
+**Impact**: `AppState` grew a request queue (`SandboxRequests`: a `Vec<SandboxRequest>`
+behind a `Mutex`, cloned into the loop's tool gateway, plus the `Arc` on `current_sandbox`
+so the two views cannot drift), ids are `req-<pid>-<seq>` in their own namespace, and the
+record is `{id, requester_agent_id, action, sandbox, definition, reason, requested_at_ms,
+status, decided_by, decided_at_ms}`. **Approving executes nothing** (the switch remains a
+second, authorised call), a decision is not reversible (`409`), an unknown id is `404`, and
+there is **no TTL**: `expired` is reserved and nothing produces it — a queue of asks is not a
+high-risk resource, and a sweeper would be a new mechanism for no caller's benefit. The
+loop reaches the queue through `agent::SandboxRequester`, a trait the `agent` crate owns
+because it cannot name `AppState`, implemented by the host over cloned sub-handles (the loop
+lives inside `AppState`, so an `Arc<AppState>` would be a cycle). `sandbox:request` is the
+14th event: one frame per change, `{id, status, requester, action}`.

@@ -24,6 +24,7 @@ riscdom [options] <command> [args]
 | `sandboxes current` | `GET /v0/sandboxes/current` | 一次运行会用的定义，以及兜底的名字 |
 | `sandboxes candidates` | `GET /v0/sandboxes/candidates` | 这台机器上装了什么：两个互相独立的列表，未合并 |
 | `sandboxes show <name>` | `GET /v0/sandboxes/<name>` | 一个定义，一行一个字段 |
+| `sandboxes requests [--status <s>]` | `GET /v0/sandboxes/requests` | 申请队列，新的在前，每行一条申请 |
 
 控制类子命令——全部是 HTTP `POST`，全部需要 token：
 
@@ -42,12 +43,14 @@ riscdom [options] <command> [args]
 | `sessions clear-all` | `POST /v0/sessions/clear` | 先确认，再 `ok` |
 | `runs abandon-stale` | `POST /v0/runs/abandon-stale` | 标记了多少个遗留运行 |
 | `sandboxes switch <name>` | `POST /v0/sandboxes/switch` | 先确认，然后打印 `switched from <old> to <new>`（原先没有当前项时打印 `switched to <new>`） |
+| `sandboxes requests approve <id>` | `POST /v0/sandboxes/requests/<id>/approve` | 先确认，再打印 `<id> is now approved` |
+| `sandboxes requests reject <id>` | `POST /v0/sandboxes/requests/<id>/reject` | 先确认，再打印 `<id> is now rejected` |
 
 ### 确认
 
-有九条命令会销毁或替换状态——`vm stop`、`snapshots resume`、`snapshots delete`、
+有十一条命令会销毁或替换状态——`vm stop`、`snapshots resume`、`snapshots delete`、
 `sessions delete`、`sessions clear-all`、`llm clear`、`qemu clear`、`toolchain clear`、
-`sandboxes switch`——它们在动手前都会先问：
+`sandboxes switch`、`sandboxes requests approve` 与 `sandboxes requests reject`——它们在动手前都会先问：
 
 - `--yes` 提前把问题回答掉。
 - 在终端上，CLI 会问并读回答：`y` 或 `yes` 继续，其余都算拒绝。

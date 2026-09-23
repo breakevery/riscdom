@@ -32,6 +32,7 @@ fn a_guest_that_never_goes_quiet_returns_its_output() {
         compiler: &compiler,
         serial_observers: Arc::new(Mutex::new(Vec::new())),
         qemu_exe: &None,
+        requester: None,
         agent_id: "local-0-test",
     };
 

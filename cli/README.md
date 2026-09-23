@@ -28,6 +28,7 @@ riscdom [options] <command> [args]
 | `sandboxes current` | `GET /v0/sandboxes/current` | the definition a run would use, and the fallback's name |
 | `sandboxes candidates` | `GET /v0/sandboxes/candidates` | what is installed here: the two independent lists, unmerged |
 | `sandboxes show <name>` | `GET /v0/sandboxes/<name>` | one definition, one `key value` line per field |
+| `sandboxes requests [--status <s>]` | `GET /v0/sandboxes/requests` | the request queue, newest first, one line per request |
 
 Control commands — every one an HTTP `POST`, and every one needs the token:
 
@@ -46,12 +47,15 @@ Control commands — every one an HTTP `POST`, and every one needs the token:
 | `sessions clear-all` | `POST /v0/sessions/clear` | confirmation, then `ok` |
 | `runs abandon-stale` | `POST /v0/runs/abandon-stale` | how many stale runs were abandoned |
 | `sandboxes switch <name>` | `POST /v0/sandboxes/switch` | confirmation, then `switched from <old> to <new>` (or `switched to <new>` when nothing was current) |
+| `sandboxes requests approve <id>` | `POST /v0/sandboxes/requests/<id>/approve` | confirmation, then `<id> is now approved` |
+| `sandboxes requests reject <id>` | `POST /v0/sandboxes/requests/<id>/reject` | confirmation, then `<id> is now rejected` |
 
 ### Confirmation
 
-Nine commands destroy or replace state — `vm stop`, `snapshots resume`, `snapshots delete`,
+Eleven commands destroy or replace state — `vm stop`, `snapshots resume`, `snapshots delete`,
 `sessions delete`, `sessions clear-all`, `llm clear`, `qemu clear`, `toolchain clear`,
-`sandboxes switch` — and each one asks before it does:
+`sandboxes switch`, `sandboxes requests approve` and `sandboxes requests reject` — and each
+one asks before it does:
 
 - `--yes` answers the question up front.
 - On a terminal the CLI asks and reads the answer: `y` or `yes` continues, anything

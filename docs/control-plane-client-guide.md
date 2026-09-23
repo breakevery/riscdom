@@ -62,13 +62,13 @@ curl -sS http://127.0.0.1:7821/v0/status
 Authentication and permission are two decisions. `401` means the server did not accept the
 credential; `403` means it did, and the actor it resolved is not allowed to do *this*.
 
-Every endpoint requires one capability, named in the API document's §5 tables — 30 names
+Every endpoint requires one capability, named in the API document's §5 tables — 31 names
 such as `agent.run`, `audit.read`, `runs.control`, `settings.write` and `vm.control`. The
 server checks it before the handler runs, so a client can plan around it instead of
 discovering it:
 
 ```bash
-# The token holder holds all 30, so this succeeds.
+# The token holder holds all 31, so this succeeds.
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7821/v0/status \
   -H "Authorization: Bearer $RISCDOM_TOKEN"
 # 200
@@ -261,8 +261,40 @@ definition wins a name collision, and the scanned entry **stays in the list** ma
 `/v0/sandboxes/candidates` is the raw scan instead — the two independent lists, nothing
 merged and nothing written back — and `/v0/sandboxes/{name}` is a `404` naming the
 parameter when no definition carries that name. The literal sub-paths (`current`,
-`candidates`, and the reserved `requests` / `switch` / `assemble`) are never read as a
-name.
+`candidates`, and `requests` / `switch` / `assemble`) are never read as a name.
+
+### Sandbox requests: asking, and deciding
+
+A **request** is how an actor that may not switch says what it wants. An agent's
+`request_sandbox` tool lands one; `POST /v0/sandboxes/requests` does the same over HTTP
+and needs `agent.run`.
+
+```bash
+# Leave an ask. 201 answers the id; the ask switches nothing.
+curl -sS -X POST http://127.0.0.1:7821/v0/sandboxes/requests \
+  -d '{"action":"switch","sandbox":"big","reason":"the guest needs more memory"}'
+# {"id":"req-4711-1"}
+
+# Read the queue (newest first), or just what is waiting.
+curl -sS 'http://127.0.0.1:7821/v0/sandboxes/requests?status=pending'
+# {"requests":[{"id":"req-4711-1","requester_agent_id":"local-4711-1","action":"switch",
+#   "sandbox":"big","definition":null,"reason":"the guest needs more memory",
+#   "requested_at_ms":1758533002110,"status":"pending","decided_by":null,"decided_at_ms":null}]}
+
+# Decide it. Approving changes the record and NOTHING else — the switch is its own call.
+curl -sS -X POST http://127.0.0.1:7821/v0/sandboxes/requests/req-4711-1/approve
+# {"id":"req-4711-1",...,"status":"approved","decided_by":"operator","decided_at_ms":1758533009999}
+curl -sS -X POST http://127.0.0.1:7821/v0/sandboxes/switch -d '{"name":"big"}'   # now it moves
+```
+
+Both decisions need `sandbox.read` — a decider has to be able to see the queue — and then
+the capability the request's own `action` implies: `sandbox.switch` for a `switch`, and
+`sandbox.assemble` for `define` / `assemble`. An actor holding only `sandbox.read` can
+read the queue and gets `403` with `cause: "capability"` (naming the one it wanted) on
+the decision. An unknown id is `404` with `cause: "id"`; deciding an already-decided
+request is `409` — a decision is not reversible. `?status=` takes `pending` / `approved` /
+`rejected` (`expired` is reserved: v0.9 has no TTL, so a pending request waits until
+somebody decides it).
 
 ### The reserved aggregate
 
@@ -393,7 +425,8 @@ complete.
 
 ## 6. The control endpoints
 
-29 `POST` endpoints, the API table's §5.2 (plus the sandbox switch, below). All of them need the
+30 `POST` endpoints, the API table's §5.2 (plus the sandbox switch and the three request
+endpoints, below). All of them need the
 token (that is the point of the batch that added them: they include destructive operations).
 
 ```bash
@@ -414,6 +447,20 @@ curl -sS -X POST http://127.0.0.1:7821/v0/sandboxes/switch \
 # one is in progress (`409`, `cause: "sandbox"`), a definition that cannot run
 # (`503`, `cause` = the reason code), or a VM that would not start (`500`,
 # `cause: "sandbox_start_failed"` — the node is then stopped, not half-switched).
+
+# The request queue: leave an ask, read it back, decide it. `approve` performs
+# nothing — the switch above is what moves the node (v0.9 sandbox F2c).
+curl -sS -X POST http://127.0.0.1:7821/v0/sandboxes/requests \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"action":"switch","sandbox":"blink","reason":"why not"}'
+# {"id":"req-4711-1"}
+curl -sS 'http://127.0.0.1:7821/v0/sandboxes/requests?status=pending' \
+  -H "Authorization: Bearer $RISCDOM_TOKEN"
+curl -sS -X POST http://127.0.0.1:7821/v0/sandboxes/requests/req-4711-1/reject \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' -d '{}'
+# A decision needs the capability the ask implies (`sandbox.switch` / `sandbox.assemble`),
+# so a read-only actor gets `403`, `cause: "capability"`; an unknown id is `404`,
+# `cause: "id"`; a second decision is `409`.
 
 # Sessions.
 curl -sS -X POST http://127.0.0.1:7821/v0/sessions/create \
@@ -502,6 +549,8 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # against one that 
 | `riscdom snapshots list` | `GET /v0/snapshots` |
 | `riscdom sandboxes list` / `current` / `candidates` / `show <name>` | `GET /v0/sandboxes` / `/v0/sandboxes/current` / `/v0/sandboxes/candidates` / `/v0/sandboxes/<name>` |
 | `riscdom sandboxes switch <name>` | `POST /v0/sandboxes/switch` |
+| `riscdom sandboxes requests [--status <s>]` | `GET /v0/sandboxes/requests` |
+| `riscdom sandboxes requests approve <id>` / `reject <id>` | `POST /v0/sandboxes/requests/<id>/approve` / `/reject` |
 | `riscdom run <task>` | `POST /v0/agent/run` |
 | `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
@@ -537,6 +586,14 @@ riscdom sandboxes candidates       # what is installed here (the raw scan)
 # flight); `--yes` answers up front, and a non-terminal stdin needs it.
 riscdom sandboxes switch blink --yes
 # switched to blink
+
+# The request queue: what is waiting for a decision, and deciding it. Both
+# decisions ask first, for the same reason a switch does.
+riscdom sandboxes requests                    # newest first
+# no sandbox requests
+riscdom sandboxes requests --status pending
+riscdom sandboxes requests approve req-4711-1 --yes
+# req-4711-1 is now approved
 
 # Configure the model; the key comes from a file, so it stays out of `ps`.
 riscdom llm set --api-key-file ~/.riscdom/api-key \

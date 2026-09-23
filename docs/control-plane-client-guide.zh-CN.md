@@ -47,10 +47,10 @@ curl -sS http://127.0.0.1:7821/v0/status
 
 认证与授权是两个决定。`401` 表示服务端不接受该凭证；`403` 表示它接受了，但它解析出的 actor 不被允许做**这件事**。
 
-每个端点要求一个 capability，名字见 API 文档 §5 表格——共 30 个，例如 `agent.run`、`audit.read`、`runs.control`、`settings.write`、`vm.control`。服务端在运行处理器前检查，客户端因此可以事先规划，而不是撞上才知道：
+每个端点要求一个 capability，名字见 API 文档 §5 表格——共 31 个，例如 `agent.run`、`audit.read`、`runs.control`、`settings.write`、`vm.control`。服务端在运行处理器前检查，客户端因此可以事先规划，而不是撞上才知道：
 
 ```bash
-# token 持有者持有全部 30 项，此调用成功。
+# token 持有者持有全部 31 项，此调用成功。
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7821/v0/status \
   -H "Authorization: Bearer $RISCDOM_TOKEN"
 # 200
@@ -211,7 +211,31 @@ curl -sS 'http://127.0.0.1:7821/v0/sandboxes/blink'   # 单项，与列表行同
 
 列表是**合并后的注册表**：先是手写在 `settings.json` 里的定义，然后是扫描所得，最后是内置的 `default`。`source` 为 `manual` 或 `discovered`；`runnable` 每次读取时现算（QEMU 存在且 `--version` 能跑、工具链存在、内核存在或可编译），所以资源被卸载的定义仍会列出来，只是答 `runnable: false`。同名时手写者胜，而被遮的扫描项**留在列表里**并标 `shadowed: true`。
 
-`/v0/sandboxes/candidates` 答的是原始扫描——两个互相独立的列表，不合并、也不写回——而 `/v0/sandboxes/{name}` 在没有这个名字的定义时答 `404` 并在 `cause` 指出参数。字面子路径（`current`、`candidates`，以及预留的 `requests` / `switch` / `assemble`）永不被当作名字读。
+`/v0/sandboxes/candidates` 答的是原始扫描——两个互相独立的列表，不合并、也不写回——而 `/v0/sandboxes/{name}` 在没有这个名字的定义时答 `404` 并在 `cause` 指出参数。字面子路径（`current`、`candidates`，以及 `requests` / `switch` / `assemble`）永不被当作名字读。
+
+### 沙箱申请：提出与裁决
+
+**申请**是不能切换的 actor 表达它所想的方式。AI 的 `request_sandbox` 工具会落一条；`POST /v0/sandboxes/requests` 在 HTTP 上做同一件事，需要 `agent.run`。
+
+```bash
+# 落一条申请。201 答出 id；申请本身不切换任何东西。
+curl -sS -X POST http://127.0.0.1:7821/v0/sandboxes/requests \
+  -d '{"action":"switch","sandbox":"big","reason":"the guest needs more memory"}'
+# {"id":"req-4711-1"}
+
+# 读队列（新的在前），或只看还在等的。
+curl -sS 'http://127.0.0.1:7821/v0/sandboxes/requests?status=pending'
+# {"requests":[{"id":"req-4711-1","requester_agent_id":"local-4711-1","action":"switch",
+#   "sandbox":"big","definition":null,"reason":"the guest needs more memory",
+#   "requested_at_ms":1758533002110,"status":"pending","decided_by":null,"decided_at_ms":null}]}
+
+# 裁决。批准只改记录，别的什么都不做——切换是它自己那次调用。
+curl -sS -X POST http://127.0.0.1:7821/v0/sandboxes/requests/req-4711-1/approve
+# {"id":"req-4711-1",...,"status":"approved","decided_by":"operator","decided_at_ms":1758533009999}
+curl -sS -X POST http://127.0.0.1:7821/v0/sandboxes/switch -d '{"name":"big"}'   # 现在才真的动
+```
+
+两条决策都需要 `sandbox.read`——决策者先要看得见队列——然后在处理器内部需要该请求自己的 `action` 所隐含的 capability：`switch` 要 `sandbox.switch`，`define` / `assemble` 要 `sandbox.assemble`。只持 `sandbox.read` 的 actor 能读队列，做决策时拿到 `403`、`cause: "capability"`（并指名它想要的哪一个）。id 未知是 `404`、`cause: "id"`；对已决请求再决是 `409`——决策不可逆。`?status=` 接受 `pending` / `approved` / `rejected`（`expired` 为预留：v0.9 没有 TTL，pending 请求一直等到有人决它）。
 
 ### 预留的聚合端点
 
@@ -331,7 +355,7 @@ curl -sS -N http://127.0.0.1:7821/v0/events \
 
 ## 6. 控制端点
 
-29 个 `POST` 端点，即 API 表的 §5.2（外加下面的沙箱切换）。它们全部需要 token（这正是引入它们的那一批的要点：其中包含破坏性操作）。
+30 个 `POST` 端点，即 API 表的 §5.2（外加下面的沙箱切换与三条申请端点）。它们全部需要 token（这正是引入它们的那一批的要点：其中包含破坏性操作）。
 
 ```bash
 # 跑一轮 agent。进度以 `agent:*` 事件抵达事件流。
@@ -425,6 +449,8 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # 对着已经跑�
 | `riscdom snapshots list` | `GET /v0/snapshots` |
 | `riscdom sandboxes list` / `current` / `candidates` / `show <name>` | `GET /v0/sandboxes` / `/v0/sandboxes/current` / `/v0/sandboxes/candidates` / `/v0/sandboxes/<name>` |
 | `riscdom sandboxes switch <name>` | `POST /v0/sandboxes/switch` |
+| `riscdom sandboxes requests [--status <s>]` | `GET /v0/sandboxes/requests` |
+| `riscdom sandboxes requests approve <id>` / `reject <id>` | `POST /v0/sandboxes/requests/<id>/approve` / `/reject` |
 | `riscdom run <task>` | `POST /v0/agent/run` |
 | `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
@@ -458,6 +484,13 @@ riscdom sandboxes candidates       # 这台机器上装了什么（原始扫描�
 # 切换会先问（它会停掉正在跑的 VM，且运行中拒绝）；`--yes` 提前回答，非终端 stdin 必须给。
 riscdom sandboxes switch blink --yes
 # switched to blink
+
+# 申请队列：谁在等裁决，以及去做裁决。两条决策都会先问，理由与切换相同。
+riscdom sandboxes requests                    # 新的在前
+# no sandbox requests
+riscdom sandboxes requests --status pending
+riscdom sandboxes requests approve req-4711-1 --yes
+# req-4711-1 is now approved
 
 # 配置模型；key 从文件来，所以不会落进 `ps`。
 riscdom llm set --api-key-file ~/.riscdom/api-key \

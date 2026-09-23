@@ -13,6 +13,31 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **An agent may ask for a sandbox change, and somebody else decides it** (v0.9 sandbox
+  F2c). The control plane grew a request queue: `POST /v0/sandboxes/requests` (declared
+  `agent.run` — the actor that may run an agent is the actor that may say what it wants)
+  leaves an ask and answers `201` with its id; `GET /v0/sandboxes/requests?status=`
+  (`sandbox.read`) reads it back, newest first. `approve` / `reject` change the record and
+  **nothing else**: the switch stays a second, authorised call to `POST /v0/sandboxes/switch`
+  (F2c decision 4). A decision needs the capability the request's own `action` implies —
+  `sandbox.switch` for `switch`, the new **`sandbox.assemble`** (31st) for `define` /
+  `assemble` — which the static route table cannot express, so those two routes declare
+  `sandbox.read` as their gate and the handler checks the precise one against the actor
+  `dispatch` now receives (F2c decision 1); an unknown id is `404`, a second decision `409`.
+  There is **no TTL** (F2c decision 2): `expired` is reserved and nothing produces it. The
+  queue is a queue, not a slot, and its ids are `req-<pid>-<seq>` — their own namespace, not
+  the task one. The AI got the two tools that make the surface reachable:
+  `request_sandbox` and `sandbox_status`, wired through a new `agent::SandboxRequester`
+  trait the host implements over cloned sub-handles (`agent` cannot name `AppState`, and the
+  loop lives inside it — F2c decision 4), plus four Tauri commands (registered, not wired
+  to the interface: that is the D line) and three CLI subcommands (`sandboxes requests`,
+  `requests approve|reject`; the two decisions ask first, like `sandboxes switch`).
+  `sandbox:request` is the 14th SSE event — `{id, status, requester, action}`, one frame per
+  change — and the `all_events_are_named` guard lists all fourteen again. Eight documents
+  went with it: the API tables (`§5.1` 32, `§5.2` 33, and the vocabulary's "every capability
+  has a route" became "is enforced somewhere", because `sandbox.assemble` is enforced in
+  that handler until its own endpoint lands), the events table, the client guide, both
+  READMEs, this section, the changelog, and decision §36.
 - **The relay's port-lease contract is written down, and its flaky test now asserts it**
   (v0.9 relay-fix 2/N). `concurrent_leases_never_repeat_a_port` had failed twice, both times
   with the `sandbox` crate untouched. The reconnaissance found the allocator right — the

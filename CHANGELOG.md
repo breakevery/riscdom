@@ -637,6 +637,50 @@ changed, because nothing in it was wrong (the check and the record are one lock 
   `leased_ports()` keeps its signature, and its order was never a contract (no caller reads
   one).
 
+**An actor may ask for a sandbox change, and another actor decides it.** The sandbox surface
+had one write (the switch, which needs `sandbox.switch`). It now has a **request queue**: the
+agent — or any actor that may run one — can ask, and an actor that holds the capability the
+request's action implies decides. Nothing is switched by a decision: the switch stays a
+second, authorised call, so a request is a ledger of intent rather than a queued command.
+
+### Added
+
+- **The request queue** (v0.9 sandbox F2c). `POST /v0/sandboxes/requests` (`agent.run`)
+  leaves an ask — `{action: switch|define|assemble, sandbox?, reason?}` — and answers `201`
+  with `req-<pid>-<seq>` (its own namespace, not the tasks'). `GET
+  /v0/sandboxes/requests?status=` (`sandbox.read`) lists it, newest first. The two decisions
+  (`…/{id}/approve`, `…/{id}/reject`) take no body, answer `200` with the record, and are
+  final: deciding twice is a `409`, an unknown id a `404`.
+- **`sandbox.assemble`, the 31st capability**: moving a node and giving it a new definition
+  to run are different powers, so a decision needs the one its request asks for —
+  `sandbox.switch` for a `switch`, `sandbox.assemble` for `define` / `assemble`.
+- **`SandboxRequester`, the agent crate's two sandbox tools**: `request_sandbox` (leaves an
+  ask, answers the id) and `sandbox_status` (what runs now, what waits). The host implements
+  the trait over cloned sub-handles and injects it into the loop — the loop cannot hold an
+  `Arc<AppState>`, because it lives inside one.
+- **Four Tauri commands** (`request_sandbox`, `list_sandbox_requests`,
+  `approve_sandbox_request`, `reject_sandbox_request`), registered but not wired to the
+  interface (the D line).
+- **Three CLI subcommands**: `sandboxes requests [--status <s>]`,
+  `sandboxes requests approve <id>`, `sandboxes requests reject <id>`. The two decisions
+  confirm like `sandboxes switch` does, and stdin that is not a terminal is refused.
+- **`sandbox:request`, the 14th SSE event**: `{id, status, requester, action}`, one frame per
+  change (`pending`, then `approved` / `rejected`).
+
+### Changed
+
+- **Route-level capability is not always the whole check.** The two decisions declare
+  `sandbox.read` — a decider has to be able to see the queue — and the handler checks the
+  capability the request's own `action` implies against the actor, which is why `dispatch`
+  now receives it. The API document says "every capability is enforced somewhere" rather
+  than "every capability has a route": `sandbox.assemble` is enforced in that handler until
+  the assemble endpoint lands.
+- **The capability count in the documents is 31**, and `§5.1` / `§5.2` carry 32 / 33
+  endpoints: the API document (both languages), `server/README` (both) and the client guide
+  (both).
+- **`all_events_are_named` lists fourteen events again**, and the events document's §3 table
+  has fourteen rows.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

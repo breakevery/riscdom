@@ -50,4 +50,6 @@ pub use tempdirs::{
     sweep_stale_temp_dirs, sweep_stale_temp_dirs_with_age, DATA_DIR_NAME, TEMP_DIR_MAX_AGE,
     TEMP_PREFIX,
 };
-pub use tools::{execute_tool, tool_specs, tools_json, ToolContext, ToolSpec, VM_MEMORY_MB};
+pub use tools::{
+    execute_tool, tool_specs, tools_json, SandboxRequester, ToolContext, ToolSpec, VM_MEMORY_MB,
+};

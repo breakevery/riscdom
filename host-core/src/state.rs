@@ -11,6 +11,9 @@ use crate::run_diff::{self, FingerprintFieldDiff};
 use crate::sandbox_def::{
     CandidatesView, SandboxDef, SandboxSource, SandboxView, DEFAULT_SANDBOX_NAME,
 };
+use crate::sandbox_request::{
+    SandboxAction, SandboxRequestService, SandboxRequestStatus, SandboxRequestView, SandboxRequests,
+};
 use crate::session::{SessionMessage, SessionMeta, SessionStore};
 use crate::settings::LocalSettings;
 use crate::toolchain_download::DownloadEvent;
@@ -454,7 +457,15 @@ pub struct AppState {
     /// Runtime state, never written to `settings.json`: `default_sandbox` is what
     /// a restart starts from, this is what a switch changed. `None` means nothing
     /// was switched, so the default — or the fallback — is what a run would use.
-    current_sandbox: Mutex<Option<String>>,
+    ///
+    /// `Arc` since F2c: the request queue reads it through the same handle, to
+    /// answer the AI's `sandbox_status` tool without an `Arc<AppState>` cycle.
+    current_sandbox: Arc<Mutex<Option<String>>>,
+    /// The sandbox requests waiting for a decision (v0.9 sandbox F2c).
+    ///
+    /// A queue, not a slot: several asks may wait at once. Cloned into the agent
+    /// loop's tool gateway, which is why it is its own (cloneable) struct.
+    sandbox_requests: SandboxRequests,
     /// When the host-owned VM started (epoch ms); shared with the audit bridge,
     /// which learns about VM starts/stops from the sandbox's audit events.
     vm_started_at_ms: Arc<Mutex<Option<i64>>>,
@@ -735,6 +746,10 @@ impl AppState {
                 SqliteAuditSink::from_shared(Arc::clone(&shared)).with_reporter(reporter),
             ))
         };
+        // The running sandbox is read by two places that must not see different
+        // answers (the switch, and the request queue's status text), so they share
+        // one handle (v0.9 sandbox F2c).
+        let current_sandbox: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let state = Self {
             audit: shared,
             sink,
@@ -747,7 +762,8 @@ impl AppState {
             toolchain_download: Arc::new(Mutex::new(None)),
             qemu_download: Arc::new(Mutex::new(None)),
             switch_slot: Mutex::new(None),
-            current_sandbox: Mutex::new(None),
+            current_sandbox: Arc::clone(&current_sandbox),
+            sandbox_requests: SandboxRequests::new(current_sandbox),
             vm_started_at_ms: Arc::new(Mutex::new(None)),
             toolchain_download_last: Mutex::new(None),
             qemu_download_last: Mutex::new(None),
@@ -1812,6 +1828,79 @@ impl AppState {
             .lock()
             .map(|slot| slot.is_some())
             .unwrap_or(false)
+    }
+
+    // ----- Sandbox requests (v0.9 sandbox F2c) -------------------------------
+
+    /// The request queue, for callers that hold their own sink (the agent loop's
+    /// tool gateway). The methods below are the same queue with the sink filled in.
+    pub fn sandbox_requests(&self) -> SandboxRequests {
+        self.sandbox_requests.clone()
+    }
+
+    /// A queue plus the sink a change is announced on.
+    fn sandbox_request_service(&self, emitter: Arc<dyn EventSink>) -> SandboxRequestService {
+        SandboxRequestService::new(self.sandbox_requests(), emitter)
+    }
+
+    /// Leave a request for a sandbox change (v0.9 sandbox F2c).
+    ///
+    /// Nothing is switched here: the ask waits for an actor that holds the
+    /// capability its `action` implies, and approving it is a second, separate
+    /// call (F2c decision 4). Answers the new request, and announces it on
+    /// `sandbox:request` with `status: "pending"`.
+    pub fn request_sandbox(
+        &self,
+        requester_agent_id: &str,
+        action: SandboxAction,
+        sandbox: Option<String>,
+        definition: Option<crate::sandbox_def::SandboxDef>,
+        reason: Option<String>,
+        emitter: Arc<dyn EventSink>,
+    ) -> Result<SandboxRequestView, HostError> {
+        self.sandbox_request_service(emitter).request(
+            requester_agent_id,
+            action,
+            sandbox,
+            definition,
+            reason,
+        )
+    }
+
+    /// The queue, newest first, optionally filtered by status.
+    pub fn list_sandbox_requests(
+        &self,
+        status: Option<SandboxRequestStatus>,
+    ) -> Vec<SandboxRequestView> {
+        self.sandbox_requests.list(status)
+    }
+
+    /// What a request asks for. The route calls this **before** deciding, because
+    /// the capability a decision needs follows from the action (F2c decision 1).
+    pub fn sandbox_request_action(&self, id: &str) -> Result<SandboxAction, HostError> {
+        self.sandbox_requests.action_of(id)
+    }
+
+    /// Approve a pending request. Changes the record and nothing else.
+    pub fn approve_sandbox_request(
+        &self,
+        id: &str,
+        decided_by: &str,
+        emitter: Arc<dyn EventSink>,
+    ) -> Result<SandboxRequestView, HostError> {
+        self.sandbox_request_service(emitter)
+            .decide(id, SandboxRequestStatus::Approved, decided_by)
+    }
+
+    /// Reject a pending request.
+    pub fn reject_sandbox_request(
+        &self,
+        id: &str,
+        decided_by: &str,
+        emitter: Arc<dyn EventSink>,
+    ) -> Result<SandboxRequestView, HostError> {
+        self.sandbox_request_service(emitter)
+            .decide(id, SandboxRequestStatus::Rejected, decided_by)
     }
 
     /// Switch this node to the sandbox `name` (v0.9 sandbox F2b).
@@ -3646,6 +3735,14 @@ impl AppState {
         agent.attach_serial(Arc::clone(&self.serial_senders));
         // Host-configured toolchain (falls back to auto-discovery).
         agent.set_compiler(self.toolchain_config());
+        // The AI's sandbox tools: this agent may **ask** for a sandbox change, not
+        // make one (F2c decision 4). The gateway holds the queue and this run's
+        // emitter — never `Arc<AppState>`, which the loop already lives inside.
+        agent.with_sandbox_requester(Some(Arc::new(ToolSandboxRequests {
+            requests: self.sandbox_requests(),
+            sink: Arc::clone(&emitter),
+            agent_id: self.agent_id.clone(),
+        })));
         // Host-configured QEMU (falls back to the sandbox's discovery).
         if let Some(path) = self.manual_qemu_path() {
             agent.set_qemu_path(path);
@@ -3802,6 +3899,50 @@ impl LlmClient for ArcLlm {
         on_event: &mut dyn FnMut(StreamEvent),
     ) -> Result<ChatResponse, agent::AgentError> {
         self.0.chat_stream(req, on_event)
+    }
+}
+
+/// The agent loop's view of the request queue (v0.9 sandbox F2c).
+///
+/// The loop is stored inside `AppState`, so it must not hold an `Arc<AppState>`:
+/// that would be a cycle through the heap that never frees. It holds the queue
+/// and this run's sink instead — the same shape as the VM slot it was already
+/// handed. The rule the surface enforces stays the same either way: this may
+/// **ask**, and only an actor holding the capability may decide.
+struct ToolSandboxRequests {
+    requests: SandboxRequests,
+    sink: Arc<dyn EventSink>,
+    agent_id: String,
+}
+
+impl agent::SandboxRequester for ToolSandboxRequests {
+    fn request(
+        &self,
+        action: &str,
+        sandbox: Option<&str>,
+        reason: Option<&str>,
+    ) -> Result<String, String> {
+        let action = SandboxAction::parse(action).ok_or_else(|| {
+            format!("unknown action {action:?}: expected switch, define or assemble")
+        })?;
+        SandboxRequestService::new(self.requests.clone(), Arc::clone(&self.sink))
+            .request(
+                // Who asked: the host's agent id, so the queue says which agent
+                // wanted the change, not just "an agent".
+                &self.agent_id,
+                action,
+                sandbox.map(str::to_string),
+                // The tool carries no definition (F2c decision 4): a model does
+                // not get to name a path, and `SandboxDef` carries paths.
+                None,
+                reason.map(str::to_string),
+            )
+            .map(|view| view.id)
+            .map_err(|e| e.user_message())
+    }
+
+    fn status(&self) -> Result<String, String> {
+        Ok(self.requests.summary())
     }
 }
 

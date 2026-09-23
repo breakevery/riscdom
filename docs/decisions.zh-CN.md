@@ -363,3 +363,13 @@
 **理由**：真正要紧的窗口是*我们释放*与*peer 绑定*之间那一段，而进程内的注册表关不上它——用今天的参数，QEMU 拿不到预先绑好的 socket。所以注册表的职责比看上去窄：不让本程序的两处同时拿到同一个端口，并把端口在 OS 层占到最后时刻。把这个说准了，测试才写得出来：失败两次的那条断言（`concurrent_leases_never_repeat_a_port`）记录的是本次运行中曾取到的每个端口，于是一个已结束线程释放、又被 OS 重新发出的号码，被读成了「两个持有者同时持有」——而库从未做过这个承诺。
 
 **影响**：测试把每个线程的租约停放到全部取完再比对（即代码真正保持的不变量），另一条测试钉住另一半（被销毁的租约让端口对任何人可 bind）。释放路径只删**自己的**号码一次（`HashSet::remove`），因此一次释放永远不会把另一持有者的保留一起删掉；注册表是 `LazyLock<Mutex<HashSet<u16>>>`，因为 `HashSet::new` 无法初始化 `static`。没有公开签名变化，也没有调用点变化：`leased_ports()` 仍返回 `Vec<u16>`（它的顺序从来不是契约），`agent` / `host-core` / `sandbox::vm` 未动。`sandbox/README.md` 向调用方写下契约，`port_race.rs`（默认忽略）继续把跨进程窗口当作压力测试走。
+
+## 36. 沙箱申请是一条请求；决断属于另一个 actor，且不执行任何东西
+
+**日期**：2026-09-23 ｜ **状态**：已定；随 v0.9 沙箱 F2c 批次落地
+
+**决策**：申请改动沙箱与真的改动，是**两个表面**。`POST /v0/sandboxes/switch` 仍然改动节点、仍需要 `sandbox.switch`；`POST /v0/sandboxes/requests` 则只落一条申请，只需 `agent.run`——能跑 agent 的 actor 就是可以表达它所想的 actor。决断一条申请（`approve` / `reject`）先需 `sandbox.read`，因为决策者先要看得见队列，然后再需该请求自己的 `action` 所隐含的 capability：`switch` 要 `sandbox.switch`，`define` / `assemble` 要 **`sandbox.assemble`**（第 31 个 capability）。把节点搬走、与给它一个要跑的新定义，是两种权力，词汇表现在也这么说。
+
+**理由**：替代方案——路由表每条路由只名一个 capability——表达不了「随便这条请求要哪一个」：那张表是处理器运行前就检查的静态列，而 action 要等请求被解析出来才知晓。所以两条决策以 `sandbox.read` 为门，由处理器再拿精确的那个对 actor 检查，这也是 `dispatch` 现在接收 actor 的原因。由此产生的后果被记下来而不是藏起来：文档里那句「词汇表里每一个 capability 都至少有一条路由」改成「都在某处被强制」——因为 `sandbox.assemble` 在装配端点落地前没有自己的路由，它是在那个处理器内部被强制的，而那里正好知道自己在决断什么。
+
+**影响**：`AppState` 长出一条申请队列（`SandboxRequests`：`Mutex` 包着的 `Vec<SandboxRequest>`，被克隆进 loop 的工具网关，另加 `current_sandbox` 上的 `Arc`，使两个视图不会分叉），id 是自成命名空间的 `req-<pid>-<seq>`，记录形状为 `{id, requester_agent_id, action, sandbox, definition, reason, requested_at_ms, status, decided_by, decided_at_ms}`。**批准不执行任何东西**（切换仍是另一次带授权的调用），决策不可逆（`409`），id 未知是 `404`，并且**没有 TTL**：`expired` 为预留、无任何路径产生它——一排申请不是高危资源，清扫器会是为无人受益而新加的机制。loop 经 `agent::SandboxRequester` 抵达队列；该 trait 属于 `agent` crate，因为它无法命名 `AppState`，由宿主用克隆的子句柄实现（loop 住在 `AppState` 里面，所以 `Arc<AppState>` 会构成循环）。`sandbox:request` 是第 14 个事件：每次变化一帧，`{id, status, requester, action}`。

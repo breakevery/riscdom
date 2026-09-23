@@ -14,7 +14,8 @@ use crate::state::{
     StoredEventView, ToolchainDownloadStatus, ToolchainView, VmStatusView,
 };
 use crate::SessionMeta;
-use crate::{CandidatesView, SandboxView};
+use crate::{CandidatesView, SandboxRequestView, SandboxView};
+use host_core::SandboxAction;
 use std::sync::Arc;
 use tauri::{Manager, State};
 
@@ -169,6 +170,85 @@ pub async fn switch_sandbox(
         Arc::new(TauriEventSink::new(app.clone(), state.agent_id()));
     state
         .switch_sandbox(&name, emitter)
+        .map_err(|e| e.user_message())
+}
+
+/// The request queue (v0.9 sandbox F2c), newest first.
+///
+/// `status` filters by `pending` / `approved` / `rejected` (`expired` is reserved:
+/// v0.9 sets no TTL); `none` is the whole queue. The interface is not wired to
+/// these commands in this batch (that is the D line).
+#[tauri::command]
+pub async fn list_sandbox_requests(
+    state: State<'_, AppState>,
+    status: Option<String>,
+) -> Result<Vec<SandboxRequestView>, String> {
+    let status = match status.as_deref() {
+        None => None,
+        Some(raw) => Some(
+            host_core::SandboxRequestStatus::parse(raw)
+                .ok_or_else(|| format!("unknown status {raw:?}"))?,
+        ),
+    };
+    Ok(state.list_sandbox_requests(status))
+}
+
+/// Leave a request for a sandbox change (v0.9 sandbox F2c).
+///
+/// Nothing is switched: the ask waits for an actor that holds the capability its
+/// `action` implies. Answers the new id, and publishes `sandbox:request`.
+#[tauri::command]
+pub async fn request_sandbox(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    action: String,
+    sandbox: Option<String>,
+    reason: Option<String>,
+) -> Result<String, String> {
+    let action =
+        SandboxAction::parse(&action).ok_or_else(|| format!("unknown action {action:?}"))?;
+    let emitter: Arc<dyn crate::events::EventSink> =
+        Arc::new(TauriEventSink::new(app.clone(), state.agent_id()));
+    state
+        .request_sandbox(
+            state.agent_id(),
+            action,
+            sandbox,
+            // The interface does not write definitions yet (the assemble endpoint
+            // is a later batch), so an ask never carries one.
+            None,
+            reason,
+            emitter,
+        )
+        .map(|view| view.id)
+        .map_err(|e| e.user_message())
+}
+
+/// Approve a pending request. Changes the record and nothing else.
+#[tauri::command]
+pub async fn approve_sandbox_request(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<SandboxRequestView, String> {
+    let emitter: Arc<dyn crate::events::EventSink> =
+        Arc::new(TauriEventSink::new(app.clone(), state.agent_id()));
+    state
+        .approve_sandbox_request(&id, state.agent_id(), emitter)
+        .map_err(|e| e.user_message())
+}
+
+/// Reject a pending request.
+#[tauri::command]
+pub async fn reject_sandbox_request(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<SandboxRequestView, String> {
+    let emitter: Arc<dyn crate::events::EventSink> =
+        Arc::new(TauriEventSink::new(app.clone(), state.agent_id()));
+    state
+        .reject_sandbox_request(&id, state.agent_id(), emitter)
         .map_err(|e| e.user_message())
 }
 

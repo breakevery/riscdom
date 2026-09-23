@@ -57,6 +57,7 @@ fn write_source_writes_file_and_audits_two_events() {
         compiler: &compiler,
         serial_observers: Arc::new(Mutex::new(Vec::new())),
         qemu_exe: &None,
+        requester: None,
         agent_id: TEST_AGENT_ID,
     };
 
@@ -92,6 +93,7 @@ fn compile_fixture_succeeds() {
         compiler: &compiler,
         serial_observers: Arc::new(Mutex::new(Vec::new())),
         qemu_exe: &None,
+        requester: None,
         agent_id: TEST_AGENT_ID,
     };
 
@@ -131,6 +133,7 @@ fn policy_denies_traversal_and_bad_extension() {
         compiler: &compiler,
         serial_observers: Arc::new(Mutex::new(Vec::new())),
         qemu_exe: &None,
+        requester: None,
         agent_id: TEST_AGENT_ID,
     };
 

@@ -34,6 +34,11 @@ pub fn human(command: &Command, reply: &Reply) -> String {
         Command::SandboxesCandidates => sandbox_candidates(value),
         Command::SandboxesShow { .. } => sandbox_detail(value),
         Command::SandboxesSwitch { .. } => sandbox_switched(value),
+        // The queue (v0.9 sandbox F2c): a list, and the record a decision left.
+        Command::SandboxesRequests { .. } => sandbox_requests(value),
+        Command::SandboxesRequestsApprove { .. } | Command::SandboxesRequestsReject { .. } => {
+            sandbox_request_decided(value)
+        }
         Command::Run { .. } => outcome(value),
         Command::VmStop | Command::VmStart => "ok".to_string(),
         Command::SnapshotsSave { .. } => written(value),
@@ -453,6 +458,46 @@ fn sandbox_switched(value: &Value) -> String {
         // Nothing was current before: say where it went, not "from null".
         None => format!("switched to {to}"),
     }
+}
+
+/// The request queue, one line per request: what it is, what it wants, where it
+/// stands, and who decided.
+fn sandbox_requests(value: &Value) -> String {
+    let rows = value
+        .get("requests")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if rows.is_empty() {
+        return "no sandbox requests".to_string();
+    }
+    rows.iter()
+        .map(|row| {
+            let target = match row.get("sandbox").and_then(Value::as_str) {
+                Some(name) => format!(" -> {name}"),
+                None => String::new(),
+            };
+            let decided = match row.get("decided_by").and_then(Value::as_str) {
+                Some(by) => format!(" by {by}"),
+                None => String::new(),
+            };
+            format!(
+                "{} {}{} [{}] {}{}",
+                text(row, "id"),
+                text(row, "action"),
+                target,
+                text(row, "status"),
+                text(row, "requester_agent_id"),
+                decided,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// What a decision landed on.
+fn sandbox_request_decided(value: &Value) -> String {
+    format!("{} is now {}", text(value, "id"), text(value, "status"))
 }
 
 /// One definition, one `key value` line per field.

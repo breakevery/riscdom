@@ -157,6 +157,66 @@ fn follow_is_refused_on_anything_but_run() {
 }
 
 #[test]
+fn the_request_queue_reads_back_and_a_decision_asks_first() {
+    let workspace = unique_dir("requests-ws");
+    let data_dir = unique_dir("requests-data");
+
+    // A fresh host has asked nothing, and says so in prose.
+    let output = run_in(&workspace, &data_dir, &["sandboxes", "requests"]);
+    assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
+    assert_eq!(stdout(&output).trim(), "no sandbox requests");
+
+    // The filter is the control plane's: an unknown status is its 400, and a 400
+    // is the CLI's usage exit code.
+    let output = run_in(
+        &workspace,
+        &data_dir,
+        &["--json", "sandboxes", "requests", "--status", "maybe"],
+    );
+    assert_eq!(exit_code(&output), 2, "stderr: {}", stderr(&output));
+    let body = error_body(&output);
+    assert_eq!(body["code"], "bad_request", "{body}");
+    assert_eq!(body["cause"], "status", "{body}");
+
+    // The filter an approver reads: still empty here, and an empty array.
+    let output = run_in(
+        &workspace,
+        &data_dir,
+        &["--json", "sandboxes", "requests", "--status", "pending"],
+    );
+    assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
+    assert_eq!(
+        json_stdout(&output)["requests"].as_array().map(Vec::len),
+        Some(0)
+    );
+}
+
+#[test]
+fn deciding_an_unknown_request_is_the_control_planes_404() {
+    // The CLI cannot invent a request (only an agent or the API leaves one), so
+    // the success path lives in the server's own tests. What this pins is that
+    // `--yes`, the path and the id all reach the control plane intact: its answer
+    // is the one that comes back.
+    for verb in ["approve", "reject"] {
+        let output = run(
+            "decide-missing",
+            &[
+                "--json",
+                "sandboxes",
+                "requests",
+                verb,
+                "req-0-404",
+                "--yes",
+            ],
+        );
+        assert_eq!(exit_code(&output), 3, "{verb}: stderr {}", stderr(&output));
+        let body = error_body(&output);
+        assert_eq!(body["code"], "not_found", "{verb}: {body}");
+        assert_eq!(body["cause"], "id", "{verb}: {body}");
+    }
+}
+
+#[test]
 fn a_destructive_command_refuses_without_yes_when_stdin_is_a_pipe() {
     for args in [
         vec!["vm", "stop"],
@@ -165,8 +225,11 @@ fn a_destructive_command_refuses_without_yes_when_stdin_is_a_pipe() {
         vec!["sessions", "delete", "s-1"],
         vec!["sessions", "clear-all"],
         // A switch stops the running VM and refuses while a run is in flight, so
-        // it is in the same family (v0.9 sandbox F2b-2).
+        // it is in the same family (v0.9 sandbox F2b-2). The two decisions on the
+        // queue joined it in F2c: approving lets someone else's change happen.
         vec!["sandboxes", "switch", "blink"],
+        vec!["sandboxes", "requests", "approve", "req-1-1"],
+        vec!["sandboxes", "requests", "reject", "req-1-1"],
     ] {
         let output = run("confirm", &args);
         assert_eq!(exit_code(&output), 2, "{args:?}: {}", stderr(&output));
@@ -350,6 +413,22 @@ fn the_parser_agrees_with_the_binary_about_the_new_commands() {
         (
             vec!["runs", "abandon-stale"],
             "/v0/runs/abandon-stale",
+            "POST",
+        ),
+        // v0.9 sandbox F2c: the queue and its two decisions.
+        (
+            vec!["sandboxes", "requests"],
+            "/v0/sandboxes/requests",
+            "GET",
+        ),
+        (
+            vec!["sandboxes", "requests", "approve", "req-1-1"],
+            "/v0/sandboxes/requests/req-1-1/approve",
+            "POST",
+        ),
+        (
+            vec!["sandboxes", "requests", "reject", "req-1-1"],
+            "/v0/sandboxes/requests/req-1-1/reject",
             "POST",
         ),
     ] {
