@@ -546,3 +546,27 @@ the commercial edition's multi-centre redundancy is not part of this model.
 **Pending authorisation**: the cross-device design of v1.0 must be approved on its own —
 extending the audit chain to "main chain + temporary segments" touches the boundary of red
 line 5 (`When in doubt, ask first`, PROJECT_CONSTITUTION.md §8).
+
+## 34. What a node runs is runtime state; what it starts from is configuration
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; landed with the v0.9 sandbox batch F2b-1
+
+**Decision**: Two names, two lifetimes. `default_sandbox` lives in `settings.json` and is
+what a node **starts from** after a restart; `current_sandbox` lives in memory only and is
+what a node is **running now** — set by a successful switch, and `None` until one happens.
+`AppState::sandbox_default_name()` answers the first and `AppState::current_sandbox()` the
+second, and a switch writes only the second.
+
+**Why**: They answer different questions at different times. A person who switches to a
+scratch sandbox for one experiment has not asked for that to become the configuration of the
+machine; and a configuration edited on disk is not the same claim as "the VM in the slot came
+from this definition" — the slot can be empty, the VM can be stopped, and the machine can be
+restarted. Collapsing the two would make every switch a settings write (and every settings
+edit a claim about what is running), which is the confusion F2a's registry exists to avoid.
+
+**Impact**: A switch changes the runtime field only; `settings.json` is left byte-identical
+by it, which F2b-1's tests assert. The registry's `current` and `default` are therefore
+genuinely different values, and a client asking "what would a run use" has to say which of
+the two it means. The endpoints, the Tauri commands, the CLI and the `sandbox:switch` event
+that expose all this are F2b-2; `Task.sandbox` (F2d) is the third question — what one *run*
+asks for — and it sits on top of both.

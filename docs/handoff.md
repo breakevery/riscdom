@@ -13,6 +13,30 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **A node can be switched to another sandbox, validate-before-stop** (v0.9 sandbox
+  F2b-1). `AppState::current_sandbox()` became **runtime state** (F2b decision 1, ledger
+  §34): `None` until a switch succeeds, never written to `settings.json`, while
+  `sandbox_default_name()` keeps answering the stored `default_sandbox` — a switch changes
+  what is *running*, not what is *configured*. `AppState::switch_sandbox(name)` resolves the
+  definition (the same merge the list serves, now one implementation,
+  `merged_sandbox_defs`), validates it — `sandbox_check` answers four new `HostError`s,
+  `SandboxNotFound` / `SandboxQemuMissing` / `SandboxToolchainMissing` /
+  `SandboxKernelMissing`, and `sandbox_runnable` is its boolean face, behaviour unchanged —
+  resolves the kernel (`def.kernel`, else the workspace's newest ELF), and **only then** stops
+  the current VM, starts a fresh one from the definition (three attempts on fresh ports, the
+  shape `tool_start_vm` uses) and records the name as current. A switch is refused while
+  another is in progress (`begin_sandbox_switch` / `cancel_sandbox_switch` /
+  `finish_sandbox_switch`, the download slots' shape, `already in progress`) and while a run
+  is in flight (`run_in_flight()`, read from the run bookkeeping `begin_run` sets and
+  `finish_run` clears — the loop shares this VM slot and takes it per tool call, so a switch
+  under a running agent would hand it a different guest). A failed switch leaves the node
+  **stopped**, not half-switched (`Drop` kills whatever the failed handle spawned); a
+  definition that fails validation leaves the running VM alone. No event, no endpoint, no
+  Tauri command, no CLI and no `sandbox:switch` audit row yet — that is F2b-2, together with
+  the capability (29 → 30). Reported, not fixed: the success path has no hermetic test (it
+  needs a real QEMU and a kernel ELF — the golden path's `--ignored` ticket), and the
+  `events.rs` guard `all_eleven_events_are_named` still lists eleven names while the document
+  counts twelve (`qemu:download` is missing from the list).
 - **A version-less scanned resource is named for the resource, not for a missing version**
   (v0.9 sandbox F2a-3). F2a-1's `format!("{kind}-{version}")` turned the machine's own QEMU
   — which the scan records no version for — into a definition called `qemu--`, and F2a-2

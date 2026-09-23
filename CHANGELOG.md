@@ -532,6 +532,41 @@ know a version for are unchanged.
   version-less name; the installers never write one, and the edge is recorded here rather
   than defended against. Nothing else about the scan or the merge changed.
 
+**A node can be switched to another sandbox, and the switch is validate-before-stop.**
+F2b-1 lands the core: the sandbox a node is *running* became runtime state (the stored
+`default_sandbox` is what a restart starts from), a definition is checked **before** the
+running VM is touched, one switch runs at a time, and a switch is refused while a run is in
+flight. The endpoints, the Tauri commands, the CLI and the `sandbox:switch` event are F2b-2.
+
+### Added
+
+- **`AppState::switch_sandbox(name)`**: resolve the definition, validate it (QEMU, toolchain,
+  kernel), resolve the kernel, stop the current VM, start a fresh one from the definition
+  (three attempts on fresh ports, the shape `tool_start_vm` uses), adopt it, and only then
+  record the name as current.
+- **`AppState::sandbox_check(def)`**: the reason a definition cannot run, as four new
+  `HostError` variants — `sandbox_not_found`, `sandbox_qemu_missing`,
+  `sandbox_toolchain_missing`, `sandbox_kernel_missing`. `sandbox_runnable` is now its
+  boolean face: one rule, two shapes, same behaviour.
+- **`AppState::run_in_flight()`**: whether a call is inside `run_agent` right now, read from
+  the run bookkeeping `begin_run` sets and `finish_run` clears.
+- **The switch slot**: `begin_sandbox_switch` / `cancel_sandbox_switch` /
+  `finish_sandbox_switch`, the same shape as the download slots' four — one switch at a time,
+  a second one refused with `already in progress`.
+
+### Changed
+
+- **`AppState::current_sandbox()` is runtime state now** (v0.9 F2b decision 1, ledger §34):
+  `None` until a switch succeeds and **never** written to `settings.json`, while
+  `sandbox_default_name()` keeps answering the stored `default_sandbox`. A switch changes
+  what is running, not what is configured.
+- **A failed switch leaves the node stopped, not half-switched**: the new handle is dropped,
+  `Drop` kills whatever it spawned, and what is current does not change. A definition that
+  fails validation leaves the running VM alone — that order is the point.
+- **The registry's merge has one implementation** (`merged_sandbox_defs`), read by
+  `sandboxes()` and by the switch, so the definition a switch uses is the winner the list
+  shows.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

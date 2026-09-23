@@ -78,6 +78,19 @@ pub struct ToolchainDownloadState {
     pub started_at: std::time::Instant,
 }
 
+/// In-flight sandbox switch (v0.9 sandbox F2b).
+///
+/// The same shape as the download slots, minus the cancel flag: a switch is a
+/// synchronous call, and nothing it does — a `--version` probe, a stop, a start —
+/// can be interrupted part-way without leaving the node in the state the switch
+/// was trying to leave. What a caller needs is the **target**, so a refusal can
+/// name what is already being switched to.
+#[derive(Debug)]
+pub struct SandboxSwitchState {
+    pub target: String,
+    pub started_at: std::time::Instant,
+}
+
 /// Download status for the UI / polling clients.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ToolchainDownloadStatus {
@@ -432,6 +445,15 @@ pub struct AppState {
     /// In-flight QEMU download (v0.9 sandbox F1); the same shape, including the
     /// `Arc` for the same reason.
     pub qemu_download: Arc<Mutex<Option<QemuDownloadState>>>,
+    /// In-flight sandbox switch (v0.9 sandbox F2b). One at a time, world-wide:
+    /// two switches would race for the same VM slot.
+    switch_slot: Mutex<Option<SandboxSwitchState>>,
+    /// The sandbox this node is **running now** (v0.9 sandbox F2b).
+    ///
+    /// Runtime state, never written to `settings.json`: `default_sandbox` is what
+    /// a restart starts from, this is what a switch changed. `None` means nothing
+    /// was switched, so the default — or the fallback — is what a run would use.
+    current_sandbox: Mutex<Option<String>>,
     /// When the host-owned VM started (epoch ms); shared with the audit bridge,
     /// which learns about VM starts/stops from the sandbox's audit events.
     vm_started_at_ms: Arc<Mutex<Option<i64>>>,
@@ -723,6 +745,8 @@ impl AppState {
             qemu_path: Mutex::new(None),
             toolchain_download: Arc::new(Mutex::new(None)),
             qemu_download: Arc::new(Mutex::new(None)),
+            switch_slot: Mutex::new(None),
+            current_sandbox: Mutex::new(None),
             vm_started_at_ms: Arc::new(Mutex::new(None)),
             toolchain_download_last: Mutex::new(None),
             qemu_download_last: Mutex::new(None),
@@ -1522,28 +1546,78 @@ impl AppState {
         crate::sandbox_def::discover_in(&self.data_dir)
     }
 
+    /// Could this definition run **right now** — and if not, why not? (F2b.)
+    ///
+    /// The three parts of [`Self::sandbox_runnable`], each with the reason it
+    /// failed, so a caller that has to act on the answer (a switch, which must
+    /// decide *before* it stops anything) can name what to fix. Everything the
+    /// definition does not pin falls back to what the host would use anyway.
+    fn sandbox_check(&self, def: &SandboxDef) -> Result<(), HostError> {
+        // QEMU: the definition's own must be a file that answers `--version`;
+        // otherwise the host's own QEMU has to be discoverable.
+        match &def.qemu_exe {
+            Some(path) if !path.is_file() => {
+                return Err(HostError::SandboxQemuMissing(format!(
+                    "not a file: {}",
+                    path.display()
+                )))
+            }
+            Some(path) => {
+                if let Err(e) = toolchain_runs(path) {
+                    return Err(HostError::SandboxQemuMissing(format!(
+                        "{} is not runnable: {e}",
+                        path.display()
+                    )));
+                }
+            }
+            None => {
+                let qemu = self.probe_qemu();
+                if !qemu.found {
+                    return Err(HostError::SandboxQemuMissing(qemu.diagnostics));
+                }
+            }
+        }
+
+        // Toolchain: the definition's own must exist; otherwise the host's.
+        match &def.toolchain_path {
+            Some(path) if !path.is_file() => {
+                return Err(HostError::SandboxToolchainMissing(format!(
+                    "not a file: {}",
+                    path.display()
+                )))
+            }
+            Some(_) => {}
+            None => {
+                let toolchain = self.probe_toolchain();
+                if !toolchain.found {
+                    return Err(HostError::SandboxToolchainMissing(toolchain.diagnostics));
+                }
+            }
+        }
+
+        // Kernel: a pinned one must exist; an unpinned one is the toolchain's to
+        // compile, which is what the check just confirmed.
+        if let Some(path) = &def.kernel {
+            if !path.is_file() {
+                return Err(HostError::SandboxKernelMissing(format!(
+                    "not a file: {}",
+                    path.display()
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// Could this definition run **right now**? (F2a decision 7.)
     ///
-    /// Three parts, all required: a QEMU that exists and answers `--version`, a
-    /// toolchain that exists, and a kernel that exists — or, when the definition
-    /// pins none, one this toolchain can compile. Everything the definition does
-    /// not pin falls back to what the host would use anyway, so the answer is the
-    /// same question `probe_qemu` / `probe_toolchain` answer. A definition whose
-    /// QEMU was uninstalled stays a valid definition; it is simply not runnable.
+    /// The boolean face of [`Self::sandbox_check`] — one rule, two shapes: the
+    /// registry wants a flag, a switch wants the reason. Three parts, all
+    /// required: a QEMU that exists and answers `--version`, a toolchain that
+    /// exists, and a kernel that exists — or, when the definition pins none, one
+    /// this toolchain can compile. A definition whose QEMU was uninstalled stays a
+    /// valid definition; it is simply not runnable.
     fn sandbox_runnable(&self, def: &SandboxDef) -> bool {
-        let qemu_ok = match &def.qemu_exe {
-            Some(path) => path.is_file() && toolchain_runs(path).is_ok(),
-            None => self.probe_qemu().found,
-        };
-        let toolchain_ok = match &def.toolchain_path {
-            Some(path) => path.is_file(),
-            None => self.probe_toolchain().found,
-        };
-        let kernel_ok = match &def.kernel {
-            Some(path) => path.is_file(),
-            None => toolchain_ok,
-        };
-        qemu_ok && toolchain_ok && kernel_ok
+        self.sandbox_check(def).is_ok()
     }
 
     /// One definition as the API serves it: the stored fields plus the three the
@@ -1564,19 +1638,20 @@ impl AppState {
         }
     }
 
-    /// The merged registry: the hand-written definitions first, then what the
+    /// The merged registry as **definitions**: `(definition, source, shadowed)`, in
+    /// the order [`Self::sandboxes`] serves — hand-written first, then what the
     /// scan found, then the built-in fallback (F2a decision 4).
     ///
-    /// A hand-written definition wins on a name collision, and the shadowed entry
-    /// **stays in the list, marked**, so the merge is visible instead of silent.
-    /// Nothing here is persisted.
-    pub fn sandboxes(&self) -> Vec<SandboxView> {
+    /// One merge, two readers: the registry wants to serve them, a switch wants to
+    /// use the winner (which is why the precedence lives here and not in either
+    /// caller).
+    fn merged_sandbox_defs(&self) -> Vec<(SandboxDef, SandboxSource, bool)> {
         let manual = self.manual_sandbox_defs();
         let taken: std::collections::HashSet<&str> =
             manual.iter().map(|def| def.name.as_str()).collect();
-        let mut views: Vec<SandboxView> = manual
+        let mut merged: Vec<(SandboxDef, SandboxSource, bool)> = manual
             .iter()
-            .map(|def| self.sandbox_view(def, SandboxSource::Manual, false))
+            .map(|def| (def.clone(), SandboxSource::Manual, false))
             .collect();
 
         // One entry per scanned resource, named `<kind>-<version>`; the toolchain
@@ -1595,15 +1670,28 @@ impl AppState {
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         discovered.retain(|def| seen.insert(def.name.clone()));
         discovered.sort_by(|a, b| a.name.cmp(&b.name));
-        for def in &discovered {
+        for def in discovered {
             let shadowed = taken.contains(def.name.as_str());
-            views.push(self.sandbox_view(def, SandboxSource::Discovered, shadowed));
+            merged.push((def, SandboxSource::Discovered, shadowed));
         }
 
         let fallback = SandboxDef::fallback();
         let shadowed = taken.contains(fallback.name.as_str());
-        views.push(self.sandbox_view(&fallback, SandboxSource::Discovered, shadowed));
-        views
+        merged.push((fallback, SandboxSource::Discovered, shadowed));
+        merged
+    }
+
+    /// The merged registry: the hand-written definitions first, then what the
+    /// scan found, then the built-in fallback (F2a decision 4).
+    ///
+    /// A hand-written definition wins on a name collision, and the shadowed entry
+    /// **stays in the list, marked**, so the merge is visible instead of silent.
+    /// Nothing here is persisted.
+    pub fn sandboxes(&self) -> Vec<SandboxView> {
+        self.merged_sandbox_defs()
+            .iter()
+            .map(|(def, source, shadowed)| self.sandbox_view(def, *source, *shadowed))
+            .collect()
     }
 
     /// One merged definition by name, as the API serves it.
@@ -1611,20 +1699,219 @@ impl AppState {
         self.sandboxes().into_iter().find(|view| view.name == name)
     }
 
-    /// The definition a run uses when the caller names none.
+    /// The definition the registry resolves `name` to, as the switch uses it.
     ///
-    /// The stored choice only: switching a running node is F2b (F2a decision 1).
+    /// The winner of the same merge, so a hand-written definition shadows a scanned
+    /// one here exactly as it does in the list.
+    fn sandbox_def_by_name(&self, name: &str) -> Option<SandboxDef> {
+        self.merged_sandbox_defs()
+            .into_iter()
+            .find(|(def, _, _)| def.name == name)
+            .map(|(def, _, _)| def)
+    }
+
+    /// The sandbox this node is running **now**, if a switch chose one.
+    ///
+    /// Runtime state (F2b decision 1): `None` until a switch succeeds, and never
+    /// written to `settings.json` — [`Self::sandbox_default_name`] is what a
+    /// restart starts from.
     pub fn current_sandbox(&self) -> Option<String> {
+        self.current_sandbox
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+    }
+
+    /// The default definition's name: the stored `default_sandbox`, else the
+    /// fallback's.
+    ///
+    /// This is the *configured* default (settings), not [`Self::current_sandbox`]:
+    /// a switch changes what is running, not what the configuration says.
+    pub fn sandbox_default_name(&self) -> String {
         self.settings
             .lock()
             .ok()
             .and_then(|settings| settings.default_sandbox.clone())
+            .unwrap_or_else(|| DEFAULT_SANDBOX_NAME.to_string())
     }
 
-    /// The default definition's name: the stored choice, else the fallback's.
-    pub fn sandbox_default_name(&self) -> String {
-        self.current_sandbox()
-            .unwrap_or_else(|| DEFAULT_SANDBOX_NAME.to_string())
+    /// Is a run in flight right now? (v0.9 sandbox F2b.)
+    ///
+    /// Read from the run bookkeeping [`Self::begin_run`] sets and
+    /// [`Self::finish_run`] clears — the host's runs are synchronous, so this
+    /// answers "a call is inside `run_agent` right now", which is the question a
+    /// switch has to ask before it takes the VM out from under a loop.
+    ///
+    /// Two paths leave it stale, both of them the audit already having failed: a
+    /// run-start marker the sink refused (the run proceeds, this says `false`), and
+    /// a process that died mid-run (a restart clears it, and `abandon_stale_runs`
+    /// closes the ledger row).
+    pub fn run_in_flight(&self) -> bool {
+        self.current_run_id
+            .lock()
+            .map(|slot| slot.is_some())
+            .unwrap_or(false)
+    }
+
+    // ----- Sandbox switch (v0.9 sandbox F2b) --------------------------------
+
+    /// Claim the switch slot. Errors when a switch is already in progress.
+    ///
+    /// The same shape as the download slots' `begin` (F2b decision 3): one switch
+    /// at a time, so two of them cannot race for the same VM slot.
+    pub fn begin_sandbox_switch(&self, target: &str) -> Result<(), HostError> {
+        let mut slot = self
+            .switch_slot
+            .lock()
+            .map_err(|_| HostError::Other("sandbox switch lock poisoned".into()))?;
+        if slot.is_some() {
+            return Err(HostError::Other(
+                "sandbox switch already in progress".into(),
+            ));
+        }
+        *slot = Some(SandboxSwitchState {
+            target: target.to_string(),
+            started_at: std::time::Instant::now(),
+        });
+        Ok(())
+    }
+
+    /// Give the switch slot back without switching.
+    ///
+    /// The download slots' `cancel` shape: it errors when nothing is in progress,
+    /// so a caller that cancels a switch that already finished hears about it
+    /// instead of silently succeeding.
+    pub fn cancel_sandbox_switch(&self) -> Result<(), HostError> {
+        let mut slot = self
+            .switch_slot
+            .lock()
+            .map_err(|_| HostError::Other("sandbox switch lock poisoned".into()))?;
+        match slot.take() {
+            Some(_) => Ok(()),
+            None => Err(HostError::Other("no sandbox switch in progress".into())),
+        }
+    }
+
+    /// Release the switch slot (called when the switch is over, either way).
+    pub fn finish_sandbox_switch(&self) {
+        if let Ok(mut slot) = self.switch_slot.lock() {
+            *slot = None;
+        }
+    }
+
+    /// Switch this node to the sandbox `name` (v0.9 sandbox F2b).
+    ///
+    /// The order is the whole point (F2b decision 2): everything that can be
+    /// checked is checked **before** the running VM is touched, so a definition
+    /// that cannot run leaves the current sandbox alone; and everything after the
+    /// stop is a failure that leaves the node **stopped** rather than
+    /// half-switched — a handle whose `start` failed is dropped, and `Drop` kills
+    /// whatever it spawned (`sandbox/src/vm.rs`).
+    ///
+    /// Refused while another switch is in progress, and while a run is in flight:
+    /// the loop shares this VM slot and takes it per tool call, so a switch under a
+    /// running agent would silently hand it a different guest (F2b decision 4).
+    ///
+    /// No event and no audit row of its own yet — F2b-2 adds the `sandbox:switch`
+    /// family with the endpoint and the CLI. The VM's own `vm.stop` / `vm.start`
+    /// audit rows are the sandbox's, and they arrive as they always did.
+    pub fn switch_sandbox(&self, name: &str) -> Result<(), HostError> {
+        // ① The definition, or the reason there is none.
+        let def = self
+            .sandbox_def_by_name(name)
+            .ok_or_else(|| HostError::SandboxNotFound(name.to_string()))?;
+        // ② One switch at a time.
+        self.begin_sandbox_switch(name)?;
+
+        let outcome = (|| -> Result<(), HostError> {
+            // F2b decision 4: a run in flight means the loop is holding this slot.
+            if self.run_in_flight() {
+                return Err(HostError::Other(
+                    "a run is in flight; a sandbox switch would take its VM away".into(),
+                ));
+            }
+            // ③④⑤ Everything checkable, before anything is stopped: the QEMU and
+            // the toolchain (`sandbox_check`), then the kernel.
+            self.sandbox_check(&def)?;
+            let kernel = match &def.kernel {
+                Some(path) => path.clone(),
+                None => self.resume_kernel().map_err(|e| {
+                    HostError::SandboxKernelMissing(format!(
+                        "the definition pins none and the workspace has none: {}",
+                        e.user_message()
+                    ))
+                })?,
+            };
+
+            // ⑥ Only now is the running VM touched.
+            self.stop_current_vm()?;
+
+            // ⑦ A fresh VM on fresh ports, up to three times: the lease narrows
+            // the window on a port race and the retry covers what is left — the
+            // same shape `tool_start_vm` uses (`agent/src/tools.rs`).
+            const START_ATTEMPTS: usize = 3;
+            let mut last_error = String::from("unknown error");
+            for attempt in 1..=START_ATTEMPTS {
+                let mut leases = sandbox::relay::lease_local_ports(2)
+                    .map_err(|e| HostError::Other(e.to_string()))?;
+                let mut serial_lease = leases.pop().expect("two leases were requested");
+                let mut qmp_lease = leases.pop().expect("two leases were requested");
+                let config = VMConfig {
+                    kernel: kernel.clone(),
+                    memory_mb: def.memory_mb.unwrap_or(agent::VM_MEMORY_MB),
+                    qmp: QmpEndpoint::tcp("127.0.0.1", qmp_lease.port()),
+                    serial: SerialEndpoint::tcp("127.0.0.1", serial_lease.port()),
+                    snapshot_dir: self.snapshot_dir(),
+                    serial_observer: Some(agent::tools::serial_observer_for(Arc::clone(
+                        &self.serial_senders,
+                    ))),
+                    // A switch boots fresh: it is not a restore (F2b decision 3 —
+                    // resuming a snapshot stays its own action).
+                    incoming_snapshot: None,
+                    incoming_relay_addr: None,
+                    // The definition's QEMU wins, then the host's manual one.
+                    qemu_exe: def.qemu_exe.clone().or_else(|| self.manual_qemu_path()),
+                };
+                let mut vm = match RiscVVirtualMachine::new(config, Arc::clone(&self.sink)) {
+                    Ok(vm) => vm,
+                    Err(e) => {
+                        last_error = format!("attempt {attempt}: {e}");
+                        std::thread::sleep(std::time::Duration::from_millis(150));
+                        continue;
+                    }
+                };
+                // Last moment: hand the ports over to QEMU.
+                qmp_lease.hand_off();
+                serial_lease.hand_off();
+                match vm.start() {
+                    Ok(()) => {
+                        // ⑧ A VM that started *is* the switch; adopt it, then the name.
+                        *self
+                            .vm_slot
+                            .lock()
+                            .map_err(|_| HostError::Other("vm slot poisoned".into()))? = Some(vm);
+                        self.clear_vm_started();
+                        self.mark_vm_started();
+                        if let Ok(mut slot) = self.current_sandbox.lock() {
+                            *slot = Some(name.to_string());
+                        }
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        last_error = format!("attempt {attempt}: {e}");
+                        std::thread::sleep(std::time::Duration::from_millis(150));
+                    }
+                }
+            }
+            // ⑨ The slot is released by the caller. The node is stopped, not
+            // half-switched: the last handle was dropped and killed its child.
+            Err(HostError::Other(format!(
+                "sandbox switch to {name:?} failed after {START_ATTEMPTS} attempts: {last_error}"
+            )))
+        })();
+
+        self.finish_sandbox_switch();
+        outcome
     }
 
     /// Read settings from disk and apply them (missing/corrupt → defaults).

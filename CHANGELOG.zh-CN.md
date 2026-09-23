@@ -314,6 +314,21 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 - **`"-"` 哨兵现在只有一个定义**：`host-core::sandbox_def::NO_VERSION`，由扫描的 `CandidateView::system_qemu` 与命名规则共用，而不是两个必须彼此一致的字面量。它与定义层其余类型一同导出。
 - **已安装资源仍为 `<kind>-<version>`**（`toolchain-15.2.0-1`、`qemu-11.1.0`）。名为 `-` 的版本目录会被当作哨兵、取无版本的名字；安装器从不写这种目录，这一点记在这里而不是被防御。扫描与合并的其余部分未变。
 
+**节点可被切到另一个沙箱，且切换是先校验后停止。** F2b-1 落下核心：节点*正在跑*的沙箱变成运行时状态（存储的 `default_sandbox` 是重启的起点），定义在动到正在运行的 VM **之前**先校验，同一时刻只允许一次切换，运行中拒绝切换。端点、Tauri 命令、CLI 与 `sandbox:switch` 事件属 F2b-2。
+
+### 新增
+
+- **`AppState::switch_sandbox(name)`**：取定义 → 校验（QEMU、工具链、内核）→ 定内核 → 停当前 VM → 按定义启一台新的（三次尝试、每次新端口，与 `tool_start_vm` 同形）→ 采用它 → 最后才把名字记为当前。
+- **`AppState::sandbox_check(def)`**：定义不能跑的原因，即四个新的 `HostError` 变体——`sandbox_not_found`、`sandbox_qemu_missing`、`sandbox_toolchain_missing`、`sandbox_kernel_missing`。`sandbox_runnable` 现在是它的 bool 面：一条规则、两种形状、行为不变。
+- **`AppState::run_in_flight()`**：是否有调用正处在 `run_agent` 里，读自 `begin_run` 置、`finish_run` 清的运行记账。
+- **切换槽**：`begin_sandbox_switch` / `cancel_sandbox_switch` / `finish_sandbox_switch`，与下载槽四个同形——同一时刻只允许一次，第二次以 `already in progress` 拒绝。
+
+### 变更
+
+- **`AppState::current_sandbox()` 现在是运行时状态**（v0.9 F2b 决策 1，账本 §34）：切换成功前为 `None`，且**从不**写进 `settings.json`；`sandbox_default_name()` 仍回答存储的 `default_sandbox`。切换改的是正在跑的，不是配置。
+- **切换失败 = 已停，不是半切换**：新句柄被丢弃，`Drop` 杀掉它 spawn 的东西，当前值不变。校验失败的定义则完全不碰正在跑的 VM——这个顺序本身就是重点。
+- **注册表的合并只剩一份实现**（`merged_sandbox_defs`），`sandboxes()` 与切换共用，因此切换用的定义就是列表里胜出的那个。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

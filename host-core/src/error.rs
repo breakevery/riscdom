@@ -23,6 +23,27 @@ pub enum HostError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// No sandbox definition carries that name (v0.9 sandbox F2b).
+    ///
+    /// The four sandbox variants carry a machine-readable code in their `Display`
+    /// (`sandbox_not_found`, `sandbox_qemu_missing`, `sandbox_toolchain_missing`,
+    /// `sandbox_kernel_missing`), so a caller can branch on the reason without
+    /// matching prose, and `user_message` is still what the interface shows.
+    #[error("sandbox_not_found: {0}")]
+    SandboxNotFound(String),
+
+    /// The definition's QEMU is missing, or is not a QEMU that runs.
+    #[error("sandbox_qemu_missing: {0}")]
+    SandboxQemuMissing(String),
+
+    /// The definition's RISC-V toolchain is missing.
+    #[error("sandbox_toolchain_missing: {0}")]
+    SandboxToolchainMissing(String),
+
+    /// The definition pins no kernel and the workspace has none either.
+    #[error("sandbox_kernel_missing: {0}")]
+    SandboxKernelMissing(String),
+
     #[error("{0}")]
     Other(String),
 }

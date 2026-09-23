@@ -161,7 +161,9 @@ fn a_definition_round_trips_through_settings_and_the_registry() {
     )
     .expect("state");
 
-    assert_eq!(restarted.current_sandbox().as_deref(), Some("blink"));
+    // v0.9 F2b split the two: `default_sandbox` is what a restart *starts from*,
+    // and `current_sandbox` is what a switch made current — nothing, here.
+    assert_eq!(restarted.current_sandbox(), None);
     assert_eq!(restarted.sandbox_default_name(), "blink");
 
     let blink = restarted.sandbox("blink").expect("blink is stored");
