@@ -1134,26 +1134,22 @@ pub(crate) fn dispatch(
 
         // ---- controls ----
         Action::AgentRun => {
-            // The one precondition worth answering precisely: with no usable model
-            // there is nothing to run, and that is `unavailable`, not a fault.
-            let readiness = app.llm_readiness();
-            if !readiness.ready {
-                return error_response(
-                    503,
-                    "unavailable",
-                    &host_core::state::readiness_error(&readiness),
-                    Some("llm"),
-                );
-            }
             let user_input = match params.required("user_input") {
                 Ok(value) => value,
                 Err(response) => return *response,
             };
+            // A run may declare the sandbox it wants (v0.9 sandbox F2d). It is a
+            // declaration, not a switch: an unknown name is a `404` naming the
+            // parameter, one that is not what the running VM came from is a `409`,
+            // and a model that is not usable is the documented `503` — all of them
+            // from `run_agent_for`, in that order, because a run refused for its
+            // parameter should say so rather than blame the environment.
+            let sandbox = params.get("sandbox");
             let sink: Arc<dyn host_core::EventSink> =
                 Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
-            match app.run_agent(sink, user_input) {
+            match app.run_agent_for(sink, user_input, sandbox) {
                 Ok(view) => ok_json(&view),
-                Err(e) => host_error(e),
+                Err(e) => run_error(e),
             }
         }
         Action::RunExport => {
@@ -1570,6 +1566,35 @@ fn capability_for_action(action: SandboxAction) -> Capability {
     match action {
         SandboxAction::Switch => Capability::SandboxSwitch,
         SandboxAction::Define | SandboxAction::Assemble => Capability::SandboxAssemble,
+    }
+}
+
+/// A run's own refusals (v0.9 sandbox F2d).
+///
+/// A sandbox nobody has is the caller's **parameter** (`404`, `cause: "name"` — the
+/// same answer the name route and the switch give), and a sandbox that is not the
+/// one the running VM came from is a **state** clash (`409`, `cause: "sandbox"`):
+/// nothing is wrong with the request, the node is just not in the position to honour
+/// it without a switch. Everything else is the host's own failure.
+fn run_error(error: HostError) -> Response<RespBody> {
+    match &error {
+        // The four sandbox variants answer with the same status and cause the
+        // switch gives them: a definition that cannot run is the environment, not
+        // the caller, and the message carries the reason code.
+        HostError::SandboxNotFound(_)
+        | HostError::SandboxQemuMissing(_)
+        | HostError::SandboxToolchainMissing(_)
+        | HostError::SandboxKernelMissing(_)
+        | HostError::SandboxStart(_) => sandbox_switch_error(error),
+        HostError::SandboxConflict(_) => {
+            error_response(409, "conflict", &error.user_message(), Some("sandbox"))
+        }
+        // No usable model: the documented `503 unavailable`, and the cause names
+        // what is missing (`llm`) rather than the mechanism.
+        HostError::NotConfigured(_) => {
+            error_response(503, "unavailable", &error.user_message(), Some("llm"))
+        }
+        _ => host_error(error),
     }
 }
 

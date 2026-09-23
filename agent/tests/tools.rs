@@ -2,7 +2,7 @@
 
 use agent::compiler::CompilerConfig;
 use agent::policy::WorkspacePolicy;
-use agent::tools::{execute_tool, ToolContext};
+use agent::tools::{execute_tool, ToolContext, VM_MEMORY_MB};
 use audit::{verify_chain, AuditSink, AuditStore, ChainStatus, SqliteAuditSink};
 use sandbox::vm::RiscVVirtualMachine;
 use std::path::PathBuf;
@@ -59,6 +59,7 @@ fn write_source_writes_file_and_audits_three_events() {
         qemu_exe: &None,
         requester: None,
         agent_id: TEST_AGENT_ID,
+        memory_mb: VM_MEMORY_MB,
     };
 
     let msg = execute_tool(
@@ -110,6 +111,7 @@ fn compile_fixture_succeeds() {
         qemu_exe: &None,
         requester: None,
         agent_id: TEST_AGENT_ID,
+        memory_mb: VM_MEMORY_MB,
     };
 
     let src = include_str!("fixtures/hello.c");
@@ -150,6 +152,7 @@ fn policy_denies_traversal_and_bad_extension() {
         qemu_exe: &None,
         requester: None,
         agent_id: TEST_AGENT_ID,
+        memory_mb: VM_MEMORY_MB,
     };
 
     let traversal = execute_tool(

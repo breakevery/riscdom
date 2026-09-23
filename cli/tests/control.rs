@@ -504,6 +504,36 @@ fn importing_something_that_is_not_an_archive_is_refused_before_the_host_sees_it
 }
 
 #[test]
+fn a_run_may_declare_the_sandbox_it_wants() {
+    // The declaration travels in the run's body and is answered by the host before
+    // anything else about the run (v0.9 sandbox F2d): an unknown name is the
+    // caller's `404`, reachable in local mode without a model, because a bad
+    // parameter must not be reported as "the environment is not ready".
+    let output = run(
+        "run-sandbox",
+        &["--json", "run", "say hi", "--sandbox", "no-such-sandbox"],
+    );
+    assert_eq!(exit_code(&output), 3, "stderr: {}", stderr(&output));
+    let body = error_body(&output);
+    assert_eq!(body["code"], "not_found", "{body}");
+    assert_eq!(body["cause"], "name", "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no-such-sandbox"),
+        "the refusal names the name: {body}"
+    );
+
+    // Without the flag the same run reaches the readiness gate instead — the two
+    // refusals differ because the declaration is what carries the sandbox question.
+    let output = run("run-no-sandbox", &["--json", "run", "say hi"]);
+    assert_eq!(exit_code(&output), 3, "stderr: {}", stderr(&output));
+    let body = error_body(&output);
+    assert_eq!(body["cause"], "llm", "{body}");
+}
+
+#[test]
 fn the_parser_agrees_with_the_binary_about_the_new_commands() {
     // A sanity check that the library view and the binary share one parser: the
     // commands the tests drive above are the ones `parse` produces.

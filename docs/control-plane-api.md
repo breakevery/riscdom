@@ -210,7 +210,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
-| `/v0/agent/run` | POST | `agent.run` | `{ "user_input": string }` | `AgentOutcomeView` | `run_agent` |
+| `/v0/agent/run` | POST | `agent.run` | `{ "user_input": string, "sandbox"? }` | `AgentOutcomeView` | `run_agent` |
 | `/v0/runs/export` | POST | `audit.export` | `{ "run_id", "path" }` | `{ "events_exported": number }` | `export_run_audit` |
 | `/v0/vm/stop` | POST | `vm.control` | — | `204 No Content` | `stop_current_vm` |
 | `/v0/snapshots/save` | POST | `snapshot.write` | `{ "name": string }` | `{ "bytes_written": number }` | `save_snapshot_real` |
@@ -350,6 +350,22 @@ the tables above. They are part of this document's surface all the same.
   capability) where exporting needs `workspace.read`: reading a project and replacing it
   are not the same permission. Import is **containment-only** (no extension allow-list),
   for the same reason the exports are: a project is not only `.c` / `.h` / `.S` / `.s`.
+- **A run may declare the sandbox it wants** (v0.9 sandbox F2d). `POST /v0/agent/run`
+  takes an optional `sandbox` name, and it is a **declaration, not a switch**: the run
+  uses that definition for the VM it starts (its toolchain, its QEMU, its memory) and
+  the node's `current_sandbox` is left alone — moving the node is
+  `POST /v0/sandboxes/switch`, which needs `sandbox.switch`. Three answers, in this
+  order, so the caller hears the most specific one: a name nobody has is `404` with
+  `cause: "name"` (a typo must not become a run under some other sandbox); a name that
+  is not what the running VM came from is `409` with `cause: "sandbox"` (a VM cannot be
+  replaced from inside a run, and the message names both ways out — stop it, or
+  switch), and with nothing running the declaration is honoured; and only then the
+  environment is asked, so no model is the documented `503` with `cause: "llm"`. A run
+  that declares none resolves as before: what the node is running, then its configured
+  default, then the built-in fallback — which means "discover this host's own QEMU and
+  toolchain", exactly the behaviour before this batch. The declaration does **not**
+  reach the kernel: which ELF to boot is still the model's `start_vm` argument, because
+  that is what a run boots, where `def.kernel` is what a *switch* boots.
 - **Capabilities are declared and enforced.** Every route names its capability in the
   route table and the server checks it against the actor the hook returned before the
   handler runs; a missing capability is `403 forbidden` with `cause: "capability"` (§3).

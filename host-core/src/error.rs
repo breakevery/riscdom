@@ -64,6 +64,15 @@ pub enum HostError {
     #[error("sandbox_request_decided: {0}")]
     SandboxRequestDecided(String),
 
+    /// A run declared a sandbox, and the VM already running came from a different
+    /// one (v0.9 sandbox F2d).
+    ///
+    /// A task **declares**; only a switch **changes** (F2d decision 1), so the run
+    /// is refused rather than silently run against the wrong guest. The message
+    /// names both ways out: stop the VM, or switch.
+    #[error("sandbox_conflict: {0}")]
+    SandboxConflict(String),
+
     /// An archive an import cannot accept (v0.9 project in/out).
     ///
     /// One variant for every way an archive can be unusable or hostile —

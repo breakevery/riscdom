@@ -626,17 +626,21 @@ pub async fn get_llm_config_status(state: State<'_, AppState>) -> Result<LlmConf
     Ok(state.llm_config_status())
 }
 
-/// Run one agent turn, streaming events to the webview.
+/// Run one agent turn (v0.9 sandbox F2d adds the optional `sandbox` declaration).
+///
+/// The interface is not wired to the parameter in this batch (that is the D line);
+/// the command carries it so the surface is complete when it is.
 #[tauri::command]
 pub async fn run_agent(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     user_input: String,
+    sandbox: Option<String>,
 ) -> Result<AgentOutcomeView, String> {
     let emitter: Arc<dyn crate::events::EventSink> =
         Arc::new(TauriEventSink::new(app, state.agent_id()));
     state
-        .run_agent(emitter, &user_input)
+        .run_agent_for(emitter, &user_input, sandbox.as_deref())
         .map_err(|e| e.user_message())
 }
 

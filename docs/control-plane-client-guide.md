@@ -264,7 +264,6 @@ parameter when no definition carries that name. The literal sub-paths (`current`
 `candidates`, and `requests` / `switch` / `assemble`) are never read as a name.
 
 ### The project: out, and back in
-
 The workspace is the project, and a project travels as one archive. Export answers
 **bytes** — the only non-JSON body here apart from the event stream — and import takes
 bytes.
@@ -469,11 +468,18 @@ endpoints, are all `POST`s. All of them need the
 token (that is the point of the batch that added them: they include destructive operations).
 
 ```bash
-# Run one agent turn. Progress arrives as `agent:*` events on the stream.
+# Run one agent turn. Progress arrives as `agent:*` events on the stream. The
+# optional `sandbox` is a declaration, not a switch: this run uses that definition
+# (toolchain, QEMU, memory) and the node is left where it is.
 curl -sS -X POST http://127.0.0.1:7821/v0/agent/run \
   -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"user_input":"compile the blink example"}'
+  -d '{"user_input":"compile the blink example","sandbox":"blink"}'
+# 404 cause "name"    — no definition is called that (a typo is not a fallback)
+# 409 cause "sandbox" — a VM from another definition is already running: stop it, or
+#   `POST /v0/sandboxes/switch` to blink. A run never switches the node itself.
+```
 
+```bash
 # Switch this node to another sandbox definition. Validation happens before the
 # running VM is touched, and the answer says where the node came from:
 curl -sS -X POST http://127.0.0.1:7821/v0/sandboxes/switch \
@@ -593,6 +599,7 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # against one that 
 | `riscdom workspace export [--out <file>]` | `POST /v0/workspace/export` |
 | `riscdom workspace import <archive> [--force]` | `POST /v0/workspace/import` |
 | `riscdom run <task>` | `POST /v0/agent/run` |
+| `riscdom run <task> --sandbox <name>` | `POST /v0/agent/run` (with `sandbox`) |
 | `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
 | `riscdom sessions create` / `open` / `rename` / `delete` / `clear-all` | `POST /v0/sessions/create` / `open` / `rename` / `delete` / `clear` |
@@ -654,6 +661,12 @@ arrives — the same frames a client of §5 would read — and the run's outcome
 
 ```bash
 riscdom run "compile the blink example" --follow
+```
+
+Or under a named sandbox — a declaration, so the node is not switched:
+
+```bash
+riscdom run "compile the blink example" --sandbox blink --follow
 ```
 
 ```text

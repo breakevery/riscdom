@@ -390,10 +390,14 @@ curl -sS -N http://127.0.0.1:7821/v0/events \
 API 表的 §5.2 控制类端点，加上沙箱切换、申请端点与两条项目进出端点，全部是 `POST`。它们全部需要 token（这正是引入它们的那一批的要点：其中包含破坏性操作）。
 
 ```bash
-# 跑一轮 agent。进度以 `agent:*` 事件抵达事件流。
+# 跑一轮 agent。进度以 `agent:*` 事件抵达事件流。可选的 `sandbox` 是**声明**、不是切换：
+# 这次运行用它（工具链、QEMU、内存），节点原地不动。
 curl -sS -X POST http://127.0.0.1:7821/v0/agent/run \
   -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"user_input":"compile the blink example"}'
+  -d '{"user_input":"compile the blink example","sandbox":"blink"}'
+# 404 cause "name"    —— 没有叫这个名字的定义（拼写错误不当兕底）
+# 409 cause "sandbox" —— 来自另一个定义的 VM 正在跑：停掉它，或
+#   `POST /v0/sandboxes/switch` 切到 blink。一次运行从不自己切换节点。
 
 # 会话。
 # 把本节点切到另一个沙箱定义。校验发生在动到正在跑的 VM 之前，应答会说明来自哪里：
@@ -486,6 +490,7 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # 对着已经跑�
 | `riscdom workspace export [--out <file>]` | `POST /v0/workspace/export` |
 | `riscdom workspace import <archive> [--force]` | `POST /v0/workspace/import` |
 | `riscdom run <task>` | `POST /v0/agent/run` |
+| `riscdom run <task> --sandbox <name>` | `POST /v0/agent/run`（带 `sandbox`） |
 | `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
 | `riscdom sessions create` / `open` / `rename` / `delete` / `clear-all` | `POST /v0/sessions/create` / `open` / `rename` / `delete` / `clear` |
@@ -537,6 +542,12 @@ riscdom llm set --api-key-file ~/.riscdom/api-key \
 
 ```bash
 riscdom run "compile the blink example" --follow
+```
+
+或者指定沙箱——它是声明，所以节点不会被切换：
+
+```bash
+riscdom run "compile the blink example" --sandbox blink --follow
 ```
 
 ```text

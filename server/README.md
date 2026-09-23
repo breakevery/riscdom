@@ -65,6 +65,7 @@ listen on a public interface unless you tell it to.
 | `/v0/sandboxes/switch` | POST | Switch this node to another definition (`sandbox.switch`): `200` with `{from, to}`, or `404` / `409` / `503` / `500` with a `cause` naming the reason. |
 | `/v0/sandboxes/requests` | GET / POST | The request queue (`sandbox.read` for the read, `agent.run` to leave one): a list newest-first, or `201` with the new id. |
 | `/v0/sandboxes/requests/{id}/approve`, `…/reject` | POST | Decide a pending request. The route's gate is `sandbox.read`; the decision itself needs the capability the request's `action` implies (`sandbox.switch` / `sandbox.assemble`). `200` with the record, `404` / `409` / `403`. |
+| `/v0/agent/run` | POST | One agent turn (`agent.run`). The optional `sandbox` declares which definition this run uses — the node is **not** switched (`404` `cause: "name"` for a name nobody has, `409` `cause: "sandbox"` when a VM from another definition is running). No usable model is `503` `cause: "llm"`. |
 | `/v0/sessions/create`, `/v0/settings/theme`, … | POST | The 35 controls of §5.2: sessions, snapshots, VM, toolchain, QEMU, sandboxes, preflight, LLM config, exports. |
 | `/v0/workspace/import` | POST | Unpack a project archive into the workspace (`workspace.write`): the body is **the archive itself** (zip / tar.gz / tar), answered with `{files, bytes}` or `400` / `409` / `413`. |
 | `/v0/workspace/export` | POST | The project as a `tar.gz` (`workspace.read`) — **bytes, not JSON**, with `Content-Disposition: attachment`. |

@@ -72,6 +72,50 @@ fn handle(tag: &str, extra: Vec<String>) -> (StdioExecutorHandle, PathBuf, PathB
 }
 
 #[test]
+fn a_task_that_declares_a_sandbox_carries_it_across_the_boundary() {
+    // v0.9 sandbox F2d: `Task.sandbox` is one optional field on the line the worker
+    // already reads, and the worker hands it to `run_agent_for`. The proof needs no
+    // guest and no model: a name nobody has is refused by the **resolution**, which
+    // happens before the readiness check, so the child's failure reason says which
+    // sandbox it was asked for.
+    let (handle, _workspace, _data_dir) = handle("task-sandbox", Vec::new());
+    let handle = Arc::new(handle);
+    let dispatcher = LocalDispatcher::new(vec![Arc::clone(&handle) as Arc<dyn AgentHandle>]);
+
+    let task = Task::new(handle.agent_id().clone(), "say hi").with_sandbox("no-such-sandbox");
+    let outcome = dispatcher
+        .dispatch(task.clone())
+        .expect("the worker answers");
+    assert_eq!(outcome.task_id, task.id, "the same task came back");
+    match &outcome.outcome {
+        AgentOutcome::Failed { reason, iterations } => {
+            assert_eq!(*iterations, 0, "the run never entered the loop");
+            assert!(
+                reason.contains("sandbox_not_found"),
+                "the refusal names the reason code: {reason}"
+            );
+            assert!(
+                reason.contains("no-such-sandbox"),
+                "and the name that was asked for: {reason}"
+            );
+        }
+        other => panic!("an unknown sandbox must answer Failed, got {other:?}"),
+    }
+
+    // The same task *without* the declaration stops at the readiness check instead:
+    // the two reasons differ because the field is what carries the question.
+    let plain = Task::new(handle.agent_id().clone(), "say hi");
+    let outcome = dispatcher.dispatch(plain).expect("the worker answers");
+    match &outcome.outcome {
+        AgentOutcome::Failed { reason, .. } => assert!(
+            reason.contains("no_config"),
+            "no declaration, no sandbox question: {reason}"
+        ),
+        other => panic!("expected Failed, got {other:?}"),
+    }
+}
+
+#[test]
 fn a_task_crosses_the_process_boundary_and_comes_back_as_an_outcome() {
     let (handle, _workspace, _data_dir) = handle("roundtrip", Vec::new());
     let handle = Arc::new(handle);
@@ -91,7 +135,7 @@ fn a_task_crosses_the_process_boundary_and_comes_back_as_an_outcome() {
         AgentOutcome::Failed { reason, iterations } => {
             assert_eq!(*iterations, 0, "the run never entered the loop");
             assert!(
-                reason.starts_with("no_config"),
+                reason.contains("no_config"),
                 "the readiness refusal must arrive intact: {reason}"
             );
         }

@@ -311,5 +311,8 @@ fn run_agent_refuses_without_a_toolchain() {
         .expect_err("run must refuse without a toolchain");
     let msg = err.to_string();
     println!("{msg}");
-    assert!(msg.starts_with("toolchain_missing"), "{msg}");
+    // The definition's check answers now (v0.9 sandbox F2d): the fallback pins no
+    // toolchain, so the refusal carries `sandbox_toolchain_missing` — the switch's
+    // own reason code — rather than the host's `toolchain_missing`.
+    assert!(msg.contains("sandbox_toolchain_missing"), "{msg}");
 }

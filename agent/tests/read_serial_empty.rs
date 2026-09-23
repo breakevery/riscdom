@@ -8,7 +8,7 @@ mod common;
 
 use agent::compiler::CompilerConfig;
 use agent::policy::WorkspacePolicy;
-use agent::tools::{execute_tool, ToolContext};
+use agent::tools::{execute_tool, ToolContext, VM_MEMORY_MB};
 use common::{constitution_path, sink, unique_dir};
 use sandbox::platform::{QmpEndpoint, SerialEndpoint};
 use sandbox::vm::{RiscVVirtualMachine, VMConfig};
@@ -48,6 +48,7 @@ fn an_empty_buffer_returns_a_notice_not_an_empty_string() {
         qemu_exe: &None,
         requester: None,
         agent_id: "local-0-test",
+        memory_mb: VM_MEMORY_MB,
     };
 
     let started = std::time::Instant::now();

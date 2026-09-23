@@ -7,7 +7,7 @@
 
 use agent::compiler::CompilerConfig;
 use agent::policy::WorkspacePolicy;
-use agent::tools::{execute_tool, SandboxRequester, ToolContext};
+use agent::tools::{execute_tool, SandboxRequester, ToolContext, VM_MEMORY_MB};
 use audit::{AuditSink, AuditStore, SqliteAuditSink};
 use sandbox::vm::RiscVVirtualMachine;
 use std::path::PathBuf;
@@ -84,6 +84,7 @@ fn run(
         qemu_exe: &None,
         requester: requester.as_ref(),
         agent_id: "local-0-test",
+        memory_mb: VM_MEMORY_MB,
     };
     execute_tool(tool, args, &mut ctx).map_err(|e| e.to_string())
 }

@@ -676,13 +676,25 @@ mod tests {
     fn a_run_outcome_leads_with_its_shape_and_then_the_answer() {
         let outcome =
             reply(r#"{"kind":"final","content":"all done","reason":null,"iterations":2}"#);
-        let text = human(&Command::Run { task: "t".into() }, &outcome);
+        let text = human(
+            &Command::Run {
+                task: "t".into(),
+                sandbox: None,
+            },
+            &outcome,
+        );
         assert!(text.starts_with("kind       final\niterations 2"), "{text}");
         assert!(text.ends_with("all done"), "{text}");
         // A turn that gave up carries its reason on its own line.
         let stopped =
             reply(r#"{"kind":"stopped","content":"","reason":"max iterations","iterations":9}"#);
-        let text = human(&Command::Run { task: "t".into() }, &stopped);
+        let text = human(
+            &Command::Run {
+                task: "t".into(),
+                sandbox: None,
+            },
+            &stopped,
+        );
         assert!(text.contains("reason     max iterations"), "{text}");
     }
 

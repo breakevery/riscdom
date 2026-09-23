@@ -58,6 +58,10 @@ pub struct AgentLoop {
     external_vm: Option<Arc<Mutex<Option<RiscVVirtualMachine>>>>,
     /// Host-injected QEMU executable (v0.3 5b-1b); `None` = discover it.
     qemu_exe: Option<std::path::PathBuf>,
+    /// Guest memory in MiB for a VM this loop starts (v0.9 sandbox F2d): the host
+    /// sets it from the sandbox the run resolved to, and `VM_MEMORY_MB` stays the
+    /// default when nothing said otherwise.
+    memory_mb: u32,
     /// Who this loop is, for the audit chain's `agent_id` (v0.8 batch B).
     agent_id: String,
     /// The host's sandbox request surface (v0.9 sandbox F2c); `None` when the host
@@ -138,6 +142,7 @@ impl AgentLoop {
             stream_observers: Arc::new(Mutex::new(Vec::new())),
             external_vm,
             qemu_exe: None,
+            memory_mb: crate::tools::VM_MEMORY_MB,
             sandbox_requester: None,
         })
     }
@@ -172,6 +177,14 @@ impl AgentLoop {
     /// here; auto-discovery stays the default).
     pub fn set_qemu_path(&mut self, path: std::path::PathBuf) {
         self.qemu_exe = Some(path);
+    }
+
+    /// Guest memory for the VM this loop starts (v0.9 sandbox F2d).
+    ///
+    /// The host injects the definition's `memory_mb` here; the `VMConfig` the tool
+    /// builds is unchanged, it just carries this number instead of the default.
+    pub fn set_memory_mb(&mut self, memory_mb: u32) {
+        self.memory_mb = memory_mb;
     }
 
     /// Append restored messages to the conversation.
@@ -356,6 +369,7 @@ impl AgentLoop {
                         qemu_exe: &self.qemu_exe,
                         agent_id: &self.agent_id,
                         requester: self.sandbox_requester.as_ref(),
+                        memory_mb: self.memory_mb,
                     };
                     match execute_tool(&call.function.name, &call.function.arguments, &mut ctx) {
                         Ok(result) => result,
@@ -371,6 +385,7 @@ impl AgentLoop {
                         qemu_exe: &self.qemu_exe,
                         agent_id: &self.agent_id,
                         requester: self.sandbox_requester.as_ref(),
+                        memory_mb: self.memory_mb,
                     };
                     match execute_tool(&call.function.name, &call.function.arguments, &mut ctx) {
                         Ok(result) => result,

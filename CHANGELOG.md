@@ -714,6 +714,37 @@ guards and the capability split — and `write_source` records what it wrote.
 - **The capability count in the documents is 32**, and §5.2 carries 35 endpoints: the API
   document (both languages), `server/README` (both) and the client guide (both).
 
+**A task declares its sandbox, and the node is not switched.** The sandbox line's last
+piece: a run may say which definition it uses, the node's own sandbox is only what answers
+when nothing is declared, and a declaration never moves the node.
+
+### Added
+
+- **`Task.sandbox`** (v0.9 sandbox F2d): `Option<String>` with `#[serde(default)]` — an
+  older supervisor's task line still reads — plus `Task::with_sandbox`. The worker already
+  deserialises a whole `Task`, so the cross-process protocol change is that one field.
+- **`sandbox` on a run**: `POST /v0/agent/run` takes an optional `sandbox`; the Tauri
+  `run_agent` command takes it as a parameter; the CLI grew `run <task> --sandbox <name>`.
+- **`AppState::run_agent_for(emitter, input, sandbox)`**: the one place a run's sandbox is
+  resolved and refused. `run_agent` keeps its signature and delegates.
+- **`AppState::active_sandbox()`**: the definition the **running** VM came from — written
+  when a run's VM appears, by `switch_sandbox`, and on a snapshot restore; cleared by
+  `stop_current_vm`. `current_sandbox` alone could not answer it: only a switch wrote it,
+  so a `start_vm`-started VM had no recorded provenance.
+- **`agent.set_memory_mb`**, so a definition's `memory_mb` reaches the VM the tool starts.
+
+### Changed
+
+- **A run's refusal ladder moved into `run_agent_for`, in this order**: an unknown sandbox
+  name is `404` `cause: "name"`; a name that is not what the running VM came from is `409`
+  `cause: "sandbox"`; readiness is `503` `cause: "llm"`, now from a typed
+  `HostError::NotConfigured` rather than the route checking twice. A bad parameter is
+  therefore answered before the environment, and `POST /v0/agent/run` with an unknown
+  sandbox is a `404` even with no model configured.
+- **Resolution order for a run**: the declared name, else what the node runs, else its
+  configured default, else the built-in fallback (which means “discover this host's own
+  QEMU and toolchain” — the behaviour before this batch).
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

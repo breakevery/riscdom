@@ -407,6 +407,31 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 - **文档里的 capability 计数为 32**，§5.2 携带 35 个端点：API 文档（双语）、`server/README`（双语）
   与客户端指南（双语）。
 
+**一个任务声明它的沙箱，而节点不被切换。** 沙箱线的最后一块：一次运行可以说它用哪个定义，
+节点自己的沙箱只在什么都没声明时作答，而声明从不搬动节点。
+
+### 新增
+
+- **`Task.sandbox`**（v0.9 沙箱 F2d）：`Option<String>` 带 `#[serde(default)]`——旧 supervisor
+  的任务行仍可读——加 `Task::with_sandbox`。worker 本就读整条 `Task`，所以跨进程协议改动就是那一个字段。
+- **运行上的 `sandbox`**：`POST /v0/agent/run` 接受可选的 `sandbox`；Tauri `run_agent` 命令接它作为参数；
+  CLI 多出 `run <task> --sandbox <name>`。
+- **`AppState::run_agent_for(emitter, input, sandbox)`**：唯一解析并拒绝一次运行沙箱的地方。
+  `run_agent` 保留签名并委派。
+- **`AppState::active_sandbox()`**：**在跑的** VM 来自哪个定义——在运行的 VM 出现时、由
+  `switch_sandbox`、以及快照恢复时写入；由 `stop_current_vm` 清除。单靠 `current_sandbox` 答不了它：
+  只有切换会写它，所以由 `start_vm` 启起的 VM 没有记录下来的来源。
+- **`agent.set_memory_mb`**，使定义的 `memory_mb` 能抵达工具启的那台 VM。
+
+### 变更
+
+- **一次运行的拒绝阶梯移进了 `run_agent_for`，按此顺序**：未定义沙箱名 → `404` `cause: "name"`；
+  不是正在跑的 VM 所来自的名字 → `409` `cause: "sandbox"`；就绪 → `503` `cause: "llm"`，现在来自
+  类型化的 `HostError::NotConfigured`，而不是路由检查两次。于是坏的参数先于环境被回答，
+  且 `POST /v0/agent/run` 带一个未定义沙箱时，即使没有配置模型也是 `404`。
+- **一次运行的解析顺序**：声明的名字，否则节点在跑的，否则其配置默认，否则内置兕底
+  （后者意味着「去发现宿主自己的 QEMU 与工具链」——上一批之前的行为）。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

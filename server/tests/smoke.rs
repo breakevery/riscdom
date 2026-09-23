@@ -88,6 +88,30 @@ fn serve(workspace: PathBuf, authn: Arc<dyn Authn>) -> (SocketAddr, HttpEventSin
     (addr, first, second)
 }
 
+/// `serve`, and hand the state back so a test can arm the model (v0.9 sandbox F2d).
+///
+/// A test that wants the run to get *past* the readiness gate — to reach the
+/// sandbox resolution behind it — needs a configured LLM, and only the state can
+/// be told about one. No model call is made: the definition under test refuses the
+/// run first.
+fn serve_with_state(workspace: PathBuf, authn: Arc<dyn Authn>) -> (SocketAddr, Arc<AppState>) {
+    let app = Arc::new(AppState::in_memory(&workspace).expect("in-memory state"));
+    let cfg = ServerConfig::new("127.0.0.1:0".parse().expect("addr"))
+        .with_heartbeat(None)
+        .with_authn(authn);
+    let server = Server::new(Arc::clone(&app), cfg);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .build()
+        .expect("runtime");
+    let running = runtime.block_on(async { server.start().await.expect("bind") });
+    let addr = running.local_addr();
+    std::thread::spawn(move || {
+        runtime.block_on(std::future::pending::<()>());
+    });
+    (addr, app)
+}
+
 /// Write `settings.json` into a workspace, before a state reads it.
 fn write_settings(workspace: &Path, settings: serde_json::Value) {
     let dir = workspace.join(".riscdom");
@@ -686,6 +710,76 @@ fn an_export_comes_back_through_an_import() {
         "int main(void) { return 0; }\n",
         "the round trip lost or changed the file"
     );
+}
+
+#[test]
+fn a_run_may_declare_its_sandbox_and_an_unknown_name_is_the_callers_404() {
+    let ws = temp_workspace("run-sandbox");
+    write_settings(
+        &ws,
+        serde_json::json!({
+            "version": 1,
+            "sandboxes": [{ "name": "blink", "memory_mb": 256 }],
+            "default_sandbox": "blink",
+        }),
+    );
+    let (addr, state) = serve_with_state(ws.clone(), Arc::new(NoAuth));
+    // A configured model, so the run gets past the readiness gate — the sandbox
+    // question is answered before any model call, and none is made.
+    state.set_llm_config(host_core::LlmConfigInput {
+        provider_id: "deepseek".to_string(),
+        api_key: "test-key".to_string(),
+        base_url: "http://127.0.0.1:9/".to_string(),
+        model: "test-model".to_string(),
+    });
+
+    // An unknown name is the caller's parameter: `404`, naming it — not a run that
+    // quietly uses some other sandbox.
+    let (status, body) = post(
+        addr,
+        "/v0/agent/run",
+        r#"{"user_input":"hi","sandbox":"no-such-sandbox"}"#,
+    );
+    assert_eq!(status, 404, "{body}");
+    assert_eq!(body["code"], "not_found");
+    assert_eq!(body["cause"], "name");
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no-such-sandbox"),
+        "the refusal names the name: {body}"
+    );
+
+    // A name that exists but cannot run is the *environment* (`503`, with the
+    // reason code) — the same answer the switch gives a definition it cannot use.
+    let missing = temp_workspace("run-sandbox-broken").join("no-such-qemu");
+    write_settings(
+        &ws,
+        serde_json::json!({
+            "version": 1,
+            "sandboxes": [{ "name": "broken", "qemu_exe": missing.display().to_string() }],
+            "default_sandbox": "broken",
+        }),
+    );
+    // A second server: settings are read when the state is built.
+    let (addr, state) = serve_with_state(ws, Arc::new(NoAuth));
+    state.set_llm_config(host_core::LlmConfigInput {
+        provider_id: "deepseek".to_string(),
+        api_key: "test-key".to_string(),
+        base_url: "http://127.0.0.1:9/".to_string(),
+        model: "test-model".to_string(),
+    });
+    let (status, body) = post(
+        addr,
+        "/v0/agent/run",
+        r#"{"user_input":"hi","sandbox":"broken"}"#,
+    );
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(body["cause"], "sandbox_qemu_missing", "{body}");
+    // The declaration never moved the node, and nothing is running.
+    assert_eq!(state.current_sandbox(), None);
+    assert_eq!(state.active_sandbox(), None);
 }
 
 #[test]

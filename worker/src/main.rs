@@ -193,7 +193,14 @@ fn run(args: &Args, task: Option<&Task>) -> TaskOutcome {
         serde_json::json!({ "task_id": task.id.to_string() }),
     );
 
-    let outcome = match state.run_agent(Arc::clone(&sink) as Arc<dyn EventSink>, &task.input) {
+    let outcome = match state.run_agent_for(
+        Arc::clone(&sink) as Arc<dyn EventSink>,
+        &task.input,
+        // A `Task` may declare its sandbox (v0.9 sandbox F2d); the field rides in
+        // the line this process already reads, so nothing else about the protocol
+        // changed.
+        task.sandbox.as_deref(),
+    ) {
         Ok(view) => host_core::dispatch::outcome_from_view(view),
         // A host-level refusal (not ready, no toolchain, no QEMU, …) is an
         // outcome, not a crash: the supervisor sees it as data.

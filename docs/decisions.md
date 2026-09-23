@@ -677,3 +677,44 @@ bytes}` on the audit chain. That is an audit event, not an SSE one — the event
 14 — because it belongs where the provenance is provable, and it exists so that "which
 files did the model write" is a row rather than a re-parse of `agent.tool.call`'s
 arguments, which are truncated at 4 KiB.
+
+## 38. A task declares its sandbox; only a switch changes the node
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; landed with the v0.9 sandbox F2d batch
+
+**Decision**: A run may **declare** which sandbox it uses — `Task.sandbox`, the `sandbox`
+field of `POST /v0/agent/run`, the Tauri command's new parameter — and the declaration
+reaches the VM the run starts (toolchain, QEMU executable, guest memory). It **never moves
+the node**: `current_sandbox` is unchanged, and moving it stays `POST /v0/sandboxes/switch`,
+which needs `sandbox.switch`. Two refusals guard it: a name nobody has is a `404`
+(`cause: "name"`), and a name that is not what the **running** VM came from is a `409`
+(`cause: "sandbox"`). Resolution order for a run: the declaration, else `current_sandbox`,
+else the configured default, else the built-in fallback (host discovery).
+
+**Why**: A VM cannot be replaced from inside a run: one `vm_slot` holds it, its QMP and
+serial ports are handed to it, and the agent's tools operate on it. So a task-level choice
+is a choice of *starting parameters*, and the alternative readings are worse than a
+refusal — silently running against the wrong guest, or turning "run a task" into a node
+change that needs a capability the caller may not hold (which is exactly what F2b/F2c
+separated). The same reasoning fixes the kernel question (F2d decision 2): `start_vm`'s
+`elf_path` is what a **run** boots, `def.kernel` is what a **switch** boots; mixing them
+would make a definition silently override the model's choice.
+
+**Impact**: `Task` gained `sandbox: Option<String>` with `#[serde(default)]` (an older
+supervisor's task line still parses) and `Task::with_sandbox`; the worker already read a
+whole `Task`, so the cross-process protocol change is that one field. `run_agent` keeps its
+signature and delegates to the new `run_agent_for(emitter, input, sandbox)`, so the direct
+call sites did not move; the three surfaces that can declare (HTTP, Tauri, worker) pass it
+through. The host needed a fact it did not have: `current_sandbox` is written only by a
+successful switch, so a VM started by the `start_vm` *tool* had **no recorded provenance**
+— which is what the conflict check reads. `AppState::active_sandbox` now records it: written
+when a run's VM appears in the slot (the host's only view of a tool-started VM), by
+`switch_sandbox`, and on a snapshot restore (as the node's own sandbox, the honest answer
+for a guest restored from this node); cleared by `stop_current_vm`. The refusal ladder for a
+run moved into one function in this order — declaration, conflict, readiness (a new typed
+`HostError::NotConfigured`, so the route stops checking readiness twice) — which means a bad
+*parameter* is answered before the environment: `POST /v0/agent/run` with an unknown sandbox
+is the caller's `404` even with no model configured. A definition's `memory_mb` reaches the
+VM through a new `agent.set_memory_mb` (`VM_MEMORY_MB` was a hard-coded 128; the `VMConfig`
+shape is unchanged). The resolution reads the registry's merged view, so a task naming a
+hand-written definition gets it exactly as a switch would.

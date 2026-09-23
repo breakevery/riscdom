@@ -13,6 +13,34 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **A task declares which sandbox it runs under, and nothing about the node moves** (v0.9
+  sandbox F2d, the sandbox line's last piece). `Task` gained `sandbox: Option<String>`
+  (`#[serde(default)]`, so an older supervisor's line is still readable) with a
+  `Task::with_sandbox` builder, and the three surfaces that can carry a declaration do:
+  `POST /v0/agent/run` (body field `sandbox`), the Tauri `run_agent` command (new
+  optional parameter) and the worker (`Task.sandbox`, already on the line it reads — the
+  protocol change was exactly one optional field, because `Task` has been serialisable
+  since v0.8). Where it lands: `AppState::run_agent_for(emitter, input, sandbox)` —
+  `run_agent` keeps its old signature and now delegates with `None`, so the direct call
+  sites did not move. The order is **task > `current_sandbox` > configured default >
+  built-in fallback**, an unknown name is a `404` (`cause: "name"`) rather than a silent
+  fallback, and the resolved definition is injected as the compiler, the QEMU path and
+  the guest's memory (a new `agent.set_memory_mb`, since `VM_MEMORY_MB` was a hard-coded
+  128). **It does not reach the kernel**: `start_vm`'s `elf_path` still chooses the ELF,
+  and `def.kernel` stays what a *switch* boots (F2d decision 2). Two refusals guard the
+  declaration: the unknown name, and a name that is not what the **running** VM came
+  from — `409` `cause: "sandbox"`, because a task declares and only a switch changes,
+  and the message names both ways out (stop it, or `POST /v0/sandboxes/switch`). That
+  check needed a fact the host did not have: `current_sandbox` is written only by a
+  successful switch, so a VM started by the `start_vm` *tool* had no recorded
+  provenance. `active_sandbox` now records it — written when a run's VM appears, by
+  `switch_sandbox`, and (as the node's own sandbox) on a snapshot restore, cleared by
+  `stop_current_vm`. As a consequence the run endpoint's whole refusal ladder (the
+  declaration, then readiness) moved into `run_agent_for`: a bad *parameter* is answered
+  before the environment, so `POST /v0/agent/run` with an unknown sandbox is the caller's
+  `404` even with no model configured, and the readiness refusal became a typed
+  `HostError::NotConfigured` so the route could stop checking readiness twice. Seven
+  documents went with it, including decision §38.
 - **A project travels as one file** (v0.9 project in/out). `POST /v0/workspace/export`
   answers the workspace as a `tar.gz` — **bytes, not JSON**, the first such body on that
   surface apart from the event stream — and `POST /v0/workspace/import` takes an archive

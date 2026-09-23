@@ -133,7 +133,7 @@ fn run_agent_refuses_without_qemu() {
     ));
 
     // The LLM readiness gate runs first, so satisfy it (the run must
-    // then fail on the QEMU pre-check).
+    // then fail on the QEMU check).
     *state.llm_override.lock().unwrap() =
         Some(std::sync::Arc::new(agent::llm::MockLlm::new(Vec::new())));
     let sink = std::sync::Arc::new(host_core::events::RecordingEventSink::new());
@@ -142,5 +142,8 @@ fn run_agent_refuses_without_qemu() {
         .expect_err("run must refuse without QEMU");
     let msg = err.to_string();
     println!("{msg}");
-    assert!(msg.starts_with("qemu_missing"), "{msg}");
+    // Since v0.9 sandbox F2d the check is the *definition's*: a run resolves the
+    // fallback (which pins no QEMU), so the refusal carries the sandbox reason code
+    // — the same one a switch gives — instead of the host's own `qemu_missing`.
+    assert!(msg.contains("sandbox_qemu_missing"), "{msg}");
 }

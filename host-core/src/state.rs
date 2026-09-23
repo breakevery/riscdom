@@ -466,6 +466,15 @@ pub struct AppState {
     /// A queue, not a slot: several asks may wait at once. Cloned into the agent
     /// loop's tool gateway, which is why it is its own (cloneable) struct.
     sandbox_requests: SandboxRequests,
+    /// The definition the **running VM** came from (v0.9 sandbox F2d).
+    ///
+    /// Distinct from `current_sandbox`, which is what a *switch* put in charge and
+    /// which a task-declared run must not change. This one answers "if a VM is in
+    /// the slot, where did it come from", so a task declaring a different sandbox
+    /// can be refused instead of silently running against the wrong guest. `None`
+    /// means nothing is running, or what is running was not started from a
+    /// definition (a restored snapshot on a node with no current sandbox).
+    active_sandbox: Mutex<Option<String>>,
     /// When the host-owned VM started (epoch ms); shared with the audit bridge,
     /// which learns about VM starts/stops from the sandbox's audit events.
     vm_started_at_ms: Arc<Mutex<Option<i64>>>,
@@ -764,6 +773,7 @@ impl AppState {
             switch_slot: Mutex::new(None),
             current_sandbox: Arc::clone(&current_sandbox),
             sandbox_requests: SandboxRequests::new(current_sandbox),
+            active_sandbox: Mutex::new(None),
             vm_started_at_ms: Arc::new(Mutex::new(None)),
             toolchain_download_last: Mutex::new(None),
             qemu_download_last: Mutex::new(None),
@@ -1060,6 +1070,11 @@ impl AppState {
             // A restored VM is a "fresh" one for the status badge.
             self.clear_vm_started();
             self.mark_vm_started();
+            // Its provenance is the node's own sandbox: the snapshot came from this
+            // node's VM, so whichever definition the node is in charge of is the
+            // honest answer (v0.9 sandbox F2d). `stop_current_vm` cleared the slot
+            // above, so this is not left over from the VM that was replaced.
+            self.mark_active_sandbox(self.current_sandbox().as_deref());
             Ok(())
         })();
 
@@ -1830,6 +1845,80 @@ impl AppState {
             .unwrap_or(false)
     }
 
+    // ----- Task-level sandbox (v0.9 sandbox F2d) -----------------------------
+
+    /// The definition the running VM came from, if a definition started it.
+    pub fn active_sandbox(&self) -> Option<String> {
+        self.active_sandbox
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+    }
+
+    /// Which definition a run should use, in order of authority (F2d).
+    ///
+    /// A **task** outranks the node: a task that names a sandbox gets that one, and
+    /// an unknown name is a refusal (`404`, `cause: "name"` — never a silent
+    /// fallback, or a typo would look like a successful run). A task that names none
+    /// gets what the node is running (`current_sandbox`), then the configured
+    /// default, then the registry's built-in fallback (whose empty definition means
+    /// "discover the host's own QEMU and toolchain"); if even that is gone the answer
+    /// is `None`, the behaviour before this batch.
+    ///
+    /// The answer carries the name as well as the definition: the name is what the
+    /// running VM's provenance is recorded under.
+    pub fn resolve_task_sandbox(
+        &self,
+        task_sandbox: Option<&str>,
+    ) -> Result<Option<(SandboxDef, String)>, HostError> {
+        if let Some(name) = task_sandbox {
+            return match self.sandbox_def_by_name(name) {
+                Some(def) => Ok(Some((def, name.to_string()))),
+                None => Err(HostError::SandboxNotFound(name.to_string())),
+            };
+        }
+        let names = [
+            self.current_sandbox(),
+            Some(self.sandbox_default_name()),
+            // And last, the registry's built-in fallback, by name: a node whose
+            // configured default was removed still runs, on discovery.
+            Some(DEFAULT_SANDBOX_NAME.to_string()),
+        ];
+        for name in names.into_iter().flatten() {
+            // A name this node *was* using can stop resolving (a hand-written
+            // definition removed from settings); falling through is better than
+            // refusing a run over a stale name nobody asked for.
+            if let Some(def) = self.sandbox_def_by_name(&name) {
+                return Ok(Some((def, name)));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The refusal a run gets when it asked for a sandbox that is not the one the
+    /// running VM came from (F2d).
+    ///
+    /// A VM cannot simply be replaced inside a run: the switch exists for that, it
+    /// needs `sandbox.switch`, and it is an explicit node change. So the run says
+    /// why it will not start instead.
+    fn check_task_sandbox(&self, requested: &str) -> Result<(), HostError> {
+        match task_sandbox_conflict(
+            self.vm_is_running(),
+            self.active_sandbox().as_deref(),
+            requested,
+        ) {
+            None => Ok(()),
+            Some(message) => Err(HostError::SandboxConflict(message)),
+        }
+    }
+
+    /// Note which definition a VM put into the slot came from (F2d).
+    fn mark_active_sandbox(&self, name: Option<&str>) {
+        if let Ok(mut slot) = self.active_sandbox.lock() {
+            *slot = name.map(str::to_string);
+        }
+    }
+
     // ----- Sandbox requests (v0.9 sandbox F2c) -------------------------------
 
     /// The request queue, for callers that hold their own sink (the agent loop's
@@ -2004,6 +2093,10 @@ impl AppState {
                             if let Ok(mut slot) = self.current_sandbox.lock() {
                                 *slot = Some(name.to_string());
                             }
+                            // The slot now holds a VM this definition started, which
+                            // is what a later task-declared run is compared against
+                            // (v0.9 sandbox F2d).
+                            self.mark_active_sandbox(Some(name));
                             return Ok(());
                         }
                         Err(e) => {
@@ -3704,36 +3797,90 @@ impl AppState {
             vm.stop().map_err(|e| HostError::Other(e.to_string()))?;
         }
         self.clear_vm_started();
+        // Nothing is running, so nothing has a provenance (v0.9 sandbox F2d).
+        self.mark_active_sandbox(None);
         Ok(())
     }
 
     /// Run one agent turn, emitting host events through `emitter`.
+    ///
+    /// The node's own sandbox: no task declared one, so the run uses whatever this
+    /// node is running, or its default (v0.9 sandbox F2d keeps this signature — the
+    /// three surfaces that *can* declare one call [`Self::run_agent_for`]).
     pub fn run_agent(
         &self,
         emitter: Arc<dyn EventSink>,
         user_input: &str,
     ) -> Result<AgentOutcomeView, HostError> {
-        // Readiness gate: never enter the loop when the LLM is not usable.
+        self.run_agent_for(emitter, user_input, None)
+    }
+
+    /// Run one agent turn under a sandbox the caller declares (v0.9 sandbox F2d).
+    ///
+    /// `sandbox` is a **declaration**, never a node change: it decides which
+    /// definition this run's VM comes from (toolchain, QEMU, memory), and it leaves
+    /// `current_sandbox` alone. Two refusals guard that:
+    ///
+    /// - an unknown name is `404` (`cause: "name"`) — a typo must not look like a
+    ///   successful run under some other sandbox;
+    /// - a name that is not the one the **running** VM came from is a `409`
+    ///   (`cause: "sandbox"`): replacing a VM mid-run is what the switch is for, and
+    ///   the switch needs `sandbox.switch` and is an explicit node change.
+    ///
+    /// The declaration reaches the loop as the compiler, the QEMU path and the
+    /// guest's memory. It does **not** reach the kernel: which ELF to boot is still
+    /// the model's `start_vm` argument (F2d decision 2 — `def.kernel` is what the
+    /// *switch* boots, not what a run boots).
+    pub fn run_agent_for(
+        &self,
+        emitter: Arc<dyn EventSink>,
+        user_input: &str,
+        sandbox: Option<&str>,
+    ) -> Result<AgentOutcomeView, HostError> {
+        // Which definition this run uses (F2d), and whether the node can honour the
+        // declaration at all. Both are the **caller's** side of the question — a name
+        // nobody has, or a clash with the running VM — so they are answered before
+        // the environment is asked, the way a bad parameter is a `400` before a `503`.
+        let resolved = self.resolve_task_sandbox(sandbox)?;
+        if let Some(name) = sandbox {
+            self.check_task_sandbox(name)?;
+        }
+        // Readiness gate: never enter the loop when the LLM is not usable. Typed,
+        // so the HTTP surface can answer its documented `503 unavailable` with
+        // `cause: "llm"` without checking readiness twice (the route used to; F2d
+        // moved the whole refusal ladder into this one function, so the declaration
+        // is answered the same way whichever surface asked).
         let readiness = self.llm_readiness();
         if !readiness.ready {
-            return Err(HostError::Other(readiness_error(&readiness)));
+            return Err(HostError::NotConfigured(readiness_error(&readiness)));
         }
         // Toolchain pre-check: never enter the loop without a working compiler.
-        let toolchain = self.probe_toolchain();
-        if !toolchain.found {
-            return Err(HostError::Other(format!(
-                "toolchain_missing\n{}",
-                toolchain.diagnostics
-            )));
+        // A resolved definition carries its own QEMU and toolchain questions, so it
+        // is asked them (`sandbox_check`); with none, the node's own probes run —
+        // which is also what the built-in fallback definition ends up asking.
+        match &resolved {
+            Some((def, _)) => self.sandbox_check(def)?,
+            None => {
+                let toolchain = self.probe_toolchain();
+                if !toolchain.found {
+                    return Err(HostError::Other(format!(
+                        "toolchain_missing\n{}",
+                        toolchain.diagnostics
+                    )));
+                }
+                let qemu = self.probe_qemu();
+                if !qemu.found {
+                    return Err(HostError::Other(format!(
+                        "qemu_missing\n{}",
+                        qemu.diagnostics
+                    )));
+                }
+            }
         }
-        // QEMU pre-check: the sandbox cannot boot a guest without it.
-        let qemu = self.probe_qemu();
-        if !qemu.found {
-            return Err(HostError::Other(format!(
-                "qemu_missing\n{}",
-                qemu.diagnostics
-            )));
-        }
+        // Where the slot stood before this run, so a VM started *by* it can be
+        // recorded as the definition's (F2d).
+        let vm_before = self.vm_is_running();
+        let resolved_name = resolved.as_ref().map(|(_, name)| name.clone());
         // Environment preflight (v0.4 batch 3): warn-only, and only when the cache
         // has no result for this configuration. It never fails the run — a broken
         // environment surfaces through the run's own errors — and the user can
@@ -3775,6 +3922,20 @@ impl AppState {
         // Host-configured QEMU (falls back to the sandbox's discovery).
         if let Some(path) = self.manual_qemu_path() {
             agent.set_qemu_path(path);
+        }
+        // The declared sandbox has the last word on how this run's VM is configured
+        // (v0.9 sandbox F2d): its toolchain, its QEMU, its memory. A field it leaves
+        // empty keeps whatever the node set above.
+        if let Some((def, _)) = &resolved {
+            if let Some(path) = &def.toolchain_path {
+                agent.set_compiler(agent::CompilerConfig::manual(path.clone()));
+            }
+            if let Some(path) = &def.qemu_exe {
+                agent.set_qemu_path(path.clone());
+            }
+            if let Some(memory_mb) = def.memory_mb {
+                agent.set_memory_mb(memory_mb);
+            }
         }
 
         // Sessions: restore prior turns, then persist whatever this turn adds.
@@ -3866,6 +4027,13 @@ impl AppState {
         // survived the run keeps its start time, an empty slot clears it.
         if self.vm_is_running() {
             self.mark_vm_started();
+            // A VM appeared during this run: it came from the definition this run
+            // resolved to (v0.9 sandbox F2d). This is the host's best view of the
+            // tool-started VM, which the tool itself cannot report from the agent
+            // crate.
+            if !vm_before {
+                self.mark_active_sandbox(resolved_name.as_deref());
+            }
         } else {
             self.clear_vm_started();
         }
@@ -4116,4 +4284,134 @@ fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), H
         }
     }
     Ok(())
+}
+
+/// Does a task's declared sandbox clash with what is running (v0.9 sandbox F2d)?
+///
+/// A function of what the node looks like right now, so the rule can be pinned
+/// without a live guest: a declaration is honoured when nothing is running (the VM
+/// this run starts will be the declared one), and when the running VM came from the
+/// very definition the task named. Otherwise the run is refused, and the message
+/// names both ways out — because a task **declares** and only a switch **changes**.
+fn task_sandbox_conflict(
+    vm_running: bool,
+    active: Option<&str>,
+    requested: &str,
+) -> Option<String> {
+    if !vm_running || active == Some(requested) {
+        return None;
+    }
+    Some(format!(
+        "a VM is already running ({}) and a task may not switch the node; stop it, or switch \
+         to {requested:?} with POST /v0/sandboxes/switch",
+        active.unwrap_or("from a snapshot or an earlier run")
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A workspace with the given hand-written definitions already on disk.
+    ///
+    /// `AppState` reads its settings at construction, so the file has to exist
+    /// first; `version` is not optional in the file (a malformed one would load as
+    /// "no definitions", and the test would pass for the wrong reason).
+    fn state_with(tag: &str, settings: serde_json::Value) -> AppState {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "riscdom-state-{tag}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join(".riscdom")).unwrap();
+        let mut settings = settings;
+        settings["version"] = serde_json::json!(1);
+        std::fs::write(
+            root.join(".riscdom").join("settings.json"),
+            serde_json::to_vec_pretty(&settings).unwrap(),
+        )
+        .unwrap();
+        AppState::in_memory(&root).expect("state")
+    }
+
+    #[test]
+    fn the_running_nodes_sandbox_outranks_the_configured_default() {
+        // Nothing but a successful switch writes `current_sandbox`, and a switch
+        // boots a guest — so the middle step of the order is pinned here, where the
+        // field is reachable, and not through a switch.
+        let state = state_with(
+            "current-wins",
+            serde_json::json!({
+                "sandboxes": [
+                    { "name": "running", "memory_mb": 256 },
+                    { "name": "configured", "memory_mb": 512 },
+                ],
+                "default_sandbox": "configured",
+            }),
+        );
+        *state.current_sandbox.lock().unwrap() = Some("running".to_string());
+        let (def, name) = state
+            .resolve_task_sandbox(None)
+            .expect("resolved")
+            .expect("a definition");
+        assert_eq!(name, "running", "the node's own sandbox must win");
+        assert_eq!(def.memory_mb, Some(256));
+    }
+
+    #[test]
+    fn a_stale_current_name_falls_through_to_the_configured_default() {
+        let state = state_with(
+            "stale-current",
+            serde_json::json!({
+                "sandboxes": [{ "name": "configured", "memory_mb": 512 }],
+                "default_sandbox": "configured",
+            }),
+        );
+        *state.current_sandbox.lock().unwrap() = Some("removed-by-hand".to_string());
+        let (_, name) = state
+            .resolve_task_sandbox(None)
+            .expect("resolved")
+            .expect("a definition");
+        assert_eq!(name, "configured");
+    }
+
+    #[test]
+    fn a_declaration_clashes_only_with_a_running_vm_from_another_definition() {
+        // The four cases of F2d decision 1, as a rule: this is what the run checks.
+        assert!(task_sandbox_conflict(false, None, "blink").is_none());
+        assert!(task_sandbox_conflict(false, Some("other"), "blink").is_none());
+        assert!(task_sandbox_conflict(true, Some("blink"), "blink").is_none());
+
+        let clash = task_sandbox_conflict(true, Some("other"), "blink").expect("a conflict");
+        assert!(clash.contains("other"), "{clash}");
+        assert!(clash.contains("blink"), "{clash}");
+        assert!(
+            clash.contains("POST /v0/sandboxes/switch"),
+            "the refusal names the way out: {clash}"
+        );
+
+        // A VM nobody recorded a definition for (a restored snapshot on a node with
+        // no current sandbox) is still not the declared one.
+        let unknown = task_sandbox_conflict(true, None, "blink").expect("a conflict");
+        assert!(
+            unknown.contains("from a snapshot or an earlier run"),
+            "{unknown}"
+        );
+    }
+
+    #[test]
+    fn a_vm_that_appears_during_a_run_is_attributed_to_that_run() {
+        // The host's only view of a tool-started VM is the slot: `start_vm` runs
+        // inside the agent crate and cannot report it. So the rule is "the slot was
+        // empty before, occupied after" — and `stop_current_vm` clears it again.
+        let state = state_with("provenance", serde_json::json!({}));
+        assert_eq!(state.active_sandbox(), None);
+        state.mark_active_sandbox(Some("blink"));
+        assert_eq!(state.active_sandbox().as_deref(), Some("blink"));
+        state.mark_active_sandbox(None);
+        assert_eq!(state.active_sandbox(), None);
+    }
 }

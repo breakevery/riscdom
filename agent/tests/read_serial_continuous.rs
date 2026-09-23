@@ -10,7 +10,7 @@ mod common;
 
 use agent::compiler::CompilerConfig;
 use agent::policy::WorkspacePolicy;
-use agent::tools::{execute_tool, ToolContext};
+use agent::tools::{execute_tool, ToolContext, VM_MEMORY_MB};
 use common::{sink, unique_dir};
 use sandbox::vm::RiscVVirtualMachine;
 use std::sync::{Arc, Mutex};
@@ -34,6 +34,7 @@ fn a_guest_that_never_goes_quiet_returns_its_output() {
         qemu_exe: &None,
         requester: None,
         agent_id: "local-0-test",
+        memory_mb: VM_MEMORY_MB,
     };
 
     let write = serde_json::json!({ "path": "chatter.c", "content": CHATTER_C }).to_string();

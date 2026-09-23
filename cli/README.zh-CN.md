@@ -30,7 +30,7 @@ riscdom [options] <command> [args]
 
 | 子命令 | 请求 | 得到 |
 |---|---|---|
-| `run <task> [--follow]` | `POST /v0/agent/run` | 一轮 agent 的结果；`--follow` 在运行时打印事件流 |
+| `run <task> [--follow] [--sandbox <name>]` | `POST /v0/agent/run` | 一轮 agent 的结果；`--follow` 在运行时打印事件流，`--sandbox` 声明这次运行用哪个定义（v0.9 沙箱 F2d：不切换节点） |
 | `vm stop` | `POST /v0/vm/stop` | 先确认，再 `ok` |
 | `vm start` | `POST /v0/vm/start` | `501`——预留：今天 VM 在运行内启动 |
 | `snapshots save <name>` | `POST /v0/snapshots/save` | 写入字节数 |

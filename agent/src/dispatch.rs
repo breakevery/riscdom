@@ -80,6 +80,18 @@ pub struct Task {
     pub id: TaskId,
     pub target: AgentId,
     pub input: String,
+    /// The sandbox this task wants to run under (v0.9 sandbox F2d).
+    ///
+    /// A **declaration**, not a node change: it says which definition a VM started
+    /// for this task should come from, and it never moves the node (the switch does
+    /// that, and only with `sandbox.switch`). `None` means "whatever this node is
+    /// running, or its default".
+    ///
+    /// `#[serde(default)]` because a task written before this field existed is
+    /// still a readable task: the field is one optional name, and a supervisor on
+    /// an older build must not be told its task is malformed.
+    #[serde(default)]
+    pub sandbox: Option<String>,
 }
 
 impl Task {
@@ -89,7 +101,14 @@ impl Task {
             id: TaskId::next(),
             target,
             input: input.into(),
+            sandbox: None,
         }
+    }
+
+    /// The same task, declaring the sandbox it wants to run under (F2d).
+    pub fn with_sandbox(mut self, name: impl Into<String>) -> Self {
+        self.sandbox = Some(name.into());
+        self
     }
 }
 
@@ -241,6 +260,25 @@ mod tests {
         let task = Task::new(AgentId::new("local-1-1"), "say hi");
         let json = serde_json::to_string(&task).expect("task json");
         assert_eq!(serde_json::from_str::<Task>(&json).expect("task"), task);
+
+        // With a declared sandbox (v0.9 sandbox F2d) the same round trip holds,
+        // and `Task::new` still leaves the field empty.
+        assert_eq!(task.sandbox, None, "a plain task declares no sandbox");
+        let declared = Task::new(AgentId::new("local-1-1"), "say hi").with_sandbox("blink");
+        assert_eq!(declared.sandbox.as_deref(), Some("blink"));
+        let json = serde_json::to_string(&declared).expect("task json");
+        assert!(json.contains("\"sandbox\":\"blink\""), "{json}");
+        assert_eq!(serde_json::from_str::<Task>(&json).expect("task"), declared);
+
+        // A task written before the field existed is still readable: the field is
+        // optional on the wire, so an older supervisor's line is not malformed.
+        let old = format!(
+            r#"{{"id":"{}","target":"local-1-1","input":"hi"}}"#,
+            task.id
+        );
+        let parsed = serde_json::from_str::<Task>(&old).expect("an older task");
+        assert_eq!(parsed.sandbox, None);
+        assert_eq!(parsed.input, "hi");
 
         for outcome in [
             AgentOutcome::Final {

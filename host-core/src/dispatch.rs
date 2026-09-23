@@ -59,7 +59,13 @@ impl AgentHandle for HostAgentHandle {
         }
         let view = self
             .state
-            .run_agent(Arc::clone(&self.emitter), &task.input)
+            .run_agent_for(
+                Arc::clone(&self.emitter),
+                &task.input,
+                // A task that declares a sandbox runs under it (v0.9 sandbox F2d);
+                // one that does not gets the node's own, exactly as before.
+                task.sandbox.as_deref(),
+            )
             .map_err(|error| DispatchError::Failed(error.to_string()))?;
         // The host instance is the executor here; the identity is the one every
         // event it writes already carries.

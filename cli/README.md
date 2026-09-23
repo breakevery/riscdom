@@ -34,7 +34,7 @@ Control commands — every one an HTTP `POST`, and every one needs the token:
 
 | Command | Asks for | Answers |
 |---|---|---|
-| `run <task> [--follow]` | `POST /v0/agent/run` | one agent turn's outcome; `--follow` prints the event stream while it runs |
+| `run <task> [--follow] [--sandbox <name>]` | `POST /v0/agent/run` | one agent turn's outcome; `--follow` prints the event stream while it runs, and `--sandbox` declares which definition this run uses (v0.9 sandbox F2d: the node is not switched) |
 | `vm stop` | `POST /v0/vm/stop` | confirmation, then `ok` |
 | `vm start` | `POST /v0/vm/start` | `501` — reserved: today the VM starts inside a run |
 | `snapshots save <name>` | `POST /v0/snapshots/save` | how many bytes were written |

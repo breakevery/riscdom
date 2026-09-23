@@ -383,3 +383,33 @@
 **理由**：归档是 shell 本来就会说的格式（`tar czf`、`unzip`），所以一个项目可以离开这个工具、再进来，而不必由这个工具决定项目怎么存。替代方案——服务端写归档、答一个路径，像审计导出那样——在这里形状是错的：那些导出把文件写**进** workspace，因为那是运行的产物；而项目导出是被拿走的 workspace 本身，另一台机器上的客户端读不了一个路径。
 
 **影响**：`host-core/src/workspace_io.rs` 拥有两个方向与全部守卫：没有 entry 可以逃出目标，符号链接/硬链接一律不跟随，`.riscdom/`——宿主自己的状态（审计库、快照、预检缓存）——既不打包也不解包。**只做包含性检查、不走扩展名白名单**，理由与现有 exports 相同：`WorkspacePolicy::check_write` 只允许四个源文件扩展名，而项目不只有源文件。import 带**自己的 64 MiB 上限**（`413`），而不是抬高每个 JSON body 共用的 64 KiB `MAX_BODY_BYTES`；请求体按字节读，是该表面上的第一个非 JSON 请求；已有同名文件是 `409`，除非 `?force=true`——因为替换 workspace 里的东西是一个决定，不是默认。capability 按方向分开：导入需 **`workspace.write`**（第 32 个），导出需 `workspace.read`——读一个项目和替换它不是同一种权限。两个打包器（`zip`、`flate2` + `tar`）本来就在 `Cargo.lock` 里，现在对**每个**平台都声明：项目归档是用户工具链产出什么就是什么，所以 Windows 宿主必须能读 `.tar.gz`，unix 宿主必须能读 `.zip`。最后，AI 自己的写入也可见：`write_source` 往审计链记 **`agent.file.write`** `{path, bytes}`。它是审计事件、不是 SSE 事件——事件计数仍为 14——因为它属于来龙去脉可证的地方；它存在，是为了让「模型写过哪些文件」是一行记录，而不是去重剖 `agent.tool.call` 的 arguments——那些被截到 4 KiB。
+
+## 38. 任务声明它的沙箱；只有切换才改变节点
+
+**日期**：2026-09-23 ｜ **状态**：已定；随 v0.9 沙箱 F2d 批次落地
+
+**决策**：一次运行可以**声明**它用哪个沙箱——`Task.sandbox`、`POST /v0/agent/run` 的 `sandbox`
+字段、Tauri 命令的新参数——而这个声明抵达这次运行启的 VM（工具链、QEMU 可执行文件、客户机内存）。
+它**从不搬动节点**：`current_sandbox` 不变，搬动它仍旧是 `POST /v0/sandboxes/switch`，需要
+`sandbox.switch`。两条拒绝守着它：没有的名字是 `404`（`cause: "name"`），不是**正在跑的** VM
+所来自的名字是 `409`（`cause: "sandbox"`）。一次运行的解析顺序：声明，否则 `current_sandbox`，
+否则配置默认，否则内置兕底（宿主发现）。
+
+**理由**：VM 不能在运行时里被替换：一个 `vm_slot` 持有它，它的 QMP 与串口已交给它，agent 的工具
+就操作它。所以任务级的选用是*启动参数*的选用，而其它读法都比例绝更差——静默地在错的客户机上运行，
+或把「跑一个任务」变成一次需要调用方未必持有的 capability 的节点改动（而那正是 F2b/F2c 分离开的东西）。
+同一理由固定了内核问题（F2d 裁决二）：`start_vm` 的 `elf_path` 是**运行**时启的，`def.kernel` 是
+**切换**时启的；把两者混在一起会让一个定义静默地覆盖模型的选择。
+
+**影响**：`Task` 多出 `sandbox: Option<String>`（带 `#[serde(default)]`，旧 supervisor 的任务行仍可解析）
+与 `Task::with_sandbox`；worker 本就读整条 `Task`，所以跨进程协议改动就是那一个字段。`run_agent`
+保留签名并委派给新的 `run_agent_for(emitter, input, sandbox)`，所以直接调用点一个都没动；三个能声明的
+表面（HTTP、Tauri、worker）各自传递它。宿主需要一个它原本没有的事实：`current_sandbox` 只由成功的切换
+写入，所以由 `start_vm` **工具**启起的 VM **没有记录下来的来源**——而冲突检查读的正是它。现在
+`AppState::active_sandbox` 记录它：在运行的 VM 落入槽时（宿对对工具启 VM 的唯一视角）、由
+`switch_sandbox`、以及快照恢复时（作为节点自己的沙箱，对一台从本节点恢复的客户机而言这是实话）写入；
+由 `stop_current_vm` 清除。一次运行的拒绝阶梯按此顺序移进一个函数——声明、冲突、就绪（新的类型化
+`HostError::NotConfigured`，路由因此不再重复检查就绪）——意味着坏的*参数*先于环境被回答：
+`POST /v0/agent/run` 带一个未定义沙箱时，即使没有配置模型也是调用方的 `404`。定义的 `memory_mb` 经
+新增的 `agent.set_memory_mb` 抵达 VM（`VM_MEMORY_MB` 曾是硬编码的 128；`VMConfig` 形状未变）。
+解析读的是注册表的合并视图，所以一个任务命中手写定义时，拿到的与切换会拿到的一模一样。

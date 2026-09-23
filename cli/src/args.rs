@@ -37,8 +37,10 @@ read-only commands:
                                 stdout, and the count goes to stderr
 
 control commands:
-  run <task> [--follow]         run one agent turn; --follow prints the event
-                                stream while it runs
+  run <task> [--follow] [--sandbox <name>]
+                                run one agent turn; --follow prints the event
+                                stream while it runs, and --sandbox declares which
+                                definition this run uses (the node is not switched)
   vm stop                       stop the host's VM (asks for confirmation)
   vm start                      reserved; the control plane answers 501
   snapshots save <name>         save a snapshot of the running VM
@@ -184,6 +186,8 @@ pub enum Command {
     // ---- control ----
     Run {
         task: String,
+        /// `--sandbox <name>`: the definition this run declares (v0.9 sandbox F2d).
+        sandbox: Option<String>,
     },
     VmStop,
     VmStart,
@@ -368,7 +372,12 @@ impl Command {
     /// The JSON body, or `None` for the commands that take none.
     pub fn body(&self) -> Option<serde_json::Value> {
         match self {
-            Command::Run { task } => Some(json!({ "user_input": task })),
+            Command::Run { task, sandbox } => match sandbox {
+                // The declaration rides in the body: a run is a request, and the
+                // sandbox it wants is part of it (v0.9 sandbox F2d).
+                Some(name) => Some(json!({ "user_input": task, "sandbox": name })),
+                None => Some(json!({ "user_input": task })),
+            },
             Command::SnapshotsSave { name }
             | Command::SnapshotsResume { name }
             | Command::SnapshotsDelete { name } => Some(json!({ "name": name })),
@@ -518,6 +527,8 @@ struct Flags {
     status: Option<String>,
     /// `--force`: an import may replace what is already in the workspace.
     force: bool,
+    /// `--sandbox <name>`: run under this definition (v0.9 sandbox F2d).
+    sandbox: Option<String>,
     api_key: Option<String>,
     api_key_file: Option<PathBuf>,
     base_url: Option<String>,
@@ -562,6 +573,7 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
             "--out" => flags.out = Some(value("--out")?),
             "--status" => flags.status = Some(value("--status")?),
             "--force" => flags.force = true,
+            "--sandbox" => flags.sandbox = Some(value("--sandbox")?),
             "--api-key" => flags.api_key = Some(value("--api-key")?),
             "--api-key-file" => flags.api_key_file = Some(PathBuf::from(value("--api-key-file")?)),
             "--base-url" => flags.base_url = Some(value("--base-url")?),
@@ -667,6 +679,7 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
         }),
         (Some("run"), Some(task), None, None) => Some(Command::Run {
             task: task.to_string(),
+            sandbox: flags.sandbox.clone(),
         }),
         (Some("vm"), Some("stop"), None, None) => Some(Command::VmStop),
         (Some("vm"), Some("start"), None, None) => Some(Command::VmStart),
@@ -916,7 +929,23 @@ mod tests {
         assert_eq!(
             command(&["run", "say hi"]),
             Command::Run {
-                task: "say hi".to_string()
+                task: "say hi".to_string(),
+                sandbox: None,
+            }
+        );
+        // `--sandbox` rides along, in any position the other flags allow (F2d).
+        assert_eq!(
+            command(&["run", "say hi", "--sandbox", "blink"]),
+            Command::Run {
+                task: "say hi".to_string(),
+                sandbox: Some("blink".to_string()),
+            }
+        );
+        assert_eq!(
+            command(&["--sandbox", "blink", "run", "say hi"]),
+            Command::Run {
+                task: "say hi".to_string(),
+                sandbox: Some("blink".to_string()),
             }
         );
         assert_eq!(command(&["vm", "stop"]), Command::VmStop);
@@ -998,7 +1027,11 @@ mod tests {
         );
         assert_eq!(Command::SnapshotsList.request_path(), "/v0/snapshots");
         assert_eq!(
-            Command::Run { task: "x".into() }.request_path(),
+            Command::Run {
+                task: "x".into(),
+                sandbox: None
+            }
+            .request_path(),
             "/v0/agent/run"
         );
         assert_eq!(Command::VmStop.request_path(), "/v0/vm/stop");
@@ -1063,11 +1096,31 @@ mod tests {
     fn the_methods_and_bodies_match_the_table() {
         assert_eq!(Command::Health.method(), "GET");
         assert_eq!(Command::SnapshotsList.method(), "GET");
-        assert_eq!(Command::Run { task: "t".into() }.method(), "POST");
+        assert_eq!(
+            Command::Run {
+                task: "t".into(),
+                sandbox: None
+            }
+            .method(),
+            "POST"
+        );
         assert_eq!(Command::VmStop.method(), "POST");
         assert_eq!(
-            Command::Run { task: "t".into() }.body(),
+            Command::Run {
+                task: "t".into(),
+                sandbox: None
+            }
+            .body(),
             Some(json!({ "user_input": "t" }))
+        );
+        // A declared sandbox joins the same body (v0.9 sandbox F2d).
+        assert_eq!(
+            Command::Run {
+                task: "t".into(),
+                sandbox: Some("blink".into())
+            }
+            .body(),
+            Some(json!({ "user_input": "t", "sandbox": "blink" }))
         );
         assert_eq!(
             Command::SnapshotsSave { name: "a".into() }.body(),
@@ -1113,7 +1166,14 @@ mod tests {
             Command::SessionsCreate { title: "t".into() }.confirmation(),
             None
         );
-        assert_eq!(Command::Run { task: "t".into() }.confirmation(), None);
+        assert_eq!(
+            Command::Run {
+                task: "t".into(),
+                sandbox: None
+            }
+            .confirmation(),
+            None
+        );
     }
 
     #[test]

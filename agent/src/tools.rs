@@ -113,6 +113,9 @@ pub struct ToolContext<'a> {
     pub serial_observers: Arc<Mutex<Vec<std::sync::mpsc::Sender<Vec<u8>>>>>,
     /// Host-injected QEMU executable (v0.3 5b-1b); `None` = discover it.
     pub qemu_exe: &'a Option<std::path::PathBuf>,
+    /// Guest memory for a VM this tool starts (v0.9 sandbox F2d). The host sets it
+    /// from the sandbox the run resolved to; it defaults to [`VM_MEMORY_MB`].
+    pub memory_mb: u32,
     /// The agent this tool call belongs to (v0.8 batch B): stamped onto the
     /// events the tools write, and used to keep this agent's snapshots apart.
     pub agent_id: &'a str,
@@ -412,7 +415,7 @@ fn tool_start_vm(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<Stri
             .join(ctx.agent_id);
         let config = VMConfig {
             kernel: elf.clone(),
-            memory_mb: VM_MEMORY_MB,
+            memory_mb: ctx.memory_mb,
             qmp: QmpEndpoint::tcp("127.0.0.1", qmp_port),
             serial: SerialEndpoint::tcp("127.0.0.1", serial_port),
             snapshot_dir,
