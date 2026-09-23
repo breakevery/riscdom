@@ -13,6 +13,22 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **A supervisor you can run** (v0.9 interface E3). `examples/python/dispatch.py` is the
+  smallest complete external supervisor: a process outside the kernel, with no model of its
+  own, that drives a node through the control plane — `GET /v0/executors` for the fleet,
+  `POST /v0/tasks` per task (synchronously, one at a time), and `GET /v0/events` under
+  `--follow` for the stream while the work happens. **Standard library only** (`urllib.request`,
+  `json`, `argparse`, and a hand-rolled SSE reader), because a reference implementation
+  should not teach a dependency it does not need; the token comes from `--token-file` or
+  `$RISCDOM_TOKEN` and never from an argument. Its exit codes follow the CLI's (`0` all
+  succeeded, `1` something did not, `2` usage, `3` unreachable or refused), and its
+  `--self-test` proves the whole path offline against a stdlib `http.server` fake control
+  plane — which `scripts/gate.sh` now runs when a Python interpreter is on `PATH` (printed
+  skip when it is not; the gate's first optional-toolchain step). Two documents came with it:
+  `examples/python/README.md` and the client guide's §8, which now points at it. The Rust
+  sibling stays what it was (`worker/examples/dispatch.rs`, executors as child processes,
+  no HTTP, parallel), and the README tabulates the difference on purpose: they are the two
+  halves of the picture (decision §41).
 - **Both tool schemas are documents, and both are checked** (v0.9 interface E2). The
   interface's other half was vocabulary: what an executor's model may call, and what an AI
   supervisor may call. `docs/tool-schema-executor.md` is the eight tools `tools_json()`

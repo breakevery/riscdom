@@ -758,6 +758,11 @@ should be handed a credential that may — and a credential that may only read, 
 intent. v0.9 has one token that holds everything, so the tool list is the only lever until
 per-capability tokens land (v1.0).
 
+A worked example of that shape is [`../examples/python/dispatch.py`](../examples/python/dispatch.py)
+(with its [`README`](../examples/python/README.md)): stdlib only, three endpoints, a
+`--self-test` that proves itself against a fake control plane, and the CLI's exit-code
+convention. It is the skeleton, not a product: one task at a time, in order.
+
 ## 9. What is not there yet
 
 - **Fine-grained credentials.** Every route's capability is enforced (see §1); what v0.9 has

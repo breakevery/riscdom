@@ -610,6 +610,8 @@ riscdom toolchain download --wait
 
 一次派发就是最短的完整闭环：`executors`（不知道队伍时先问） → `tasks` → `TaskOutcome` → `run_get` / `audit_events` 看周围发生了什么。若监工还需要**改动**节点（`sandboxes_switch`、`snapshots_save` 等），就应当交给它一个能改的凭据——若本意只是读，就交一个只能读的。v0.9 只有一个持有全部的 token，所以按 capability 分令牌落地之前（v1.0），工具清单是唯一的杆。
 
+那个形状的一个可跑示例是 [`../examples/python/dispatch.py`](../examples/python/dispatch.py)（文档见 [`README`](../examples/python/README.zh-CN.md)）：仅标准库、三个端点、一个用假控制平面自证的 `--self-test`，以及 CLI 的退出码约定。它是骨架，不是产品：一次一条、按顺序。
+
 ## 9. 还没有的东西
 
 - **细粒度凭证。** 每条路由的 capability 都已强制（见 §1）；v0.9 缺的只是不止一种凭证。单个 token 持有一切，因此没法只授予「只读审计链」的客户端——按能力细分的 token 属 v1.0。

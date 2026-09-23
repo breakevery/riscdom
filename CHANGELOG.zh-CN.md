@@ -460,6 +460,19 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 
 - **`agent/README.md` 的工具表变成索引，不再是第二份清单**：它指向 `docs/tool-schema-executor.zh-CN.md`，而后者由测试与 `tools_json()` 对校（`agent/tests/tool_schema_doc.rs`）。控制平面的那些表则由 `server/src/routes.rs` 自己的测试与服务端路由表对校。
 
+**一个可以跑起来的监工。** 外部那一半的参考实现：一个在内核之外、靠 HTTP 驱动节点、自己不带模型的进程。
+
+### 新增
+
+- **`examples/python/dispatch.py`**：`GET /v0/executors` → 每条任务一次 `POST /v0/tasks` → `--follow` 时 `GET /v0/events`。仅标准库（`urllib.request`、`json`、`argparse`，加手写的 SSE 拆帧）。token 来自 `--token-file` 或 `$RISCDOM_TOKEN`，绝不来自参数。退出码沿用 CLI：`0` 全部成功、`1` 有没成功、`2` 用法错误、`3` 不可达或被拒。
+- **`--self-test`**：在 `127.0.0.1:0` 起一个 stdlib `http.server` 假控制平面，于是脚本能离线自证（队伍列表、一个成功、一个失败、一个被拒目标、`--follow` 的订阅、错 token、畸形任务行）。
+- **`examples/python/README.zh-CN.md`**：它演示什么、两份文档怎么分工、以及一张与 `worker/examples/dispatch.rs` 对照的表。
+- **gate 一步**：`PATH` 上有 `python3`/`python` 时 `scripts/gate.sh` 跑这个自证，没有就打印 skip——gate 的第一处可选工具链。
+
+### 变更
+
+- **`docs/control-plane-client-guide.zh-CN.md` §8** 指向这个示例，作为 AI 监工的可跑形状。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

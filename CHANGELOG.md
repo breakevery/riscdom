@@ -800,6 +800,29 @@ vocabulary: what an executor's model may call, and what an AI supervisor may cal
   (`agent/tests/tool_schema_doc.rs`). The control plane's tables are compared with the
   server's route table from `server/src/routes.rs`'s own tests.
 
+**A supervisor you can run.** The reference implementation of the external half: a process
+outside the kernel that drives a node over HTTP, with no model of its own.
+
+### Added
+
+- **`examples/python/dispatch.py`**: `GET /v0/executors` → `POST /v0/tasks` per task →
+  `GET /v0/events` under `--follow`. Standard library only (`urllib.request`, `json`,
+  `argparse`, and a hand-rolled SSE reader). Token from `--token-file` or `$RISCDOM_TOKEN`,
+  never from an argument. Exit codes follow the CLI: `0` all succeeded, `1` something did
+  not, `2` usage, `3` unreachable or refused.
+- **`--self-test`**: a stdlib `http.server` fake control plane on `127.0.0.1:0`, so the
+  script proves its own path offline (fleet list, a success, a failure, a refused target,
+  the `--follow` subscription, a wrong token, a malformed task line).
+- **`examples/python/README.md`**: what it demonstrates, the two documents' split of the
+  picture, and a table comparing it with `worker/examples/dispatch.rs`.
+- **A gate step**: `scripts/gate.sh` runs the self-test when `python3`/`python` is on `PATH`
+  and prints a skip when it is not — the gate's first optional toolchain.
+
+### Changed
+
+- **`docs/control-plane-client-guide.md` §8** points at the example as the worked shape of
+  an AI supervisor.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

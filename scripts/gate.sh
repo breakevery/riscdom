@@ -10,13 +10,15 @@
 # `.ts` modules and rely on type stripping: default from Node 23.6, needs
 # `--experimental-strip-types` on 22.6-23.5). On Windows, QEMU
 # (`qemu-system-riscv64`) and a RISC-V bare-metal GCC must be on PATH, because
-# several tests boot a real guest.
+# several tests boot a real guest. Python 3 is optional: it runs
+# `examples/python`'s self-test, which prints a skip when no interpreter is there.
 #
 # Platform differences are printed, never skipped silently:
 #   - non-Windows: `cli` / `server` / `host-core` / `host-tauri` / `ui/src-tauri` lint and check are
 #     skipped (the build needs webkit2gtk / gtk / librsvg or Windows-only platform crates)
 #   - without QEMU + a RISC-V GCC: the guest-booting tests are skipped and the
 #     portable library tests run instead.
+#   - without python3/python: the reference supervisor's self-test is skipped.
 #
 # Each step fails fast with a non-zero exit code.
 set -eu
@@ -42,6 +44,19 @@ have_guest_tools() {
     return 0
   fi
   return 1
+}
+
+# The Python interpreter for the reference supervisor's self-test, or nothing. Python is
+# not a build dependency of anything else here, so the check prints a skip when it is
+# absent rather than failing the gate on a machine that never had it.
+have_python() {
+  if have python3; then
+    echo python3
+  elif have python; then
+    echo python
+  else
+    echo ""
+  fi
 }
 
 case "$(uname -s 2>/dev/null || echo unknown)" in
@@ -99,6 +114,14 @@ node scripts/check-mirrored-constants.mjs || fail "mirrored constants"
 
 echo "==> tool schema documents (executor + control plane)"
 node scripts/check-tool-schema.mjs || fail "tool schema"
+
+python_bin="$(have_python)"
+if [ -n "$python_bin" ]; then
+  echo "==> python reference supervisor self-test (examples/python)"
+  "$python_bin" examples/python/dispatch.py --self-test || fail "python reference supervisor"
+else
+  skip "the python reference supervisor self-test (no python3/python on PATH)"
+fi
 
 echo "==> wix version guard"
 node scripts/check-wix-version.mjs || fail "wix version guard"

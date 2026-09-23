@@ -808,3 +808,39 @@ derivation is enforced by the script (a table row whose name is not the derivati
 and the six `_post` suffixes plus the four verb-named routes are the only exceptions — they
 are listed in the document and hard-coded in the script, so a fifth exception has to be
 decided rather than discovered.
+
+## 41. The reference supervisor is Python, stdlib-only, over HTTP
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; landed with the v0.9 interface E3 batch
+
+**Decision**: The external half of the interface gets a runnable reference implementation at
+`examples/python/dispatch.py`: a process outside the kernel, with no model of its own, that
+drives a node through the control plane over HTTP — `GET /v0/executors`, `POST /v0/tasks`
+(one task at a time, synchronously) and `GET /v0/events` under `--follow`. It is **standard
+library only** (`urllib.request`, `json`, `argparse`, a hand-rolled SSE reader); the token
+comes from `--token-file` or `$RISCDOM_TOKEN` and never from an argument; exit codes follow
+the CLI's convention (`0` / `1` / `2` / `3`); and a `--self-test` runs the real dispatch path
+against a stdlib `http.server` fake control plane, so it proves itself offline. The gate runs
+that self-test when a Python interpreter is on `PATH`, and prints a skip when one is not.
+
+**Why**: The reconnaissance found four Rust examples and nothing reusable in Python, so
+"write a supervisor" started from a blank page. A reference implementation is read, not just
+run: it has to show the *shape* — three endpoints, one task in and one outcome out, the four
+fates of a dispatch — without burying it under a client library. `requests` and `httpx` were
+rejected for that reason (they would teach a dependency the supervisor does not need, and
+would hide the fact that the wire format is the interface), and so was talking to a `worker`
+over stdio (that is `worker/examples/dispatch.rs`'s job, and it needs no node at all). The
+self-test is the part that makes the example honest: an unverifiable example rots, and this
+one cannot rot quietly while it is a gate step. Python rather than a fifth Rust example
+because the audience is whoever writes the supervisor — likely not a Rust developer — and
+because stdlib Python is the shortest true illustration.
+
+**Impact**: `examples/python/` (script + a bilingual README, so the documentation gate
+applies to it like everything else), one new `scripts/gate.sh` step with a printed skip, one
+section in the client guide (§8) and this entry. Known limits, stated in the README rather
+than hidden: tasks are sent one at a time (a real supervisor would overlap them, and a queue
+would hide the contract); `--follow` cannot attribute a frame to a task, because the
+envelope's `task_id` is `null` for host events — attribution lives in the audit chain; and
+the node must already have `executors` configured, because the fleet is configuration (E0).
+`worker/examples/dispatch.rs` is untouched: it is the other half of the picture, and the
+README tabulates the difference.
