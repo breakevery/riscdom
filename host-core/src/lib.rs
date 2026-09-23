@@ -41,6 +41,7 @@ pub use preflight::{PreflightCache, PreflightRow, PreflightView};
 pub use run_diff::{diff_fingerprints, FingerprintFieldDiff, FINGERPRINT_FIELDS};
 pub use sandbox_def::{
     CandidateView, CandidatesView, SandboxDef, SandboxSource, SandboxView, DEFAULT_SANDBOX_NAME,
+    NO_VERSION,
 };
 pub use session::{SessionMessage, SessionMeta, SessionStore};
 pub use state::{

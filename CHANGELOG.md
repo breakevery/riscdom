@@ -507,6 +507,31 @@ subcommands. Switching is still F2b: nothing here can change a sandbox.
   and encodings: a name is percent-encoded like a run id, so a slash cannot escape the one
   segment the route matches on.
 
+**A version-less resource gets a name, not a concatenation.** F2a-1 named every scanned
+definition `format!("{kind}-{version}")`, and the QEMU a machine already has carries no
+version — so the merged registry listed a definition called `qemu--`, which F2a-2 then
+served over HTTP and the CLI. It is `qemu-system-riscv64` now. Resources the scan *does*
+know a version for are unchanged.
+
+### Fixed
+
+- **`qemu--` is gone.** A scanned resource the scan has no version for is named for the
+  resource itself (a new `resource_name` behind `SandboxDef::for_resource`), not for a
+  missing version: the machine's QEMU is `qemu-system-riscv64` on every platform. The name
+  comes from `sandbox::qemu_discover::exe_name()` with the platform's `.exe` suffix trimmed,
+  so no second copy of the stem is kept and a Windows file name does not become a definition
+  name.
+
+### Changed
+
+- **The `"-"` sentinel has one definition**: `host-core::sandbox_def::NO_VERSION`, used by
+  the scan's `CandidateView::system_qemu` and by the naming rule, instead of two literals
+  that had to agree. It is exported with the rest of the definition layer's types.
+- **An installed resource keeps `<kind>-<version>`** (`toolchain-15.2.0-1`, `qemu-11.1.0`).
+  A version directory literally named `-` would read as the sentinel and take the
+  version-less name; the installers never write one, and the edge is recorded here rather
+  than defended against. Nothing else about the scan or the merge changed.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

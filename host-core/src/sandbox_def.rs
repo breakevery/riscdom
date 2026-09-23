@@ -24,6 +24,14 @@ use std::path::{Path, PathBuf};
 /// The name of the built-in fallback definition ("use whatever the host finds").
 pub const DEFAULT_SANDBOX_NAME: &str = "default";
 
+/// The `version` a candidate carries when it is **not** a versioned install (v0.9
+/// sandbox F2a-3).
+///
+/// A resource the data directory holds has a version directory beside its
+/// siblings; the QEMU a machine already has does not, and the scan records this
+/// sentinel for it rather than inventing a version.
+pub const NO_VERSION: &str = "-";
+
 /// Where an entry in the merged registry came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -88,7 +96,7 @@ impl SandboxDef {
             _ => (None, Some(path)),
         };
         Self {
-            name: format!("{kind}-{version}"),
+            name: resource_name(kind, version),
             display_name: None,
             memory_mb: None,
             qemu_exe,
@@ -109,6 +117,27 @@ impl SandboxDef {
             kernel: None,
             notes: None,
         }
+    }
+}
+
+/// The name a scanned resource gets: `<kind>-<version>`.
+///
+/// A resource the scan knows **no** version for is named for the resource itself
+/// instead — `format!("{kind}-{version}")` on [`NO_VERSION`] produced a definition
+/// called `qemu--`, which is not a name anybody can type (v0.9 sandbox F2a-3). The
+/// machine's own QEMU is therefore the emulator it is, `qemu-system-riscv64` (the
+/// stem the sandbox's discovery searches for, so this file keeps no second copy of
+/// the name — the `.exe` suffix a Windows build carries is a file name, not a
+/// definition name).
+fn resource_name(kind: &str, version: &str) -> String {
+    if version != NO_VERSION {
+        return format!("{kind}-{version}");
+    }
+    match kind {
+        "qemu" => sandbox::qemu_discover::exe_name()
+            .trim_end_matches(".exe")
+            .to_string(),
+        other => other.to_string(),
     }
 }
 
@@ -136,7 +165,7 @@ pub struct SandboxView {
 pub struct CandidateView {
     /// `toolchain` or `qemu`.
     pub kind: String,
-    /// The version directory it was found under; `-` for a system install.
+    /// The version directory it was found under; [`NO_VERSION`] for a system install.
     pub version: String,
     /// The executable itself.
     pub path: String,
@@ -162,7 +191,7 @@ impl CandidateView {
     pub fn system_qemu(path: &std::path::Path) -> Self {
         Self {
             kind: "qemu".to_string(),
-            version: "-".to_string(),
+            version: NO_VERSION.to_string(),
             path: path.display().to_string(),
             origin: "system".to_string(),
             // Discovery only returns a location it found; whether it *runs* is what
@@ -283,6 +312,22 @@ mod tests {
         assert_eq!(qemu.name, "qemu-11.1.0");
         assert_eq!(qemu.qemu_exe, Some(PathBuf::from("/qemu")));
         assert_eq!(qemu.toolchain_path, None);
+    }
+
+    #[test]
+    fn a_resource_without_a_version_is_named_for_the_resource() {
+        // The machine's own QEMU is not a versioned install, so the scan records
+        // no version for it. `qemu--` is what concatenating that sentinel used to
+        // produce (v0.9 sandbox F2a-3); the name is the emulator's instead, on
+        // every platform (a Windows build's `.exe` is a file name, not a name).
+        let system = SandboxDef::for_resource("qemu", NO_VERSION, PathBuf::from("/usr/bin/qemu"));
+        assert_eq!(system.name, "qemu-system-riscv64");
+        assert_eq!(system.qemu_exe, Some(PathBuf::from("/usr/bin/qemu")));
+        assert_eq!(system.toolchain_path, None);
+
+        // A versioned install keeps the concatenated name, unchanged.
+        let installed = SandboxDef::for_resource("qemu", "11.1.0", PathBuf::from("/qemu"));
+        assert_eq!(installed.name, "qemu-11.1.0");
     }
 
     #[test]

@@ -451,3 +451,33 @@ fn a_definition_can_be_built_from_one_scanned_resource() {
     assert_eq!(def.qemu_exe, Some(PathBuf::from("/qemu")));
     assert_eq!(def.toolchain_path, None);
 }
+
+#[test]
+fn the_registry_never_names_a_definition_after_a_missing_version() {
+    // `qemu--` is what the scan's version-less QEMU used to become once the
+    // registry was merged (v0.9 sandbox F2a-3). Every name a client sees is
+    // `<kind>-<version>`, or the resource's own name when the scan has no version
+    // for it.
+    let (state, data_dir) = state("names");
+    plant(&data_dir, "qemu", "11.1.0", &qemu_name());
+    let views = state.sandboxes();
+
+    let names: Vec<&str> = views.iter().map(|v| v.name.as_str()).collect();
+    for name in &names {
+        assert!(!name.ends_with("--"), "{names:?}");
+        assert!(!name.is_empty(), "{names:?}");
+    }
+    assert!(names.contains(&"qemu-11.1.0"), "{names:?}");
+
+    // When this machine has a QEMU of its own, the scan reports it with no version
+    // and the registry names it for the emulator — never `qemu--`.
+    if state
+        .sandbox_candidates()
+        .qemus
+        .iter()
+        .any(|c| c.origin == "system")
+    {
+        assert!(names.contains(&"qemu-system-riscv64"), "{names:?}");
+        assert!(!names.contains(&"qemu--"), "{names:?}");
+    }
+}

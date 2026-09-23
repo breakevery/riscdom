@@ -13,6 +13,15 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **A version-less scanned resource is named for the resource, not for a missing version**
+  (v0.9 sandbox F2a-3). F2a-1's `format!("{kind}-{version}")` turned the machine's own QEMU
+  — which the scan records no version for — into a definition called `qemu--`, and F2a-2
+  served that name over the four endpoints and the CLI. It is `qemu-system-riscv64` now, on
+  every platform: the stem `sandbox::qemu_discover` searches for, with a Windows build's
+  `.exe` trimmed, so the file keeps no second copy of the name. A resource the scan **does**
+  know a version for keeps `<kind>-<version>` (`toolchain-15.2.0-1`, `qemu-11.1.0`), and the
+  `"-"` sentinel became one exported constant, `NO_VERSION`, instead of two literals that
+  had to agree. Nothing else about the scan or the merge changed — this is a naming fix.
 - **The sandbox registry has a control-plane surface: four read-only routes, four Tauri
   commands, four CLI subcommands** (v0.9 sandbox F2a-2). `GET /v0/sandboxes` answers the
   merged registry plus `current` and `default`; `/v0/sandboxes/current` the two names;
