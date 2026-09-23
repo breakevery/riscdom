@@ -114,14 +114,23 @@ riscdom/
 ├── ENVIRONMENT.md            # local toolchain and platform limits
 ├── CHANGELOG.md              # version history
 ├── LICENSE                   # Apache-2.0
-├── Cargo.toml                # Rust workspace (host/sandbox/audit/agent)
+├── Cargo.toml                # Rust workspace (cli / host-core / host-tauri / sandbox /
+│                             #   audit / agent / worker / server)
 ├── sandbox/                  # QEMU RISC-V sandbox (process/QMP/serial/snapshot)
 ├── audit/                    # append-only SQLite + hash chain (includes audit-verify)
 ├── agent/                    # agent loop, tools, capability policy, compiler wrapper
-├── host/                     # Tauri backend: commands / events / state
+├── host-core/                # the portable half of the host (no Tauri in it)
+├── host-tauri/               # the desktop shell: commands / events / state (Tauri)
+├── server/                   # the control plane over HTTP + SSE
+├── cli/                      # the `riscdom` command-line client
+├── worker/                   # the executor process, plus the supervisor half
+├── docs/                     # design records, the API tables, the guides (map: docs/README.md)
+├── examples/python/          # the reference supervisor
+├── scripts/                  # the gate, the commit wrapper, the checks
+├── walkthroughs/             # release-gate walk records (single-language, by design)
 └── ui/                       # React frontend (Tauri shell + three-pane UI)
     ├── src/                  # layout / panels / API / state
-    └── src-tauri/            # Tauri shell (registers host commands)
+    └── src-tauri/            # Tauri shell (registers the host-tauri commands)
 ```
 
 ## Tests
@@ -134,7 +143,10 @@ cargo test
 cargo test -p sandbox     # QEMU lifecycle + serial capture + snapshot fallback
 cargo test -p audit       # append-only + hash chain + queries + CLI
 cargo test -p agent       # LLM client + tools + policy + compiler + agent loop
-cargo test -p host-core        # Tauri backend commands + serial deltas
+cargo test -p host-core   # the portable host: state, settings, dispatch, task sandbox
+cargo test -p server      # the control plane: routes, capabilities, the event stream
+cargo test -p cli         # the command line, against a control plane
+cargo test -p worker      # the executor process, and the supervisor half
 
 # end-to-end that needs real QEMU/toolchain (mock LLM)
 cargo test -p host-core -- --ignored --nocapture
@@ -203,9 +215,12 @@ behaviour through the contact listed there.
 
 ## More
 
+- **[docs/README.md](docs/README.md)** — the documentation map: every document in the
+  repository, grouped by audience, with what is history marked as history
 - [PROJECT_CONSTITUTION.md](PROJECT_CONSTITUTION.md) — full constitution, architecture
   layers, audit event types
 - [ENVIRONMENT.md](ENVIRONMENT.md) — toolchain and platform limits
 - [CHANGELOG.md](CHANGELOG.md) — version history
 - Per-crate READMEs: [sandbox](sandbox/README.md) · [audit](audit/README.md) ·
-  [agent](agent/README.md) · [host-core](host-core/README.md) · [host-tauri](host-tauri/README.md) · [ui](ui/README.md)
+  [agent](agent/README.md) · [host-core](host-core/README.md) · [host-tauri](host-tauri/README.md) ·
+  [server](server/README.md) · [cli](cli/README.md) · [worker](worker/README.md) · [ui](ui/README.md)

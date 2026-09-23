@@ -104,7 +104,7 @@ server {
 
 ## 2. 查询端点
 
-共 31 个，全部 `GET`。应答是宿主的视图类型，字段见 `host-core/src/state.rs`。一律 JSON。
+共 32 个，全部 `GET`。应答是宿主的视图类型，字段见 `host-core/src/state.rs`。一律 JSON。
 
 ### 审计与运行
 

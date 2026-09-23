@@ -16,7 +16,7 @@ from the control plane; the audit chain tells them apart by `agent_id`. Building
 control channels instead of one is the mistake this design exists to avoid.
 
 **Implementation status (v0.9).** Everything in §5 is implemented — the 32 query
-endpoints of §5.1, the 35 controls of §5.2, the host-local endpoints of §5.3, the error
+endpoints of §5.1, the 36 controls of §5.2, the host-local endpoints of §5.3, the error
 model of §4, the event envelope with `Last-Event-ID` replay and `gap` frames, and the
 bearer token of §3. Only two routes are reserved: `/v0/resources` (§6, G3) and
 `POST /v0/vm/start` (§6, G1), and both say so with `501`. Capability enforcement (§3) is in: every served

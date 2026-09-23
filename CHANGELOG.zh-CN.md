@@ -508,6 +508,21 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 
 - **工作树已全为 LF。** 38 个文件带着 CRLF 或混用行尾（27 个纯 CRLF、11 个混用——最重的是 `sandbox/src/relay.rs`，413 行里 401 行），因为 `core.autocrlf=true` 的 checkout 与编辑工具写法不一致，而 git 看不见这个差别。**索引里一直是 LF**，所以 `git add --renormalize .` 一无所获，而**本提交不含任何行尾改动**：它是一次工作树修理，并且已被证明与内容无关——356 个被跟踪文件逐个与其已提交 blob 对比，**逐字节相同**（0 处差异）。
 
+**文档有了入口。** 一页点名全仓每一份文档、它给谁看、以及它是活跃、快照还是历史。
+
+### 新增
+
+- **`docs/README.zh-CN.md`**（及英文对偶）：文档导航。五节受众——从这里开始 · 内核开发者 · 发行集成者 · 管理员 · 终端用户 · 贡献者——另有一节写明刻意不在导航内的东西（`IDENTITY.md` / `SOUL.md` / `USER.md`、`LICENSE`、CLA 签署存储）。全仓每一份 Markdown 都出现，并带它做什么、它的**状态**（*活跃* / *快照* / *历史*）与适用版本。历史会被标为历史：`architecture-evolution.md` 是 v0.7 快照，较早的 `CHANGELOG` 段与已发布的 `RELEASE_NOTES` 都标为不重写。
+
+### 修正
+
+- **根 `README` 的目录树**描述的是 `host/` 与四个 crate；工作区现有八个（`cli`、`host-core`、`host-tauri`、`sandbox`、`audit`、`agent`、`worker`、`server`）加上 `docs/`、`examples/`、`scripts/`、`walkthroughs/`。它的测试清单还把 `host-core` 写成「Tauri 后端命令 + 串口增量」——自 v0.9 的 A1 拆分后，Tauri 那一半是 `host-tauri`——且只列了八个 crate 中的四个。
+- **规范文档里的两处陈旧计数**：`control-plane-api.md` 说 §5.2 有 35 个控制端点（实为 36），客户端指南说查询面是 31 个端点（实为 32）——两个语言都改。
+
+### 变更
+
+- **根 `README` 的「更多」节**改为以导航开头，并列全九个 crate README，而不是六个。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

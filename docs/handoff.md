@@ -13,6 +13,23 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The documentation has an entrance** (v0.9 documentation batch). [`docs/README.md`](README.md)
+  is the map: every Markdown file in the repository, grouped by the five audiences
+  [decisions](decisions.md) §21 names (start here · kernel developers · distribution
+  integrators · administrators · end users · contributors), each row saying what the
+  document is for, its **state** (*living* / *snapshot* / *history*) and its version — with
+  the history labelled as history (`architecture-evolution.md` is the v0.7 snapshot; older
+  `CHANGELOG` sections and released `RELEASE_NOTES` are not rewritten). The root `README`'s
+  layout tree was three years of batches out of date (it knew `host/` and four crates; the
+  workspace has eight) and its test list called `host-core` "Tauri backend commands", which
+  is `host-tauri`'s job since the A1 split; both languages are corrected, and the "More"
+  section now opens with the map and lists all nine crate READMEs. Two stale counts in the
+  normative documents (`control-plane-api` said 35 controls, the client guide said 31
+  queries) are fixed. **Reported, not fixed**: four crate READMEs (`audit`, `cli`,
+  `host-core`, `ui`) link to no neighbour at all — their only link is the language switcher;
+  three crate examples (`agent/examples/audit_demo.rs`, `audit/examples/chain_demo.rs`) are
+  undocumented in their crate's README; and [decisions](decisions.md) §20 decided issue and
+  PR templates and a DCO that do not exist in the repository yet.
 - **The repository owns its line endings now** (v0.9 line-ending batch, mechanical). A
   `.gitattributes` (`* text=auto eol=lf`; `*.sh` named; the six tracked binaries marked
   `binary`; **no `*.ps1` exception**, because all five PowerShell scripts are LF today and

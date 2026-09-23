@@ -107,14 +107,23 @@ riscdom/
 ├── ENVIRONMENT.md            # 本机工具链与平台限制
 ├── CHANGELOG.md              # 版本记录
 ├── LICENSE                   # Apache-2.0
-├── Cargo.toml                # Rust workspace（host/sandbox/audit/agent）
+├── Cargo.toml                # Rust workspace（cli / host-core / host-tauri / sandbox /
+│                             #   audit / agent / worker / server）
 ├── sandbox/                  # QEMU RISC-V 沙箱（进程/QMP/串口/快照）
 ├── audit/                    # append-only SQLite + hash chain（含 audit-verify）
 ├── agent/                    # LLM 循环、工具、能力策略、编译器封装
-├── host/                     # Tauri 后端：commands / events / state
+├── host-core/                # 宿主的可移植半（不碰 Tauri）
+├── host-tauri/               # 桌面外壳：commands / events / state（Tauri）
+├── server/                   # HTTP + SSE 上的控制平面
+├── cli/                      # `riscdom` 命令行客户端
+├── worker/                   # 执行者进程，以及监工半边
+├── docs/                     # 设计记录、API 表格、指南（导航：docs/README.zh-CN.md）
+├── examples/python/          # 参考监工
+├── scripts/                  # gate、commit 包装脚本、各检查器
+├── walkthroughs/             # 发布门禁的走查记录（刻意单语）
 └── ui/                       # React 前端（Tauri shell + 三栏界面）
     ├── src/                  # 布局 / 面板 / API / 状态
-    └── src-tauri/            # Tauri shell（注册 host commands）
+    └── src-tauri/            # Tauri shell（注册 host-tauri 的命令）
 ```
 
 ## 测试
@@ -127,7 +136,10 @@ cargo test
 cargo test -p sandbox     # QEMU 生命周期 + 串口捕获 + 快照降级
 cargo test -p audit       # append-only + hash chain + 查询 + CLI
 cargo test -p agent       # LLM 客户端 + 工具 + 策略 + 编译器 + Agent 循环
-cargo test -p host-core        # Tauri 后端命令 + 串口增量
+cargo test -p host-core   # 可移植宿主：状态、设置、派发、任务沙箱
+cargo test -p server      # 控制平面：路由、capability、事件流
+cargo test -p cli         # 命令行，对着一个控制平面
+cargo test -p worker      # 执行者进程，以及监工半边
 
 # 需要真实 QEMU/工具链的端到端（mock LLM）
 cargo test -p host-core -- --ignored --nocapture
@@ -190,8 +202,10 @@ gate（`scripts/gate.ps1` / `scripts/gate.sh`），并经由受门禁保护的�
 
 ## 更多
 
+- **[docs/README.zh-CN.md](docs/README.zh-CN.md)** —— 文档导航：全仓每一份文档，按受众分组，并写明什么是历史
 - [PROJECT_CONSTITUTION.md](PROJECT_CONSTITUTION.md) — 完整宪法、架构分层、审计事件类型
 - [ENVIRONMENT.md](ENVIRONMENT.md) — 工具链与平台限制
 - [CHANGELOG.md](CHANGELOG.md) — 版本历史
 - 各 crate 的 README：[sandbox](sandbox/README.md) · [audit](audit/README.md) ·
-  [agent](agent/README.md) · [host-core](host-core/README.md) · [host-tauri](host-tauri/README.md) · [ui](ui/README.md)
+  [agent](agent/README.md) · [host-core](host-core/README.md) · [host-tauri](host-tauri/README.md) ·
+  [server](server/README.md) · [cli](cli/README.md) · [worker](worker/README.md) · [ui](ui/README.md)

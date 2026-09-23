@@ -894,6 +894,36 @@ implements exactly it and that none was written. One is now.
   change**: it is a working-tree repair, proven content-free by comparing every one of the
   356 tracked files with its committed blob (byte-identical, 0 differences).
 
+**The documentation has an entrance.** One page that names every document in the
+repository, who it is for, and whether it is living, a snapshot or history.
+
+### Added
+
+- **`docs/README.md`** (with its translation): the documentation map. Five audience
+  sections — start here · kernel developers · distribution integrators · administrators ·
+  end users · contributors — plus a section for what is deliberately outside it
+  (`IDENTITY.md` / `SOUL.md` / `USER.md`, `LICENSE`, the CLA signature store). Every
+  Markdown file in the repository appears with what it is for, its **state** (*living* /
+  *snapshot* / *history*) and the version it applies to. History is labelled as history:
+  `architecture-evolution.md` is the v0.7 snapshot, and the older `CHANGELOG` sections and
+  the released `RELEASE_NOTES` are marked as not rewritten.
+
+### Fixed
+
+- **The root `README`'s layout tree** described `host/` and four crates; the workspace has
+  eight (`cli`, `host-core`, `host-tauri`, `sandbox`, `audit`, `agent`, `worker`, `server`)
+  plus `docs/`, `examples/`, `scripts/` and `walkthroughs/`. Its test list also called
+  `host-core` "Tauri backend commands + serial deltas" — the Tauri half is `host-tauri`
+  since v0.9's A1 split — and named four of the eight crates.
+- **Two stale counts in the normative documents**: `control-plane-api.md` said §5.2 holds
+  35 controls (it holds 36) and the client guide said the query surface is 31 endpoints (it
+  is 32) — both in both languages.
+
+### Changed
+
+- **The root `README`'s "More" section** opens with the map and lists all nine crate
+  READMEs rather than six.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the
