@@ -604,6 +604,39 @@ family. The `events.rs` guard is whole again — it lists all thirteen names, so
 - **The capability count in the documents is 30, and §5.2 has the switch row**: the
   API document (both languages), `server/README` (both) and the client guide (both).
 
+**The port lease says what it means, and the test asserts that.** The relay's concurrency
+test had been failing rarely — twice, both with the `sandbox` crate untouched: it recorded
+every port it had *ever* leased and asserted no port appeared twice, but a lease only
+promises that **live** leases differ. A number a finished holder released is free to come
+back, and the OS does hand it out again. The test now parks every thread's leases until all
+of them have leased, so it asserts the invariant the code keeps; nothing in the allocator
+changed, because nothing in it was wrong (the check and the record are one lock scope, and
+`PortLease` has exactly one construction site).
+
+### Fixed
+
+- **`concurrent_leases_never_repeat_a_port` asserts the right thing**: eight threads lease
+  four ports each, every lease stays alive until the last thread has leased, and the numbers
+  are compared then — so a port a finished thread released (and the OS handed out again) can
+  no longer be mistaken for two holders at once. The message is unchanged.
+
+### Added
+
+- **`a_released_port_is_free_to_come_back`** pins the other half of the contract: a dropped
+  lease unregisters its number and leaves the port bindable for anyone.
+- **`sandbox/README.md`** (both languages) gained "the port-lease contract": what the lease
+  promises, what it deliberately does not, and why.
+
+### Changed
+
+- **`PortLease`'s release removes its own number once** (`HashSet::remove`, was
+  `Vec::retain`, which would have taken every equal entry with it — latent, and now
+  impossible to write by accident).
+- **`HELD_PORTS` is a set**: `LazyLock<Mutex<HashSet<u16>>>`, because `HashSet::new` cannot
+  initialise a `static` (its hasher wants a runtime seed). `relay::reserve` is one `insert`;
+  `leased_ports()` keeps its signature, and its order was never a contract (no caller reads
+  one).
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

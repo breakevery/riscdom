@@ -74,6 +74,22 @@ a QEMU started with `-incoming tcp:`.
 - Residual limits: an existing snapshot name is **refused rather than overwritten**; the VM
   is host-owned (`AppState::vm_slot`) and the UI can save/restore (stages 20b–20d).
 
+#### The port-lease contract
+
+QMP and serial ports come from a process-wide lease (`relay::lease_local_ports`), not from a
+fresh `bind(0)` per caller. What it promises, exactly:
+
+- **Two leases that exist at the same time never carry the same number.** The check and the
+  record are one operation in one lock scope (`relay::reserve`), and the lease also keeps a
+  listener bound until `hand_off`, so the OS cannot hand the port to anyone else either.
+- **A released number goes back to the pool.** A dropped lease (or a handed-off one) frees
+  the number, and the OS is free to hand it out again — to this process or another. That is
+  why the callers retry with fresh ports instead of assuming the port is theirs until QEMU
+  is up (`port_race.rs` walks that inter-process window, ignored by default).
+- It is therefore **not** "a number is never handed out twice while the process lives": a
+  quarantine of released numbers was considered and rejected (it would grow without bound
+  and change the contract nothing needs).
+
 ## Tests
 
 ```text

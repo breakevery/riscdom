@@ -570,3 +570,35 @@ genuinely different values, and a client asking "what would a run use" has to sa
 the two it means. The endpoints, the Tauri commands, the CLI and the `sandbox:switch` event
 that expose all this are F2b-2; `Task.sandbox` (F2d) is the third question — what one *run*
 asks for — and it sits on top of both.
+
+## 35. A port lease promises distinct *live* leases, not never-reused numbers
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; landed with the v0.9 relay-fix batches 1/N–2/N
+
+**Decision**: `relay::lease_local_ports` guarantees two things and no more. A number is
+reserved for as long as its lease is alive (and a bound listener holds it at the OS level
+until `hand_off`), so **two leases that exist at the same time never carry the same number**;
+and a lease's release returns its number to the pool, from which the OS may hand it out
+again — to this process or another. "A number is never handed out twice while the process
+lives" was considered and **rejected**: it would need a quarantine of released numbers that
+grows without bound, and it would change a contract no caller needs, because the callers
+already retry around the window that cannot be closed (the peer binds only after we let go).
+
+**Why**: The window that matters is the one between *our* release and *the peer's* bind, and
+no in-process registry can close it — QEMU cannot be given a pre-bound socket with today's
+flags. So the registry's job is narrower than it looks: keep two parts of this program from
+being handed the same port at once, and hold the port at the OS level until the last possible
+moment. Stating that exactly is what makes the test writable: the assertion that failed twice
+(`concurrent_leases_never_repeat_a_port`) recorded every port ever leased in the run, so a
+number a finished thread had released and the OS handed out again read as "two holders at
+once" — a claim the library never made.
+
+**Impact**: The test parks every thread's leases until all have leased and compares them then
+(the invariant the code keeps), and a second test pins the other half (a dropped lease leaves
+its port bindable). The release path removes **its own** number once (`HashSet::remove`) so a
+release can never take another holder's reservation with it, and the registry is a
+`LazyLock<Mutex<HashSet<u16>>>` because `HashSet::new` cannot initialise a `static`. No public
+signature changed and no call site changed: `leased_ports()` keeps returning `Vec<u16>` (its
+order was never a contract), and `agent` / `host-core` / `sandbox::vm` are untouched.
+`sandbox/README.md` states the contract for callers, and `port_race.rs` (ignored) keeps
+walking the inter-process window as a stress test.

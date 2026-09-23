@@ -13,12 +13,13 @@
 //! `127.0.0.1:0`, so nothing is exposed off-host.
 
 use crate::error::SandboxError;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 /// Default wait for the peer to connect / finish.
@@ -31,9 +32,20 @@ const ACCEPT_POLL: Duration = Duration::from_millis(20);
 pub const MAX_LEASE_ATTEMPTS: usize = 64;
 
 /// The ports this process has handed out and not yet released (v0.4 #1).
-static HELD_PORTS: Mutex<Vec<u16>> = Mutex::new(Vec::new());
+///
+/// A **set**, because the contract is set membership: a number is either reserved
+/// by this process or it is not, and a lease's release removes its own number once.
+/// (`HashSet::new` cannot initialise a `static` — its hasher wants a runtime seed —
+/// hence the `LazyLock`.)
+static HELD_PORTS: LazyLock<Mutex<HashSet<u16>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 
 /// A loopback port reserved by this process.
+///
+/// **The contract is about *live* leases**: two leases that exist at the same time
+/// never carry the same number. It is deliberately not "a number is never handed
+/// out twice in this process": once the holder is gone (or has handed the port
+/// off), the number goes back to the OS pool and is free to come back — and the
+/// callers' retries exist precisely because the peer binds only after we let go.
 ///
 /// Until [`PortLease::hand_off`] the lease also keeps a *listener* bound, so the
 /// OS cannot give the port to anyone else; the number then stays reserved here
@@ -75,7 +87,9 @@ impl Drop for PortLease {
     fn drop(&mut self) {
         self.listener = None;
         if let Ok(mut held) = HELD_PORTS.lock() {
-            held.retain(|port| *port != self.port);
+            // This lease's own number, and only it: a release must never take
+            // another holder's reservation with it.
+            held.remove(&self.port);
         }
     }
 }
@@ -90,16 +104,12 @@ impl std::fmt::Debug for PortLease {
 }
 
 /// Record `port` as held by this process. `false` when someone else has it.
+///
+/// One lock scope, one insert: the check and the record are the same operation, so
+/// there is no window between them for a second holder to slip through.
 fn reserve(port: u16) -> bool {
     match HELD_PORTS.lock() {
-        Ok(mut held) => {
-            if held.contains(&port) {
-                false
-            } else {
-                held.push(port);
-                true
-            }
-        }
+        Ok(mut held) => held.insert(port),
         // A poisoned registry means a holder panicked; refusing the port is the
         // safe answer.
         Err(_) => false,
@@ -107,10 +117,12 @@ fn reserve(port: u16) -> bool {
 }
 
 /// The ports this process currently reserves (diagnostics and tests).
+///
+/// Unordered: it is a set, and no caller has ever depended on an order.
 pub fn leased_ports() -> Vec<u16> {
     HELD_PORTS
         .lock()
-        .map(|held| held.clone())
+        .map(|held| held.iter().copied().collect())
         .unwrap_or_default()
 }
 

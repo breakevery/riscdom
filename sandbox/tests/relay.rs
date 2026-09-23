@@ -1,6 +1,7 @@
 //! Stage 19a — the migration TCP relay.
 
 use sandbox::relay::MigrationRelay;
+use sandbox::relay::PortLease;
 use sandbox::SandboxError;
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
@@ -132,35 +133,69 @@ fn dropping_a_lease_releases_the_port() {
 }
 
 #[test]
+fn a_released_port_is_free_to_come_back() {
+    // The other half of the contract the concurrency test below must not
+    // over-read: a lease protects a port **while it is alive**. Once the holder is
+    // gone the number goes back to the OS pool, which is free to hand it out again
+    // — and the callers' retries exist because the peer binds only after we let go.
+    let port = {
+        let lease = sandbox::relay::lease_local_port().expect("lease");
+        lease.port()
+    };
+    // Not registered any more…
+    assert!(!sandbox::relay::leased_ports().contains(&port));
+    // …and the OS is free to hand that very number out again.
+    let listener =
+        std::net::TcpListener::bind(("127.0.0.1", port)).expect("a released port is bindable");
+    drop(listener);
+}
+
+#[test]
 fn concurrent_leases_never_repeat_a_port() {
     use std::sync::{Arc, Mutex};
 
     const THREADS: usize = 8;
     const PER_THREAD: usize = 4;
-    let seen: Arc<Mutex<Vec<u16>>> = Arc::new(Mutex::new(Vec::new()));
+
+    // Every thread parks its leases in here, so they are **all alive** when the
+    // comparison runs. That is the invariant the lease actually promises: two
+    // leases that exist at the same time never carry the same number. Recording
+    // the numbers for the length of the test instead would also catch a port a
+    // finished holder had already released — which the library allows (`a port is
+    // free to come back` above, and `free_local_port_is_usable` for the hand-off
+    // side) — so it would assert something no caller was ever promised.
+    let held: Arc<Mutex<Vec<PortLease>>> = Arc::new(Mutex::new(Vec::new()));
 
     std::thread::scope(|scope| {
         for _ in 0..THREADS {
-            let seen = Arc::clone(&seen);
+            let held = Arc::clone(&held);
             scope.spawn(move || {
+                // Lease first, park second: the leases are taken concurrently,
+                // the lock is only held long enough to move them.
                 let leases = sandbox::relay::lease_local_ports(PER_THREAD).expect("lease ports");
-                let mut guard = seen.lock().expect("collector lock");
-                for lease in &leases {
-                    assert!(
-                        !guard.contains(&lease.port()),
-                        "port {} was handed to two holders at once",
-                        lease.port()
-                    );
-                    guard.push(lease.port());
-                }
+                let mut guard = held.lock().expect("collector lock");
+                guard.extend(leases);
             });
         }
     });
 
+    let ports: Vec<u16> = held
+        .lock()
+        .expect("collector lock")
+        .iter()
+        .map(PortLease::port)
+        .collect();
+    assert_eq!(ports.len(), THREADS * PER_THREAD);
+
+    let mut unique = ports.clone();
+    unique.sort_unstable();
+    unique.dedup();
     assert_eq!(
-        seen.lock().expect("collector lock").len(),
-        THREADS * PER_THREAD
+        unique.len(),
+        ports.len(),
+        "a port was handed to two holders at once: {ports:?}"
     );
+    // The leases are released here, at the end of the test.
 }
 
 #[test]

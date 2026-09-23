@@ -13,6 +13,23 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The relay's port-lease contract is written down, and its flaky test now asserts it**
+  (v0.9 relay-fix 2/N). `concurrent_leases_never_repeat_a_port` had failed twice, both times
+  with the `sandbox` crate untouched. The reconnaissance found the allocator right — the
+  check and the record are one lock scope (`relay::reserve`), and `PortLease` has exactly one
+  construction site — and the assertion too strong: it recorded every port *ever* leased in
+  the run, so a number a finished thread had released and the OS had handed out again looked
+  like two holders at once. The test now parks every thread's leases until all eight have
+  leased and compares then, which is the invariant the code keeps; a new
+  `a_released_port_is_free_to_come_back` pins the other half (a dropped lease leaves its port
+  bindable for anyone). Library hygiene, no behaviour change: `HELD_PORTS` is a `HashSet`
+  behind a `LazyLock` (`HashSet::new` cannot initialise a `static`; `relay::reserve` is now
+  one `insert`), and `Drop` removes **its own** number instead of every equal entry. No API
+  and no call site changed (`agent/src/tools.rs`, `host-core/src/state.rs`,
+  `sandbox/src/vm.rs` are untouched), `sandbox/README.md` states the contract in both
+  languages, and `port_race.rs` (ignored, a real-QEMU stress test) still walks the
+  inter-process window the callers retry around. The stronger "never reused while the process
+  lives" invariant was considered and rejected (ledger §35).
 - **The switch has a surface: an event, an endpoint, a capability and a CLI command**
   (v0.9 sandbox F2b-2). `sandbox:switch` is the thirteenth SSE event — `{from, to, ok,
   reason}`, emitted once on every exit, success or failure — and `POST /v0/sandboxes/switch`
