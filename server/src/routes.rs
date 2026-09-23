@@ -57,8 +57,13 @@ pub(crate) enum Action {
     Sandbox,
     /// The reserved aggregate (§6, G3): answers 501.
     Resources,
+    /// `/v0/executors`: the fleet this node dispatches to (v0.9 interface E0).
+    Executors,
     // ---- controls (§5.2) ----
     AgentRun,
+    /// `/v0/tasks`: route one task to the executor its `target` names (v0.9
+    /// interface E0).
+    Tasks,
     RunExport,
     RunsAbandonStale,
     VmStart,
@@ -310,6 +315,16 @@ const ROUTES: &[(&str, &str, Capability, Action)] = &[
         Capability::VmRead,
         Action::Resources,
     ),
+    // The fleet this node dispatches to (v0.9 interface E0). A query, not a
+    // control: it changes nothing, and `agent.run` is the capability that can
+    // already cause an agent to run here — asking who can be asked is the same
+    // privilege (E0 decision 3).
+    (
+        "GET",
+        "/v0/executors",
+        Capability::AgentRun,
+        Action::Executors,
+    ),
     // ---- controls ----
     (
         "POST",
@@ -317,6 +332,9 @@ const ROUTES: &[(&str, &str, Capability, Action)] = &[
         Capability::AgentRun,
         Action::AgentRun,
     ),
+    // Dispatch one task to the executor its `target` names (v0.9 interface E0).
+    // The node itself is not a target here: that is `/v0/agent/run` above.
+    ("POST", "/v0/tasks", Capability::AgentRun, Action::Tasks),
     (
         "POST",
         "/v0/runs/export",
@@ -987,6 +1005,17 @@ pub(crate) fn dispatch(
             "resource accounting is reserved and not implemented yet",
             Some("resources"),
         ),
+        // The fleet a task can be routed to (v0.9 interface E0). One entry per
+        // configured executor, in configuration order; a node with none answers an
+        // empty list, which is a fact and not an error.
+        Action::Executors => {
+            let executors: Vec<serde_json::Value> = app
+                .executors()
+                .into_iter()
+                .map(|agent_id| serde_json::json!({ "agent_id": agent_id }))
+                .collect();
+            ok_json(&serde_json::json!({ "executors": executors }))
+        }
         // The request queue (v0.9 sandbox F2c). A request is a ledger entry, not a
         // command: it says what an actor wants, and someone who holds the
         // capability decides. Neither read nor write here switches anything.
@@ -1150,6 +1179,27 @@ pub(crate) fn dispatch(
             match app.run_agent_for(sink, user_input, sandbox) {
                 Ok(view) => ok_json(&view),
                 Err(e) => run_error(e),
+            }
+        }
+        // Dispatch one task to the executor its `target` names (v0.9 interface
+        // E0). Synchronous, exactly like `/v0/agent/run`: the answer is the
+        // outcome, and there is no task table to poll (E0 decision 2). The body is
+        // a `Task`'s four scalar fields, so a missing `id` is filled here rather
+        // than refused — the id's job is to match the answer to the ask.
+        Action::Tasks => {
+            let target = match params.required("target") {
+                Ok(value) => value,
+                Err(response) => return *response,
+            };
+            let input = match params.required("input") {
+                Ok(value) => value,
+                Err(response) => return *response,
+            };
+            let sandbox = params.get("sandbox");
+            let id = params.get("id");
+            match app.dispatch_task(target, input, sandbox, id) {
+                Ok(outcome) => ok_json(&outcome),
+                Err(e) => task_error(e),
             }
         }
         Action::RunExport => {
@@ -1569,6 +1619,25 @@ fn capability_for_action(action: SandboxAction) -> Capability {
     }
 }
 
+/// A dispatched task's own refusals (v0.9 interface E0).
+///
+/// Two different things, kept apart on purpose: a target nobody owns is the
+/// **caller's parameter** (`404`, `cause: "target"`), while a dispatch that broke
+/// — a program that would not start, a child that never announced itself, a
+/// deadline — is the **host's** (`500`, `cause: "task"`). A run that started and
+/// failed is neither: it arrives as a `200` whose `outcome` is `failed`.
+fn task_error(error: HostError) -> Response<RespBody> {
+    match &error {
+        HostError::NoSuchExecutor(_) => {
+            error_response(404, "not_found", &error.user_message(), Some("target"))
+        }
+        HostError::TaskFailed(_) => {
+            error_response(500, "internal", &error.user_message(), Some("task"))
+        }
+        _ => host_error(error),
+    }
+}
+
 /// A run's own refusals (v0.9 sandbox F2d).
 ///
 /// A sandbox nobody has is the caller's **parameter** (`404`, `cause: "name"` — the
@@ -1804,14 +1873,16 @@ mod tests {
         // The two request decisions (`approve` / `reject`) carry an id, so they
         // are pattern routes like `/v0/runs/{run_id}` and are **not** rows here —
         // the count is rows, and a pattern is not one. Project in/out (v0.9) added
-        // no query: both of its endpoints write a body.
-        assert_eq!(queries, 31, "query rows");
+        // no query: both of its endpoints write a body. The executor list (v0.9
+        // interface E0) is one row.
+        assert_eq!(queries, 32, "query rows");
         // The 27 controls of §5.2, plus the reserved `POST /v0/vm/start` and
         // `POST /v0/runs/abandon-stale` (§6, G1 and G4), plus the QEMU download
         // start and cancel (v0.9 F1), the sandbox switch (v0.9 sandbox F2b-2), the
         // request queue's create (v0.9 sandbox F2c) and project in/out's two
-        // (v0.9) — its two request decisions are pattern routes, as above.
-        assert_eq!(controls, 35, "control rows");
+        // (v0.9) — its two request decisions are pattern routes, as above — and the
+        // task dispatch (v0.9 interface E0).
+        assert_eq!(controls, 36, "control rows");
     }
 
     #[test]

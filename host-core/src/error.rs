@@ -88,6 +88,25 @@ pub enum HostError {
     #[error("workspace entry exists: {0}")]
     WorkspaceEntryExists(String),
 
+    /// A task named an executor this node does not have (v0.9 interface E0).
+    ///
+    /// The caller's *parameter* is unusable, so the endpoint answers `404` with
+    /// `cause: "target"` — the same reading `/v0/runs/{run_id}` gives an id nobody
+    /// knows. A node with no executors configured refuses every task this way.
+    #[error("no executor for agent {0}")]
+    NoSuchExecutor(String),
+
+    /// A dispatched task reached its executor and the dispatch failed (v0.9
+    /// interface E0).
+    ///
+    /// The message is the `DispatchError`'s. This is *not* how a failed run is
+    /// reported: an executor that ran and failed answers with a well-formed
+    /// `TaskOutcome` whose `outcome` is `failed`. This variant is for the dispatch
+    /// itself — a program that could not start, a child that never announced its
+    /// identity, a broken protocol, a deadline.
+    #[error("task failed: {0}")]
+    TaskFailed(String),
+
     #[error("{0}")]
     Other(String),
 }

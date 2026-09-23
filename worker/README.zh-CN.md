@@ -38,6 +38,12 @@ cargo run  -p worker --example dispatch -- --tasks tasks.jsonl --executors 3
 
 `--executors <n>`（默认 2）个执行者**共用一个工作区**——一条审计链、按 agent 的快照——但各自有**自己的 data dir**。`--base <dir>` 指定这些目录的位置，`--worker <path>` 覆盖执行者二进制，`--tasks <file>`（或 `-` 读 stdin）给出一份 JSON-lines 任务清单；不给就由示例自行编出每个执行者一个任务。没有配置 LLM 的执行者会回 `Failed`：这个示例展示的是管道，不是模型。
 
+## 宿主的自派发（v0.9 接口交付 E0）
+
+节点也能像监工一样持一队执行者：`settings.json` 里的 `executors`（一个 label、一个 program 与它的参数——**没有 `env`**，因为设置文件不是密钥库）在启动时登记，而 `POST /v0/tasks` 把一条任务路由到 `target` 点名的执行者，应答 `TaskOutcome`。`GET /v0/executors` 列出可抵达的都有谁。登记时**不**起任何子进程：`StdioExecutorHandle::new` 只记录要跑什么。
+
+节点自己**故意不是**它自己的执行者之一——目标写它就是 `404`——因为**在这里**跑是 `POST /v0/agent/run`。两个端点是兄弟，不是同义词。登记是配置、不是 API：没有运行时加执行者的端点，而 `worker` 二进制就是天然的 `program`（stdin 进一行任务、stdout 出一行结果、事件走 stderr——正是 `StdioExecutorHandle` 讲的协议，因为本 crate 的测试驱的就是它）。
+
 ## 测试
 
 ```text

@@ -1068,6 +1068,14 @@ fn every_control_endpoint_answers() {
             503,
             "code",
         ),
+        // No executor is configured either, so every target is nobody's: the
+        // dispatch is refused as the caller's parameter (v0.9 interface E0).
+        (
+            "/v0/tasks",
+            r#"{"target":"executor-0","input":"hi"}"#.to_string(),
+            404,
+            "cause",
+        ),
         (
             "/v0/runs/export",
             format!(r#"{{"run_id":"run-9-9","path":"{export}"}}"#),
@@ -1199,12 +1207,12 @@ fn every_control_endpoint_answers() {
         // §6 G1: reserved.
         ("/v0/vm/start", "{}".to_string(), 501, "code"),
     ];
-    // 27 controls of §5.2, minus the three that would reach outside the machine
+    // 28 controls of §5.2, minus the three that would reach outside the machine
     // (`toolchain/download` fetches an archive, `preflight/run` compiles and boots a
     // guest, and `qemu/download` would fetch one if a release were pinned), plus the
     // reserved `POST /v0/vm/start`, `POST /v0/runs/abandon-stale` and the QEMU cancel
     // (nothing is running, so it is the documented conflict).
-    assert_eq!(cases.len(), 28, "31 POST rows - 3 offline-unsafe");
+    assert_eq!(cases.len(), 29, "one case per control the tests can answer");
 
     for (path, body, want_status, key) in &cases {
         let (status, raw) = call(addr, "POST", path, "", Some(body));
@@ -1600,6 +1608,80 @@ fn a_known_path_under_the_wrong_method_is_405() {
 }
 
 #[test]
+fn the_fleet_is_whatever_settings_json_says() {
+    // The registry is configuration, not a runtime API: a test seeds the file the
+    // host reads, which is why `serve` takes a workspace (v0.9 interface E0).
+    let workspace = temp_workspace("executors");
+    write_settings(
+        &workspace,
+        serde_json::json!({
+            "version": 1,
+            "executors": [
+                { "label": "executor-0", "program": "worker.exe", "args": ["--workspace", "W"] },
+                { "label": "executor-1", "program": "worker.exe" },
+            ],
+        }),
+    );
+    let (addr, _first, _second) = serve(workspace, Arc::new(NoAuth));
+
+    let (status, body) = get(addr, "/v0/executors");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["executors"],
+        serde_json::json!([
+            { "agent_id": "executor-0" },
+            { "agent_id": "executor-1" },
+        ])
+    );
+}
+
+#[test]
+fn a_node_with_no_fleet_has_none_and_refuses_every_target() {
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+
+    let (status, body) = get(addr, "/v0/executors");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["executors"], serde_json::json!([]));
+
+    // The target is the caller's parameter, so a target nobody owns is a `404`
+    // that says *which* parameter — not a `500` and not an empty answer.
+    let (status, raw) = call(
+        addr,
+        "POST",
+        "/v0/tasks",
+        "",
+        Some(r#"{"target":"executor-0","input":"say hi"}"#),
+    );
+    assert_eq!(status, 404, "{raw}");
+    let json: serde_json::Value = serde_json::from_str(&raw).expect("JSON");
+    assert_eq!(json["code"], "not_found");
+    assert_eq!(json["cause"], "target");
+    assert!(
+        json["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("executor-0"),
+        "the message names the target: {raw}"
+    );
+}
+
+#[test]
+fn a_task_without_a_target_or_input_is_a_400_naming_it() {
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+
+    for (body, parameter) in [
+        (r#"{"input":"say hi"}"#, "target"),
+        (r#"{"target":"executor-0"}"#, "input"),
+    ] {
+        let (status, raw) = call(addr, "POST", "/v0/tasks", "", Some(body));
+        assert_eq!(status, 400, "{body}: {raw}");
+        let json: serde_json::Value = serde_json::from_str(&raw).expect("JSON");
+        assert_eq!(json["code"], "bad_request");
+        assert_eq!(json["cause"], parameter, "{body}");
+    }
+}
+
+#[test]
 fn a_bad_credential_is_refused_with_401() {
     let (addr, _sink, _ws) = start_server(Arc::new(TokenAuth::new("good")));
     let (status, raw) = call(addr, "GET", "/v0/health", "bad", None);
@@ -1631,6 +1713,7 @@ fn the_capability_of_each_route_reaches_the_hook() {
         "/v0/audit/status",
         "/v0/health",
         "/v0/sandboxes",
+        "/v0/executors",
     ] {
         let (status, body) = get(addr, path);
         assert_eq!(status, 200, "{path}: {body}");
@@ -1638,6 +1721,10 @@ fn the_capability_of_each_route_reaches_the_hook() {
     // The switch route too: an unknown name answers `404`, and the hook still saw
     // what the route asked for.
     let (status, body) = post(addr, "/v0/sandboxes/switch", r#"{"name":"no-such"}"#);
+    assert_eq!(status, 404, "{body}");
+    // A dispatch to nobody is the same shape: the route asked for `agent.run`, and
+    // the handler's own answer is what the caller sees.
+    let (status, body) = post(addr, "/v0/tasks", r#"{"target":"nobody","input":"hi"}"#);
     assert_eq!(status, 404, "{body}");
     let (status, _) = call(addr, "POST", "/v0/sessions/clear", "", Some("{}"));
     assert_eq!(status, 204);
@@ -1650,6 +1737,7 @@ fn the_capability_of_each_route_reaches_the_hook() {
         Capability::SessionWrite,
         Capability::SandboxRead,
         Capability::SandboxSwitch,
+        Capability::AgentRun,
     ] {
         assert!(seen.contains(&expected), "{expected} in {seen:?}");
     }
@@ -1672,7 +1760,13 @@ fn an_actor_without_the_capability_is_refused_with_403() {
         ("GET", "/v0/audit/status", None),
         ("GET", "/v0/health", None),
         ("GET", "/v0/sandboxes", None),
+        ("GET", "/v0/executors", None),
         ("POST", "/v0/sandboxes/switch", Some(r#"{"name":"any"}"#)),
+        (
+            "POST",
+            "/v0/tasks",
+            Some(r#"{"target":"any","input":"hi"}"#),
+        ),
         ("POST", "/v0/sessions/clear", Some("{}")),
     ] {
         let (status, raw) = call(addr, method, path, "", body);

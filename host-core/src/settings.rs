@@ -52,6 +52,39 @@ pub struct LocalSettings {
     /// ([`DEFAULT_SANDBOX_NAME`](crate::sandbox_def::DEFAULT_SANDBOX_NAME)).
     #[serde(default)]
     pub default_sandbox: Option<String>,
+    /// The executor processes this node dispatches to (v0.9 interface E0).
+    ///
+    /// Additive, exactly like `sandboxes`: a file written before this field
+    /// existed loads with an empty list and `SETTINGS_VERSION` does not move.
+    /// An empty list is a working configuration — `POST /v0/tasks` then answers
+    /// `404` for every target, because this node owns no executor. The node
+    /// **itself** is not registered here: a caller that wants to run on this node
+    /// uses `POST /v0/agent/run`.
+    #[serde(default)]
+    pub executors: Vec<ExecutorSpecSettings>,
+}
+
+/// One executor the node can dispatch a task to (v0.9 interface E0).
+///
+/// This is the **settings** shape, not `worker::ExecutorSpec`: the worker depends
+/// on this crate, so the dependency could not run the other way. It carries the
+/// three things a command line is made of and nothing else.
+///
+/// **No `env`.** A settings file is not a secret store, and an environment block
+/// is where a key would end up; the handle's `env` builders stay available to code
+/// that is entitled to decide an executor's environment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutorSpecSettings {
+    /// The identity tasks address in `Task.target`. The child mints its **own**
+    /// identity and reports it in the outcome; the label is the address, not the
+    /// answer.
+    pub label: String,
+    /// The program to run (a `worker` binary, or anything that speaks the
+    /// protocol: one task line in, one outcome line out, events on stderr).
+    pub program: String,
+    /// The program's arguments.
+    #[serde(default)]
+    pub args: Vec<String>,
 }
 
 /// The alert is on unless the user turns it off (v0.8).
@@ -71,6 +104,7 @@ impl Default for LocalSettings {
             alert_on_audit_failure: true,
             sandboxes: Vec::new(),
             default_sandbox: None,
+            executors: Vec::new(),
         }
     }
 }
@@ -87,6 +121,12 @@ impl LocalSettings {
                 settings.version = SETTINGS_VERSION;
                 settings.toolchain_path = settings.toolchain_path.filter(|p| !p.trim().is_empty());
                 settings.qemu_path = settings.qemu_path.filter(|p| !p.trim().is_empty());
+                // An executor needs both halves of a command line to be routable:
+                // a label with nothing to run is not an executor, and keeping it
+                // would make `GET /v0/executors` promise something unreachable.
+                settings
+                    .executors
+                    .retain(|e| !e.label.trim().is_empty() && !e.program.trim().is_empty());
                 settings
             }
             Err(_) => Self::default(),

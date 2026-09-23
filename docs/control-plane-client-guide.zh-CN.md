@@ -440,6 +440,20 @@ curl -sS -X POST http://127.0.0.1:7821/v0/audit/export \
   -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
   -d '{"path":"/abs/path/inside/the/workspace/audit.jsonl"}'
 # {"events_exported":42}
+
+# 把一条任务派给*已配置的执行器*——这是上面 run 的兄弟，不是它的同义词：
+# run 在本节点上干活，任务则按 target 路由。
+curl -sS http://127.0.0.1:7821/v0/executors -H "Authorization: Bearer $RISCDOM_TOKEN"
+# {"executors":[{"agent_id":"executor-0"}]}——什么都没配就是 []
+
+curl -sS -X POST http://127.0.0.1:7821/v0/tasks \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"target":"executor-0","input":"say hi"}'
+# {"task_id":"task-4711-1","agent_id":"device-4711-9","outcome":{"Final":{...}}}
+# 404 cause "target"——本节点谁都不叫这个名字（包括它自己：给本节点的任务走
+#   `POST /v0/agent/run`）。同步，和 run 一样：应答*就是*结果，没有任务可轮询。
+#   `id` 可选（服务端补一个）；一次只是*跑失败*的任务仍是 `200`——它的 `outcome`
+#   会说 `Failed`。应答里的 `agent_id` 是执行者自己宣告的身份，不是任务的收件标签。
 ```
 
 客户端应当知道的几点：
@@ -490,6 +504,8 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # 对着已经跑�
 | `riscdom workspace export [--out <file>]` | `POST /v0/workspace/export` |
 | `riscdom workspace import <archive> [--force]` | `POST /v0/workspace/import` |
 | `riscdom run <task>` | `POST /v0/agent/run` |
+| `riscdom executors list` | `GET /v0/executors` |
+| `riscdom tasks dispatch --target <agent_id> --input <text>` | `POST /v0/tasks` |
 | `riscdom run <task> --sandbox <name>` | `POST /v0/agent/run`（带 `sandbox`） |
 | `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |

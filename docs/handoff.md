@@ -13,6 +13,28 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The node can be dispatched to, and its fleet is configuration** (v0.9 interface E0). The
+  batch that made the `Dispatcher` reachable over HTTP. `executors` in `settings.json` — a
+  label, a program and its arguments, and **no `env`**, because a settings file is not a
+  secret store — are turned into `StdioExecutorHandle`s once, after `load_settings`, and
+  `AppState::dispatch_task(target, input, sandbox, id)` routes one task through the same
+  `LocalDispatcher` the worker's supervisor builds. Registration **spawns nothing**: the
+  handle is data until a task arrives, which is why it needs no lazy init (and why a program
+  that does not exist is the first task's failure, not a startup error). `POST /v0/tasks`
+  takes a `Task`'s four scalar fields, mints a `TaskId` when the caller sent none, and
+  answers with the executor's `TaskOutcome` — **synchronously**, like `/v0/agent/run`: there
+  is no task table and no `GET /v0/tasks/{id}`, so nothing to poll. The ladder is two things
+  kept apart: a target nobody owns is the caller's `404 cause "target"`, a dispatch that
+  broke is the host's `500 cause "task"`, and a run that merely *failed* is still a `200`
+  whose `outcome` says `failed`. `GET /v0/executors` lists who is reachable, in configuration
+  order, empty list and all. **The node is deliberately not one of its own executors** — a
+  target naming it is a `404`, because running here is `POST /v0/agent/run` — so the two
+  endpoints are siblings, not synonyms, which is exactly the distinction that made E0 worth
+  a batch. Both routes declare `agent.run` (E0 decision 3: no capability was added — who may
+  cause an agent to run may ask who can be asked), both have a Tauri command (registered, not
+  wired to the interface: the D line) and two CLI subcommands (`executors list`,
+  `tasks dispatch --target <agent_id> --input <text> [--sandbox <name>]`). Eight documents
+  went with it, including decision §39.
 - **A task declares which sandbox it runs under, and nothing about the node moves** (v0.9
   sandbox F2d, the sandbox line's last piece). `Task` gained `sandbox: Option<String>`
   (`#[serde(default)]`, so an older supervisor's line is still readable) with a

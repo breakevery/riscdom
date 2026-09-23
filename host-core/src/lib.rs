@@ -41,6 +41,9 @@ pub use executor::{StdioExecutorHandle, DEFAULT_EXECUTOR_TIMEOUT};
 pub use keyring::{KeyringBackend, OsKeyring, SERVICE};
 pub use preflight::{PreflightCache, PreflightRow, PreflightView};
 pub use run_diff::{diff_fingerprints, FingerprintFieldDiff, FINGERPRINT_FIELDS};
+// Re-exported for the surfaces above host-core (the Tauri commands), which name a
+// dispatch outcome without depending on `agent` themselves (v0.9 interface E0).
+pub use agent::TaskOutcome;
 pub use sandbox_def::{
     CandidateView, CandidatesView, SandboxDef, SandboxSource, SandboxView, DEFAULT_SANDBOX_NAME,
     NO_VERSION,

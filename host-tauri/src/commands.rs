@@ -711,3 +711,32 @@ pub async fn compare_run_fingerprints(
         .compare_run_fingerprints(&run_a, &run_b)
         .map_err(|e| e.user_message())
 }
+
+/// The executors this node can dispatch a task to (v0.9 interface E0).
+///
+/// Read-only, and not wired to the interface in this batch: the control plane's
+/// `GET /v0/executors` is the surface this mirrors.
+#[tauri::command]
+pub async fn list_executors(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    Ok(state.executors())
+}
+
+/// Dispatch one task to the executor its `target` names (v0.9 interface E0).
+///
+/// Synchronous, like `POST /v0/tasks` and `run_agent`: the answer is the outcome.
+/// A target nobody owns is an error (`String`), and a run that merely failed comes
+/// back as an outcome whose `outcome` is `failed`.
+///
+/// Not wired to the interface in this batch.
+#[tauri::command]
+pub async fn dispatch_task(
+    state: State<'_, AppState>,
+    target: String,
+    input: String,
+    sandbox: Option<String>,
+    id: Option<String>,
+) -> Result<host_core::TaskOutcome, String> {
+    state
+        .dispatch_task(&target, &input, sandbox.as_deref(), id.as_deref())
+        .map_err(|e| e.user_message())
+}

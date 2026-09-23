@@ -25,12 +25,14 @@ riscdom [options] <command> [args]
 | `sandboxes candidates` | `GET /v0/sandboxes/candidates` | 这台机器上装了什么：两个互相独立的列表，未合并 |
 | `sandboxes show <name>` | `GET /v0/sandboxes/<name>` | 一个定义，一行一个字段 |
 | `sandboxes requests [--status <s>]` | `GET /v0/sandboxes/requests` | 申请队列，新的在前，每行一条申请 |
+| `executors list` | `GET /v0/executors` | 每行一个 `agent_id`，或者 `no executors are configured (...)`（v0.9 接口交付 E0） |
 
 控制类子命令——全部是 HTTP `POST`，全部需要 token：
 
 | 子命令 | 请求 | 得到 |
 |---|---|---|
 | `run <task> [--follow] [--sandbox <name>]` | `POST /v0/agent/run` | 一轮 agent 的结果；`--follow` 在运行时打印事件流，`--sandbox` 声明这次运行用哪个定义（v0.9 沙箱 F2d：不切换节点） |
+| `tasks dispatch --target <agent_id> --input <text> [--sandbox <name>]` | `POST /v0/tasks` | `TaskOutcome`：请求的 `task_id`、作答的 `agent_id`、以及这次运行自己的结果（v0.9 接口交付 E0：`run` 在*本*节点干活，任务则按 target 路由） |
 | `vm stop` | `POST /v0/vm/stop` | 先确认，再 `ok` |
 | `vm start` | `POST /v0/vm/start` | `501`——预留：今天 VM 在运行内启动 |
 | `snapshots save <name>` | `POST /v0/snapshots/save` | 写入字节数 |

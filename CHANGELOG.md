@@ -745,6 +745,37 @@ when nothing is declared, and a declaration never moves the node.
   configured default, else the built-in fallback (which means “discover this host's own
   QEMU and toolchain” — the behaviour before this batch).
 
+**The node can be dispatched to, and its fleet is configuration.** `Dispatcher` has been
+reachable from Rust since v0.8 and from nowhere else; the task endpoint is what makes it an
+interface. The fleet comes from `executors` in `settings.json`, and from nothing else.
+
+### Added
+
+- **`executors` in `settings.json`** (`ExecutorSpecSettings`: a label, a program and its
+  arguments): registered into `StdioExecutorHandle`s once, after the settings file is read.
+  **No `env`** — a settings file is not a secret store. Registration spawns nothing, so a
+  program that is not there is the first task's failure, not a startup error.
+- **`POST /v0/tasks`** (`agent.run`): a `Task`'s four scalar fields in, the executor's
+  `TaskOutcome` out. A missing `id` is minted by the server. Synchronous, like
+  `/v0/agent/run`: there is no task table and no `GET /v0/tasks/{id}`.
+- **`GET /v0/executors`** (`agent.run`): the identities a task can reach, in configuration
+  order — an empty list is a fact, not an error.
+- **`AppState::dispatch_task`** (and `dispatch_task_value` / `executors`), plus two Tauri
+  commands (`dispatch_task`, `list_executors`) registered but **not** wired to the interface
+  — the D line.
+- **Two CLI subcommands**: `executors list` and `tasks dispatch --target <agent_id> --input
+  <text> [--sandbox <name>]`, with `--target` / `--input` as new flags.
+
+### Changed
+
+- **Two refusals, kept apart**: a target nobody owns is `404` `cause: "target"` (the caller's
+  parameter — a node with no fleet refuses every target that way), while a dispatch that broke
+  is `500` `cause: "task"`. A run that merely *failed* is still a `200`; its `outcome` says
+  `failed`.
+- **The node is not one of its own executors**: a target naming it is a `404`, because running
+  here is `POST /v0/agent/run`. The two endpoints are siblings, not synonyms.
+- **No capability was added**: both routes declare `agent.run` (E0 decision 3).
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

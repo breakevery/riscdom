@@ -413,3 +413,13 @@
 `POST /v0/agent/run` 带一个未定义沙箱时，即使没有配置模型也是调用方的 `404`。定义的 `memory_mb` 经
 新增的 `agent.set_memory_mb` 抵达 VM（`VM_MEMORY_MB` 曾是硬编码的 128；`VMConfig` 形状未变）。
 解析读的是注册表的合并视图，所以一个任务命中手写定义时，拿到的与切换会拿到的一模一样。
+
+## 39. 任务端点：同步、配置驱动的队伍、声明 `agent.run`
+
+**日期**：2026-09-23 ｜ **状态**：已定；随 v0.9 接口交付 E0 批次落地
+
+**决策**：`Dispatcher` 在进程内从 v0.8 起就可达，而**哪里都不可达**——本批让它可以从 HTTP 抵达，并定了三件事。**（一）执行者登记与那个端点同一批做**：只把本节点挂进 `LocalDispatcher` 的 `/v0/tasks` 会是 `/v0/agent/run` 的别名，所以队伍来自 `settings.json` 的 `executors`（label + program + args），**没有 `env`**，也**没有运行时注册端点**。**（二）同步**：`POST /v0/tasks` 以执行者的 `TaskOutcome` 作答，没有任务表，没有 `GET /v0/tasks/{id}`。**（三）不加 capability**：两条路由都声明 `agent.run`。
+
+**理由**：（一）端点的价值完全在于「按 target 路由到**另一个**执行者」；只有本节点时，它与「在这里跑」的区别小到无法向人解释（仅多：按 target 路由、返 `TaskOutcome` 而非 `AgentOutcomeView`、多一道 `NoSuchAgent`）。队伍必须来自某处，而**配置**正是「一台节点被交给你时它是什么」的所在：不是一条会改节点行为的运行时写路径（那是另一批的权限问题），而是一个人可以打开来读和改的文件。不暴露 `env` 符合本仓库的红线：一个设置文件会变成放密钥的地方——而 handle 的 `env` builder 仍留给有资格决定执行者环境的代码。（二）`/v0/agent/run` 已是同步的，而一项会跨进程启动编译与引导的工作本来就不短：把异步硬加进来需要全仓都不存在的任务表（侦察安全阀 3），换来的是一个没人要求的轮询形状。一个跑失败的任务**仍是**一个 `Ok(TaskOutcome)`——它的 `outcome` 说 `failed`——所以「失败」不需要 500。（三）`agent` 的 capability 词汇表是 32 项，而 `server/src/auth.rs` **硬断言** `Capability::ALL.len() == 32`；更根本的是，派发一个任务就是在导致一台 agent 跑，而这正是 `agent.run` 早已意味的事（F2c 用了同一套推理：能跑 agent 的 actor 就是能说它想要什么的 actor）。把一个目标从「无人拥有」中区分出来是**参数**问题，而不是权限问题。
+
+**影响**：`LocalSettings` 多出 `executors: Vec<ExecutorSpecSettings>`（`#[serde(default)]`，`SETTINGS_VERSION` 不动——与 `sandboxes` 同款加法），而 `load` 会丢掉 label 或 program 为空的条目（为了一个不可达的目标列出队伍是在承诺做不到的事）。`ExecutorSpecSettings` 是 **host-core 本地**类型：`worker::ExecutorSpec` 不能复用，因为依赖方向是 `worker → host-core`，反过来就是环。`AppState` 多出 `executors: Mutex<Vec<Arc<dyn AgentHandle>>>`，由 `register_executors` 在三个构造函数的 `load_settings` 之后填充——**这是纯数据，不起任何进程**（`StdioExecutorHandle::new` 只记录要跑什么；子进程出现在 `run` 里），所以安全阀「构造时起子进程」未命中，登记也就无所谓即起还是懒起。节点**未被登记**：它自己的 handle 仍由 `local_dispatcher` 构建，那是「本节点作为执行者」的预留缝隙。（本批未用的）`HostAgentHandle` 会持 `Arc<AppState>`，而若把它挂进 `AppState` 就会造出一个自引用环——把本节点排除在外既是对的，也避开了这个。`AppState::dispatch_task` 在调用方没给时补一个 `TaskId`，并借 `dispatch_task_value` 走同一个 `LocalDispatcher`；两个新的 `HostError` 变体（`NoSuchExecutor`、`TaskFailed`）让路由层把「调用方的参数」与「宿主坏了」分开，`task_error` 再把它们映射为 `404 cause "target"` / `500 cause "task"`。两边各有一条 Tauri 命令（已注册、未接线）与一个 CLI 子命令。

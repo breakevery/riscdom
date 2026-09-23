@@ -1,6 +1,6 @@
 //! Stage 25a — local settings file (`settings.json`) and toolchain persistence.
 
-use host_core::settings::{LocalSettings, SETTINGS_VERSION};
+use host_core::settings::{ExecutorSpecSettings, LocalSettings, SETTINGS_VERSION};
 use host_core::state::AppState;
 use std::path::PathBuf;
 
@@ -41,10 +41,50 @@ fn save_then_load_round_trips() {
         alert_on_audit_failure: false,
         default_sandbox: None,
         sandboxes: Vec::new(),
+        executors: Vec::new(),
     };
     settings.save(&path).expect("save");
     assert!(path.is_file(), "{path:?}");
     assert_eq!(LocalSettings::load(&path), settings);
+}
+
+#[test]
+fn executors_round_trip_and_a_half_specified_one_is_dropped() {
+    let path = unique_dir("executors").join("settings.json");
+    let settings = LocalSettings {
+        executors: vec![
+            ExecutorSpecSettings {
+                label: "executor-0".into(),
+                program: r"C:\tools\worker.exe".into(),
+                args: vec!["--workspace".into(), "W".into()],
+            },
+            ExecutorSpecSettings {
+                label: "executor-1".into(),
+                program: "/usr/local/bin/worker".into(),
+                args: Vec::new(),
+            },
+        ],
+        ..LocalSettings::default()
+    };
+    settings.save(&path).expect("save");
+    assert_eq!(LocalSettings::load(&path), settings);
+
+    // A file written before the field existed still loads, with no fleet.
+    let older = unique_dir("executors-old").join("settings.json");
+    std::fs::write(&older, br#"{"version":1}"#).expect("write");
+    assert!(LocalSettings::load(&older).executors.is_empty());
+
+    // A label with nothing to run is not an executor: keeping it would make the
+    // fleet listing promise a target that could never answer.
+    let half = unique_dir("executors-half").join("settings.json");
+    std::fs::write(
+        &half,
+        br#"{"version":1,"executors":[{"label":"ghost","program":"  "},{"label":"ok","program":"worker.exe"}]}"#,
+    )
+    .expect("write");
+    let loaded = LocalSettings::load(&half);
+    assert_eq!(loaded.executors.len(), 1);
+    assert_eq!(loaded.executors[0].label, "ok");
 }
 
 #[test]

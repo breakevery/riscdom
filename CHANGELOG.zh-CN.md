@@ -432,6 +432,22 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 - **一次运行的解析顺序**：声明的名字，否则节点在跑的，否则其配置默认，否则内置兕底
   （后者意味着「去发现宿主自己的 QEMU 与工具链」——上一批之前的行为）。
 
+**节点可以被派任务，而它的执行者队伍是配置。** `Dispatcher` 自 v0.8 起从 Rust 可达，除此以外哪里都不可达；任务端点就是把它变成接口的那一步。执行者队伍来自 `settings.json` 里的 `executors`，**仅此一处**。
+
+### 新增
+
+- **`settings.json` 里的 `executors`**（`ExecutorSpecSettings`：一个 label、一个 program 与它的参数）：在设置文件读完之后一次性登记为 `StdioExecutorHandle`。**没有 `env`**——设置文件不是密钥库。登记不起任何子进程，所以不存在的 program 是第一个任务的失败，而不是启动错误。
+- **`POST /v0/tasks`**（`agent.run`）：进 `Task` 的四个标量字段，出该执行者的 `TaskOutcome`。缺 `id` 由服务端补。同步，与 `/v0/agent/run` 相同：没有任务表，也没有 `GET /v0/tasks/{id}`。
+- **`GET /v0/executors`**（`agent.run`）：任务可抵达的身份，按配置顺序——空列表是一个事实，不是错误。
+- **`AppState::dispatch_task`**（以及 `dispatch_task_value` / `executors`），另有两条 Tauri 命令（`dispatch_task`、`list_executors`）已注册但**未**接到界面——D 线。
+- **两个 CLI 子命令**：`executors list` 与 `tasks dispatch --target <agent_id> --input <text> [--sandbox <name>]`，新增 `--target` / `--input` 两个 flag。
+
+### 变更
+
+- **两种拒绝，彼此分开**：无人拥有的目标是 `404` `cause: "target"`（调用方的参数——没有队伍的节点对每个目标都这样拒绝），而断掉的派发是 `500` `cause: "task"`。一次只是*跑失败*的运行仍是 `200`；它的 `outcome` 会说 `failed`。
+- **节点不是它自己的执行者之一**：目标写它就是 `404`，因为在这里跑是 `POST /v0/agent/run`。两个端点是兄弟，不是同义词。
+- **没有新增 capability**：两条路由都声明 `agent.run`（E0 裁决三）。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

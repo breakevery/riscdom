@@ -10,7 +10,7 @@
 //! an AI takes: without `--yes`, refuse.
 
 use riscdom_cli::args::{parse, Parsed};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -363,6 +363,10 @@ fn a_control_command_with_a_missing_argument_is_a_usage_error() {
         vec!["run"],
         vec!["snapshots", "save"],
         vec!["sessions", "rename", "s-1"],
+        // A dispatch without its two halves is a usage error, not a request that
+        // reaches the control plane (v0.9 interface E0).
+        vec!["tasks", "dispatch"],
+        vec!["tasks", "dispatch", "--input", "say hi"],
     ] {
         let output = run("usage", &args);
         assert_eq!(exit_code(&output), 2, "{args:?}: {}", stderr(&output));
@@ -602,6 +606,20 @@ fn the_parser_agrees_with_the_binary_about_the_new_commands() {
             "POST",
         ),
         (vec!["workspace", "export"], "/v0/workspace/export", "POST"),
+        // v0.9 interface E0: the fleet and the dispatch.
+        (vec!["executors", "list"], "/v0/executors", "GET"),
+        (
+            vec![
+                "tasks",
+                "dispatch",
+                "--target",
+                "executor-0",
+                "--input",
+                "say hi",
+            ],
+            "/v0/tasks",
+            "POST",
+        ),
     ] {
         let parsed = parse(words.iter().map(|w| w.to_string()).collect()).expect("parses");
         let args = match parsed {
@@ -611,4 +629,126 @@ fn the_parser_agrees_with_the_binary_about_the_new_commands() {
         assert_eq!(args.command.request_path(), expected_path, "{words:?}");
         assert_eq!(args.command.method(), expected_method, "{words:?}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// v0.9 interface E0 — the fleet and the dispatch
+// ---------------------------------------------------------------------------
+
+fn write_executor_settings(data_dir: &Path, settings: serde_json::Value) {
+    std::fs::write(
+        data_dir.join("settings.json"),
+        serde_json::to_string_pretty(&settings).expect("serde"),
+    )
+    .expect("settings");
+}
+
+/// A `.bat` that speaks the worker protocol: read the task line, answer with one
+/// outcome line, announce an identity on stderr. It echoes back the id it was
+/// given, read out of the task line `serde` wrote (`{"id":"…","target":…`).
+#[cfg(windows)]
+fn a_cli_executor(data_dir: &Path) -> String {
+    let path = data_dir.join("cli-executor.bat");
+    let outcome = serde_json::json!({
+        "task_id": "%_id%",
+        "agent_id": "the-label-is-not-the-answer",
+        "outcome": { "Final": { "content": "hello from the fake", "iterations": 1 } },
+    });
+    let ready = serde_json::json!({ "event": "worker:ready", "agent_id": "fake-child-1-1" });
+    std::fs::write(
+        &path,
+        format!(
+            "@echo off\r\nset /p _task=\r\nset _task=%_task:\"=%\r\n\
+             for /f \"tokens=2 delims=:,\" %%a in (\"%_task%\") do set _id=%%a\r\n\
+             echo {outcome}\r\necho {ready} 1>&2\r\n",
+        ),
+    )
+    .expect("write the fake executor");
+    path.display().to_string()
+}
+
+#[test]
+fn the_fleet_reads_and_a_dispatch_to_nobody_is_refused() {
+    // A fresh node owns no executors, and says so rather than showing an empty
+    // table: the way to run *here* is `run`, which this message names.
+    let output = run("executors-empty", &["executors", "list"]);
+    assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
+    assert!(
+        stdout(&output).contains("no executors are configured"),
+        "{}",
+        stdout(&output)
+    );
+
+    // A target nobody owns is the caller's `404`, and the CLI hands the refusal
+    // through with the code the error model gives it (`--json` shows the control
+    // plane's own error object).
+    let output = run(
+        "task-nobody",
+        &[
+            "--json",
+            "tasks",
+            "dispatch",
+            "--target",
+            "executor-0",
+            "--input",
+            "say hi",
+        ],
+    );
+    assert_eq!(exit_code(&output), 3, "stderr: {}", stderr(&output));
+    let body = error_body(&output);
+    assert_eq!(body["code"], "not_found", "{body}");
+    assert_eq!(body["cause"], "target", "{body}");
+}
+
+#[cfg(windows)]
+#[test]
+fn a_dispatch_reaches_a_configured_executor_and_prints_its_outcome() {
+    let workspace = unique_dir("task-run-ws");
+    let data_dir = unique_dir("task-run-data");
+    let program = a_cli_executor(&data_dir);
+    write_executor_settings(
+        &data_dir,
+        serde_json::json!({
+            "version": 1,
+            "executors": [{
+                "label": "executor-0",
+                "program": "cmd.exe",
+                "args": ["/C", program],
+            }],
+        }),
+    );
+
+    // The fleet is listed...
+    let output = run_in(&workspace, &data_dir, &["executors", "list"]);
+    assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
+    assert!(
+        stdout(&output).contains("executor-0"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(
+        !stdout(&output).contains("no executors"),
+        "{}",
+        stdout(&output)
+    );
+
+    // ...and one task crosses the whole chain: CLI → HTTP → dispatcher → child.
+    let output = run_in(
+        &workspace,
+        &data_dir,
+        &[
+            "tasks",
+            "dispatch",
+            "--target",
+            "executor-0",
+            "--input",
+            "say hi",
+        ],
+    );
+    assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
+    let shown = stdout(&output);
+    // The identity is the child's announcement, not the label it was addressed by.
+    assert!(shown.contains("fake-child-1-1"), "{shown}");
+    assert!(shown.contains("hello from the fake"), "{shown}");
+    assert!(shown.contains("final"), "{shown}");
 }

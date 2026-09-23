@@ -43,7 +43,11 @@ pub fn human(command: &Command, reply: &Reply) -> String {
         // this), and the import's is the little summary JSON (v0.9).
         Command::WorkspaceImport { .. } => workspace_imported(value),
         Command::WorkspaceExport { .. } => "ok".to_string(),
+        Command::ExecutorsList => executors(value),
         Command::Run { .. } => outcome(value),
+        // A dispatched task answers with a `TaskOutcome`: who ran it, and the run's
+        // own outcome inside (v0.9 interface E0).
+        Command::TasksDispatch { .. } => task_outcome(value),
         Command::VmStop | Command::VmStart => "ok".to_string(),
         Command::SnapshotsSave { .. } => written(value),
         Command::SnapshotsResume { .. } => "ok".to_string(),
@@ -190,6 +194,70 @@ fn outcome(value: &Value) -> String {
         lines.push(format!("reason     {}", text(value, "reason")));
     }
     if let Some(content) = value.get("content").and_then(Value::as_str) {
+        lines.push(String::new());
+        lines.push(content.to_string());
+    }
+    lines.join("\n")
+}
+
+/// `{ "executors": [ { "agent_id": ... } ] }` — the fleet a task can reach (E0).
+fn executors(value: &Value) -> String {
+    let Some(rows) = value.get("executors").and_then(Value::as_array) else {
+        return value.to_string();
+    };
+    if rows.is_empty() {
+        // Not an error, and worth saying so: a node with no fleet configured can
+        // still run on itself, which is `/v0/agent/run`.
+        return "no executors are configured (run on this node with `run <task>`)".to_string();
+    }
+    let mut lines = vec![format!("{:<28}", "AGENT_ID")];
+    for row in rows {
+        lines.push(format!("{:<28}", text(row, "agent_id")));
+    }
+    lines.join("\n")
+}
+
+/// A `TaskOutcome`: the id that was asked, who answered, and the run's outcome.
+fn task_outcome(value: &Value) -> String {
+    let mut lines = vec![
+        format!("task_id  {}", text(value, "task_id")),
+        format!("agent_id {}", text(value, "agent_id")),
+    ];
+    match value.get("outcome") {
+        Some(outcome) => {
+            lines.push(String::new());
+            lines.push(agent_outcome(outcome));
+        }
+        None => lines.push("outcome  (none)".to_string()),
+    }
+    lines.join("\n")
+}
+
+/// The executor's own outcome as `TaskOutcome` carries it: an **externally tagged**
+/// enum (`{"Final": {...}}`), which is deliberately not the flat
+/// `AgentOutcomeView` that `run` answers with.
+fn agent_outcome(value: &Value) -> String {
+    let Some((tag, body)) = value.as_object().and_then(|object| object.iter().next()) else {
+        return value.to_string();
+    };
+    let kind = match tag.as_str() {
+        "Final" => "final",
+        "MaxIterations" => "max_iterations",
+        "Failed" => "failed",
+        other => other,
+    };
+    let mut lines = vec![format!("kind       {kind}")];
+    if let Some(iterations) = body.get("iterations").and_then(Value::as_u64) {
+        lines.push(format!("iterations {iterations}"));
+    }
+    if let Some(reason) = body.get("reason").and_then(Value::as_str) {
+        lines.push(format!("reason     {reason}"));
+    }
+    let content = body
+        .get("content")
+        .or_else(|| body.get("last_content"))
+        .and_then(Value::as_str);
+    if let Some(content) = content {
         lines.push(String::new());
         lines.push(content.to_string());
     }

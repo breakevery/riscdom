@@ -59,6 +59,23 @@ snapshots — and each gets its **own data dir**. `--base <dir>` sets where thos
 JSON-lines task list; without it the demo invents one task per executor. An executor with no LLM
 configured answers `Failed`: the plumbing is what the demo shows, not a model.
 
+## The host's own dispatch (v0.9 interface E0)
+
+The node can hold a fleet the same way a supervisor does: `executors` in
+`settings.json` (a label, a program and its arguments — **no `env`**, because a
+settings file is not a secret store) are registered at startup, and
+`POST /v0/tasks` routes one task to the executor its `target` names, answering with
+the `TaskOutcome`. `GET /v0/executors` lists who is reachable. Nothing is spawned
+at registration: `StdioExecutorHandle::new` only records what to run.
+
+The node itself is deliberately **not** one of its own executors — a target naming
+it is a `404` — because running *here* is `POST /v0/agent/run`. The two endpoints
+are siblings, not synonyms. Registration is configuration, not an API: there is no
+runtime endpoint to add an executor, and the `worker` binary is the natural
+`program` to point at (one task line in on stdin, one outcome line out on stdout,
+events on stderr — exactly the protocol `StdioExecutorHandle` speaks, since that is
+what this crate's tests already drive).
+
 ## Tests
 
 ```text

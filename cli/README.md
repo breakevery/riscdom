@@ -29,12 +29,14 @@ riscdom [options] <command> [args]
 | `sandboxes candidates` | `GET /v0/sandboxes/candidates` | what is installed here: the two independent lists, unmerged |
 | `sandboxes show <name>` | `GET /v0/sandboxes/<name>` | one definition, one `key value` line per field |
 | `sandboxes requests [--status <s>]` | `GET /v0/sandboxes/requests` | the request queue, newest first, one line per request |
+| `executors list` | `GET /v0/executors` | one `agent_id` per line, or `no executors are configured (...)` (v0.9 interface E0) |
 
 Control commands — every one an HTTP `POST`, and every one needs the token:
 
 | Command | Asks for | Answers |
 |---|---|---|
 | `run <task> [--follow] [--sandbox <name>]` | `POST /v0/agent/run` | one agent turn's outcome; `--follow` prints the event stream while it runs, and `--sandbox` declares which definition this run uses (v0.9 sandbox F2d: the node is not switched) |
+| `tasks dispatch --target <agent_id> --input <text> [--sandbox <name>]` | `POST /v0/tasks` | the `TaskOutcome`: the `task_id` asked, the `agent_id` that answered, and the run's own outcome (v0.9 interface E0: `run` works on *this* node, a task is routed by its target) |
 | `vm stop` | `POST /v0/vm/stop` | confirmation, then `ok` |
 | `vm start` | `POST /v0/vm/start` | `501` — reserved: today the VM starts inside a run |
 | `snapshots save <name>` | `POST /v0/snapshots/save` | how many bytes were written |

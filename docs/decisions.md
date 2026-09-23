@@ -718,3 +718,55 @@ is the caller's `404` even with no model configured. A definition's `memory_mb` 
 VM through a new `agent.set_memory_mb` (`VM_MEMORY_MB` was a hard-coded 128; the `VMConfig`
 shape is unchanged). The resolution reads the registry's merged view, so a task naming a
 hand-written definition gets it exactly as a switch would.
+
+## 39. The task endpoint: synchronous, configuration-driven, and declared `agent.run`
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; landed with the v0.9 interface E0 batch
+
+**Decision**: `Dispatcher` had been reachable in-process since v0.8 and reachable from
+**nowhere else**. This batch makes it reachable over HTTP and settles three things. **(1) The
+executor registry ships with the endpoint**: a `/v0/tasks` that could only reach this node
+would be an alias of `/v0/agent/run`, so the fleet comes from `executors` in `settings.json`
+(label + program + args), with **no `env`** and **no runtime registration endpoint**. **(2)
+Synchronous**: `POST /v0/tasks` answers with the executor's `TaskOutcome`; there is no task
+table and no `GET /v0/tasks/{id}`. **(3) No capability was added**: both routes declare
+`agent.run`.
+
+**Why**: (1) The endpoint's entire value is routing by target to **another** executor; with
+only this node in the vector, the difference from "run here" is too small to explain to
+anyone (routing by target, a `TaskOutcome` instead of an `AgentOutcomeView`, one extra
+`NoSuchAgent`). The fleet has to come from somewhere, and **configuration** is where "what is
+this node when you are handed it" already lives: not a runtime write path that changes the
+node's behaviour (a privilege question for another batch), but a file a human can open, read
+and edit. Not exposing `env` is this repository's red line: a settings file is where a
+secret would end up — and the handle's `env` builders remain for code that is entitled to
+decide an executor's environment. (2) `/v0/agent/run` is already synchronous, and work that
+compiles and boots a guest across processes is not short by nature: forcing asynchrony in
+would need a task table the repository does not have anywhere (the reconnaissance's safety
+valve 3), in exchange for a polling shape nobody asked for. A task whose run *failed* is
+still an `Ok(TaskOutcome)` — its `outcome` says `failed` — so failure needs no `500`. (3) The
+`agent` capability vocabulary is 32 entries and `server/src/auth.rs` **hard-asserts**
+`Capability::ALL.len() == 32`; more fundamentally, dispatching a task *is* causing an agent
+to run, which is what `agent.run` has always meant (F2c used the same reasoning: the actor
+who may run an agent is the actor who may say what it wants). Telling a target nobody owns
+apart is a **parameter** question, not a permission one.
+
+**Impact**: `LocalSettings` gained `executors: Vec<ExecutorSpecSettings>` (`#[serde(default)]`,
+`SETTINGS_VERSION` unmoved — the same additive shape as `sandboxes`), and `load` drops an
+entry whose label or program is blank (listing a fleet with an unreachable target would
+promise something that cannot answer). `ExecutorSpecSettings` is a **host-core-local** type:
+`worker::ExecutorSpec` cannot be reused, because the dependency runs `worker → host-core` and
+the other direction is a cycle. `AppState` gained
+`executors: Mutex<Vec<Arc<dyn AgentHandle>>>`, filled by `register_executors` after
+`load_settings` in all three constructors — **pure data, no process spawned**
+(`StdioExecutorHandle::new` only records what to run; the child appears in `run`), so the
+safety valve "registration spawns at construction" did not trigger and whether registration is
+eager or lazy makes no difference. The node is **not** registered: its own handle is still
+built by `local_dispatcher`, the seam left for "this node as an executor" — and while the
+(unused) `HostAgentHandle` holds an `Arc<AppState>`, putting it into `AppState` would close a
+self-referential cycle, so leaving the node out is both the right answer and the one that
+avoids it. `AppState::dispatch_task` mints a `TaskId` when the caller sent none and goes
+through the same `LocalDispatcher` via `dispatch_task_value`; two new `HostError` variants
+(`NoSuchExecutor`, `TaskFailed`) let the route tell the caller's parameter apart from a broken
+host, and `task_error` maps them to `404 cause "target"` / `500 cause "task"`. Each surface
+gained a Tauri command (registered, not wired) and a CLI subcommand.

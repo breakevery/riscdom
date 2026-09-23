@@ -32,6 +32,8 @@ read-only commands:
   sandboxes requests [--status <s>]
                                 the sandbox requests waiting for a decision
                                 (`GET /v0/sandboxes/requests`)
+  executors list                the executors a task can be routed to
+                                (`GET /v0/executors`)
   workspace export [--out <file>]
                                 the project as a tar.gz; without --out it goes to
                                 stdout, and the count goes to stderr
@@ -41,6 +43,10 @@ control commands:
                                 run one agent turn; --follow prints the event
                                 stream while it runs, and --sandbox declares which
                                 definition this run uses (the node is not switched)
+  tasks dispatch --target <agent_id> --input <text> [--sandbox <name>]
+                                send one task to another executor and print the
+                                outcome; the node is not switched, and a target
+                                nobody owns is refused (`POST /v0/tasks`)
   vm stop                       stop the host's VM (asks for confirmation)
   vm start                      reserved; the control plane answers 501
   snapshots save <name>         save a snapshot of the running VM
@@ -105,6 +111,8 @@ options:
                                 finishes
   --out <path>                  where an export writes (server-side, resolved
                                 against the workspace root)
+  --target <agent_id>           `tasks dispatch` only: who the task is for
+  --input <text>                `tasks dispatch` only: what the task says
   --api-key <key>               the model's API key (warns: it lands in the
                                 shell history)
   --api-key-file <path>         read the API key from this file instead
@@ -183,10 +191,25 @@ pub enum Command {
         /// Where the archive is written; `None` means stdout.
         out: Option<PathBuf>,
     },
+    /// The executors a task can be routed to (v0.9 interface E0), read-only.
+    ExecutorsList,
     // ---- control ----
     Run {
         task: String,
         /// `--sandbox <name>`: the definition this run declares (v0.9 sandbox F2d).
+        sandbox: Option<String>,
+    },
+    /// Dispatch one task to another executor (v0.9 interface E0).
+    ///
+    /// The difference from [`Command::Run`] is the one the API document draws:
+    /// `run` runs on **this node**, `tasks dispatch` sends the task to whoever
+    /// `--target` names.
+    TasksDispatch {
+        /// `--target <agent_id>`: who the task is for.
+        target: String,
+        /// `--input <text>`: what the task says.
+        input: String,
+        /// `--sandbox <name>`: the definition this task declares (v0.9 sandbox F2d).
         sandbox: Option<String>,
     },
     VmStop,
@@ -284,6 +307,7 @@ impl Command {
             | Command::SandboxesCandidates
             | Command::SandboxesShow { .. }
             | Command::SandboxesRequests { .. }
+            | Command::ExecutorsList
             | Command::QemuStatus => "GET",
             _ => "POST",
         }
@@ -325,7 +349,9 @@ impl Command {
                 "/v0/workspace/import?force=true".to_string()
             }
             Command::WorkspaceExport { .. } => "/v0/workspace/export".to_string(),
+            Command::ExecutorsList => "/v0/executors".to_string(),
             Command::Run { .. } => "/v0/agent/run".to_string(),
+            Command::TasksDispatch { .. } => "/v0/tasks".to_string(),
             Command::VmStop => "/v0/vm/stop".to_string(),
             Command::VmStart => "/v0/vm/start".to_string(),
             Command::SnapshotsSave { .. } => "/v0/snapshots/save".to_string(),
@@ -377,6 +403,17 @@ impl Command {
                 // sandbox it wants is part of it (v0.9 sandbox F2d).
                 Some(name) => Some(json!({ "user_input": task, "sandbox": name })),
                 None => Some(json!({ "user_input": task })),
+            },
+            // A dispatched task's body is a `Task`'s fields (v0.9 interface E0): the
+            // target, the input, and the sandbox it declares if any. No `id` — the
+            // server mints one, and the CLI prints whatever came back.
+            Command::TasksDispatch {
+                target,
+                input,
+                sandbox,
+            } => match sandbox {
+                Some(name) => Some(json!({ "target": target, "input": input, "sandbox": name })),
+                None => Some(json!({ "target": target, "input": input })),
             },
             Command::SnapshotsSave { name }
             | Command::SnapshotsResume { name }
@@ -529,6 +566,10 @@ struct Flags {
     force: bool,
     /// `--sandbox <name>`: run under this definition (v0.9 sandbox F2d).
     sandbox: Option<String>,
+    /// `--target <agent_id>`: who a dispatched task is for (v0.9 interface E0).
+    target: Option<String>,
+    /// `--input <text>`: what a dispatched task says (v0.9 interface E0).
+    input: Option<String>,
     api_key: Option<String>,
     api_key_file: Option<PathBuf>,
     base_url: Option<String>,
@@ -574,6 +615,8 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
             "--status" => flags.status = Some(value("--status")?),
             "--force" => flags.force = true,
             "--sandbox" => flags.sandbox = Some(value("--sandbox")?),
+            "--target" => flags.target = Some(value("--target")?),
+            "--input" => flags.input = Some(value("--input")?),
             "--api-key" => flags.api_key = Some(value("--api-key")?),
             "--api-key-file" => flags.api_key_file = Some(PathBuf::from(value("--api-key-file")?)),
             "--base-url" => flags.base_url = Some(value("--base-url")?),
@@ -677,10 +720,29 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
         (Some("workspace"), Some("export"), None, None) => Some(Command::WorkspaceExport {
             out: flags.out.clone().map(PathBuf::from),
         }),
+        (Some("executors"), Some("list"), None, None) => Some(Command::ExecutorsList),
         (Some("run"), Some(task), None, None) => Some(Command::Run {
             task: task.to_string(),
             sandbox: flags.sandbox.clone(),
         }),
+        // The task's own two halves are flags, not words: a task text with spaces
+        // stays one argument, and the target is never positional (it is an
+        // identity, and `--target` says so).
+        (Some("tasks"), Some("dispatch"), None, None) => {
+            let target = flags
+                .target
+                .clone()
+                .ok_or_else(|| "tasks dispatch needs --target <agent_id>".to_string())?;
+            let input = flags
+                .input
+                .clone()
+                .ok_or_else(|| "tasks dispatch needs --input <text>".to_string())?;
+            Some(Command::TasksDispatch {
+                target,
+                input,
+                sandbox: flags.sandbox.clone(),
+            })
+        }
         (Some("vm"), Some("stop"), None, None) => Some(Command::VmStop),
         (Some("vm"), Some("start"), None, None) => Some(Command::VmStart),
         (Some("snapshots"), Some("save"), Some(name), None) => Some(Command::SnapshotsSave {

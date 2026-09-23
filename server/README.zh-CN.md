@@ -53,7 +53,9 @@ riscdom-server --bind 127.0.0.1:7821 --workspace ./my-workspace
 | `/v0/sandboxes/requests` | GET / POST | 申请队列（读需 `sandbox.read`，落一条需 `agent.run`）：列表新的在前，或 `201` 带新 id。 |
 | `/v0/sandboxes/requests/{id}/approve`、`…/reject` | POST | 裁决一条待批申请。路由的门是 `sandbox.read`；决策本身需要该请求 `action` 所隐含的 capability（`sandbox.switch` / `sandbox.assemble`）。`200` 带记录，`404` / `409` / `403`。 |
 | `/v0/agent/run` | POST | 一轮 agent（`agent.run`）。可选的 `sandbox` 声明这次运行用哪个定义——节点**不会**被切换（没有这个名字的定义 → `404` `cause: "name"`；来自另一个定义的 VM 正在跑 → `409` `cause: "sandbox"`）。没有可用的模型是 `503` `cause: "llm"`。 |
-| `/v0/sessions/create`、`/v0/settings/theme` 等 | POST | §5.2 的 35 个控制端点：会话、快照、VM、工具链、QEMU、沙箱、预检、LLM 配置、导出。 |
+| `/v0/executors` | GET | 本节点可派任务的执行者队伍（`agent.run`）：`{"executors":[{"agent_id": …}]}`，按配置顺序。`settings.json` 没写就是空列表。 |
+| `/v0/tasks` | POST | 把一条任务派给它的 `target` 指定的执行者（`agent.run`）：body 是 `Task` 的几个字段（`target`、`input`、`sandbox`?、`id`?），应答是该执行者的 `TaskOutcome`。目标无人拥有是 `404` `cause: "target"`；派发本身断掉是 `500` `cause: "task"`。同步，与一次 run 相同。 |
+| `/v0/sessions/create`、`/v0/settings/theme` 等 | POST | §5.2 的 36 个控制端点：会话、快照、VM、工具链、QEMU、沙箱、预检、LLM 配置、导出、任务派发。 |
 | `/v0/workspace/import` | POST | 把一个项目归档解到 workspace（`workspace.write`）：body 是**归档本体**（zip / tar.gz / tar），答 `{files, bytes}`，或 `400` / `409` / `413`。 |
 | `/v0/workspace/export` | POST | 把项目作为 `tar.gz` 作答（`workspace.read`）——**字节，不是 JSON**，带 `Content-Disposition: attachment`。 |
 

@@ -169,7 +169,7 @@ Query commands are `GET`. Control commands are `POST`. "Capability" is the preco
 the server checks before the handler runs (§3; §6 gap G2). The last column names the
 Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 
-### 5.1 Queries (31)
+### 5.1 Queries (32)
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
@@ -205,12 +205,14 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/sandboxes/candidates` | GET | `sandbox.read` | — | `CandidatesView` | `sandbox_candidates` |
 | `/v0/sandboxes/{name}` | GET | `sandbox.read` | path: `name` | `SandboxView`, or `404` | `get_sandbox` |
 | `/v0/sandboxes/requests` | GET | `sandbox.read` | query: `status`? | `{ "requests": [SandboxRequestView] }`, or `400` on an unknown `status` | `list_sandbox_requests` |
+| `/v0/executors` | GET | `agent.run` | — | `{ "executors": [{ "agent_id": string }] }` | `list_executors` |
 
-### 5.2 Controls (35) — implemented in v0.9 batch 4, extended by sandbox F1, F2b-2, F2c and project in/out
+### 5.2 Controls (36) — implemented in v0.9 batch 4, extended by sandbox F1, F2b-2, F2c, project in/out and the task endpoint
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
 | `/v0/agent/run` | POST | `agent.run` | `{ "user_input": string, "sandbox"? }` | `AgentOutcomeView` | `run_agent` |
+| `/v0/tasks` | POST | `agent.run` | `{ "target": string, "input": string, "sandbox"?, "id"? }` | `TaskOutcome`, `404` on an unknown `target` | `dispatch_task` |
 | `/v0/runs/export` | POST | `audit.export` | `{ "run_id", "path" }` | `{ "events_exported": number }` | `export_run_audit` |
 | `/v0/vm/stop` | POST | `vm.control` | — | `204 No Content` | `stop_current_vm` |
 | `/v0/snapshots/save` | POST | `snapshot.write` | `{ "name": string }` | `{ "bytes_written": number }` | `save_snapshot_real` |
@@ -269,6 +271,16 @@ the tables above. They are part of this document's surface all the same.
 
 ### 5.4 Notes on the tables
 
+- **`/v0/tasks` routes; `/v0/agent/run` runs *here*.** The two look alike and are
+  not: `POST /v0/agent/run` runs one turn on **this node**, while `POST /v0/tasks`
+  sends a `Task` to the executor its `target` names and answers with the
+  `TaskOutcome` the executor produced. The node is deliberately **not** one of its
+  own executors — a target naming it is a `404` — so the two endpoints never
+  overlap; `GET /v0/executors` lists who a task can reach. The fleet comes from
+  `executors` in `settings.json` (label + program + args) and from nothing else:
+  there is no runtime registration endpoint in v0.9. A task with no `id` gets one
+  from the server, and a run that *failed* is still a `200` — its `outcome` says so;
+  the `404`/`500` are for a target nobody owns and a dispatch that broke.
 - **`POST /v0/qemu/download` refuses, by decision, on every platform.** RiscDom guides
   the user to a QEMU they install themselves (`docs/qemu-distribution.md` §5): no release is
   pinned, so the endpoint answers `503 unavailable` with `cause: "qemu"` and the install

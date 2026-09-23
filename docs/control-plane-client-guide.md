@@ -480,6 +480,24 @@ curl -sS -X POST http://127.0.0.1:7821/v0/agent/run \
 ```
 
 ```bash
+# Dispatch a task to a *configured executor* — the sibling of the run above, and
+# not a synonym for it. `run` works on this node; a task is routed by its target.
+curl -sS http://127.0.0.1:7821/v0/executors -H "Authorization: Bearer $RISCDOM_TOKEN"
+# {"executors":[{"agent_id":"executor-0"}]} — nothing configured is []
+
+curl -sS -X POST http://127.0.0.1:7821/v0/tasks \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"target":"executor-0","input":"say hi"}'
+# {"task_id":"task-4711-1","agent_id":"device-4711-9","outcome":{"Final":{...}}}
+# 404 cause "target" — this node owns nobody by that name (including itself: a task
+#   for this node is `POST /v0/agent/run`). Synchronous, like a run — the answer
+#   *is* the outcome, and there is no task to poll. `id` is optional (the server
+#   mints one), and a task whose run merely *failed* is still a `200`: its `outcome`
+#   says `Failed`. The `agent_id` in the answer is the identity the executor
+#   announced, not the label the task was addressed by.
+```
+
+```bash
 # Switch this node to another sandbox definition. Validation happens before the
 # running VM is touched, and the answer says where the node came from:
 curl -sS -X POST http://127.0.0.1:7821/v0/sandboxes/switch \
@@ -600,6 +618,8 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # against one that 
 | `riscdom workspace import <archive> [--force]` | `POST /v0/workspace/import` |
 | `riscdom run <task>` | `POST /v0/agent/run` |
 | `riscdom run <task> --sandbox <name>` | `POST /v0/agent/run` (with `sandbox`) |
+| `riscdom executors list` | `GET /v0/executors` |
+| `riscdom tasks dispatch --target <agent_id> --input <text>` | `POST /v0/tasks` |
 | `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
 | `riscdom sessions create` / `open` / `rename` / `delete` / `clear-all` | `POST /v0/sessions/create` / `open` / `rename` / `delete` / `clear` |

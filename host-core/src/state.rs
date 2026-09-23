@@ -21,7 +21,10 @@ use agent::llm::{DeepSeekClient, LlmClient};
 use agent::message::{ChatMessage, ChatRequest, ChatResponse, StreamEvent};
 use agent::policy::WorkspacePolicy;
 use agent::presets::{builtin_presets, find_preset, ProviderPreset, DEFAULT_PRESET_ID};
-use agent::{AgentConfig, AgentLoop, AgentOutcome};
+use agent::{
+    AgentConfig, AgentHandle, AgentId, AgentLoop, AgentOutcome, DispatchError, Dispatcher,
+    LocalDispatcher, Task, TaskId, TaskOutcome,
+};
 use audit::{AuditSink, AuditStore, ChainStatus, SqliteAuditSink, StoredEvent};
 use sandbox::platform::{QmpEndpoint, SerialEndpoint};
 use sandbox::vm::{RiscVVirtualMachine, VMConfig};
@@ -484,6 +487,15 @@ pub struct AppState {
     qemu_download_last: Mutex<Option<crate::qemu_download::QemuDownloadEvent>>,
     /// Non-secret local settings mirrored to `settings.json`.
     settings: Mutex<LocalSettings>,
+    /// The executor handles a task is routed to (v0.9 interface E0).
+    ///
+    /// Built from `settings.executors` after the settings file is read. The
+    /// handles are pure data until a task runs — `StdioExecutorHandle::new` spawns
+    /// nothing, the child appears in `run` — so registration has **no side
+    /// effect** and needs no lazy init. The node itself is deliberately **not**
+    /// here: `/v0/agent/run` is how a caller runs on this node, and `/v0/tasks`
+    /// reaches only the fleet this node was configured with.
+    executors: Mutex<Vec<Arc<dyn AgentHandle>>>,
     /// Where `settings.json` lives.
     settings_path: PathBuf,
     /// The data directory this instance owns (v0.8). The sessions DB and the
@@ -639,6 +651,7 @@ impl AppState {
         );
         state.init_from_env();
         state.load_settings();
+        state.register_executors();
         Ok(state)
     }
 
@@ -667,6 +680,7 @@ impl AppState {
         state.settings_path = crate::paths::settings_path_in(&state.data_dir);
         state.init_from_env();
         state.load_settings();
+        state.register_executors();
         Ok(state)
     }
 
@@ -685,7 +699,101 @@ impl AppState {
         // Tests stay hermetic: settings live inside the temp workspace.
         state.settings_path = root.join(".riscdom").join("settings.json");
         state.load_settings();
+        state.register_executors();
         Ok(state)
+    }
+
+    /// Turn `settings.executors` into the handles a task is routed to (v0.9
+    /// interface E0).
+    ///
+    /// Called once per constructor, after `load_settings`. Nothing is spawned
+    /// here: `StdioExecutorHandle::new` only records what to run, so a node with a
+    /// fleet configured starts no children until a task actually arrives. A
+    /// program that does not exist is therefore **not** an error at startup — it
+    /// is the first task's failure, which is the honest place for it (a path may
+    /// be replaced between the two moments, and a discovery scan is not what this
+    /// is).
+    fn register_executors(&self) {
+        let specs = match self.settings.lock() {
+            Ok(settings) => settings.executors.clone(),
+            Err(_) => return,
+        };
+        // `LocalDispatcher` is the same holder the worker's supervisor builds;
+        // the node reuses it rather than keeping a second routing implementation.
+        // The handles are kept, not a dispatcher: `dispatch_task_value` builds one
+        // on demand, which is the single place a future runtime registration
+        // (not in v0.9) would have to be visible to.
+        let handles: Vec<Arc<dyn AgentHandle>> = specs
+            .iter()
+            .map(|spec| {
+                Arc::new(crate::executor::StdioExecutorHandle::new(
+                    AgentId::new(spec.label.clone()),
+                    spec.program.clone(),
+                    spec.args.clone(),
+                )) as Arc<dyn AgentHandle>
+            })
+            .collect();
+        if let Ok(mut held) = self.executors.lock() {
+            *held = handles;
+        }
+    }
+
+    /// The identities `POST /v0/tasks` can reach — the configured fleet, in
+    /// configuration order.
+    pub fn executors(&self) -> Vec<String> {
+        match self.executors.lock() {
+            Ok(held) => held
+                .iter()
+                .map(|handle| handle.agent_id().as_str().to_string())
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Dispatch one task to the executor its `target` names (v0.9 interface E0).
+    ///
+    /// `id` is the caller's `Task.id` when it sent one; a task without one gets a
+    /// fresh [`TaskId`], because the id is what the executor echoes back and what
+    /// a reader uses to match the two halves.
+    ///
+    /// The refusal ladder is the dispatcher's, translated to the host's vocabulary
+    /// so the endpoint can answer `404 cause "target"` for a target nobody owns and
+    /// `500 cause "task"` for a dispatch that broke — two different things, and a
+    /// run that merely *failed* is neither (it comes back as an `Ok` outcome whose
+    /// `outcome` is `failed`).
+    pub fn dispatch_task(
+        &self,
+        target: &str,
+        input: &str,
+        sandbox: Option<&str>,
+        id: Option<&str>,
+    ) -> Result<TaskOutcome, HostError> {
+        let task = Task {
+            id: id.map(TaskId::new).unwrap_or_else(TaskId::next),
+            target: AgentId::new(target),
+            input: input.to_string(),
+            sandbox: sandbox.map(str::to_string),
+        };
+        self.dispatch_task_value(task)
+    }
+
+    /// [`dispatch_task`](Self::dispatch_task) for a task a caller already built.
+    pub fn dispatch_task_value(&self, task: Task) -> Result<TaskOutcome, HostError> {
+        let dispatcher = match self.executors.lock() {
+            Ok(held) => LocalDispatcher::new(held.clone()),
+            Err(_) => {
+                return Err(HostError::TaskFailed(
+                    "the executor list is poisoned".into(),
+                ))
+            }
+        };
+        match dispatcher.dispatch(task) {
+            Ok(outcome) => Ok(outcome),
+            Err(DispatchError::NoSuchAgent(agent)) => {
+                Err(HostError::NoSuchExecutor(agent.as_str().to_string()))
+            }
+            Err(error) => Err(HostError::TaskFailed(error.to_string())),
+        }
     }
 
     /// Dev convenience: adopt `DEEPSEEK_API_KEY` into **memory only**.
@@ -778,6 +886,7 @@ impl AppState {
             toolchain_download_last: Mutex::new(None),
             qemu_download_last: Mutex::new(None),
             settings: Mutex::new(LocalSettings::default()),
+            executors: Mutex::new(Vec::new()),
             settings_path: crate::paths::settings_path(),
             data_dir: crate::paths::default_data_dir(),
             llm_config: Mutex::new(None),

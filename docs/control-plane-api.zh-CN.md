@@ -132,12 +132,14 @@ pub struct Actor {
 | `/v0/sandboxes/candidates` | GET | `sandbox.read` | — | `CandidatesView` | `sandbox_candidates` |
 | `/v0/sandboxes/{name}` | GET | `sandbox.read` | path: `name` | `SandboxView`，或 `404` | `get_sandbox` |
 | `/v0/sandboxes/requests` | GET | `sandbox.read` | query: `status`? | `{ "requests": [SandboxRequestView] }`，`status` 未知时 `400` | `list_sandbox_requests` |
+| `/v0/executors` | GET | `agent.run` | 无 | `{ "executors": [{ "agent_id": string }] }` | `list_executors` |
 
-### 5.2 控制类（35）—— 已于 v0.9 批次 4 实装，沙箱 F1、F2b-2、F2c 与项目进出扩充
+### 5.2 控制类（36）—— 已于 v0.9 批次 4 实装，沙箱 F1、F2b-2、F2c、项目进出与任务端点扩充
 
 | 端点 | 方法 | 权限 | 请求 | 响应 | 对应 Tauri 命令 |
 |---|---|---|---|---|---|
 | `/v0/agent/run` | POST | `agent.run` | `{ "user_input": string, "sandbox"? }` | `AgentOutcomeView` | `run_agent` |
+| `/v0/tasks` | POST | `agent.run` | `{ "target": string, "input": string, "sandbox"?, "id"? }` | `TaskOutcome`，`target` 未知时 `404` | `dispatch_task` |
 | `/v0/runs/export` | POST | `audit.export` | `{ "run_id", "path" }` | `{ "events_exported": number }` | `export_run_audit` |
 | `/v0/vm/stop` | POST | `vm.control` | — | `204 No Content` | `stop_current_vm` |
 | `/v0/snapshots/save` | POST | `snapshot.write` | `{ "name": string }` | `{ "bytes_written": number }` | `save_snapshot_real` |
@@ -188,6 +190,8 @@ pub struct Actor {
 | `/v0/events` | GET | `events.subscribe` | SSE 事件流（见 [control-plane-events.zh-CN.md](control-plane-events.zh-CN.md)）。 |
 
 ### 5.4 表格附注
+
+- **`/v0/tasks` 是路由，`/v0/agent/run` 是**在这里**跑。** 两者形似而不同的：`POST /v0/agent/run` 在**本节点**上跑一轮，`POST /v0/tasks` 把一条 `Task` 送到它的 `target` 指定的执行者，并回该执行者产出的 `TaskOutcome`。节点**故意不是**它自己的执行者之一——目标写它就是 `404`——所以两个端点从不重叠；`GET /v0/executors` 列出任务能抵达谁。执行者队伍来自 `settings.json` 里的 `executors`（label + program + args），**仅此一处**：v0.9 没有运行时注册端点。不带 `id` 的任务由服务端补一个；而一次**失败**的运行依旧是 `200`——它的 `outcome` 自会说明；`404` / `500` 分别留给无人拥有的目标与断掉的派发。
 
 - **`POST /v0/qemu/download` 按决定在每个平台上都拒绝。** RiscDom 引导用户自己安装 QEMU
   （`docs/qemu-distribution.md` §5）：没有 pin 任何发布版，因此该端点答 `503 unavailable`、
