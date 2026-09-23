@@ -255,13 +255,17 @@ fn every_query_endpoint_answers() {
         ("/v0/workspace/files", 200, ""),
         ("/v0/workspace/file?path=src%2Fmain.c", 200, "content"),
         ("/v0/serial", 200, "buffer"),
+        ("/v0/sandboxes", 200, "sandboxes"),
+        ("/v0/sandboxes/current", 200, "current"),
+        ("/v0/sandboxes/candidates", 200, "toolchains"),
+        ("/v0/sandboxes/default", 200, "name"),
         // Reserved: served, and answers 501 until the aggregate lands.
         ("/v0/resources", 501, "code"),
     ];
     assert_eq!(
         cases.len(),
-        28,
-        "26 query rows, the path-parameter query, and the reserved aggregate"
+        32,
+        "30 query rows, the two path-parameter queries, and the reserved aggregate"
     );
     for (path, want_status, key) in cases {
         let (status, body) = get(addr, path);
@@ -270,6 +274,87 @@ fn every_query_endpoint_answers() {
             assert!(body.get(key).is_some(), "{path} must carry {key}: {body}");
         }
     }
+}
+
+#[test]
+fn the_sandbox_registry_answers_and_the_fallback_is_always_in_it() {
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+
+    // A fresh machine: nothing hand-written, nothing installed, and the built-in
+    // fallback still names a usable definition.
+    let (status, body) = get(addr, "/v0/sandboxes");
+    assert_eq!(status, 200, "{body}");
+    let rows = body["sandboxes"].as_array().expect("an array of views");
+    assert!(!rows.is_empty(), "{body}");
+    assert_eq!(body["default"], "default", "{body}");
+    assert!(body["current"].is_null(), "nothing is stored: {body}");
+    let fallback = rows.last().expect("an entry");
+    assert_eq!(fallback["name"], "default");
+    assert_eq!(fallback["source"], "discovered");
+    assert_eq!(fallback["shadowed"], false);
+    assert!(fallback["runnable"].is_boolean(), "{fallback}");
+    assert!(fallback["memory_mb"].is_null(), "{fallback}");
+
+    // The current/default pair on its own.
+    let (status, body) = get(addr, "/v0/sandboxes/current");
+    assert_eq!(status, 200, "{body}");
+    assert!(body["current"].is_null(), "{body}");
+    assert_eq!(body["default"], "default", "{body}");
+
+    // The raw scan, in the two independent lists the definition layer keeps.
+    let (status, body) = get(addr, "/v0/sandboxes/candidates");
+    assert_eq!(status, 200, "{body}");
+    assert!(body["toolchains"].is_array(), "{body}");
+    assert!(body["qemus"].is_array(), "{body}");
+    // The scan is not the registry, and nothing was written back.
+    assert!(
+        body.get("sandboxes").is_none(),
+        "the scan is not the merged list: {body}"
+    );
+}
+
+#[test]
+fn a_sandbox_name_is_a_path_parameter_and_a_literal_sub_path_is_not() {
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+
+    // The fallback resolves by name on any machine.
+    let (status, body) = get(addr, "/v0/sandboxes/default");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["name"], "default");
+
+    // An unknown name is a `404` that names the parameter it could not use.
+    let (status, body) = get(addr, "/v0/sandboxes/no-such-sandbox");
+    assert_eq!(status, 404, "{body}");
+    assert_eq!(body["code"], "not_found");
+    assert_eq!(body["cause"], "name");
+
+    // The literal sub-paths are their own routes — served, or reserved for the
+    // rest of the F2 line — and never a definition that happens to be called
+    // `current`, `switch` or `assemble`.
+    for (path, want) in [
+        ("/v0/sandboxes/current", 200),
+        ("/v0/sandboxes/candidates", 200),
+        ("/v0/sandboxes/switch", 404),
+        ("/v0/sandboxes/assemble", 404),
+        ("/v0/sandboxes/requests", 404),
+    ] {
+        let (status, body) = get(addr, path);
+        assert_eq!(status, want, "{path}: {body}");
+    }
+
+    // A name never spans a slash, and the path serves `GET` only.
+    let (status, _body) = get(addr, "/v0/sandboxes/a/b");
+    assert_eq!(status, 404);
+    let (status, _) = call(addr, "POST", "/v0/sandboxes/default", "", Some("{}"));
+    assert_eq!(status, 405);
+}
+
+#[test]
+fn a_sandbox_read_without_the_capability_is_403() {
+    let (addr, _sink, _ws) = start_server(Arc::new(RefuseAll));
+    let (status, body) = get(addr, "/v0/sandboxes");
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["code"], "forbidden");
 }
 
 // ---------------------------------------------------------------------------
@@ -852,7 +937,12 @@ fn the_capability_of_each_route_reaches_the_hook() {
         seen: Arc::clone(&seen),
         held: Capability::ALL.to_vec(),
     }));
-    for path in ["/v0/runs?limit=1", "/v0/audit/status", "/v0/health"] {
+    for path in [
+        "/v0/runs?limit=1",
+        "/v0/audit/status",
+        "/v0/health",
+        "/v0/sandboxes",
+    ] {
         let (status, body) = get(addr, path);
         assert_eq!(status, 200, "{path}: {body}");
     }
@@ -865,6 +955,7 @@ fn the_capability_of_each_route_reaches_the_hook() {
         Capability::AuditRead,
         Capability::HealthRead,
         Capability::SessionWrite,
+        Capability::SandboxRead,
     ] {
         assert!(seen.contains(&expected), "{expected} in {seen:?}");
     }
@@ -886,6 +977,7 @@ fn an_actor_without_the_capability_is_refused_with_403() {
     for (method, path, body) in [
         ("GET", "/v0/audit/status", None),
         ("GET", "/v0/health", None),
+        ("GET", "/v0/sandboxes", None),
         ("POST", "/v0/sessions/clear", Some("{}")),
     ] {
         let (status, raw) = call(addr, method, path, "", body);

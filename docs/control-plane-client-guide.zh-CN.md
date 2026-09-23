@@ -104,7 +104,7 @@ server {
 
 ## 2. 查询端点
 
-共 27 个，全部 `GET`。应答是宿主的视图类型，字段见 `host-core/src/state.rs`。一律 JSON。
+共 31 个，全部 `GET`。应答是宿主的视图类型，字段见 `host-core/src/state.rs`。一律 JSON。
 
 ### 审计与运行
 
@@ -191,6 +191,27 @@ curl -sS 'http://127.0.0.1:7821/v0/serial'              # {"buffer":"hello from 
 ```
 
 `?path=` 会做百分号解码，所以 `src%2Fmain.c` 与 `src/main.c` 是同一个请求。读取会过 workspace 策略检查：越出根目录的路径属于调用方参数不可用，即 `400`，`cause` 为 `"path"`。
+
+### 沙箱
+
+```bash
+curl -sS 'http://127.0.0.1:7821/v0/sandboxes'
+# {"sandboxes":[{"name":"blink","source":"manual","runnable":true,"shadowed":false,
+#   "memory_mb":256,"toolchain_path":"...","qemu_exe":"...","kernel":null,
+#   "display_name":"Blink","notes":null},
+#  {"name":"default","source":"discovered","runnable":true,"shadowed":false,...}],
+#  "current":"blink","default":"blink"}
+curl -sS 'http://127.0.0.1:7821/v0/sandboxes/current'
+# {"current":"blink","default":"blink"}
+curl -sS 'http://127.0.0.1:7821/v0/sandboxes/candidates'
+# {"toolchains":[{"kind":"toolchain","version":"15.2.0-1","origin":"installed",...}],
+#  "qemus":[{"kind":"qemu","version":"11.1.0","origin":"installed",...}]}
+curl -sS 'http://127.0.0.1:7821/v0/sandboxes/blink'   # 单项，与列表行同形
+```
+
+列表是**合并后的注册表**：先是手写在 `settings.json` 里的定义，然后是扫描所得，最后是内置的 `default`。`source` 为 `manual` 或 `discovered`；`runnable` 每次读取时现算（QEMU 存在且 `--version` 能跑、工具链存在、内核存在或可编译），所以资源被卸载的定义仍会列出来，只是答 `runnable: false`。同名时手写者胜，而被遮的扫描项**留在列表里**并标 `shadowed: true`。
+
+`/v0/sandboxes/candidates` 答的是原始扫描——两个互相独立的列表，不合并、也不写回——而 `/v0/sandboxes/{name}` 在没有这个名字的定义时答 `404` 并在 `cause` 指出参数。字面子路径（`current`、`candidates`，以及预留的 `requests` / `switch` / `assemble`）永不被当作名字读。
 
 ### 预留的聚合端点
 
@@ -392,6 +413,7 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # 对着已经跑�
 | `riscdom audit status` | `GET /v0/audit/status` |
 | `riscdom audit events [--limit <n>]` | `GET /v0/audit/events` |
 | `riscdom snapshots list` | `GET /v0/snapshots` |
+| `riscdom sandboxes list` / `current` / `candidates` / `show <name>` | `GET /v0/sandboxes` / `/v0/sandboxes/current` / `/v0/sandboxes/candidates` / `/v0/sandboxes/<name>` |
 | `riscdom run <task>` | `POST /v0/agent/run` |
 | `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
@@ -408,6 +430,19 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # 对着已经跑�
 # 导出写到哪里由*服务端*决定：--out 相对于 workspace 根解析，回答里是计数，不是文件。
 riscdom export audit-jsonl --out audit.jsonl
 # exported 1 event to audit.jsonl
+
+# 沙箱注册表，以及一次运行会用哪个定义。
+riscdom sandboxes list
+# current    blink
+# default    blink
+#
+# NAME                         SOURCE      RUNNABLE  SHADOWED  MEMORY_MB
+# blink                        manual      true      false     256
+# default                      discovered  true      false     -
+
+riscdom sandboxes current          # 只要那两个名字
+riscdom sandboxes show blink       # 一个定义，一行一个字段
+riscdom sandboxes candidates       # 这台机器上装了什么（原始扫描）
 
 # 配置模型；key 从文件来，所以不会落进 `ps`。
 riscdom llm set --api-key-file ~/.riscdom/api-key \

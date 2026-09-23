@@ -8,7 +8,7 @@
 
 **这是什么。** RiscDom v0.9 的主线是控制平面：人监督 AI 与 AI 监督 AI 走**同一套** HTTP 接口。在内核看来，来自监工 AI 的指令和来自人的指令都是控制平面授权的指令；审计链靠 `agent_id` 区分二者。本条设计存在的意义，就是避免去建两条会各自演化、最终冲突的控制通道。
 
-**实现状态（v0.9）。** §5 已全部落地——§5.1 的 27 个查询端点、§5.2 的 29 个控制端点、§5.3 的宿主本地端点、§4 的错误模型、带 `Last-Event-ID` 补发与 `gap` 帧的事件 envelope、以及 §3 的 bearer token。仅两条路由为预留：`/v0/resources`（§6 G3）与 `POST /v0/vm/start`（§6 G1），二者都以 `501` 明示。权限**强制**（§3）已落地：每条被服务的路由恰好声明一个 capability，actor 不持有时服务端以 `403` 拒绝。
+**实现状态（v0.9）。** §5 已全部落地——§5.1 的 31 个查询端点、§5.2 的 29 个控制端点、§5.3 的宿主本地端点、§4 的错误模型、带 `Last-Event-ID` 补发与 `gap` 帧的事件 envelope、以及 §3 的 bearer token。仅两条路由为预留：`/v0/resources`（§6 G3）与 `POST /v0/vm/start`（§6 G1），二者都以 `501` 明示。权限**强制**（§3）已落地：每条被服务的路由恰好声明一个 capability，actor 不持有时服务端以 `403` 拒绝。**词汇表里每一个 capability 都至少有一条路由**：第 29 个 `sandbox.read` 由下面四条沙箱查询服务。
 
 ## 1. 定位与协议
 
@@ -96,7 +96,7 @@ pub struct Actor {
 
 查询类命令为 `GET`。控制类命令为 `POST`。「权限」列是服务端在处理器运行前检查的前置条件（§3；§6 缺口 G2）。最后一列是与端点对应的 Tauri 命令名，便于集成者把两个面对齐。
 
-### 5.1 查询类（27）
+### 5.1 查询类（31）
 
 | 端点 | 方法 | 权限 | 请求 | 响应 | 对应 Tauri 命令 |
 |---|---|---|---|---|---|
@@ -127,6 +127,10 @@ pub struct Actor {
 | `/v0/workspace/files` | GET | `workspace.read` | — | `[string]` | `get_workspace_files` |
 | `/v0/workspace/file` | GET | `workspace.read` | query：`path` | `{ "content": string }` | `read_workspace_file` |
 | `/v0/serial` | GET | `serial.read` | — | `{ "buffer": string }` | `get_serial_buffer` |
+| `/v0/sandboxes` | GET | `sandbox.read` | — | `{ "sandboxes": [SandboxView], "current": string \| null, "default": string }` | `list_sandboxes` |
+| `/v0/sandboxes/current` | GET | `sandbox.read` | — | `{ "current": string \| null, "default": string }` | `current_sandbox` |
+| `/v0/sandboxes/candidates` | GET | `sandbox.read` | — | `CandidatesView` | `sandbox_candidates` |
+| `/v0/sandboxes/{name}` | GET | `sandbox.read` | path: `name` | `SandboxView`，或 `404` | `get_sandbox` |
 
 ### 5.2 控制类（29）—— 已于 v0.9 批次 4 实装，沙箱 F1 扩充
 
@@ -192,6 +196,7 @@ pub struct Actor {
 - **查询类与控制类均已实现。** `POST /v0/vm/start`（§6 G1）与 `/v0/resources`（§6 G3）在各自的内核工作落地前回 `501`。
 - **报成功的控制操作可能什么都没改。** 宿主的会话改名与删除是幂等的：未知 `session_id` 不算错误（端点回 `204`），而 `/v0/sessions/open` 回 `404`。端点是照搬宿主，而不是另造一套差异。
 - **`POST /v0/toolchain/download` 会真的开始下载**固定的 RISC-V GCC 归档并回 `202`；进度以 `toolchain:download` 事件抵达。
+- **沙箱查询读的是合并后的注册表，且从不写它**（v0.9 沙箱 F2a-2）。`/v0/sandboxes` 把三个来源摆进一个列表——手写定义、扫描所得、内置 `default`——每项携带 `source`（`manual` / `discovered`）、`runnable`（每次读取现算，从不存储）与 `shadowed`。同名时手写者胜，而被遮的那项**留在列表里并标出**。`/v0/sandboxes/candidates` 答的是原始扫描（两个互相独立的列表），其中没有任何一项是定义。`/v0/sandboxes/{name}` 在没有这个名字的定义时答 `404`，并在 `cause` 指出参数；字面子路径（`current`、`candidates`，以及 F2 线后面才落的三个：`requests`、`switch`、`assemble`）永不被当作名字读。切换属 F2b；这四条路由什么也改不了。
 - **权限既声明、也强制。** 每条路由在路由表里标注自己的 capability，处理器运行前服务端拿它与钩子返回的 actor 比对；不持有即 `403 forbidden`，`cause` 为 `"capability"`（§3）。v0.9 默认下每个 actor 都持有全部 29 项，故 `403` 只可能来自返回更窄 actor 的钩子。
 - **参数。** 必填参数缺失或无法解析 → `400 bad_request`，`cause` 为该参数名。`limit` 在宿主命令要求处为必填、其余为可选：`/v0/runs` 默认 20，`/v0/audit/events` 与 `/v0/sessions` 必填。`/v0/workspace/file` 的 `?path=` 会做百分号解码。
 - **`/v0/audit/status` 不消费失败队列。** Tauri 命令会**取走**待报的审计失败；`GET` 不能取，否则一个轮询客户端会吞掉另一个客户端的告警。该端点按现状报告队列。

@@ -60,6 +60,8 @@ listen on a public interface unless you tell it to.
 | `/v0/status` | GET | `{"status","version","uptime_ms","connections","sse_subscribers","agents","agent_id"}` |
 | `/v0/events` | GET | The SSE event stream (`text/event-stream`, replayable with `Last-Event-ID`). |
 | `/v0/runs`, `/v0/sessions`, `/v0/snapshots`, `/v0/llm/…`, `/v0/preflight`, `/v0/serial` | GET | The rest of the query surface: see the API document's §5.1. |
+| `/v0/sandboxes`, `/v0/sandboxes/current`, `/v0/sandboxes/candidates` | GET | The sandbox registry (`sandbox.read`): the merged list with its `current` / `default`, or the raw scan. |
+| `/v0/sandboxes/{name}` | GET | One definition (`SandboxView`), or `404` naming the parameter. |
 | `/v0/sessions/create`, `/v0/settings/theme`, … | POST | The 29 controls of §5.2: sessions, snapshots, VM, toolchain, QEMU, preflight, LLM config, exports. |
 
 `/v0/qemu/download` is the one path in the QEMU family served under both methods: `GET` asks

@@ -20,6 +20,10 @@ riscdom [options] <command> [args]
 | `audit status` | `GET /v0/audit/status` | 事件总数、链的判定、待报告失败 |
 | `audit events [--limit <n>]` | `GET /v0/audit/events` | 最近事件，新的在前（默认 20） |
 | `snapshots list` | `GET /v0/snapshots` | 已存快照 |
+| `sandboxes list` | `GET /v0/sandboxes` | 合并后的沙箱注册表，含 `current` 与 `default` |
+| `sandboxes current` | `GET /v0/sandboxes/current` | 一次运行会用的定义，以及兜底的名字 |
+| `sandboxes candidates` | `GET /v0/sandboxes/candidates` | 这台机器上装了什么：两个互相独立的列表，未合并 |
+| `sandboxes show <name>` | `GET /v0/sandboxes/<name>` | 一个定义，一行一个字段 |
 
 控制类子命令——全部是 HTTP `POST`，全部需要 token：
 
@@ -174,6 +178,22 @@ token 从不被打印、从不被记录：失败只说**哪个文件**读不到�
   $ riscdom runs list
   RUN_ID                       STATUS     STARTED_MS      ENDED_MS
   local-17480-1                ok                100           200
+
+  $ riscdom sandboxes list
+  current    blink
+  default    blink
+
+  NAME                         SOURCE      RUNNABLE  SHADOWED  MEMORY_MB
+  blink                        manual      true      false     256
+  default                      discovered  true      false     -
+
+  $ riscdom sandboxes candidates
+  TOOLCHAINS (1)
+    KIND       VERSION      ORIGIN     RUNNABLE  PATH
+    toolchain  15.2.0-1     installed  true      C:\data\toolchain\15.2.0-1\bin\riscv64-unknown-elf-gcc.exe
+  QEMUS (1)
+    KIND       VERSION      ORIGIN     RUNNABLE  PATH
+    qemu       11.1.0       installed  true      C:\data\qemu\11.1.0\qemu-system-riscv64.exe
   ```
 
 - `agents` 是唯一的派生视图：`--json` 仍透传 `/v0/status`（这是规则），人类模式只显示 `agents` 与 `agent_id`。

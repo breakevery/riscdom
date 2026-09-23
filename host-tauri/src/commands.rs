@@ -14,6 +14,7 @@ use crate::state::{
     StoredEventView, ToolchainDownloadStatus, ToolchainView, VmStatusView,
 };
 use crate::SessionMeta;
+use crate::{CandidatesView, SandboxView};
 use std::sync::Arc;
 use tauri::{Manager, State};
 
@@ -113,6 +114,42 @@ pub async fn qemu_download_status(
     state: State<'_, AppState>,
 ) -> Result<QemuDownloadStatus, String> {
     Ok(state.qemu_download_status())
+}
+
+/// The merged sandbox registry: hand-written, then scanned, then the fallback.
+///
+/// Read-only (v0.9 sandbox F2a-2). The interface is not wired to these commands in
+/// this batch.
+#[tauri::command]
+pub async fn list_sandboxes(state: State<'_, AppState>) -> Result<Vec<SandboxView>, String> {
+    Ok(state.sandboxes())
+}
+
+/// The definition a run would use, and the fallback's name.
+#[tauri::command]
+pub async fn current_sandbox(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "current": state.current_sandbox(),
+        "default": state.sandbox_default_name(),
+    }))
+}
+
+/// The raw scan: what is installed here, plus this machine's QEMU.
+///
+/// Not the registry: nothing in the answer is a definition, and nothing was
+/// written to `settings.json`.
+#[tauri::command]
+pub async fn sandbox_candidates(state: State<'_, AppState>) -> Result<CandidatesView, String> {
+    Ok(state.sandbox_candidates())
+}
+
+/// One definition by name, or `null` when no sandbox has that name.
+#[tauri::command]
+pub async fn get_sandbox(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<Option<SandboxView>, String> {
+    Ok(state.sandbox(&name))
 }
 
 /// List snapshots on disk (real `.mig` and reboot-fallback `.json`).

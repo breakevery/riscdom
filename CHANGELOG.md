@@ -476,6 +476,37 @@ F2d), and so are the endpoints, the Tauri commands and the CLI (F2a-2) — this 
   pair). The §5 tables themselves still name the 28 routes that exist: `sandbox.read` gets
   its endpoints in F2a-2, so the count moves one ahead of the tables on purpose.
 
+**The sandbox registry is reachable — read-only — from both surfaces.** F2a-2 adds the four
+queries the definition layer needed (the merged registry, the current/default pair, the raw
+scan and one definition by name), the four Tauri commands behind them and the four CLI
+subcommands. Switching is still F2b: nothing here can change a sandbox.
+
+### Added
+
+- **Four queries** (`docs/control-plane-api.md` §5.1): `GET /v0/sandboxes` (`sandbox.read`),
+  `/v0/sandboxes/current`, `/v0/sandboxes/candidates` and `/v0/sandboxes/{name}` — the second
+  path-parameter route after `/v0/runs/{run_id}`, and the four routes that serve the 29th
+  capability.
+- **Four Tauri commands** (`host-tauri`): `list_sandboxes`, `current_sandbox`,
+  `sandbox_candidates` and `get_sandbox`, registered in the desktop shell. The interface is
+  not wired to them in this batch.
+- **Four CLI subcommands**: `sandboxes list` / `current` / `candidates` / `show <name>`,
+  each one an HTTP `GET`, with tables in human mode and `--json` passthrough.
+
+### Changed
+
+- **§5.1 is 31 queries, and the vocabulary's 29 names all have a route now.** F2a-1 shipped
+  `sandbox.read` a batch before the routes that use it; the count and the tables are
+  self-consistent again.
+- **`/v0/sandboxes/{name}` never reads a literal sub-path as a name.** `current` and
+  `candidates` are their own routes, and `requests` / `switch` / `assemble` — the three the
+  rest of the F2 line reserves — answer `404` rather than resolving to a definition that
+  happens to be called that.
+- **`render` gained the four human-mode shapes** (`sandboxes`, `sandbox_current`,
+  `sandbox_candidates`, `sandbox_detail`), and `args.rs` the four commands' paths, methods
+  and encodings: a name is percent-encoded like a run id, so a slash cannot escape the one
+  segment the route matches on.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

@@ -21,6 +21,11 @@ read-only commands:
   audit status                  event count and chain verdict (`GET /v0/audit/status`)
   audit events [--limit <n>]    recent audit events, newest first
   snapshots list                stored snapshots (`GET /v0/snapshots`)
+  sandboxes list                the sandbox registry: hand-written, scanned, and
+                                the built-in fallback (`GET /v0/sandboxes`)
+  sandboxes current             the definition a run would use, and the fallback
+  sandboxes candidates          what is installed on this machine (the raw scan)
+  sandboxes show <name>         one definition (`GET /v0/sandboxes/<name>`)
 
 control commands:
   run <task> [--follow]         run one agent turn; --follow prints the event
@@ -126,6 +131,13 @@ pub enum Command {
         limit: usize,
     },
     SnapshotsList,
+    /// The merged sandbox registry (v0.9 sandbox F2a-2), read-only.
+    SandboxesList,
+    SandboxesCurrent,
+    SandboxesCandidates,
+    SandboxesShow {
+        name: String,
+    },
     // ---- control ----
     Run {
         task: String,
@@ -220,6 +232,10 @@ impl Command {
             | Command::AuditStatus
             | Command::AuditEvents { .. }
             | Command::SnapshotsList
+            | Command::SandboxesList
+            | Command::SandboxesCurrent
+            | Command::SandboxesCandidates
+            | Command::SandboxesShow { .. }
             | Command::QemuStatus => "GET",
             _ => "POST",
         }
@@ -237,6 +253,12 @@ impl Command {
             // `limit` is required by this endpoint, so the CLI always sends one.
             Command::AuditEvents { limit } => format!("/v0/audit/events?limit={limit}"),
             Command::SnapshotsList => "/v0/snapshots".to_string(),
+            Command::SandboxesList => "/v0/sandboxes".to_string(),
+            Command::SandboxesCurrent => "/v0/sandboxes/current".to_string(),
+            Command::SandboxesCandidates => "/v0/sandboxes/candidates".to_string(),
+            Command::SandboxesShow { name } => {
+                format!("/v0/sandboxes/{}", url_encode(name))
+            }
             Command::Run { .. } => "/v0/agent/run".to_string(),
             Command::VmStop => "/v0/vm/stop".to_string(),
             Command::VmStart => "/v0/vm/start".to_string(),
@@ -519,6 +541,12 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
             limit: flags.limit.unwrap_or(DEFAULT_EVENT_LIMIT),
         }),
         (Some("snapshots"), Some("list"), None, None) => Some(Command::SnapshotsList),
+        (Some("sandboxes"), Some("list"), None, None) => Some(Command::SandboxesList),
+        (Some("sandboxes"), Some("current"), None, None) => Some(Command::SandboxesCurrent),
+        (Some("sandboxes"), Some("candidates"), None, None) => Some(Command::SandboxesCandidates),
+        (Some("sandboxes"), Some("show"), Some(name), None) => Some(Command::SandboxesShow {
+            name: name.to_string(),
+        }),
         (Some("run"), Some(task), None, None) => Some(Command::Run {
             task: task.to_string(),
         }),
@@ -616,6 +644,10 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
             Err(format!("{} path needs a <file>", w0.unwrap_or_default()))
         }
         (Some("qemu"), Some(other), _) => Err(format!("unknown qemu subcommand {other:?}")),
+        (Some("sandboxes"), Some("show"), None) => Err("sandboxes show needs a <name>".to_string()),
+        (Some("sandboxes"), Some(other), _) => {
+            Err(format!("unknown sandboxes subcommand {other:?}"))
+        }
         (Some("audit"), Some("alert"), Some("set")) => {
             Err("audit alert set needs on|off".to_string())
         }
@@ -1428,6 +1460,78 @@ mod tests {
             vec!["qemu", "download", "now"],
             vec!["qemu", "nope"],
             vec!["qemu", "status", "extra"],
+        ] {
+            assert!(parse_words(&args).is_err(), "{args:?} should not parse");
+        }
+    }
+
+    #[test]
+    fn the_sandbox_commands_parse() {
+        assert_eq!(command(&["sandboxes", "list"]), Command::SandboxesList);
+        assert_eq!(
+            command(&["sandboxes", "current"]),
+            Command::SandboxesCurrent
+        );
+        assert_eq!(
+            command(&["sandboxes", "candidates"]),
+            Command::SandboxesCandidates
+        );
+        assert_eq!(
+            command(&["sandboxes", "show", "blink"]),
+            Command::SandboxesShow {
+                name: "blink".to_string()
+            }
+        );
+
+        // All four are read-only: `GET`, no body, nothing to confirm, no path.
+        for candidate in [
+            Command::SandboxesList,
+            Command::SandboxesCurrent,
+            Command::SandboxesCandidates,
+            Command::SandboxesShow {
+                name: "blink".to_string(),
+            },
+        ] {
+            assert_eq!(candidate.method(), "GET");
+            assert_eq!(candidate.body(), None);
+            assert_eq!(candidate.confirmation(), None);
+            assert_eq!(candidate.output_path(), None);
+        }
+
+        assert_eq!(Command::SandboxesList.request_path(), "/v0/sandboxes");
+        assert_eq!(
+            Command::SandboxesCurrent.request_path(),
+            "/v0/sandboxes/current"
+        );
+        assert_eq!(
+            Command::SandboxesCandidates.request_path(),
+            "/v0/sandboxes/candidates"
+        );
+        assert_eq!(
+            Command::SandboxesShow {
+                name: "blink".to_string()
+            }
+            .request_path(),
+            "/v0/sandboxes/blink"
+        );
+        // A name is percent-encoded like a run id, so a slash cannot escape the
+        // one segment the route matches on.
+        assert_eq!(
+            Command::SandboxesShow {
+                name: "a/b".to_string()
+            }
+            .request_path(),
+            "/v0/sandboxes/a%2Fb"
+        );
+    }
+
+    #[test]
+    fn an_incomplete_sandboxes_command_is_refused() {
+        for args in [
+            vec!["sandboxes"],
+            vec!["sandboxes", "show"],
+            vec!["sandboxes", "nope"],
+            vec!["sandboxes", "list", "extra"],
         ] {
             assert!(parse_words(&args).is_err(), "{args:?} should not parse");
         }

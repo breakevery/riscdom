@@ -133,7 +133,7 @@ stream instead of a request that ends when the first heartbeat is late.
 
 ## 2. The query endpoints
 
-27 endpoints, all `GET`. The responses are the host's view types; their fields are the ones
+31 endpoints, all `GET`. The responses are the host's view types; their fields are the ones
 in `host-core/src/state.rs`. Everything is JSON.
 
 ### Audit and runs
@@ -232,6 +232,37 @@ curl -sS 'http://127.0.0.1:7821/v0/serial'              # {"buffer":"hello from 
 `?path=` is percent-decoded, so `src%2Fmain.c` and `src/main.c` are the same request. A
 read is checked against the workspace policy: a path that leaves the root is the caller's
 parameter being unusable, so it is `400` with `cause: "path"`.
+
+### Sandboxes
+
+```bash
+curl -sS 'http://127.0.0.1:7821/v0/sandboxes'
+# {"sandboxes":[{"name":"blink","source":"manual","runnable":true,"shadowed":false,
+#   "memory_mb":256,"toolchain_path":"...","qemu_exe":"...","kernel":null,
+#   "display_name":"Blink","notes":null},
+#  {"name":"default","source":"discovered","runnable":true,"shadowed":false,...}],
+#  "current":"blink","default":"blink"}
+curl -sS 'http://127.0.0.1:7821/v0/sandboxes/current'
+# {"current":"blink","default":"blink"}
+curl -sS 'http://127.0.0.1:7821/v0/sandboxes/candidates'
+# {"toolchains":[{"kind":"toolchain","version":"15.2.0-1","origin":"installed",...}],
+#  "qemus":[{"kind":"qemu","version":"11.1.0","origin":"installed",...}]}
+curl -sS 'http://127.0.0.1:7821/v0/sandboxes/blink'   # one entry, the same shape as a list row
+```
+
+The list is the **merged registry**: the definitions written by hand in `settings.json`,
+then what the scan found, then the built-in `default`. `source` is `manual` or
+`discovered`; `runnable` is computed per read (a QEMU that exists and answers `--version`,
+a toolchain that exists, and a kernel that exists or can be compiled), so a definition
+whose resource was uninstalled stays listed and answers `runnable: false`. A hand-written
+definition wins a name collision, and the scanned entry **stays in the list** marked
+`shadowed: true`.
+
+`/v0/sandboxes/candidates` is the raw scan instead — the two independent lists, nothing
+merged and nothing written back — and `/v0/sandboxes/{name}` is a `404` naming the
+parameter when no definition carries that name. The literal sub-paths (`current`,
+`candidates`, and the reserved `requests` / `switch` / `assemble`) are never read as a
+name.
 
 ### The reserved aggregate
 
@@ -456,6 +487,7 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # against one that 
 | `riscdom audit status` | `GET /v0/audit/status` |
 | `riscdom audit events [--limit <n>]` | `GET /v0/audit/events` |
 | `riscdom snapshots list` | `GET /v0/snapshots` |
+| `riscdom sandboxes list` / `current` / `candidates` / `show <name>` | `GET /v0/sandboxes` / `/v0/sandboxes/current` / `/v0/sandboxes/candidates` / `/v0/sandboxes/<name>` |
 | `riscdom run <task>` | `POST /v0/agent/run` |
 | `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
@@ -473,6 +505,19 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # against one that 
 # workspace root, and the answer is a count, not the file.
 riscdom export audit-jsonl --out audit.jsonl
 # exported 1 event to audit.jsonl
+
+# The sandbox registry, and which definition a run would use.
+riscdom sandboxes list
+# current    blink
+# default    blink
+#
+# NAME                         SOURCE      RUNNABLE  SHADOWED  MEMORY_MB
+# blink                        manual      true      false     256
+# default                      discovered  true      false     -
+
+riscdom sandboxes current          # just the two names
+riscdom sandboxes show blink       # one definition, one line per field
+riscdom sandboxes candidates       # what is installed here (the raw scan)
 
 # Configure the model; the key comes from a file, so it stays out of `ps`.
 riscdom llm set --api-key-file ~/.riscdom/api-key \

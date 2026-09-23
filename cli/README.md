@@ -24,6 +24,10 @@ riscdom [options] <command> [args]
 | `audit status` | `GET /v0/audit/status` | event count, chain verdict, pending failures |
 | `audit events [--limit <n>]` | `GET /v0/audit/events` | recent events, newest first (default 20) |
 | `snapshots list` | `GET /v0/snapshots` | stored snapshots |
+| `sandboxes list` | `GET /v0/sandboxes` | the merged sandbox registry, with `current` and `default` |
+| `sandboxes current` | `GET /v0/sandboxes/current` | the definition a run would use, and the fallback's name |
+| `sandboxes candidates` | `GET /v0/sandboxes/candidates` | what is installed here: the two independent lists, unmerged |
+| `sandboxes show <name>` | `GET /v0/sandboxes/<name>` | one definition, one `key value` line per field |
 
 Control commands — every one an HTTP `POST`, and every one needs the token:
 
@@ -202,6 +206,22 @@ unreadable, or that the credential was refused, and nothing more.
   $ riscdom runs list
   RUN_ID                       STATUS     STARTED_MS      ENDED_MS
   local-17480-1                ok                100           200
+
+  $ riscdom sandboxes list
+  current    blink
+  default    blink
+
+  NAME                         SOURCE      RUNNABLE  SHADOWED  MEMORY_MB
+  blink                        manual      true      false     256
+  default                      discovered  true      false     -
+
+  $ riscdom sandboxes candidates
+  TOOLCHAINS (1)
+    KIND       VERSION      ORIGIN     RUNNABLE  PATH
+    toolchain  15.2.0-1     installed  true      C:\data\toolchain\15.2.0-1\bin\riscv64-unknown-elf-gcc.exe
+  QEMUS (1)
+    KIND       VERSION      ORIGIN     RUNNABLE  PATH
+    qemu       11.1.0       installed  true      C:\data\qemu\11.1.0\qemu-system-riscv64.exe
   ```
 
 - `agents` is the one derived view: `--json` still passes `/v0/status` through

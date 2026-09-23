@@ -15,13 +15,14 @@ instruction from a supervisor AI and one from a human are both authorised instru
 from the control plane; the audit chain tells them apart by `agent_id`. Building two
 control channels instead of one is the mistake this design exists to avoid.
 
-**Implementation status (v0.9).** Everything in §5 is implemented — the 26 query
+**Implementation status (v0.9).** Everything in §5 is implemented — the 31 query
 endpoints of §5.1, the 29 controls of §5.2, the host-local endpoints of §5.3, the error
 model of §4, the event envelope with `Last-Event-ID` replay and `gap` frames, and the
 bearer token of §3. Only two routes are reserved: `/v0/resources` (§6, G3) and
 `POST /v0/vm/start` (§6, G1), and both say so with `501`. Capability enforcement (§3) is in: every served
 route declares exactly one capability and the server refuses with `403` when the actor
-does not hold it.
+does not hold it. **Every capability in the vocabulary has at least one route**: the
+29th, `sandbox.read`, is served by the four sandbox queries below.
 
 ## 1. Position and protocol
 
@@ -164,7 +165,7 @@ Query commands are `GET`. Control commands are `POST`. "Capability" is the preco
 the server checks before the handler runs (§3; §6 gap G2). The last column names the
 Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 
-### 5.1 Queries (27)
+### 5.1 Queries (31)
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
@@ -195,6 +196,10 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/workspace/files` | GET | `workspace.read` | — | `[string]` | `get_workspace_files` |
 | `/v0/workspace/file` | GET | `workspace.read` | query: `path` | `{ "content": string }` | `read_workspace_file` |
 | `/v0/serial` | GET | `serial.read` | — | `{ "buffer": string }` | `get_serial_buffer` |
+| `/v0/sandboxes` | GET | `sandbox.read` | — | `{ "sandboxes": [SandboxView], "current": string \| null, "default": string }` | `list_sandboxes` |
+| `/v0/sandboxes/current` | GET | `sandbox.read` | — | `{ "current": string \| null, "default": string }` | `current_sandbox` |
+| `/v0/sandboxes/candidates` | GET | `sandbox.read` | — | `CandidatesView` | `sandbox_candidates` |
+| `/v0/sandboxes/{name}` | GET | `sandbox.read` | path: `name` | `SandboxView`, or `404` | `get_sandbox` |
 
 ### 5.2 Controls (29) — implemented in v0.9 batch 4, extended by sandbox F1
 
@@ -277,6 +282,17 @@ the tables above. They are part of this document's surface all the same.
   than inventing a difference.
 - **`POST /v0/toolchain/download` starts a real download** of the pinned RISC-V GCC archive
   and answers `202`; progress arrives as `toolchain:download` events.
+- **The sandbox queries read a merged registry and never write it** (v0.9 sandbox
+  F2a-2). `/v0/sandboxes` answers the three sources in one list — the hand-written
+  definitions, what the scan found, and the built-in `default` — and each entry carries
+  `source` (`manual` / `discovered`), `runnable` (computed per read, never stored) and
+  `shadowed`. A hand-written definition wins a name collision and the shadowed entry
+  **stays in the list, marked**. `/v0/sandboxes/candidates` answers the raw scan instead
+  (the two independent lists), and nothing there is a definition. `/v0/sandboxes/{name}`
+  is a `404` naming the parameter when no definition has that name; the literal sub-paths
+  (`current`, `candidates`, and the three the rest of the F2 line reserves — `requests`,
+  `switch`, `assemble`) are never read as a name. Switching is F2b; these routes cannot
+  change anything.
 - **Capabilities are declared and enforced.** Every route names its capability in the
   route table and the server checks it against the actor the hook returned before the
   handler runs; a missing capability is `403 forbidden` with `cause: "capability"` (§3).

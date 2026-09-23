@@ -13,6 +13,22 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The sandbox registry has a control-plane surface: four read-only routes, four Tauri
+  commands, four CLI subcommands** (v0.9 sandbox F2a-2). `GET /v0/sandboxes` answers the
+  merged registry plus `current` and `default`; `/v0/sandboxes/current` the two names;
+  `/v0/sandboxes/candidates` the **raw scan** (not the registry, and nothing written back);
+  `/v0/sandboxes/{name}` one definition, or `404` naming the parameter when no definition
+  carries that name. All four declare the 29th capability, `sandbox.read`. The name route is
+  the second path-parameter route after `/v0/runs/{run_id}`, and the literal sub-paths
+  (`current`, `candidates`, and the three the rest of the F2 line reserves — `requests`,
+  `switch`, `assemble`) are never read as a name: they answer `404` until F2b/F2c serve
+  them. Four Tauri commands (`list_sandboxes`, `current_sandbox`, `sandbox_candidates`,
+  `get_sandbox`) are registered in the desktop shell and **not wired to the interface** —
+  that is the D line. Four CLI subcommands (`sandboxes list` / `current` / `candidates` /
+  `show <name>`) print a table in human mode and pass the JSON through unchanged with
+  `--json`. **The gap F2a-1 reported is closed**: §5.1 is 31 queries, the vocabulary is 29
+  names, and every name now has at least one route. Switching is F2b, approval is F2c,
+  `Task.sandbox` is F2d.
 - **The sandbox registry exists: definitions, the scan, and the merge** (v0.9 sandbox
   F2a-1). A *sandbox* is now a nameable thing. `host-core/src/sandbox_def.rs` holds
   `SandboxDef` — the **stored** fields `name` / `display_name` / `memory_mb` / `qemu_exe` /

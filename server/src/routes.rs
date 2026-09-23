@@ -1,6 +1,8 @@
-//! The endpoint surface: the 26 `GET` queries, the 27 `POST` controls, the
-//! reserved `/v0/resources` and `/v0/vm/start`, the host-local endpoints, the
-//! route table that names them, and the dispatcher that calls `AppState`.
+//! The endpoint surface: the queries and the controls of `docs/control-plane-api.md`
+//! §5.1 and §5.2, the two path-parameter routes (`/v0/runs/{run_id}` and
+//! `/v0/sandboxes/{name}`), the reserved `/v0/resources` and `/v0/vm/start`, the
+//! host-local endpoints, the route table that names them, and the dispatcher that
+//! calls `AppState`.
 //!
 //! The tables are `docs/control-plane-api.md` §5.1 and §5.2.
 
@@ -43,6 +45,12 @@ pub(crate) enum Action {
     WorkspaceFiles,
     WorkspaceFile,
     Serial,
+    /// The sandbox registry (v0.9 sandbox F2a-2). Read-only: switching is F2b.
+    Sandboxes,
+    SandboxCurrent,
+    SandboxCandidates,
+    /// `/v0/sandboxes/{name}`, the second path-parameter route.
+    Sandbox,
     /// The reserved aggregate (§6, G3): answers 501.
     Resources,
     // ---- controls (§5.2) ----
@@ -87,7 +95,7 @@ pub(crate) enum Resolution {
     Query {
         action: Action,
         capability: Capability,
-        /// `/v0/runs/{run_id}` is the one path with a parameter.
+        /// `/v0/runs/{run_id}` and `/v0/sandboxes/{name}` are the paths with one.
         path_param: Option<(&'static str, String)>,
     },
     /// An endpoint the server answers itself (it needs more than `AppState`).
@@ -252,6 +260,24 @@ const ROUTES: &[(&str, &str, Capability, Action)] = &[
         Action::WorkspaceFile,
     ),
     ("GET", "/v0/serial", Capability::SerialRead, Action::Serial),
+    (
+        "GET",
+        "/v0/sandboxes",
+        Capability::SandboxRead,
+        Action::Sandboxes,
+    ),
+    (
+        "GET",
+        "/v0/sandboxes/current",
+        Capability::SandboxRead,
+        Action::SandboxCurrent,
+    ),
+    (
+        "GET",
+        "/v0/sandboxes/candidates",
+        Capability::SandboxRead,
+        Action::SandboxCandidates,
+    ),
     // Reserved (§6, G3): served, and answers 501 until the aggregate lands.
     (
         "GET",
@@ -448,6 +474,9 @@ const ROUTES: &[(&str, &str, Capability, Action)] = &[
 /// `/v0/runs/{run_id}` is the one path with a parameter.
 const RUN_PREFIX: &str = "/v0/runs/";
 
+/// `/v0/sandboxes/{name}`, the sandbox registry's path-parameter route.
+const SANDBOX_PREFIX: &str = "/v0/sandboxes/";
+
 /// The endpoints this crate added to the settled surface (see the API document's
 /// "host-local endpoints"): a liveness check, a summary, and the event stream.
 const LOCAL_ROUTES: &[(&str, Local, Capability)] = &[
@@ -608,6 +637,28 @@ fn run_id_from(path: &str) -> Option<&str> {
     Some(rest)
 }
 
+/// The `<name>` of `/v0/sandboxes/<name>`, when the path is exactly that shape.
+///
+/// The literal sub-paths of `/v0/sandboxes/…` are their own routes. The two that
+/// exist today are matched by the table before this is reached; the three that the
+/// rest of the F2 line adds (`requests` opens a switch, `switch` performs one,
+/// `assemble` builds a definition) are named here as well, so a definition called
+/// `switch` can never be mistaken for a command — it answers `404` until F2b/F2c
+/// give those paths a handler.
+fn sandbox_name_from(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix(SANDBOX_PREFIX)?;
+    if rest.is_empty() || rest.contains('/') {
+        return None;
+    }
+    if matches!(
+        rest,
+        "current" | "candidates" | "requests" | "switch" | "assemble"
+    ) {
+        return None;
+    }
+    Some(rest)
+}
+
 /// Resolve a request to its route. The query string is the caller's business.
 pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
     for (local_path, kind, capability) in LOCAL_ROUTES {
@@ -656,6 +707,18 @@ pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
             action: Action::Run,
             capability: Capability::RunsRead,
             path_param: Some(("run_id", run_id.to_string())),
+        };
+    }
+    if let Some(name) = sandbox_name_from(path) {
+        if method != "GET" {
+            return Resolution::MethodNotAllowed {
+                allowed: "GET".to_string(),
+            };
+        }
+        return Resolution::Query {
+            action: Action::Sandbox,
+            capability: Capability::SandboxRead,
+            path_param: Some(("name", name.to_string())),
         };
     }
     Resolution::NotFound
@@ -751,6 +814,31 @@ pub(crate) fn dispatch(
             Err(response) => *response,
         },
         Action::Serial => ok_json(&serde_json::json!({ "buffer": app.serial_buffer() })),
+        // ---- sandboxes (v0.9 sandbox F2a-2) ----
+        Action::Sandboxes => ok_json(&serde_json::json!({
+            "sandboxes": app.sandboxes(),
+            "current": app.current_sandbox(),
+            "default": app.sandbox_default_name(),
+        })),
+        Action::SandboxCurrent => ok_json(&serde_json::json!({
+            "current": app.current_sandbox(),
+            "default": app.sandbox_default_name(),
+        })),
+        // The scan's raw answer, not the registry: nothing here is a definition
+        // yet, and nothing here has been written to `settings.json`.
+        Action::SandboxCandidates => ok_json(&app.sandbox_candidates()),
+        Action::Sandbox => match params.required("name") {
+            Ok(name) => match app.sandbox(name) {
+                Some(view) => ok_json(&view),
+                None => error_response(
+                    404,
+                    "not_found",
+                    &format!("no sandbox named {name:?}"),
+                    Some("name"),
+                ),
+            },
+            Err(response) => *response,
+        },
         // §6 G3: the shape is settled, the aggregate is not built.
         Action::Resources => error_response(
             501,
@@ -1282,9 +1370,11 @@ mod tests {
             .iter()
             .filter(|(method, ..)| *method == "POST")
             .count();
-        // 26 queries (one of them the `/v0/runs/{run_id}` pattern, so 25 rows),
-        // plus the reserved aggregate and the QEMU download status (v0.9 F1).
-        assert_eq!(queries, 27, "query rows");
+        // 30 queries (two of them patterns — `/v0/runs/{run_id}` and
+        // `/v0/sandboxes/{name}` — so 28 rows), plus the reserved aggregate and
+        // the QEMU download status (v0.9 F1) and the three sandbox queries
+        // (v0.9 sandbox F2a-2).
+        assert_eq!(queries, 30, "query rows");
         // The 27 controls of §5.2, plus the reserved `POST /v0/vm/start` and
         // `POST /v0/runs/abandon-stale` (§6, G1 and G4), plus the QEMU download
         // start and cancel (v0.9 F1).
@@ -1342,6 +1432,58 @@ mod tests {
             resolve("GET", "/v0/runs/a/b"),
             Resolution::NotFound
         ));
+    }
+
+    #[test]
+    fn resolve_a_sandbox_by_name_and_reject_a_literal_sub_path() {
+        match resolve("GET", "/v0/sandboxes/blink") {
+            Resolution::Query {
+                action, path_param, ..
+            } => {
+                assert_eq!(action, Action::Sandbox);
+                assert_eq!(path_param, Some(("name", "blink".to_string())));
+            }
+            other => panic!("got {other:?}"),
+        }
+        // The literal sub-paths are their own endpoints, not sandboxes named that.
+        for (path, action) in [
+            ("/v0/sandboxes", Action::Sandboxes),
+            ("/v0/sandboxes/current", Action::SandboxCurrent),
+            ("/v0/sandboxes/candidates", Action::SandboxCandidates),
+        ] {
+            match resolve("GET", path) {
+                Resolution::Query {
+                    action: found,
+                    path_param,
+                    ..
+                } => {
+                    assert_eq!(found, action, "{path}");
+                    assert!(path_param.is_none(), "{path}");
+                }
+                other => panic!("GET {path}: {other:?}"),
+            }
+        }
+        // The three the rest of the F2 line reserves are not definitions either:
+        // nothing serves them yet, so they are `404`, not a sandbox named `switch`.
+        for path in [
+            "/v0/sandboxes/switch",
+            "/v0/sandboxes/assemble",
+            "/v0/sandboxes/requests",
+        ] {
+            assert!(
+                matches!(resolve("GET", path), Resolution::NotFound),
+                "{path}"
+            );
+        }
+        // A name never spans a slash, and the route serves `GET` only.
+        assert!(matches!(
+            resolve("GET", "/v0/sandboxes/a/b"),
+            Resolution::NotFound
+        ));
+        match resolve("POST", "/v0/sandboxes/blink") {
+            Resolution::MethodNotAllowed { allowed } => assert_eq!(allowed, "GET"),
+            other => panic!("POST: {other:?}"),
+        }
     }
 
     #[test]

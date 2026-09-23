@@ -280,6 +280,29 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
   `docs/control-plane-client-guide.md` 及其中文版）。§5 表格本身仍只列出已有的 28 条路由：
   `sandbox.read` 的端点在 F2a-2 才落，所以计数故意走在表格前面一格。
 
+**沙箱注册表可读——只读——且两个表面都能访问。** F2a-2 补上定义层需要的四条查询（合并后的注册表、current/default 对、原始扫描、按名取一个定义），
+以及它们背后的四个 Tauri 命令与四个 CLI 子命令。切换仍属 F2b：这里什么都改不了。
+
+### 新增
+
+- **四条查询**（`docs/control-plane-api.md` §5.1）：`GET /v0/sandboxes`（`sandbox.read`）、
+  `/v0/sandboxes/current`、`/v0/sandboxes/candidates` 与 `/v0/sandboxes/{name}`——继
+  `/v0/runs/{run_id}` 之后的第二条路径参数路由，也是服务第 29 个 capability 的四条路由。
+- **四个 Tauri 命令**（`host-tauri`）：`list_sandboxes`、`current_sandbox`、`sandbox_candidates`
+  与 `get_sandbox`，已在桌面外壳注册。本批不把它与界面接线。
+- **四个 CLI 子命令**：`sandboxes list` / `current` / `candidates` / `show <name>`，各是一次 HTTP `GET`，
+  人类模式打表格，`--json` 原样透传。
+
+### 变更
+
+- **§5.1 为 31 个查询，词汇表的 29 个名字现在全部有路由。** F2a-1 先落了 `sandbox.read`、路由晚一批；
+  计数与表格重新自洽。
+- **`/v0/sandboxes/{name}` 永不把字面子路径当作名字。** `current` 与 `candidates` 是它们自己的路由，
+  而 `requests` / `switch` / `assemble`——F2 线后面才落的三个——答 `404`，而不是解析成一个恰好叫这个名字的定义。
+- **`render` 新增四种人类模式形状**（`sandboxes`、`sandbox_current`、`sandbox_candidates`、
+  `sandbox_detail`），`args.rs` 新增四个命令的路径、方法与编码：名字像 run id 一样百分号编码，
+  所以斜杠无法逸出路由匹配的那一段。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

@@ -157,6 +157,10 @@ fn the_read_only_commands_answer_and_agree_with_their_mode() {
         vec!["--json", "audit", "events"],
         vec!["--json", "audit", "events", "--limit", "5"],
         vec!["--json", "snapshots", "list"],
+        vec!["--json", "sandboxes", "list"],
+        vec!["--json", "sandboxes", "current"],
+        vec!["--json", "sandboxes", "candidates"],
+        vec!["--json", "sandboxes", "show", "default"],
     ] {
         let output = run("readonly", &args);
         assert_eq!(exit_code(&output), 0, "{args:?}: {}", stderr(&output));
@@ -185,6 +189,39 @@ fn the_read_only_commands_answer_and_agree_with_their_mode() {
     let output = run("runs-human", &["runs", "list"]);
     assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
     assert_eq!(stdout(&output).trim(), "no runs");
+
+    // The sandbox registry: the built-in fallback is always there, and nothing is
+    // stored on a fresh workspace.
+    let output = run("sandboxes-json", &["--json", "sandboxes", "list"]);
+    assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
+    let value = json(&output);
+    assert!(value["current"].is_null(), "{value}");
+    assert_eq!(value["default"], "default", "{value}");
+    let rows = value["sandboxes"].as_array().expect("an array");
+    assert!(!rows.is_empty(), "{value}");
+
+    let output = run("sandboxes-human", &["sandboxes", "list"]);
+    assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.starts_with("current"), "{text}");
+    assert!(text.contains("default"), "{text}");
+    assert!(text.contains("NAME"), "{text}");
+    assert!(!text.trim_start().starts_with('{'), "{text}");
+
+    // `show` on a name that is not there is the control plane's `404` (exit 3).
+    let output = run(
+        "sandboxes-missing",
+        &["--json", "sandboxes", "show", "no-such-sandbox"],
+    );
+    assert_eq!(exit_code(&output), 3, "stderr: {}", stderr(&output));
+
+    // `candidates` prints both families; the toolchain one is empty here because
+    // the workspace and the data directory are both fresh.
+    let output = run("sandboxes-candidates", &["sandboxes", "candidates"]);
+    assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains("TOOLCHAINS (0)"), "{text}");
+    assert!(text.contains("QEMUS ("), "{text}");
 }
 
 #[test]

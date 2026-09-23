@@ -29,6 +29,10 @@ pub fn human(command: &Command, reply: &Reply) -> String {
         Command::AuditStatus => audit_status(value),
         Command::AuditEvents { .. } => events(value),
         Command::SnapshotsList => snapshots(value),
+        Command::SandboxesList => sandboxes(value),
+        Command::SandboxesCurrent => sandbox_current(value),
+        Command::SandboxesCandidates => sandbox_candidates(value),
+        Command::SandboxesShow { .. } => sandbox_detail(value),
         Command::Run { .. } => outcome(value),
         Command::VmStop | Command::VmStart => "ok".to_string(),
         Command::SnapshotsSave { .. } => written(value),
@@ -370,6 +374,94 @@ fn snapshots(value: &Value) -> String {
         ));
     }
     lines.join("\n")
+}
+
+/// The merged registry: what a run would use, and every definition in it.
+fn sandboxes(value: &Value) -> String {
+    let Some(rows) = value.get("sandboxes").and_then(Value::as_array) else {
+        return value.to_string();
+    };
+    let mut lines = vec![
+        format!("{:<10} {}", "current", optional_text(value, "current")),
+        format!("{:<10} {}", "default", text(value, "default")),
+        String::new(),
+        format!(
+            "{:<28} {:<11} {:>8} {:>9} {:>9}",
+            "NAME", "SOURCE", "RUNNABLE", "SHADOWED", "MEMORY_MB"
+        ),
+    ];
+    for row in rows {
+        lines.push(format!(
+            "{:<28} {:<11} {:>8} {:>9} {:>9}",
+            text(row, "name"),
+            text(row, "source"),
+            text(row, "runnable"),
+            text(row, "shadowed"),
+            optional_number(row, "memory_mb"),
+        ));
+    }
+    lines.join("\n")
+}
+
+/// The stored choice and the fallback's name, two lines.
+fn sandbox_current(value: &Value) -> String {
+    [
+        ("current", optional_text(value, "current")),
+        ("default", text(value, "default")),
+    ]
+    .iter()
+    .map(|(key, value)| format!("{key:<10} {value}"))
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+/// The raw scan, the two lists kept apart (they are not combined).
+fn sandbox_candidates(value: &Value) -> String {
+    let mut lines = Vec::new();
+    for (key, label) in [("toolchains", "TOOLCHAINS"), ("qemus", "QEMUS")] {
+        let rows = value.get(key).and_then(Value::as_array);
+        lines.push(format!("{label} ({})", rows.map(Vec::len).unwrap_or(0)));
+        match rows {
+            Some(rows) if !rows.is_empty() => {
+                lines.push(format!(
+                    "  {:<10} {:<12} {:<10} {:>8}  {}",
+                    "KIND", "VERSION", "ORIGIN", "RUNNABLE", "PATH"
+                ));
+                for row in rows {
+                    lines.push(format!(
+                        "  {:<10} {:<12} {:<10} {:>8}  {}",
+                        text(row, "kind"),
+                        text(row, "version"),
+                        text(row, "origin"),
+                        text(row, "runnable"),
+                        text(row, "path"),
+                    ));
+                }
+            }
+            _ => lines.push("  (none)".to_string()),
+        }
+    }
+    lines.join("\n")
+}
+
+/// One definition, one `key value` line per field.
+fn sandbox_detail(value: &Value) -> String {
+    [
+        ("name", text(value, "name")),
+        ("display_name", optional_text(value, "display_name")),
+        ("source", text(value, "source")),
+        ("runnable", text(value, "runnable")),
+        ("shadowed", text(value, "shadowed")),
+        ("memory_mb", optional_number(value, "memory_mb")),
+        ("qemu_exe", optional_text(value, "qemu_exe")),
+        ("toolchain_path", optional_text(value, "toolchain_path")),
+        ("kernel", optional_text(value, "kernel")),
+        ("notes", optional_text(value, "notes")),
+    ]
+    .iter()
+    .map(|(key, value)| format!("{key:<20} {value}"))
+    .collect::<Vec<_>>()
+    .join("\n")
 }
 
 /// A string field, or `-` when it is absent or `null`.
