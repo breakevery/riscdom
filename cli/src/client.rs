@@ -7,6 +7,7 @@
 //! `AppState` directly.
 
 use crate::args::Args;
+use crate::args::Command;
 use crate::sse::SseStream;
 use std::io::IsTerminal;
 use std::net::SocketAddr;
@@ -402,20 +403,57 @@ fn remote_token(args: &Args) -> Result<Option<String>, Error> {
 /// The CLI keeps its own reader rather than reusing `server::token::load_or_create`,
 /// which generates a token when the file is missing — a client must not.
 fn read_token_file(path: &Path) -> Result<String, Error> {
-    let text = std::fs::read_to_string(path).map_err(|e| {
-        Error::auth(format!(
-            "cannot read the token file {}: {e}",
-            path.display()
-        ))
-    })?;
+    read_one_value(path).map_err(Error::auth)
+}
+
+/// The one value a small file holds, trimmed. `Err` is the message to show.
+fn read_one_value(path: &Path) -> Result<String, String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     let value = text.trim().to_string();
     if value.is_empty() {
-        return Err(Error::auth(format!(
-            "the token file {} is empty",
-            path.display()
-        )));
+        return Err(format!("{} is empty", path.display()));
     }
     Ok(value)
+}
+
+/// Resolve `llm set`'s key: read `--api-key-file`, or warn about `--api-key`.
+///
+/// A key on the command line lands in the shell history and in `ps`, exactly like
+/// `--token`, so the file is the shape to prefer; the flag still works, with the
+/// same warning `--token` prints.
+///
+/// The read lives here rather than in `args` so that `Command::body` stays a pure
+/// function of the command line.
+pub fn resolve_key_file(command: &mut Command) -> Result<(), Error> {
+    let Command::LlmSet {
+        api_key,
+        api_key_file,
+        ..
+    } = command
+    else {
+        return Ok(());
+    };
+    match (api_key.is_some(), api_key_file.take()) {
+        // Already inline: the command line is where the key came from.
+        (true, _) => {
+            eprintln!(
+                "riscdom: warning: --api-key puts the key in the shell history and in `ps`; \
+                 prefer --api-key-file"
+            );
+            Ok(())
+        }
+        (false, Some(path)) => {
+            let key = read_one_value(&path)
+                .map_err(|e| Error::local(format!("cannot read the API key: {e}")))?;
+            *api_key = Some(key);
+            Ok(())
+        }
+        // `parse` refuses this before it can be reached.
+        (false, None) => Err(Error::refused(
+            "llm set needs --api-key <key> or --api-key-file <path>".to_string(),
+        )),
+    }
 }
 
 /// Start the control plane inside this process, on a loopback port the OS picks.
@@ -588,7 +626,7 @@ mod tests {
         )
         .expect("parses");
         let args = match parsed {
-            Parsed::Command(args) => args,
+            Parsed::Command(args) => *args,
             other => panic!("not a command: {other:?}"),
         };
         // `--token` is the last resort, and it still works.
@@ -600,7 +638,7 @@ mod tests {
         // Without any of the three, there is simply nothing to present.
         let parsed = parse(vec!["health".to_string()]).expect("parses");
         let args = match parsed {
-            Parsed::Command(args) => args,
+            Parsed::Command(args) => *args,
             other => panic!("not a command: {other:?}"),
         };
         assert_eq!(remote_token(&args).expect("no token"), None);
@@ -620,5 +658,78 @@ mod tests {
         // The unit tests run with a stdin that may or may not be a terminal;
         // `--yes` must not depend on which.
         assert!(confirm("Delete everything?", true).is_ok());
+    }
+
+    #[test]
+    fn the_api_key_file_is_read_into_the_command() {
+        let dir = std::env::temp_dir().join(format!(
+            "riscdom-cli-key-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("key");
+        std::fs::write(&path, "  sk-from-file\n").expect("write");
+
+        let mut command = Command::LlmSet {
+            api_key: None,
+            api_key_file: Some(path),
+            base_url: "u".into(),
+            model: "m".into(),
+            provider_id: None,
+            remember: false,
+        };
+        resolve_key_file(&mut command).expect("reads the file");
+        match command {
+            Command::LlmSet {
+                api_key,
+                api_key_file,
+                ..
+            } => {
+                assert_eq!(api_key.as_deref(), Some("sk-from-file"));
+                assert!(api_key_file.is_none(), "the file is consumed");
+            }
+            other => panic!("not an llm set: {other:?}"),
+        }
+
+        // A file that cannot be read is a local failure, in the CLI's own words.
+        let mut missing = Command::LlmSet {
+            api_key: None,
+            api_key_file: Some(dir.join("nope")),
+            base_url: "u".into(),
+            model: "m".into(),
+            provider_id: None,
+            remember: false,
+        };
+        let error = resolve_key_file(&mut missing).expect_err("missing file");
+        assert_eq!(error.code, EXIT_LOCAL);
+        assert!(error.human().contains("API key"), "{}", error.human());
+
+        // A key already on the command line is left where it is (and warned
+        // about by the caller's stderr).
+        let mut inline = Command::LlmSet {
+            api_key: Some("sk-inline".into()),
+            api_key_file: None,
+            base_url: "u".into(),
+            model: "m".into(),
+            provider_id: None,
+            remember: false,
+        };
+        resolve_key_file(&mut inline).expect("nothing to read");
+        assert!(matches!(
+            inline,
+            Command::LlmSet {
+                api_key: Some(_),
+                ..
+            }
+        ));
+
+        // Any other command is left alone.
+        let mut health = Command::Health;
+        resolve_key_file(&mut health).expect("untouched");
+        assert_eq!(health, Command::Health);
     }
 }

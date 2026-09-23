@@ -381,6 +381,22 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # 对着已经跑�
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
 | `riscdom sessions create` / `open` / `rename` / `delete` / `clear-all` | `POST /v0/sessions/create` / `open` / `rename` / `delete` / `clear` |
 | `riscdom runs abandon-stale` | `POST /v0/runs/abandon-stale` |
+| `riscdom export audit-jsonl` / `run-audit <run_id>` / `serial-log` | `POST /v0/audit/export` / `/v0/runs/export` / `/v0/serial/export` |
+| `riscdom llm set` / `clear` / `load-key <provider_id>` | `POST /v0/llm/config` / `/v0/llm/config/clear` / `/v0/llm/stored-key/load` |
+| `riscdom qemu path <file>` / `clear` | `POST /v0/qemu/path` / `/v0/qemu/path/clear` |
+| `riscdom toolchain download` / `cancel` / `path <file>` / `clear` | `POST /v0/toolchain/download` / `/v0/toolchain/download/cancel` / `/v0/toolchain/path` / `/v0/toolchain/path/clear` |
+| `riscdom preflight run` / `ack` | `POST /v0/preflight/run` / `/v0/preflight/ack` |
+| `riscdom audit alert set <on\|off>` / `theme set <theme>` / `language set <lang>` | `POST /v0/audit/alert` / `/v0/settings/theme` / `/v0/settings/language` |
+
+```bash
+# 导出写到哪里由*服务端*决定：--out 相对于 workspace 根解析，回答里是计数，不是文件。
+riscdom export audit-jsonl --out audit.jsonl
+# exported 1 event to audit.jsonl
+
+# 配置模型；key 从文件来，所以不会落进 `ps`。
+riscdom llm set --api-key-file ~/.riscdom/api-key \
+  --base-url https://api.deepseek.com --model deepseek-chat
+```
 
 **`--follow` 就是 CLI 版的 §5。** `riscdom run <task> --follow` 先订阅 `/v0/events`，
 再发起运行，因此运行产生的事件一到达就打印——与 §5 的客户端读到的是同一批帧——
@@ -399,11 +415,25 @@ kind       final
 iterations 3
 ```
 
-- **`--json`** 打印的就是控制平面发来的原文——§2、§5 记录的那些字段——因此照着本文档写出的客户端可以用它来调试。失败时把 §4 的错误体打到 **stderr**。带 `--follow` 时，每个帧是原样的 envelope。
+**`--wait` 是同一套手法，用在两个异步控制上。** `toolchain download` 与 `preflight run`
+答 `202` 并在一条线程上干活；`--wait` 在发请求前先订阅，打印属于该工作的事件族
+（`toolchain:download`、`preflight:progress`），到“结束”那一帧就停——下载的 `done` /
+`failed`，或预检的最后一步 / 第一个 `failed`（fail-fast 就结束在那里）。退出码是
+**工作本身**的判定（失败为 `3`），不是那个 `202`。
+
+```bash
+riscdom toolchain download --wait
+# toolchain:download {"install_path":"…","state":"done"}
+# download ok
+```
+
+- **`--json`** 打印的就是控制平面发来的原文——§2、§5 记录的那些字段——因此照着本文档写出的客户端可以用它来调试。失败时把 §4 的错误体打到 **stderr**。带 `--follow` 与 `--wait` 时，每个帧是原样的 envelope。
+- **`--api-key` 会像 `--token` 一样警告**（会落入 shell history 与 `ps`）；`--api-key-file`
+  是更该用的形状，`--remember` 才让 key 活过重启（宿主把它存进操作系统凭据存储）。
 - **销毁类命令先问**（`vm stop`、`snapshots resume`、`snapshots delete`、`sessions delete`、
-  `sessions clear-all`）：终端上弹提示，`--yes` 提前回答；stdin 不是终端时直接拒绝（退出码 `2`）——
-  脚本必须显式写 `--yes`。
-- **退出码**把 §4 的状态码变成脚本可分叉的东西：`0` 成功、`1` 本地失败（连不上、没有 token）、`2` 用法或 `400`、`3` 被拒或 `5xx`、`4` `401`/`403`。
+  `sessions clear-all`、`llm clear`、`qemu clear`、`toolchain clear`）：终端上弹提示，`--yes`
+  提前回答；stdin 不是终端时直接拒绝（退出码 `2`）——脚本必须显式写 `--yes`。
+- **退出码**把 §4 的状态码变成脚本可分叉的东西：`0` 成功、`1` 本地失败（连不上、没有 token）、`2` 用法或 `400`、`3` 被拒或 `5xx`、`4` `401`/`403`（导出路径上 workspace 策略的 `403` 也是它）。
 - **token**：本地模式取自 `<data-dir>/token`；远程模式按 `--token-file`、`RISCDOM_TOKEN`、`--token` 的顺序取。从不被打印。
 
 完整表格（含人类模式形状）见 [../cli/README.zh-CN.md](../cli/README.zh-CN.md)。

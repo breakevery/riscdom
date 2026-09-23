@@ -21,7 +21,7 @@ pub mod render;
 pub mod sse;
 
 use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -35,6 +35,11 @@ pub use sse::{Frame, SseStream};
 /// cutting it.
 const FOLLOW_GRACE: Duration = Duration::from_millis(500);
 
+/// How long `--wait` sleeps between polls of the reader's flag. The waiting is
+/// the point of the flag, so there is no deadline; what ends it is the event that
+/// says the work is over (or the stream ending).
+const WAIT_POLL: Duration = Duration::from_millis(5);
+
 /// Run one parsed command line, writing to `out` on success and `err` on
 /// failure. Returns the process exit code, because that is the CLI's contract.
 ///
@@ -43,7 +48,7 @@ const FOLLOW_GRACE: Duration = Duration::from_millis(500);
 /// exception is `--follow`, whose reader prints from a thread of its own and
 /// therefore writes to stdout directly.
 pub fn run(parsed: Parsed, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
-    let args = match parsed {
+    let mut args = match parsed {
         Parsed::Help => {
             let _ = write!(out, "{USAGE}");
             return 0;
@@ -52,8 +57,14 @@ pub fn run(parsed: Parsed, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
             let _ = writeln!(out, "riscdom {}", env!("CARGO_PKG_VERSION"));
             return 0;
         }
-        Parsed::Command(args) => args,
+        Parsed::Command(args) => *args,
     };
+
+    // `--api-key-file` is read before anything else: the key is part of the
+    // request, and the warning for `--api-key` belongs on the way in.
+    if let Err(error) = client::resolve_key_file(&mut args.command) {
+        return report(&args, &error, err);
+    }
 
     // One session: remote, or the control plane embedded in this process.
     let session = match Session::open(&args) {
@@ -70,6 +81,17 @@ pub fn run(parsed: Parsed, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
 
     if args.follow {
         return follow(&args, &session, out, err);
+    }
+    if args.wait {
+        return match waiting_for(&args.command) {
+            Some(waiting) => wait(&args, &session, &waiting, out, err),
+            // `parse` refuses `--wait` anywhere else, so this cannot be reached.
+            None => report(
+                &args,
+                &Error::refused("--wait does not apply to this command"),
+                err,
+            ),
+        };
     }
 
     let path = args.command.request_path();
@@ -99,6 +121,201 @@ pub fn run(parsed: Parsed, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     0
 }
 
+/// What a `--wait` invocation is waiting for.
+struct Waiting {
+    /// The event family to print as it arrives.
+    event: &'static str,
+    /// What the human mode calls the work in its closing line.
+    label: &'static str,
+    /// The terminal test: `Some(ok)` ends the wait.
+    terminal: fn(&serde_json::Value) -> Option<bool>,
+}
+
+/// The wait a `--wait` command is waiting for; `None` when the flag does not
+/// apply (`parse` refuses that case, so this is belt and braces).
+fn waiting_for(command: &Command) -> Option<Waiting> {
+    match command {
+        Command::ToolchainDownload => Some(Waiting {
+            event: "toolchain:download",
+            label: "download",
+            terminal: toolchain_terminal,
+        }),
+        Command::PreflightRun => Some(Waiting {
+            event: "preflight:progress",
+            label: "preflight",
+            terminal: preflight_terminal,
+        }),
+        _ => None,
+    }
+}
+
+/// `toolchain:download` is over when the download says so.
+///
+/// `Cancelled` is in the terminal set because the event exists: this CLI does not
+/// cancel, so seeing it means something else did, and the download did not finish.
+fn toolchain_terminal(payload: &serde_json::Value) -> Option<bool> {
+    match payload.get("state").and_then(serde_json::Value::as_str) {
+        Some("done") => Some(true),
+        Some("failed") | Some("cancelled") => Some(false),
+        _ => None,
+    }
+}
+
+/// `preflight:progress` has no end-of-run event: the steps are fail-fast, so the
+/// run is over at the first `failed`, or at the last step's `ok`.
+///
+/// The step list comes from the host's own constant rather than a literal, so a
+/// fifth check added later moves the end of the wait with it.
+fn preflight_terminal(payload: &serde_json::Value) -> Option<bool> {
+    let state = payload.get("state").and_then(serde_json::Value::as_str)?;
+    if state == "failed" {
+        return Some(false);
+    }
+    let step = payload.get("step").and_then(serde_json::Value::as_str)?;
+    let last = host_core::preflight::STEPS.last()?;
+    if step == *last && state == "ok" {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+/// `--wait`: subscribe, start the work, print the family's frames, stop at the
+/// end.
+///
+/// Same shape as `--follow` and for the same reason — the run request blocks, so
+/// the stream needs a thread of its own — with one difference: the exit code is
+/// the *work's* verdict, so `--wait` exits `3` when the download failed or the
+/// preflight found a broken environment.
+fn wait(
+    args: &Args,
+    session: &Session,
+    waiting: &Waiting,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let mut stream = match subscribe(session) {
+        Ok(stream) => stream,
+        Err(error) => return report(args, &error, err),
+    };
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let done = Arc::new(AtomicBool::new(false));
+    // `EXIT_LOCAL` is "the stream ended before the work did": the reader sets it
+    // only when it runs out of frames.
+    let outcome = Arc::new(AtomicU8::new(client::EXIT_LOCAL));
+    {
+        let (stop, done, outcome) = (Arc::clone(&stop), Arc::clone(&done), Arc::clone(&outcome));
+        let event = waiting.event;
+        let terminal = waiting.terminal;
+        let json = args.json;
+        std::thread::spawn(move || {
+            // The reader prints from its own thread, so it writes to stdout
+            // directly rather than to the caller's stream.
+            let stdout = std::io::stdout();
+            while !stop.load(Ordering::Relaxed) {
+                match stream.next_frame() {
+                    Ok(Some(frame)) => {
+                        if frame.event().as_deref() != Some(event) {
+                            continue;
+                        }
+                        let payload = frame.json().and_then(|value| value.get("payload").cloned());
+                        let line = if json {
+                            frame.data.clone()
+                        } else {
+                            render::frame_line(&frame)
+                        };
+                        let mut handle = stdout.lock();
+                        let _ = writeln!(handle, "{line}");
+                        let _ = handle.flush();
+                        if let Some(ok) = payload.as_ref().and_then(terminal) {
+                            outcome.store(
+                                if ok {
+                                    client::EXIT_OK
+                                } else {
+                                    client::EXIT_REMOTE
+                                },
+                                Ordering::Relaxed,
+                            );
+                            done.store(true, Ordering::Relaxed);
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        done.store(true, Ordering::Relaxed);
+                        break;
+                    }
+                    Err(_) => {
+                        done.store(true, Ordering::Relaxed);
+                        break;
+                    }
+                }
+            }
+            done.store(true, Ordering::Relaxed);
+        });
+    }
+
+    // The request that starts the work. An answer that is not a success is the
+    // command's answer: there will be no events to wait for.
+    let control = session.control_client();
+    let path = args.command.request_path();
+    let body = args.command.body();
+    let reply = match control.post(&path, body.as_ref()) {
+        Ok(reply) => reply,
+        Err(error) => {
+            stop.store(true, Ordering::Relaxed);
+            return report(args, &error, err);
+        }
+    };
+    if !reply.is_success() {
+        stop.store(true, Ordering::Relaxed);
+        return report(args, &Error::from_reply(reply), err);
+    }
+
+    // The request was accepted; the stream says when the work is over.
+    while !done.load(Ordering::Relaxed) {
+        std::thread::sleep(WAIT_POLL);
+    }
+    stop.store(true, Ordering::Relaxed);
+
+    let code = outcome.load(Ordering::Relaxed);
+    if code == client::EXIT_LOCAL {
+        return report(
+            args,
+            &Error::local("the event stream ended before the work finished"),
+            err,
+        );
+    }
+    // The frames came straight from the reader thread; the closing line is what
+    // says, in one word, what the exit code means.
+    if !args.json {
+        let _ = writeln!(
+            out,
+            "{} {}",
+            waiting.label,
+            if code == client::EXIT_OK {
+                "ok"
+            } else {
+                "failed"
+            }
+        );
+    }
+    code
+}
+
+/// Open the event stream and eat the `hello` frame.
+///
+/// Reading the greeting is what proves the subscription is live *before* the
+/// request that starts the work goes out, so nothing the work produces can be
+/// missed.
+fn subscribe(session: &Session) -> Result<SseStream, Error> {
+    let mut stream = session.open_stream("/v0/events")?;
+    match stream.next_frame()? {
+        Some(frame) if frame.kind().as_deref() == Some("hello") => Ok(stream),
+        _ => Err(Error::local("the event stream did not greet us")),
+    }
+}
+
 /// `run --follow`: subscribe first, then run, printing the stream as it arrives.
 ///
 /// The stream has to be **read** while the run is going, or the server's bounded
@@ -107,23 +324,10 @@ pub fn run(parsed: Parsed, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
 /// the run ends — so the reader gets a thread of its own and the request stays in
 /// this one.
 fn follow(args: &Args, session: &Session, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
-    let mut stream = match session.open_stream("/v0/events") {
+    let mut stream = match subscribe(session) {
         Ok(stream) => stream,
         Err(error) => return report(args, &error, err),
     };
-    // The first frame is `hello`: reading it proves the stream is live *before*
-    // the run starts, so nothing after this point can be missed.
-    match stream.next_frame() {
-        Ok(Some(frame)) if frame.kind().as_deref() == Some("hello") => {}
-        Ok(_) => {
-            return report(
-                args,
-                &Error::local("the event stream did not greet us".to_string()),
-                err,
-            )
-        }
-        Err(error) => return report(args, &error, err),
-    }
 
     let stop = Arc::new(AtomicBool::new(false));
     let done = Arc::new(AtomicBool::new(false));
@@ -198,4 +402,90 @@ fn report(args: &Args, error: &Error, err: &mut dyn Write) -> u8 {
         let _ = writeln!(err, "{}", error.human());
     }
     error.code
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_download_is_over_at_done_or_failed() {
+        for not_yet in ["started", "progress", "verifying", "extracting"] {
+            assert_eq!(
+                toolchain_terminal(&serde_json::json!({ "state": not_yet })),
+                None,
+                "{not_yet}"
+            );
+        }
+        assert_eq!(
+            toolchain_terminal(&serde_json::json!({ "state": "done", "install_path": "p" })),
+            Some(true)
+        );
+        assert_eq!(
+            toolchain_terminal(&serde_json::json!({ "state": "failed", "reason": "no network" })),
+            Some(false)
+        );
+        assert_eq!(
+            toolchain_terminal(&serde_json::json!({ "state": "cancelled" })),
+            Some(false)
+        );
+        // A payload without a state says nothing about being over.
+        assert_eq!(toolchain_terminal(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn the_preflight_is_over_at_the_last_step_or_the_first_failure() {
+        let last = host_core::preflight::STEPS.last().copied().expect("steps");
+        assert_eq!(
+            preflight_terminal(
+                &serde_json::json!({ "step": "gcc_runs", "state": "running", "detail": null })
+            ),
+            None
+        );
+        assert_eq!(
+            preflight_terminal(
+                &serde_json::json!({ "step": "gcc_runs", "state": "ok", "detail": "gcc 13" })
+            ),
+            None,
+            "an early step passing is not the end"
+        );
+        // Fail-fast: a failure ends the run wherever it happens.
+        assert_eq!(
+            preflight_terminal(
+                &serde_json::json!({ "step": "gcc_compiles", "state": "failed", "detail": "x" })
+            ),
+            Some(false)
+        );
+        // The last step is the end, either way.
+        assert_eq!(
+            preflight_terminal(
+                &serde_json::json!({ "step": last, "state": "ok", "detail": "banner" })
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            preflight_terminal(
+                &serde_json::json!({ "step": last, "state": "failed", "detail": "no banner" })
+            ),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn a_wait_is_named_for_the_event_it_follows() {
+        assert_eq!(
+            waiting_for(&Command::ToolchainDownload)
+                .expect("download")
+                .event,
+            "toolchain:download"
+        );
+        assert_eq!(
+            waiting_for(&Command::PreflightRun)
+                .expect("preflight")
+                .event,
+            "preflight:progress"
+        );
+        assert!(waiting_for(&Command::Health).is_none());
+        assert!(waiting_for(&Command::PreflightAck).is_none());
+    }
 }

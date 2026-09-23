@@ -338,7 +338,7 @@ fn the_parser_agrees_with_the_binary_about_the_new_commands() {
     ] {
         let parsed = parse(words.iter().map(|w| w.to_string()).collect()).expect("parses");
         let args = match parsed {
-            Parsed::Command(args) => args,
+            Parsed::Command(args) => *args,
             other => panic!("{words:?} is not a command: {other:?}"),
         };
         assert_eq!(args.command.request_path(), expected_path, "{words:?}");

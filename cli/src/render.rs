@@ -40,7 +40,79 @@ pub fn human(command: &Command, reply: &Reply) -> String {
         | Command::SessionsRename { .. }
         | Command::SessionsClearAll => "ok".to_string(),
         Command::RunsAbandonStale => abandoned(value),
+        Command::ExportAuditJsonl { .. }
+        | Command::ExportRunAudit { .. }
+        | Command::ExportSerialLog { .. } => export_written(command, value),
+        Command::ToolchainDownload | Command::ToolchainCancel | Command::PreflightRun => {
+            acknowledged(command, value)
+        }
+        Command::PreflightAck => preflight_view(value),
+        // Every remaining configuration endpoint answers `204`: nothing to say,
+        // which the empty-body branch above already turned into `ok`.
+        Command::LlmSet { .. }
+        | Command::LlmClear
+        | Command::LlmLoadKey { .. }
+        | Command::QemuPath { .. }
+        | Command::QemuClear
+        | Command::ToolchainPath { .. }
+        | Command::ToolchainClear
+        | Command::AuditAlertSet { .. }
+        | Command::ThemeSet { .. }
+        | Command::LanguageSet { .. } => "ok".to_string(),
     }
+}
+
+/// What an export wrote, and where.
+///
+/// The two audit exports answer with the number of **events** they wrote (the
+/// host's `write_events_jsonl` returns `events.len()`) while the serial export
+/// answers with a **byte** count — both under the field name `bytes_written`.
+/// The CLI prints what the number actually is instead of repeating the field
+/// name's claim.
+fn export_written(command: &Command, value: &Value) -> String {
+    let count = number(value, "bytes_written");
+    let Some(path) = command.output_path() else {
+        return format!("wrote {count}");
+    };
+    match command {
+        Command::ExportSerialLog { .. } => format!("wrote {count} bytes to {path}"),
+        _ => {
+            let unit = if count == "1" { "event" } else { "events" };
+            format!("exported {count} {unit} to {path}")
+        }
+    }
+}
+
+/// The `202` acknowledgement: work has started, and this is not its result.
+fn acknowledged(command: &Command, value: &Value) -> String {
+    let what = match command {
+        Command::ToolchainDownload | Command::ToolchainCancel => "download",
+        Command::PreflightRun => "preflight",
+        _ => "request",
+    };
+    match value.get("state").and_then(Value::as_str) {
+        Some(state) => format!("{what} {state}"),
+        None => "ok".to_string(),
+    }
+}
+
+/// `PreflightView`: the steps the host checked, and what it found.
+fn preflight_view(value: &Value) -> String {
+    let mut lines = vec![
+        format!("checked  {}", text(value, "checked")),
+        format!("ok       {}", text(value, "ok")),
+    ];
+    if let Some(rows) = value.get("rows").and_then(Value::as_array) {
+        for row in rows {
+            lines.push(format!("{:<14} {}", text(row, "step"), text(row, "state")));
+        }
+    }
+    for key in ["failed_step", "detail", "suggestion"] {
+        if let Some(line) = value.get(key).and_then(Value::as_str) {
+            lines.push(format!("{key:<11} {line}"));
+        }
+    }
+    lines.join("\n")
 }
 
 /// One line for a stream frame (`--follow`).
@@ -558,5 +630,108 @@ mod tests {
         let mut not_json = reply("plain text");
         not_json.json = None;
         assert_eq!(human(&Command::Health, &not_json), "plain text");
+    }
+
+    #[test]
+    fn an_export_says_how_much_it_wrote_and_where() {
+        // The audit exports count events; the serial export counts bytes. Both
+        // arrive as `bytes_written`, and the human line says which is which.
+        let one = reply(r#"{"bytes_written":1}"#);
+        assert_eq!(
+            human(
+                &Command::ExportAuditJsonl {
+                    out: "audit.jsonl".into()
+                },
+                &one
+            ),
+            "exported 1 event to audit.jsonl"
+        );
+        let many = reply(r#"{"bytes_written":42}"#);
+        assert_eq!(
+            human(
+                &Command::ExportRunAudit {
+                    run_id: "r-1".into(),
+                    out: "run-r-1.jsonl".into()
+                },
+                &many
+            ),
+            "exported 42 events to run-r-1.jsonl"
+        );
+        assert_eq!(
+            human(
+                &Command::ExportSerialLog {
+                    out: "serial.log".into()
+                },
+                &reply(r#"{"bytes_written":4096}"#)
+            ),
+            "wrote 4096 bytes to serial.log"
+        );
+    }
+
+    #[test]
+    fn the_async_acknowledgements_name_what_started() {
+        // The `202` bodies are acknowledgements, not results: the human line says
+        // so rather than inventing an outcome.
+        assert_eq!(
+            human(
+                &Command::ToolchainDownload,
+                &reply(r#"{"state":"started"}"#)
+            ),
+            "download started"
+        );
+        assert_eq!(
+            human(
+                &Command::ToolchainCancel,
+                &reply(r#"{"state":"cancelling"}"#)
+            ),
+            "download cancelling"
+        );
+        assert_eq!(
+            human(&Command::PreflightRun, &reply(r#"{"state":"running"}"#)),
+            "preflight running"
+        );
+    }
+
+    #[test]
+    fn the_configuration_writes_that_answer_nothing_render_as_ok() {
+        for command in [
+            Command::LlmClear,
+            Command::QemuClear,
+            Command::ToolchainClear,
+            Command::LlmLoadKey {
+                provider_id: "p".into(),
+            },
+            Command::QemuPath { path: "p".into() },
+            Command::ToolchainPath { path: "p".into() },
+            Command::ThemeSet {
+                theme: "dark".into(),
+            },
+            Command::LanguageSet {
+                language: "zh".into(),
+            },
+            Command::AuditAlertSet { enabled: true },
+        ] {
+            assert_eq!(human(&command, &reply("{}")), "ok", "{command:?}");
+        }
+    }
+
+    #[test]
+    fn a_preflight_view_lists_the_steps_and_the_failure() {
+        let view = reply(
+            r#"{"ran":true,"checked":true,"ok":false,"rows":[
+                 {"step":"gcc_runs","state":"ok","detail":"gcc 13.2.0"},
+                 {"step":"gcc_compiles","state":"failed","detail":"not found"},
+                 {"step":"qemu_runs","state":"not_run","detail":null},
+                 {"step":"guest_boots","state":"not_run","detail":null}],
+               "failed_step":"gcc_compiles","detail":"not found",
+               "suggestion":"install the toolchain"}"#,
+        );
+        let text = human(&Command::PreflightAck, &view);
+        assert!(text.contains("checked  true"), "{text}");
+        assert!(text.contains("ok       false"), "{text}");
+        assert!(text.contains("gcc_compiles   failed"), "{text}");
+        assert!(text.contains("guest_boots    not_run"), "{text}");
+        assert!(text.contains("failed_step gcc_compiles"), "{text}");
+        assert!(text.contains("install the toolchain"), "{text}");
     }
 }

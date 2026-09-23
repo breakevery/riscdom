@@ -38,11 +38,52 @@ control commands:
   sessions clear-all            delete every session (asks for confirmation)
   runs abandon-stale            mark abandoned runs (idempotent)
 
+export commands:
+  export audit-jsonl [--out <path>]         the whole audit chain as JSONL
+  export run-audit <run_id> [--out <path>]  one run's self-contained chain
+  export serial-log [--out <path>]          the captured serial output
+                                The path belongs to the *server*: it is resolved
+                                against the workspace root, and a path outside
+                                it is refused. The defaults are audit.jsonl,
+                                run-<run_id>.jsonl and serial.log
+
+configuration commands:
+  llm set --api-key <key> --base-url <url> --model <model>
+                                [--provider-id <id>] [--remember]
+                                configure the model; --api-key-file <path> reads
+                                the key from a file instead of the command line
+  llm clear                     forget the model configuration (asks)
+  llm load-key <provider_id>    load a stored key from the OS credential store
+  qemu path <file>              use this QEMU binary
+  qemu clear                    forget it (asks)
+  toolchain download [--wait]   download the pinned RISC-V toolchain; --wait
+                                prints progress until it finishes
+  toolchain cancel              cancel a running download
+  toolchain path <file>         use this compiler
+  toolchain clear               forget it (asks)
+  preflight run [--wait]        check the environment; --wait prints every step
+  preflight ack                 accept the current configuration as it is
+  audit alert set <on|off>      the audit-failure alert
+  theme set <light|dark|system> the interface theme
+  language set <system|en|zh>   the interface language
+
 options:
   --json                        print the control plane's JSON, unchanged
   --yes                         confirm a destructive command without a prompt
                                 (required when stdin is not a terminal)
   --follow                      `run` only: print the event stream while running
+  --wait                        `toolchain download` / `preflight run` only:
+                                print progress until the work finishes
+  --out <path>                  where an export writes (server-side, resolved
+                                against the workspace root)
+  --api-key <key>               the model's API key (warns: it lands in the
+                                shell history)
+  --api-key-file <path>         read the API key from this file instead
+  --base-url <url>              the model endpoint
+  --model <model>               the model's name
+  --provider-id <id>            the provider preset `llm set` configures
+  --remember                    `llm set`: also store the key in the OS
+                                credential store
   --remote <host:port>          talk to a running riscdom-server instead of
                                 starting one inside this process
   --data-dir <dir>              where settings, sessions and the token live
@@ -68,24 +109,94 @@ pub enum Command {
     Health,
     Status,
     Agents,
-    RunsList { limit: Option<usize> },
-    RunsGet { run_id: String },
+    RunsList {
+        limit: Option<usize>,
+    },
+    RunsGet {
+        run_id: String,
+    },
     AuditStatus,
-    AuditEvents { limit: usize },
+    AuditEvents {
+        limit: usize,
+    },
     SnapshotsList,
     // ---- control ----
-    Run { task: String },
+    Run {
+        task: String,
+    },
     VmStop,
     VmStart,
-    SnapshotsSave { name: String },
-    SnapshotsResume { name: String },
-    SnapshotsDelete { name: String },
-    SessionsCreate { title: String },
-    SessionsOpen { session_id: String },
-    SessionsDelete { session_id: String },
-    SessionsRename { session_id: String, title: String },
+    SnapshotsSave {
+        name: String,
+    },
+    SnapshotsResume {
+        name: String,
+    },
+    SnapshotsDelete {
+        name: String,
+    },
+    SessionsCreate {
+        title: String,
+    },
+    SessionsOpen {
+        session_id: String,
+    },
+    SessionsDelete {
+        session_id: String,
+    },
+    SessionsRename {
+        session_id: String,
+        title: String,
+    },
     SessionsClearAll,
     RunsAbandonStale,
+    // ---- export ----
+    ExportAuditJsonl {
+        out: String,
+    },
+    ExportRunAudit {
+        run_id: String,
+        out: String,
+    },
+    ExportSerialLog {
+        out: String,
+    },
+    // ---- configuration ----
+    LlmSet {
+        /// `--api-key`, when given. `None` means `--api-key-file` was used and
+        /// `lib::run` has not read the file yet.
+        api_key: Option<String>,
+        api_key_file: Option<PathBuf>,
+        base_url: String,
+        model: String,
+        provider_id: Option<String>,
+        remember: bool,
+    },
+    LlmClear,
+    LlmLoadKey {
+        provider_id: String,
+    },
+    QemuPath {
+        path: String,
+    },
+    QemuClear,
+    ToolchainDownload,
+    ToolchainCancel,
+    ToolchainPath {
+        path: String,
+    },
+    ToolchainClear,
+    PreflightRun,
+    PreflightAck,
+    AuditAlertSet {
+        enabled: bool,
+    },
+    ThemeSet {
+        theme: String,
+    },
+    LanguageSet {
+        language: String,
+    },
 }
 
 impl Command {
@@ -128,6 +239,33 @@ impl Command {
             Command::SessionsRename { .. } => "/v0/sessions/rename".to_string(),
             Command::SessionsClearAll => "/v0/sessions/clear".to_string(),
             Command::RunsAbandonStale => "/v0/runs/abandon-stale".to_string(),
+            Command::ExportAuditJsonl { .. } => "/v0/audit/export".to_string(),
+            Command::ExportRunAudit { .. } => "/v0/runs/export".to_string(),
+            Command::ExportSerialLog { .. } => "/v0/serial/export".to_string(),
+            Command::LlmSet { .. } => "/v0/llm/config".to_string(),
+            Command::LlmClear => "/v0/llm/config/clear".to_string(),
+            Command::LlmLoadKey { .. } => "/v0/llm/stored-key/load".to_string(),
+            Command::QemuPath { .. } => "/v0/qemu/path".to_string(),
+            Command::QemuClear => "/v0/qemu/path/clear".to_string(),
+            Command::ToolchainDownload => "/v0/toolchain/download".to_string(),
+            Command::ToolchainCancel => "/v0/toolchain/download/cancel".to_string(),
+            Command::ToolchainPath { .. } => "/v0/toolchain/path".to_string(),
+            Command::ToolchainClear => "/v0/toolchain/path/clear".to_string(),
+            Command::PreflightRun => "/v0/preflight/run".to_string(),
+            Command::PreflightAck => "/v0/preflight/ack".to_string(),
+            Command::AuditAlertSet { .. } => "/v0/audit/alert".to_string(),
+            Command::ThemeSet { .. } => "/v0/settings/theme".to_string(),
+            Command::LanguageSet { .. } => "/v0/settings/language".to_string(),
+        }
+    }
+
+    /// The path an export writes to, when this command is one.
+    pub fn output_path(&self) -> Option<&str> {
+        match self {
+            Command::ExportAuditJsonl { out }
+            | Command::ExportRunAudit { out, .. }
+            | Command::ExportSerialLog { out } => Some(out),
+            _ => None,
         }
     }
 
@@ -145,6 +283,42 @@ impl Command {
             Command::SessionsRename { session_id, title } => {
                 Some(json!({ "session_id": session_id, "title": title }))
             }
+            Command::ExportAuditJsonl { out } | Command::ExportSerialLog { out } => {
+                Some(json!({ "path": out }))
+            }
+            Command::ExportRunAudit { run_id, out } => {
+                Some(json!({ "run_id": run_id, "path": out }))
+            }
+            // `lib::run` reads `--api-key-file` before this is called, so the key
+            // is inline by the time any body is built.
+            Command::LlmSet {
+                api_key,
+                base_url,
+                model,
+                provider_id,
+                remember,
+                ..
+            } => {
+                let mut body = json!({
+                    "api_key": api_key.clone().unwrap_or_default(),
+                    "base_url": base_url,
+                    "model": model,
+                });
+                if let Some(provider_id) = provider_id {
+                    body["provider_id"] = json!(provider_id);
+                }
+                if *remember {
+                    body["remember"] = json!(true);
+                }
+                Some(body)
+            }
+            Command::LlmLoadKey { provider_id } => Some(json!({ "provider_id": provider_id })),
+            Command::QemuPath { path } | Command::ToolchainPath { path } => {
+                Some(json!({ "path": path }))
+            }
+            Command::AuditAlertSet { enabled } => Some(json!({ "enabled": enabled })),
+            Command::ThemeSet { theme } => Some(json!({ "theme": theme })),
+            Command::LanguageSet { language } => Some(json!({ "language": language })),
             _ => None,
         }
     }
@@ -163,6 +337,11 @@ impl Command {
                 Some(format!("Delete session {session_id:?}?"))
             }
             Command::SessionsClearAll => Some("Delete every session?".to_string()),
+            // Losing the configuration means finding the values again, and the
+            // API key cannot be read back out of the host at all.
+            Command::LlmClear => Some("Forget the model configuration?".to_string()),
+            Command::QemuClear => Some("Forget the configured QEMU path?".to_string()),
+            Command::ToolchainClear => Some("Forget the configured toolchain path?".to_string()),
             _ => None,
         }
     }
@@ -170,6 +349,13 @@ impl Command {
 
 /// The default `--limit` for `audit events`, which the endpoint requires.
 pub const DEFAULT_EVENT_LIMIT: usize = 20;
+
+/// The default file an `export audit-jsonl` writes (server-side, inside the
+/// workspace).
+pub const DEFAULT_AUDIT_EXPORT: &str = "audit.jsonl";
+
+/// The default file an `export serial-log` writes.
+pub const DEFAULT_SERIAL_EXPORT: &str = "serial.log";
 
 /// The parsed command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,6 +373,9 @@ pub struct Args {
     pub yes: bool,
     /// `--follow`: `run` prints the event stream while it runs.
     pub follow: bool,
+    /// `--wait`: `toolchain download` / `preflight run` print progress until the
+    /// work finishes.
+    pub wait: bool,
 }
 
 /// The result of parsing: a command, or one of the two informational flags.
@@ -194,7 +383,23 @@ pub struct Args {
 pub enum Parsed {
     Help,
     Version,
-    Command(Args),
+    /// Boxed because `Args` is much larger than the other two variants, and one
+    /// `Parsed` exists per process.
+    Command(Box<Args>),
+}
+
+/// The options `parse` collects, so `parse_command` can reach them without a
+/// parameter per flag.
+#[derive(Debug, Default, Clone)]
+struct Flags {
+    limit: Option<usize>,
+    out: Option<String>,
+    api_key: Option<String>,
+    api_key_file: Option<PathBuf>,
+    base_url: Option<String>,
+    model: Option<String>,
+    provider_id: Option<String>,
+    remember: bool,
 }
 
 /// Parse the arguments after the program name.
@@ -210,8 +415,9 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
     let mut json = false;
     let mut yes = false;
     let mut follow = false;
+    let mut wait = false;
     let mut words: Vec<String> = Vec::new();
-    let mut limit: Option<usize> = None;
+    let mut flags = Flags::default();
 
     let mut args = argv.into_iter();
     while let Some(flag) = args.next() {
@@ -222,14 +428,22 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
             "--json" => json = true,
             "--yes" | "-y" => yes = true,
             "--follow" | "-f" => follow = true,
+            "--wait" | "-w" => wait = true,
+            "--remember" => flags.remember = true,
             "--remote" => remote = Some(value("--remote")?),
             "--data-dir" => data_dir = Some(PathBuf::from(value("--data-dir")?)),
             "--workspace" => workspace = Some(PathBuf::from(value("--workspace")?)),
             "--token-file" => token_file = Some(PathBuf::from(value("--token-file")?)),
             "--token" => token = Some(value("--token")?),
+            "--out" => flags.out = Some(value("--out")?),
+            "--api-key" => flags.api_key = Some(value("--api-key")?),
+            "--api-key-file" => flags.api_key_file = Some(PathBuf::from(value("--api-key-file")?)),
+            "--base-url" => flags.base_url = Some(value("--base-url")?),
+            "--model" => flags.model = Some(value("--model")?),
+            "--provider-id" => flags.provider_id = Some(value("--provider-id")?),
             "--limit" => {
                 let raw = value("--limit")?;
-                limit = Some(
+                flags.limit = Some(
                     raw.parse()
                         .map_err(|e| format!("--limit {raw:?} is not a number: {e}"))?,
                 );
@@ -241,11 +455,16 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
         }
     }
 
-    let command = parse_command(&words, limit)?;
+    let command = parse_command(&words, &flags)?;
     if follow && !matches!(command, Command::Run { .. }) {
         return Err("--follow is only meaningful for `run`".to_string());
     }
-    Ok(Parsed::Command(Args {
+    if wait && !matches!(command, Command::ToolchainDownload | Command::PreflightRun) {
+        return Err(
+            "--wait is only meaningful for `toolchain download` and `preflight run`".to_string(),
+        );
+    }
+    Ok(Parsed::Command(Box::new(Args {
         command,
         remote,
         data_dir,
@@ -255,10 +474,11 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
         json,
         yes,
         follow,
-    }))
+        wait,
+    })))
 }
 
-fn parse_command(words: &[String], limit: Option<usize>) -> Result<Command, String> {
+fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
     let (w0, w1, w2, w3) = (
         words.first().map(String::as_str),
         words.get(1).map(String::as_str),
@@ -271,13 +491,13 @@ fn parse_command(words: &[String], limit: Option<usize>) -> Result<Command, Stri
         (Some("health"), None, None, None) => Some(Command::Health),
         (Some("status"), None, None, None) => Some(Command::Status),
         (Some("agents"), None, None, None) => Some(Command::Agents),
-        (Some("runs"), Some("list"), None, None) => Some(Command::RunsList { limit }),
+        (Some("runs"), Some("list"), None, None) => Some(Command::RunsList { limit: flags.limit }),
         (Some("runs"), Some("get"), Some(run_id), None) => Some(Command::RunsGet {
             run_id: run_id.to_string(),
         }),
         (Some("audit"), Some("status"), None, None) => Some(Command::AuditStatus),
         (Some("audit"), Some("events"), None, None) => Some(Command::AuditEvents {
-            limit: limit.unwrap_or(DEFAULT_EVENT_LIMIT),
+            limit: flags.limit.unwrap_or(DEFAULT_EVENT_LIMIT),
         }),
         (Some("snapshots"), Some("list"), None, None) => Some(Command::SnapshotsList),
         (Some("run"), Some(task), None, None) => Some(Command::Run {
@@ -313,6 +533,44 @@ fn parse_command(words: &[String], limit: Option<usize>) -> Result<Command, Stri
         }
         (Some("sessions"), Some("clear-all"), None, None) => Some(Command::SessionsClearAll),
         (Some("runs"), Some("abandon-stale"), None, None) => Some(Command::RunsAbandonStale),
+        // ---- export ----
+        (Some("export"), Some("audit-jsonl"), None, None) => Some(Command::ExportAuditJsonl {
+            out: default_out(flags, DEFAULT_AUDIT_EXPORT),
+        }),
+        (Some("export"), Some("serial-log"), None, None) => Some(Command::ExportSerialLog {
+            out: default_out(flags, DEFAULT_SERIAL_EXPORT),
+        }),
+        (Some("export"), Some("run-audit"), Some(run_id), None) => Some(Command::ExportRunAudit {
+            run_id: run_id.to_string(),
+            out: default_out(flags, &format!("run-{run_id}.jsonl")),
+        }),
+        // ---- configuration ----
+        (Some("llm"), Some("set"), None, None) => Some(llm_set(flags)?),
+        (Some("llm"), Some("clear"), None, None) => Some(Command::LlmClear),
+        (Some("llm"), Some("load-key"), Some(provider_id), None) => Some(Command::LlmLoadKey {
+            provider_id: provider_id.to_string(),
+        }),
+        (Some("qemu"), Some("path"), Some(path), None) => Some(Command::QemuPath {
+            path: path.to_string(),
+        }),
+        (Some("qemu"), Some("clear"), None, None) => Some(Command::QemuClear),
+        (Some("toolchain"), Some("download"), None, None) => Some(Command::ToolchainDownload),
+        (Some("toolchain"), Some("cancel"), None, None) => Some(Command::ToolchainCancel),
+        (Some("toolchain"), Some("path"), Some(path), None) => Some(Command::ToolchainPath {
+            path: path.to_string(),
+        }),
+        (Some("toolchain"), Some("clear"), None, None) => Some(Command::ToolchainClear),
+        (Some("preflight"), Some("run"), None, None) => Some(Command::PreflightRun),
+        (Some("preflight"), Some("ack"), None, None) => Some(Command::PreflightAck),
+        (Some("audit"), Some("alert"), Some("set"), Some(on_off)) => Some(Command::AuditAlertSet {
+            enabled: parse_on_off(on_off)?,
+        }),
+        (Some("theme"), Some("set"), Some(theme), None) => Some(Command::ThemeSet {
+            theme: theme.to_string(),
+        }),
+        (Some("language"), Some("set"), Some(language), None) => Some(Command::LanguageSet {
+            language: language.to_string(),
+        }),
         _ => None,
     };
     if let Some(command) = accepted {
@@ -326,6 +584,24 @@ fn parse_command(words: &[String], limit: Option<usize>) -> Result<Command, Stri
         (Some("sessions"), Some("rename"), Some(_)) if w3.is_none() => {
             Err("sessions rename needs a <title>".to_string())
         }
+        (Some("export"), Some("run-audit"), None) => {
+            Err("export run-audit needs a <run_id>".to_string())
+        }
+        (Some("llm"), Some("load-key"), None) => {
+            Err("llm load-key needs a <provider_id>".to_string())
+        }
+        (Some("qemu" | "toolchain"), Some("path"), None) => {
+            Err(format!("{} path needs a <file>", w0.unwrap_or_default()))
+        }
+        (Some("audit"), Some("alert"), Some("set")) => {
+            Err("audit alert set needs on|off".to_string())
+        }
+        (Some("audit"), Some("alert"), Some(other)) => {
+            Err(format!("unknown audit alert subcommand {other:?}"))
+        }
+        (Some("theme"), Some("set"), None) => Err("theme set needs light|dark|system".to_string()),
+        (Some("language"), Some("set"), None) => Err("language set needs system|en|zh".to_string()),
+        (Some("llm"), Some("set"), Some(other)) => Err(format!("unknown llm subcommand {other:?}")),
         (Some("run" | "snapshots" | "sessions"), Some(subcommand), None)
             if subcommand != "list" =>
         {
@@ -333,6 +609,51 @@ fn parse_command(words: &[String], limit: Option<usize>) -> Result<Command, Stri
         }
         (Some(command), Some(other), _) => Err(format!("unknown or incomplete: {command} {other}")),
         (Some(command), None, _) => Err(format!("unknown command {command:?}")),
+    }
+}
+
+/// `--out`, or the command's default: a relative name the *server* resolves
+/// against the workspace root.
+fn default_out(flags: &Flags, fallback: &str) -> String {
+    flags.out.clone().unwrap_or_else(|| fallback.to_string())
+}
+
+/// `llm set`: the three required fields plus the two optional ones.
+///
+/// The endpoint requires `api_key`, `base_url` and `model` to be *present* (an
+/// empty value reads as missing), so the CLI asks for all three; `provider_id`
+/// and `remember` are optional there and here.
+fn llm_set(flags: &Flags) -> Result<Command, String> {
+    if flags.api_key.is_some() && flags.api_key_file.is_some() {
+        return Err("llm set: use one of --api-key or --api-key-file, not both".to_string());
+    }
+    if flags.api_key.is_none() && flags.api_key_file.is_none() {
+        return Err("llm set needs --api-key <key> or --api-key-file <path>".to_string());
+    }
+    let base_url = flags
+        .base_url
+        .clone()
+        .ok_or_else(|| "llm set needs --base-url <url>".to_string())?;
+    let model = flags
+        .model
+        .clone()
+        .ok_or_else(|| "llm set needs --model <model>".to_string())?;
+    Ok(Command::LlmSet {
+        api_key: flags.api_key.clone(),
+        api_key_file: flags.api_key_file.clone(),
+        base_url,
+        model,
+        provider_id: flags.provider_id.clone(),
+        remember: flags.remember,
+    })
+}
+
+/// `on` / `off`, or the error to show.
+fn parse_on_off(value: &str) -> Result<bool, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "on" | "true" | "yes" | "1" => Ok(true),
+        "off" | "false" | "no" | "0" => Ok(false),
+        other => Err(format!("audit alert set wants on or off, not {other:?}")),
     }
 }
 
@@ -363,7 +684,7 @@ mod tests {
 
     fn args_of(args: &[&str]) -> Args {
         match parse_words(args).expect("parses") {
-            Parsed::Command(args) => args,
+            Parsed::Command(args) => *args,
             other => panic!("not a command: {other:?}"),
         }
     }
@@ -646,6 +967,396 @@ mod tests {
                 "{args:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_export_and_configuration_commands_parse() {
+        assert_eq!(
+            command(&["export", "audit-jsonl"]),
+            Command::ExportAuditJsonl {
+                out: DEFAULT_AUDIT_EXPORT.to_string()
+            }
+        );
+        assert_eq!(
+            command(&["export", "audit-jsonl", "--out", "a.jsonl"]),
+            Command::ExportAuditJsonl {
+                out: "a.jsonl".to_string()
+            }
+        );
+        assert_eq!(
+            command(&["export", "serial-log"]),
+            Command::ExportSerialLog {
+                out: DEFAULT_SERIAL_EXPORT.to_string()
+            }
+        );
+        assert_eq!(
+            command(&["export", "run-audit", "r-1"]),
+            Command::ExportRunAudit {
+                run_id: "r-1".to_string(),
+                out: "run-r-1.jsonl".to_string()
+            }
+        );
+        assert_eq!(
+            command(&["export", "run-audit", "r-1", "--out", "x.jsonl"]),
+            Command::ExportRunAudit {
+                run_id: "r-1".to_string(),
+                out: "x.jsonl".to_string()
+            }
+        );
+        assert_eq!(command(&["llm", "clear"]), Command::LlmClear);
+        assert_eq!(
+            command(&["llm", "load-key", "deepseek"]),
+            Command::LlmLoadKey {
+                provider_id: "deepseek".to_string()
+            }
+        );
+        assert_eq!(
+            command(&["qemu", "path", "C:/qemu/qemu-system-riscv64.exe"]),
+            Command::QemuPath {
+                path: "C:/qemu/qemu-system-riscv64.exe".to_string()
+            }
+        );
+        assert_eq!(command(&["qemu", "clear"]), Command::QemuClear);
+        assert_eq!(
+            command(&["toolchain", "download"]),
+            Command::ToolchainDownload
+        );
+        assert_eq!(command(&["toolchain", "cancel"]), Command::ToolchainCancel);
+        assert_eq!(
+            command(&["toolchain", "path", "/opt/gcc"]),
+            Command::ToolchainPath {
+                path: "/opt/gcc".to_string()
+            }
+        );
+        assert_eq!(command(&["toolchain", "clear"]), Command::ToolchainClear);
+        assert_eq!(command(&["preflight", "run"]), Command::PreflightRun);
+        assert_eq!(command(&["preflight", "ack"]), Command::PreflightAck);
+        assert_eq!(
+            command(&["audit", "alert", "set", "on"]),
+            Command::AuditAlertSet { enabled: true }
+        );
+        assert_eq!(
+            command(&["audit", "alert", "set", "off"]),
+            Command::AuditAlertSet { enabled: false }
+        );
+        assert_eq!(
+            command(&["theme", "set", "dark"]),
+            Command::ThemeSet {
+                theme: "dark".to_string()
+            }
+        );
+        assert_eq!(
+            command(&["language", "set", "zh"]),
+            Command::LanguageSet {
+                language: "zh".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn llm_set_takes_the_five_documented_fields() {
+        assert_eq!(
+            command(&[
+                "llm",
+                "set",
+                "--api-key",
+                "sk-not-real",
+                "--base-url",
+                "https://api.deepseek.com",
+                "--model",
+                "deepseek-chat",
+            ]),
+            Command::LlmSet {
+                api_key: Some("sk-not-real".to_string()),
+                api_key_file: None,
+                base_url: "https://api.deepseek.com".to_string(),
+                model: "deepseek-chat".to_string(),
+                provider_id: None,
+                remember: false,
+            }
+        );
+        // The two optional fields, and the file as the other way to give the key.
+        assert_eq!(
+            command(&[
+                "llm",
+                "set",
+                "--api-key-file",
+                "/tmp/key",
+                "--base-url",
+                "u",
+                "--model",
+                "m",
+                "--provider-id",
+                "deepseek",
+                "--remember",
+            ]),
+            Command::LlmSet {
+                api_key: None,
+                api_key_file: Some(PathBuf::from("/tmp/key")),
+                base_url: "u".to_string(),
+                model: "m".to_string(),
+                provider_id: Some("deepseek".to_string()),
+                remember: true,
+            }
+        );
+    }
+
+    #[test]
+    fn llm_set_refuses_a_missing_or_doubled_key() {
+        for args in [
+            vec!["llm", "set"],
+            vec!["llm", "set", "--api-key", "k"],
+            vec!["llm", "set", "--api-key", "k", "--base-url", "u"],
+            vec![
+                "llm",
+                "set",
+                "--api-key",
+                "k",
+                "--api-key-file",
+                "f",
+                "--base-url",
+                "u",
+                "--model",
+                "m",
+            ],
+        ] {
+            assert!(parse_words(&args).is_err(), "{args:?} should not parse");
+        }
+    }
+
+    #[test]
+    fn wait_belongs_to_the_two_async_commands() {
+        assert!(args_of(&["toolchain", "download", "--wait"]).wait);
+        assert!(args_of(&["--wait", "preflight", "run"]).wait);
+        assert!(!args_of(&["toolchain", "download"]).wait);
+        for args in [
+            vec!["health", "--wait"],
+            vec!["preflight", "ack", "--wait"],
+            vec!["run", "x", "--wait"],
+        ] {
+            let refused = parse_words(&args);
+            assert!(refused.is_err(), "{args:?} should not parse");
+            assert!(refused.expect_err("refused").contains("--wait"), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn the_new_requests_match_the_api_table() {
+        for (command, path) in [
+            (
+                Command::ExportAuditJsonl { out: "a".into() },
+                "/v0/audit/export",
+            ),
+            (
+                Command::ExportRunAudit {
+                    run_id: "r".into(),
+                    out: "a".into(),
+                },
+                "/v0/runs/export",
+            ),
+            (
+                Command::ExportSerialLog { out: "a".into() },
+                "/v0/serial/export",
+            ),
+            (Command::LlmClear, "/v0/llm/config/clear"),
+            (
+                Command::LlmLoadKey {
+                    provider_id: "p".into(),
+                },
+                "/v0/llm/stored-key/load",
+            ),
+            (Command::QemuPath { path: "p".into() }, "/v0/qemu/path"),
+            (Command::QemuClear, "/v0/qemu/path/clear"),
+            (Command::ToolchainDownload, "/v0/toolchain/download"),
+            (Command::ToolchainCancel, "/v0/toolchain/download/cancel"),
+            (
+                Command::ToolchainPath { path: "p".into() },
+                "/v0/toolchain/path",
+            ),
+            (Command::ToolchainClear, "/v0/toolchain/path/clear"),
+            (Command::PreflightRun, "/v0/preflight/run"),
+            (Command::PreflightAck, "/v0/preflight/ack"),
+            (Command::AuditAlertSet { enabled: true }, "/v0/audit/alert"),
+            (
+                Command::ThemeSet { theme: "d".into() },
+                "/v0/settings/theme",
+            ),
+            (
+                Command::LanguageSet {
+                    language: "zh".into(),
+                },
+                "/v0/settings/language",
+            ),
+        ] {
+            assert_eq!(command.request_path(), path, "{command:?}");
+            assert_eq!(command.method(), "POST", "{command:?}");
+        }
+        assert_eq!(
+            Command::LlmSet {
+                api_key: Some("k".into()),
+                api_key_file: None,
+                base_url: "u".into(),
+                model: "m".into(),
+                provider_id: None,
+                remember: false,
+            }
+            .request_path(),
+            "/v0/llm/config"
+        );
+    }
+
+    #[test]
+    fn the_new_bodies_are_the_documented_objects() {
+        assert_eq!(
+            Command::ExportAuditJsonl {
+                out: "a.jsonl".into()
+            }
+            .body(),
+            Some(json!({ "path": "a.jsonl" }))
+        );
+        assert_eq!(
+            Command::ExportRunAudit {
+                run_id: "r".into(),
+                out: "a.jsonl".into()
+            }
+            .body(),
+            Some(json!({ "run_id": "r", "path": "a.jsonl" }))
+        );
+        assert_eq!(
+            Command::ExportSerialLog {
+                out: "s.log".into()
+            }
+            .body(),
+            Some(json!({ "path": "s.log" }))
+        );
+        assert_eq!(
+            Command::LlmLoadKey {
+                provider_id: "p".into()
+            }
+            .body(),
+            Some(json!({ "provider_id": "p" }))
+        );
+        assert_eq!(
+            Command::QemuPath { path: "p".into() }.body(),
+            Some(json!({ "path": "p" }))
+        );
+        assert_eq!(
+            Command::AuditAlertSet { enabled: false }.body(),
+            Some(json!({ "enabled": false }))
+        );
+        assert_eq!(
+            Command::ThemeSet {
+                theme: "dark".into()
+            }
+            .body(),
+            Some(json!({ "theme": "dark" }))
+        );
+        assert_eq!(
+            Command::LanguageSet {
+                language: "zh".into()
+            }
+            .body(),
+            Some(json!({ "language": "zh" }))
+        );
+        // The optional fields are left out when they were not given, and the key
+        // is inline (the file has been read by the time a body is built).
+        let minimal = Command::LlmSet {
+            api_key: Some("k".into()),
+            api_key_file: None,
+            base_url: "u".into(),
+            model: "m".into(),
+            provider_id: None,
+            remember: false,
+        };
+        assert_eq!(
+            minimal.body(),
+            Some(json!({ "api_key": "k", "base_url": "u", "model": "m" }))
+        );
+        assert_eq!(Command::ToolchainDownload.body(), None);
+        assert_eq!(Command::ToolchainCancel.body(), None);
+        assert_eq!(Command::PreflightRun.body(), None);
+        assert_eq!(Command::PreflightAck.body(), None);
+        assert_eq!(Command::LlmClear.body(), None);
+    }
+
+    #[test]
+    fn the_clearing_commands_ask_first_and_nothing_else_does() {
+        for command in [
+            Command::LlmClear,
+            Command::QemuClear,
+            Command::ToolchainClear,
+        ] {
+            assert!(command.confirmation().is_some(), "{command:?}");
+        }
+        for command in [
+            Command::ToolchainDownload,
+            Command::ToolchainCancel,
+            Command::PreflightRun,
+            Command::PreflightAck,
+            Command::ThemeSet { theme: "d".into() },
+            Command::LanguageSet {
+                language: "zh".into(),
+            },
+            Command::AuditAlertSet { enabled: true },
+            Command::ExportAuditJsonl { out: "a".into() },
+        ] {
+            assert_eq!(command.confirmation(), None, "{command:?}");
+        }
+    }
+
+    #[test]
+    fn only_an_export_names_an_output_path() {
+        assert_eq!(
+            Command::ExportSerialLog {
+                out: "s.log".into()
+            }
+            .output_path(),
+            Some("s.log")
+        );
+        assert_eq!(
+            Command::ExportRunAudit {
+                run_id: "r".into(),
+                out: "a".into()
+            }
+            .output_path(),
+            Some("a")
+        );
+        assert_eq!(Command::Health.output_path(), None);
+        assert_eq!(Command::ToolchainDownload.output_path(), None);
+    }
+
+    #[test]
+    fn an_incomplete_configuration_command_is_refused() {
+        for args in [
+            vec!["export"],
+            vec!["export", "run-audit"],
+            vec!["export", "nope"],
+            vec!["llm"],
+            vec!["llm", "load-key"],
+            vec!["llm", "nope"],
+            vec!["qemu"],
+            vec!["qemu", "path"],
+            vec!["toolchain", "path"],
+            vec!["toolchain", "nope"],
+            vec!["preflight"],
+            vec!["preflight", "nope"],
+            vec!["audit", "alert"],
+            vec!["audit", "alert", "set"],
+            vec!["audit", "alert", "set", "maybe"],
+            vec!["theme"],
+            vec!["theme", "set"],
+            vec!["language", "set"],
+        ] {
+            assert!(parse_words(&args).is_err(), "{args:?} should not parse");
+        }
+        // The server validates the vocabularies, so a value it will refuse is
+        // still a well-formed command line here.
+        assert_eq!(
+            command(&["theme", "set", "mauve"]),
+            Command::ThemeSet {
+                theme: "mauve".to_string()
+            }
+        );
     }
 
     #[test]

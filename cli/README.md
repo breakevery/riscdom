@@ -44,8 +44,9 @@ Control commands — every one an HTTP `POST`, and every one needs the token:
 
 ### Confirmation
 
-Five commands destroy state — `vm stop`, `snapshots resume`, `snapshots delete`,
-`sessions delete`, `sessions clear-all` — and each one asks before it does:
+Eight commands destroy state — `vm stop`, `snapshots resume`, `snapshots delete`,
+`sessions delete`, `sessions clear-all`, `llm clear`, `qemu clear`, `toolchain clear`
+— and each one asks before it does:
 
 - `--yes` answers the question up front.
 - On a terminal the CLI asks and reads the answer: `y` or `yes` continues, anything
@@ -53,8 +54,70 @@ Five commands destroy state — `vm stop`, `snapshots resume`, `snapshots delete
 - **Not** on a terminal — a script, a pipe, an AI — there is nobody to ask, so the
   command is refused and exits `2`. Silence is not consent.
 
-The one non-destructive control command is `runs abandon-stale`: it marks runs
-whose process is gone, and running it twice is the same as running it once.
+The three clears ask because what they remove cannot be read back out of the host:
+the API key has to be typed again, and the path the host auto-detected is no longer
+on record.
+
+Nothing else asks. `runs abandon-stale` only marks runs whose process is gone, and
+running it twice is the same as running it once.
+
+### Export commands
+
+Three `POST`s that hand the *server* a path to write:
+
+| Command | Asks for | Answers |
+|---|---|---|
+| `export audit-jsonl [--out <path>]` | `POST /v0/audit/export` | how many events were written, and where |
+| `export run-audit <run_id> [--out <path>]` | `POST /v0/runs/export` | the same, for one run's self-contained chain |
+| `export serial-log [--out <path>]` | `POST /v0/serial/export` | how many bytes were written |
+
+- **`--out` is the server's path, not the CLI's.** It is resolved against the
+  workspace root, so a relative name is a workspace file and the host writes it;
+  anything that escapes the workspace (a `..`, an absolute path outside) is
+  refused with `403`. The CLI never receives the file's contents.
+- **The defaults** are `audit.jsonl`, `run-<run_id>.jsonl` and `serial.log`, all
+  relative to the workspace.
+- **What the number counts** differs: the two audit exports answer with the number
+  of **events**, the serial export with a **byte** count (the control plane's
+  field is named `bytes_written` for all three).
+- **The parent directory has to exist** — an export does not create directories.
+- An unknown `run_id` is `404`; a run that is still open has nothing to close its
+  record and is refused.
+
+### Configuration commands
+
+| Command | Asks for | Answers |
+|---|---|---|
+| `llm set --api-key <key> --base-url <url> --model <model> [--provider-id <id>] [--remember]` | `POST /v0/llm/config` | `ok` |
+| `llm set --api-key-file <path> …` | the same endpoint | the same, with the key never on the command line |
+| `llm clear` | `POST /v0/llm/config/clear` | confirmation, then `ok` |
+| `llm load-key <provider_id>` | `POST /v0/llm/stored-key/load` | `ok`, or `404` when nothing is stored for that provider |
+| `qemu path <file>` | `POST /v0/qemu/path` | `ok`, or `400` when the file will not run |
+| `qemu clear` | `POST /v0/qemu/path/clear` | confirmation, then `ok` |
+| `toolchain download [--wait]` | `POST /v0/toolchain/download` | `download started` (`202`) |
+| `toolchain cancel` | `POST /v0/toolchain/download/cancel` | `download cancelling`, or `409` when nothing is running |
+| `toolchain path <file>` | `POST /v0/toolchain/path` | `ok`, or `400` when the file will not run |
+| `toolchain clear` | `POST /v0/toolchain/path/clear` | confirmation, then `ok` |
+| `preflight run [--wait]` | `POST /v0/preflight/run` | `preflight running` (`202`) |
+| `preflight ack` | `POST /v0/preflight/ack` | the four steps and the verdict |
+| `audit alert set <on\|off>` | `POST /v0/audit/alert` | `ok` |
+| `theme set <light\|dark\|system>` | `POST /v0/settings/theme` | `ok`, or `400` naming the three values |
+| `language set <system\|en\|zh>` | `POST /v0/settings/language` | `ok`, or `400` naming the three values |
+
+- **`--api-key` warns** exactly the way `--token` does: the key lands in the shell
+  history and in `ps`. `--api-key-file` is the shape to prefer, and does not warn.
+- **`--remember`** also stores the key in the OS credential store; without it the
+  key lives only in the running host, and the next start will not have it.
+- **`--wait`** subscribes to the event stream *before* starting the work, prints
+  the frames that belong to it (`toolchain:download`, `preflight:progress`) and
+  closes with `download ok` / `preflight failed`. The exit code is the **work's**
+  verdict: a failed download or a failed preflight exits `3`. Without `--wait` the
+  command prints the `202` acknowledgement and returns at once.
+- **The two path setters hand the host a file** and it checks that the file exists
+  *and runs* (`--version`); that is why `qemu path` / `toolchain path` can answer
+  `400` for a path that looks fine.
+- **The vocabularies are the server's** (`theme`, `language`): the CLI passes the
+  value through and does not second-guess it.
 
 ## Options
 
@@ -63,6 +126,14 @@ whose process is gone, and running it twice is the same as running it once.
 | `--json` | print the control plane's JSON, unchanged |
 | `--yes`, `-y` | answer a destructive command's confirmation up front |
 | `--follow`, `-f` | `run` only: print the event stream while the run is going |
+| `--wait`, `-w` | `toolchain download` / `preflight run` only: print progress until the work finishes |
+| `--out <path>` | where an export writes (server-side, resolved against the workspace) |
+| `--api-key <key>` | the model's API key — it lands in the shell history, so the CLI warns |
+| `--api-key-file <path>` | read the API key from a file instead |
+| `--base-url <url>` | the model endpoint |
+| `--model <model>` | the model's name |
+| `--provider-id <id>` | the provider preset `llm set` configures |
+| `--remember` | `llm set`: also store the key in the OS credential store |
 | `--remote <host:port>` | talk to a running `riscdom-server` instead of starting one here |
 | `--data-dir <dir>` | where settings, sessions and the token live (default: this platform's host data dir) |
 | `--workspace <dir>` | the workspace the embedded control plane owns (default: the current directory) |
@@ -146,6 +217,20 @@ unreadable, or that the credential was refused, and nothing more.
   With `--json`, each frame is the envelope verbatim, and the outcome is the JSON
   of the run. The subscription is opened *before* the run starts, so nothing the
   run produces is missed.
+- `--wait` prints the same way, restricted to the events that belong to the work
+  (`toolchain:download` / `preflight:progress`), and closes with one word:
+
+  ```text
+  $ riscdom toolchain download --wait
+  toolchain:download {"install_path":"…","state":"done"}
+  download ok
+  ```
+
+  Under `--json` there is no closing line — the frames are the output, and the
+  exit code is the summary.
+- An export says what it wrote and where: `exported 1 event to audit.jsonl`,
+  `wrote 4096 bytes to serial.log`.
+- The three clears and `preflight ack` print `ok` or the preflight's step table.
 
 ## Exit codes
 
@@ -155,7 +240,7 @@ unreadable, or that the credential was refused, and nothing more.
 | `1` | a local failure: no connection, no token file, no workspace, no runtime |
 | `2` | a usage error, or the control plane rejected the request (`400`) |
 | `3` | the control plane refused or failed (`404` / `405` / `409` / `5xx`) |
-| `4` | authentication failed (`401` / `403`) |
+| `4` | authentication failed (`401` / `403`) — including the workspace policy's `403` on an export path |
 
 Scripts can rely on these: `riscdom health --json || handle_failure "$?"`.
 
@@ -182,6 +267,17 @@ riscdom snapshots delete after-blink --yes
 
 # Start over on sessions.
 riscdom sessions clear-all --yes
+
+# Export the chain and a run's record into the workspace.
+riscdom export audit-jsonl --out audit.jsonl
+riscdom export run-audit local-17480-3
+
+# Configure the model without putting the key in the shell history.
+riscdom llm set --api-key-file ~/.riscdom/api-key --base-url https://api.deepseek.com \
+  --model deepseek-chat --remember
+
+# Download the pinned toolchain and watch it finish.
+riscdom toolchain download --wait
 ```
 
 ## Relationship to `riscdom-server`

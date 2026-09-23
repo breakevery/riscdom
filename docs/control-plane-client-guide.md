@@ -440,6 +440,23 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # against one that 
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
 | `riscdom sessions create` / `open` / `rename` / `delete` / `clear-all` | `POST /v0/sessions/create` / `open` / `rename` / `delete` / `clear` |
 | `riscdom runs abandon-stale` | `POST /v0/runs/abandon-stale` |
+| `riscdom export audit-jsonl` / `run-audit <run_id>` / `serial-log` | `POST /v0/audit/export` / `/v0/runs/export` / `/v0/serial/export` |
+| `riscdom llm set` / `clear` / `load-key <provider_id>` | `POST /v0/llm/config` / `/v0/llm/config/clear` / `/v0/llm/stored-key/load` |
+| `riscdom qemu path <file>` / `clear` | `POST /v0/qemu/path` / `/v0/qemu/path/clear` |
+| `riscdom toolchain download` / `cancel` / `path <file>` / `clear` | `POST /v0/toolchain/download` / `/v0/toolchain/download/cancel` / `/v0/toolchain/path` / `/v0/toolchain/path/clear` |
+| `riscdom preflight run` / `ack` | `POST /v0/preflight/run` / `/v0/preflight/ack` |
+| `riscdom audit alert set <on\|off>` / `theme set <theme>` / `language set <lang>` | `POST /v0/audit/alert` / `/v0/settings/theme` / `/v0/settings/language` |
+
+```bash
+# An export writes where the *server* says: `--out` is resolved against the
+# workspace root, and the answer is a count, not the file.
+riscdom export audit-jsonl --out audit.jsonl
+# exported 1 event to audit.jsonl
+
+# Configure the model; the key comes from a file, so it stays out of `ps`.
+riscdom llm set --api-key-file ~/.riscdom/api-key \
+  --base-url https://api.deepseek.com --model deepseek-chat
+```
 
 **`--follow` is the CLI's version of §5.** `riscdom run <task> --follow` subscribes to
 `/v0/events` first, then starts the run, so every event the run produces is printed as it
@@ -458,15 +475,32 @@ kind       final
 iterations 3
 ```
 
+**`--wait` is the same trick for the two asynchronous controls.** `toolchain download`
+and `preflight run` answer `202` and do the work on a thread; `--wait` subscribes before
+it posts, prints the frames of that work's event family (`toolchain:download`,
+`preflight:progress`) and stops at the one that says it is over — the download's `done`
+/ `failed`, or the preflight's last step / first `failed`, which is where fail-fast ends
+it. The exit code is the work's verdict (`3` when it failed), not the `202`'s.
+
+```bash
+riscdom toolchain download --wait
+# toolchain:download {"install_path":"…","state":"done"}
+# download ok
+```
+
 - **`--json`** prints exactly what the control plane sent — the same fields §2 and §5 document —
   so a client built against this document can be debugged with it. Failures print the error
-  object of §4 on **stderr**. With `--follow`, each frame is the envelope verbatim.
+  object of §4 on **stderr**. With `--follow` and `--wait`, each frame is the envelope verbatim.
+- **`--api-key` warns** the way `--token` does (it lands in the shell history and in `ps`);
+  `--api-key-file` is the shape to prefer, and `--remember` is what makes the key survive a
+  restart (the host stores it in the OS credential store).
 - **The destructive commands ask first** (`vm stop`, `snapshots resume`, `snapshots delete`,
-  `sessions delete`, `sessions clear-all`): a prompt on a terminal, `--yes` to answer up front,
-  and a refusal (exit `2`) when stdin is not a terminal — a script has to say `--yes`.
+  `sessions delete`, `sessions clear-all`, `llm clear`, `qemu clear`, `toolchain clear`): a
+  prompt on a terminal, `--yes` to answer up front, and a refusal (exit `2`) when stdin is
+  not a terminal — a script has to say `--yes`.
 - **Exit codes** turn the status codes of §4 into something a script can branch on: `0` success,
   `1` a local failure (no connection, no token), `2` usage or `400`, `3` refused or `5xx`,
-  `4` `401`/`403`.
+  `4` `401`/`403` (which is also what the workspace policy's `403` on an export path becomes).
 - **The token** comes from `<data-dir>/token` in local mode and from `--token-file`,
   `RISCDOM_TOKEN` or `--token` (in that order) in remote mode. It is never printed.
 

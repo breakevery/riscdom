@@ -13,6 +13,29 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The CLI line is done: five batches, and every control endpoint is a command**
+  (v0.9 CLI batch 5/N). The last seventeen endpoints of `docs/control-plane-api.md` §5.2
+  landed as commands — three exports (`export audit-jsonl`, `export run-audit <run_id>`,
+  `export serial-log`) and fourteen configuration commands grouped the way batch 4 settled
+  (`llm set|clear|load-key`, `qemu path|clear`, `toolchain download|cancel|path|clear`,
+  `preflight run|ack`, `audit alert set <on|off>`, `theme set`, `language set`). Together
+  with batch 4's twelve, all 27 controls are now reachable from the shell, plus the two
+  beyond the table (`vm start` → the reserved `501`, `runs abandon-stale`). The query half
+  is unchanged: the six read-only commands of batch 2/N.
+  Two things came with them. **`--api-key` / `--api-key-file` / `--remember`**: the model
+  key can be given inline (warned, exactly like `--token`) or read from a file, and only
+  `--remember` puts it in the OS credential store. **`--wait`**: `toolchain download --wait`
+  and `preflight run --wait` subscribe to `/v0/events` *before* they post, print the frames
+  of that work's family (`toolchain:download` / `preflight:progress`) and exit with the
+  **work's** verdict — `3` when the download failed or a preflight step did.
+  Three facts recorded on the way, each of which shaped the code: **`--out` is the server's
+  path**, resolved against the workspace root (a path that escapes it is the policy's `403`),
+  and the CLI never receives the file; **the audit exports' `bytes_written` counts events,
+  not bytes** (the serial export's is a byte count), so the human line says which; and
+  **`preflight:progress` has no end-of-run event**, so `--wait` ends at fail-fast's first
+  `failed`, or at the last step's `ok` read from the host's own `preflight::STEPS`. Known
+  rough edge, reported and not fixed: an embedded `--follow`/`--wait` that exits with the
+  stream still open can leave the server's `connection … ended` line on the CLI's stderr.
 - **The CLI can drive the control plane now** (v0.9 CLI batch 4/N). Twelve control
   subcommands joined the eight read-only ones: `run <task>` (the outcome of one agent turn),
   `vm stop`, `vm start` (the reserved `501`), `snapshots save|resume|delete`,

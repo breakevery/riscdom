@@ -328,6 +328,46 @@ in a script, a refusal when there is nobody to ask), and `--follow`, which print
 - **`cli/tests/control.rs`** drives the real binary against a real control plane with the
   model environment cleared, so the suite stays off the network and off QEMU.
 
+**The CLI is complete: exports, configuration, and a `--wait` that watches the work.**
+`riscdom` gained the last seventeen endpoints — the three exports and the fourteen
+configuration commands — so every control in the API document is a shell command now.
+
+### Added
+
+- **The export commands**: `export audit-jsonl [--out <path>]`,
+  `export run-audit <run_id> [--out <path>]`, `export serial-log [--out <path>]`.
+  `--out` is the *server's* path — resolved against the workspace root, refused with `403`
+  when it escapes — and the CLI never receives the file. The defaults are `audit.jsonl`,
+  `run-<run_id>.jsonl` and `serial.log`. Human mode names the count:
+  `exported 3 events to audit.jsonl` / `wrote 4096 bytes to serial.log` (the two audit
+  exports answer with a count of **events**, the serial export with **bytes**; the control
+  plane calls the field `bytes_written` either way).
+- **Fourteen configuration commands**, grouped: `llm set|clear|load-key <provider_id>`,
+  `qemu path <file>|clear`, `toolchain download|cancel|path <file>|clear`,
+  `preflight run|ack`, `audit alert set <on|off>`, `theme set <light|dark|system>`,
+  `language set <system|en|zh>`. `llm set` takes the endpoint's five fields: `--api-key`
+  (or `--api-key-file`), `--base-url`, `--model`, `--provider-id`, `--remember`.
+- **`--api-key-file`** reads the key from a file — the shape that keeps it out of the shell
+  history and `ps` — and **`--remember`** is what persists it to the OS credential store.
+- **`--wait`** for the two asynchronous controls. It subscribes to `/v0/events` *before*
+  posting, prints that work's frames (`toolchain:download` / `preflight:progress`) and closes
+  with `download ok` / `preflight failed`; the exit code is the **work's** verdict, so a
+  failed download or a failed preflight is `3`.
+- **The confirmation reaches the three clears**: `llm clear`, `qemu clear` and
+  `toolchain clear` ask before they act, because what they remove cannot be read back out of
+  the host.
+
+### Changed
+
+- **`cli/src/lib.rs` owns a second streaming path** (`wait`) beside `--follow`, both built on
+  one `subscribe` helper that opens the stream and eats the `hello` frame; the preflight's end
+  is the first `failed` (fail-fast) or the last step's `ok`, read from
+  `host_core::preflight::STEPS` rather than a literal.
+- **`cli/src/client.rs`** reads `--api-key-file` and warns about `--api-key` the way `--token`
+  warns; **`cli/src/render.rs`** adds three renderers (an export's count, the `202`
+  acknowledgement, the preflight's step table), while the fourteen `204` answers keep
+  printing `ok` through the empty-body path that was already there.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

@@ -172,6 +172,38 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 - **`cli/tests/control.rs`** 用真实二进制对着真实控制平面跑，并清空模型环境变量，
   因此测试不联网、不碰 QEMU。
 
+**CLI 收尾：导出、管理配置，以及看着工作跑完的 `--wait`。** `riscdom` 又落下最后十七个端点——三个导出与十四个管理配置命令——至此 API 文档里的每一个控制都是 shell 命令。
+
+### 新增
+
+- **导出类子命令**：`export audit-jsonl [--out <path>]`、`export run-audit <run_id> [--out <path>]`、
+  `export serial-log [--out <path>]`。`--out` 是**服务端的**路径——相对于 workspace 根解析，
+  逃出 workspace 则 `403` 拒绝——CLI 从头到尾拿不到文件。默认值为 `audit.jsonl`、
+  `run-<run_id>.jsonl`、`serial.log`。人类模式会说明数的是什么：
+  `exported 3 events to audit.jsonl` / `wrote 4096 bytes to serial.log`（两条审计导出给的是
+  **事件数**，序列日志导出是**字节数**；控制平面对该字段一律叫 `bytes_written`）。
+- **十四个管理配置子命令**，已分组：`llm set|clear|load-key <provider_id>`、
+  `qemu path <file>|clear`、`toolchain download|cancel|path <file>|clear`、
+  `preflight run|ack`、`audit alert set <on|off>`、`theme set <light|dark|system>`、
+  `language set <system|en|zh>`。`llm set` 接收端点的五个字段：`--api-key`（或
+  `--api-key-file`）、`--base-url`、`--model`、`--provider-id`、`--remember`。
+- **`--api-key-file`** 从文件读 key——不落入 shell history 与 `ps` 的形状——而
+  **`--remember`** 才是把它固化到操作系统凭据存储的那个开关。
+- **`--wait`**，用于两条异步控制：在发请求**之前**先订阅 `/v0/events`，打印该工作的帧
+  （`toolchain:download` / `preflight:progress`），最后一行是 `download ok` / `preflight failed`；
+  退出码是**工作本身**的判定，下载失败或预检失败即 `3`。
+- **确认机制覆盖三条 clear**：`llm clear`、`qemu clear`、`toolchain clear` 动手前先问，
+  因为它们拿走的东西无法从宿主里读回来。
+
+### 变更
+
+- **`cli/src/lib.rs` 在 `--follow` 之外多了第二条流式路径**（`wait`），两者共用同一个
+  `subscribe` 助手：开流并吃掉首帧 `hello`；预检的结束判定是第一个 `failed`（fail-fast）
+  或最后一步的 `ok`，取自 `host_core::preflight::STEPS` 而不是字面量。
+- **`cli/src/client.rs`** 负责读 `--api-key-file`，并按 `--token` 的方式对 `--api-key` 告警；
+  **`cli/src/render.rs`** 新增三个渲染分支（导出的计数、`202` 确认、预检步骤表），
+  而十四条 `204` 应答沿用既有的空 body 路径继续打 `ok`。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见
