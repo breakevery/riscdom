@@ -7,10 +7,15 @@
 
 use crate::args::Command;
 use crate::client::Reply;
+use crate::sse::Frame;
 use serde_json::Value;
 
 /// Render one answer for a human.
 pub fn human(command: &Command, reply: &Reply) -> String {
+    if reply.is_empty() {
+        // `204 No Content`: the control plane said "done" and nothing else.
+        return "ok".to_string();
+    }
     let Some(value) = &reply.json else {
         // Not JSON: hand back exactly what the control plane said.
         return reply.body.trim().to_string();
@@ -24,7 +29,111 @@ pub fn human(command: &Command, reply: &Reply) -> String {
         Command::AuditStatus => audit_status(value),
         Command::AuditEvents { .. } => events(value),
         Command::SnapshotsList => snapshots(value),
+        Command::Run { .. } => outcome(value),
+        Command::VmStop | Command::VmStart => "ok".to_string(),
+        Command::SnapshotsSave { .. } => written(value),
+        Command::SnapshotsResume { .. } => "ok".to_string(),
+        Command::SnapshotsDelete { .. } => deleted(value),
+        Command::SessionsCreate { .. } => session_created(value),
+        Command::SessionsOpen { .. } => session_detail(value),
+        Command::SessionsDelete { .. }
+        | Command::SessionsRename { .. }
+        | Command::SessionsClearAll => "ok".to_string(),
+        Command::RunsAbandonStale => abandoned(value),
     }
+}
+
+/// One line for a stream frame (`--follow`).
+///
+/// The event name, then the payload as compact JSON — long enough to read, short
+/// enough to keep a run's output scannable.
+pub fn frame_line(frame: &Frame) -> String {
+    let Some(value) = frame.json() else {
+        return frame.data.clone();
+    };
+    let kind = value.get("kind").and_then(Value::as_str).unwrap_or("frame");
+    match value.get("event").and_then(Value::as_str) {
+        Some(event) => {
+            let payload = value
+                .get("payload")
+                .map(|payload| payload.to_string())
+                .unwrap_or_default();
+            format!("{event} {}", truncate(&payload, 160))
+        }
+        // `hello` and `gap` carry no event name; name the kind instead.
+        None => match serde_json::to_string(&value).ok() {
+            Some(text) => format!("{kind} {}", truncate(&text, 160)),
+            None => kind.to_string(),
+        },
+    }
+}
+
+fn truncate(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let kept: String = text.chars().take(limit).collect();
+    format!("{kept}…")
+}
+
+/// `AgentOutcomeView`: `{ kind, content, reason, iterations }`.
+fn outcome(value: &Value) -> String {
+    let mut lines = vec![
+        format!("kind       {}", text(value, "kind")),
+        format!("iterations {}", number(value, "iterations")),
+    ];
+    if value.get("reason").map(|r| !r.is_null()).unwrap_or(false) {
+        lines.push(format!("reason     {}", text(value, "reason")));
+    }
+    if let Some(content) = value.get("content").and_then(Value::as_str) {
+        lines.push(String::new());
+        lines.push(content.to_string());
+    }
+    lines.join("\n")
+}
+
+/// `{ "bytes_written": n }` — the two write endpoints answer this.
+fn written(value: &Value) -> String {
+    format!("wrote {} bytes", number(value, "bytes_written"))
+}
+
+/// `{ "deleted": bool }`.
+fn deleted(value: &Value) -> String {
+    match value.get("deleted").and_then(Value::as_bool) {
+        Some(true) => "deleted".to_string(),
+        Some(false) => "nothing to delete".to_string(),
+        None => "ok".to_string(),
+    }
+}
+
+/// `{ "session_id": … }`.
+fn session_created(value: &Value) -> String {
+    format!("session_id {}", text(value, "session_id"))
+}
+
+/// `{ "abandoned": [run_id, …] }`.
+fn abandoned(value: &Value) -> String {
+    match value.get("abandoned").and_then(Value::as_array) {
+        Some(ids) if ids.is_empty() => "no stale runs".to_string(),
+        Some(ids) => format!("abandoned {}", ids.len()),
+        None => "ok".to_string(),
+    }
+}
+
+/// `SessionDetailView`: `{ meta, messages }`.
+fn session_detail(value: &Value) -> String {
+    let meta = value.get("meta").cloned().unwrap_or(Value::Null);
+    let messages = value
+        .get("messages")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    [
+        format!("session_id {}", text(&meta, "session_id")),
+        format!("title      {}", text(&meta, "title")),
+        format!("messages   {messages}"),
+    ]
+    .join("\n")
 }
 
 fn health(value: &Value) -> String {
@@ -310,6 +419,138 @@ mod tests {
         let reply = reply(r#"{"status":"ok"}"#);
         let text = human(&Command::Health, &reply);
         assert_eq!(text, "ok  version -  uptime - ms");
+    }
+
+    #[test]
+    fn a_run_outcome_leads_with_its_shape_and_then_the_answer() {
+        let outcome =
+            reply(r#"{"kind":"final","content":"all done","reason":null,"iterations":2}"#);
+        let text = human(&Command::Run { task: "t".into() }, &outcome);
+        assert!(text.starts_with("kind       final\niterations 2"), "{text}");
+        assert!(text.ends_with("all done"), "{text}");
+        // A turn that gave up carries its reason on its own line.
+        let stopped =
+            reply(r#"{"kind":"stopped","content":"","reason":"max iterations","iterations":9}"#);
+        let text = human(&Command::Run { task: "t".into() }, &stopped);
+        assert!(text.contains("reason     max iterations"), "{text}");
+    }
+
+    #[test]
+    fn the_vm_and_session_writes_render_as_short_lines() {
+        assert_eq!(human(&Command::VmStop, &reply("{}")), "ok");
+        assert_eq!(human(&Command::VmStart, &reply("{}")), "ok");
+        assert_eq!(
+            human(
+                &Command::SnapshotsSave { name: "a".into() },
+                &reply(r#"{"bytes_written":4096}"#)
+            ),
+            "wrote 4096 bytes"
+        );
+        assert_eq!(
+            human(
+                &Command::SessionsCreate { title: "t".into() },
+                &reply(r#"{"session_id":"s-1"}"#)
+            ),
+            "session_id s-1"
+        );
+        assert_eq!(human(&Command::SessionsClearAll, &reply("{}")), "ok");
+        // The session deletes and the rename answer `204`: success, nothing to print.
+        assert_eq!(
+            human(
+                &Command::SessionsDelete {
+                    session_id: "s".into()
+                },
+                &reply("{}")
+            ),
+            "ok"
+        );
+        assert_eq!(
+            human(
+                &Command::SessionsRename {
+                    session_id: "s".into(),
+                    title: "t".into()
+                },
+                &reply("{}")
+            ),
+            "ok"
+        );
+    }
+
+    #[test]
+    fn a_snapshot_delete_says_whether_it_deleted_anything() {
+        // The one delete endpoint that answers a body; the session deletes answer
+        // `204` and render as `ok` (see the test above).
+        let command = Command::SnapshotsDelete { name: "a".into() };
+        assert_eq!(human(&command, &reply(r#"{"deleted":true}"#)), "deleted");
+        assert_eq!(
+            human(&command, &reply(r#"{"deleted":false}"#)),
+            "nothing to delete"
+        );
+    }
+
+    #[test]
+    fn abandoning_stale_runs_names_the_count_or_says_there_were_none() {
+        assert_eq!(
+            human(&Command::RunsAbandonStale, &reply(r#"{"abandoned":[]}"#)),
+            "no stale runs"
+        );
+        assert_eq!(
+            human(
+                &Command::RunsAbandonStale,
+                &reply(r#"{"abandoned":["local-1-1","local-1-2"]}"#)
+            ),
+            "abandoned 2"
+        );
+    }
+
+    #[test]
+    fn opening_a_session_shows_its_meta_and_how_many_messages_it_holds() {
+        let detail = reply(r#"{"meta":{"session_id":"s-1","title":"work"},"messages":[{},{}]}"#);
+        let text = human(
+            &Command::SessionsOpen {
+                session_id: "s-1".into(),
+            },
+            &detail,
+        );
+        assert!(text.contains("session_id s-1"), "{text}");
+        assert!(text.contains("title      work"), "{text}");
+        assert!(text.contains("messages   2"), "{text}");
+    }
+
+    #[test]
+    fn a_follow_frame_is_the_event_name_and_a_short_payload() {
+        let frame = Frame::for_test(
+            Some("17-3".into()),
+            "{\"kind\":\"event\",\"event\":\"agent:tool_call\",\"payload\":{\"name\":\"compile\"}}",
+        );
+        assert_eq!(frame_line(&frame), "agent:tool_call {\"name\":\"compile\"}");
+
+        // `hello` and `gap` carry no event name: the kind is the label.
+        let hello = Frame::for_test(
+            Some("17-0".into()),
+            "{\"kind\":\"hello\",\"event\":null,\"payload\":{}}",
+        );
+        assert!(
+            frame_line(&hello).starts_with("hello "),
+            "{}",
+            frame_line(&hello)
+        );
+
+        // A payload longer than the cut is truncated, not dropped.
+        let long = format!(
+            "{{\"kind\":\"event\",\"event\":\"x\",\"payload\":\"{}\"}}",
+            "y".repeat(400)
+        );
+        let frame = Frame::for_test(Some("17-1".into()), &long);
+        let line = frame_line(&frame);
+        assert!(line.ends_with('…'), "{line}");
+        assert!(line.chars().count() <= 200, "{line}");
+    }
+
+    #[test]
+    fn a_frame_that_is_not_json_is_printed_as_it_arrived() {
+        let frame = Frame::for_test(Some("17-1".into()), "not json at all");
+        assert_eq!(frame_line(&frame), "not json at all");
     }
 
     #[test]

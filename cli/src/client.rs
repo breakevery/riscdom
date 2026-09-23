@@ -1,5 +1,5 @@
 //! Talking to the control plane: the embedded server, the HTTP client, the
-//! token, and the exit-code map.
+//! token, the confirmation prompt, and the exit-code map.
 //!
 //! Both modes are one path. Without `--remote` the CLI starts the control plane
 //! **inside this process** on a loopback port the OS picks (`127.0.0.1:0`), then
@@ -7,6 +7,8 @@
 //! `AppState` directly.
 
 use crate::args::Args;
+use crate::sse::SseStream;
+use std::io::IsTerminal;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -16,16 +18,22 @@ use std::time::Duration;
 pub const EXIT_OK: u8 = 0;
 /// A local failure: no connection, no token, no workspace, no runtime.
 pub const EXIT_LOCAL: u8 = 1;
-/// A usage error, or the control plane rejected the request (`400`).
+/// A usage error, a refused confirmation, or the control plane rejecting the
+/// request (`400`).
 pub const EXIT_USAGE: u8 = 2;
 /// The control plane refused or failed (`404` / `405` / `409` / `5xx`).
 pub const EXIT_REMOTE: u8 = 3;
 /// Authentication failed (`401` / `403`).
 pub const EXIT_AUTH: u8 = 4;
 
-/// How long one request may take. The read-only commands answer immediately; a
-/// long-running control (`run`) will need its own budget.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long one read-only request may take. Those answer immediately.
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a control request may take. `run` drives a whole agent turn — model
+/// calls, tools, a guest — so this is a budget, not a hint.
+const CONTROL_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// How long a connection may take to establish. The streams have no total
+/// timeout, because an event stream is open by design.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Map an HTTP status onto the CLI's exit code.
 pub fn exit_code_for(status: u16) -> u8 {
@@ -60,6 +68,17 @@ impl Error {
     pub fn auth(message: impl Into<String>) -> Self {
         Self {
             code: EXIT_AUTH,
+            message: message.into(),
+            body: None,
+        }
+    }
+
+    /// A refusal that never reached the control plane (a declined confirmation,
+    /// a missing `--yes`): a usage error, because the command as written was not
+    /// one the operator stood behind.
+    pub fn refused(message: impl Into<String>) -> Self {
+        Self {
+            code: EXIT_USAGE,
             message: message.into(),
             body: None,
         }
@@ -132,9 +151,18 @@ impl Reply {
     pub fn is_success(&self) -> bool {
         (200..=299).contains(&self.status)
     }
+
+    /// `true` when the endpoint answered with no body at all (`204`).
+    pub fn is_empty(&self) -> bool {
+        self.body.trim().is_empty()
+    }
 }
 
-/// The HTTP side: one base URL, one credential, one blocking client.
+/// The HTTP side: one base URL, one token, one blocking client.
+///
+/// Cloning is cheap and shares the connection pool, which is how `--follow` puts
+/// the request on another thread while this one reads the stream.
+#[derive(Clone)]
 pub struct Client {
     base: String,
     token: Option<String>,
@@ -142,9 +170,14 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(base: String, token: Option<String>) -> Result<Self, Error> {
+    pub fn new(
+        base: String,
+        token: Option<String>,
+        timeout: Option<Duration>,
+    ) -> Result<Self, Error> {
         let http = reqwest::blocking::Client::builder()
-            .timeout(REQUEST_TIMEOUT)
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(timeout)
             .build()
             .map_err(|e| Error::local(format!("cannot build the HTTP client: {e}")))?;
         Ok(Self { base, token, http })
@@ -152,8 +185,53 @@ impl Client {
 
     /// `GET <path>`, returning the body whether or not the status is a success.
     pub fn get(&self, path: &str) -> Result<Reply, Error> {
-        let url = format!("{}{path}", self.base);
-        let mut request = self.http.get(&url).header("Accept", "application/json");
+        let url = self.url(path);
+        self.send(url.clone(), self.http.get(&url))
+    }
+
+    /// `POST <path>` with a JSON body (or none).
+    pub fn post(&self, path: &str, body: Option<&serde_json::Value>) -> Result<Reply, Error> {
+        let url = self.url(path);
+        let mut request = self.http.post(&url);
+        if let Some(body) = body {
+            request = request
+                .header("Content-Type", "application/json")
+                .body(body.to_string());
+        }
+        self.send(url, request)
+    }
+
+    /// Open an event stream (`GET /v0/events`).
+    ///
+    /// The response is handed back before its body ends: the caller reads frames.
+    pub fn open_stream(&self, path: &str) -> Result<SseStream, Error> {
+        let url = self.url(path);
+        let mut request = self.http.get(&url).header("Accept", "text/event-stream");
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
+        let response = request
+            .send()
+            .map_err(|e| Error::local(format!("cannot open {url}: {e}")))?;
+        let status = response.status().as_u16();
+        if !(200..=299).contains(&status) {
+            let body = response.text().unwrap_or_default();
+            let json = serde_json::from_str(&body).ok();
+            return Err(Error::from_reply(Reply { status, body, json }));
+        }
+        Ok(SseStream::new(response))
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.base)
+    }
+
+    fn send(
+        &self,
+        url: String,
+        request: reqwest::blocking::RequestBuilder,
+    ) -> Result<Reply, Error> {
+        let mut request = request.header("Accept", "application/json");
         if let Some(token) = &self.token {
             request = request.bearer_auth(token);
         }
@@ -193,9 +271,14 @@ impl Embedded {
     }
 }
 
-/// A session: how to reach the control plane, and the credential to use.
+/// A session: how to reach the control plane, and the token to use.
+///
+/// Three clients, because the timeout is not one number: a read answers now, a
+/// control may take half an hour, and a stream must never time out at all.
 pub struct Session {
-    client: Client,
+    read: Client,
+    control: Client,
+    stream: Client,
     /// `Some` in local mode: the embedded server must outlive the request.
     embedded: Option<Embedded>,
 }
@@ -208,16 +291,20 @@ impl Session {
                 let base = remote_base_url(remote);
                 let token = remote_token(args)?;
                 Ok(Self {
-                    client: Client::new(base, token)?,
+                    read: Client::new(base.clone(), token.clone(), Some(READ_TIMEOUT))?,
+                    control: Client::new(base.clone(), token.clone(), Some(CONTROL_TIMEOUT))?,
+                    stream: Client::new(base, token, None)?,
                     embedded: None,
                 })
             }
             None => {
                 let embedded = start_embedded(&args.workspace, args.data_dir.as_deref())?;
-                let token = embedded.token().to_string();
-                let client = Client::new(embedded.base_url(), Some(token))?;
+                let base = embedded.base_url();
+                let token = Some(embedded.token().to_string());
                 Ok(Self {
-                    client,
+                    read: Client::new(base.clone(), token.clone(), Some(READ_TIMEOUT))?,
+                    control: Client::new(base.clone(), token.clone(), Some(CONTROL_TIMEOUT))?,
+                    stream: Client::new(base, token, None)?,
                     embedded: Some(embedded),
                 })
             }
@@ -225,7 +312,21 @@ impl Session {
     }
 
     pub fn get(&self, path: &str) -> Result<Reply, Error> {
-        self.client.get(path)
+        self.read.get(path)
+    }
+
+    /// A control request. Cloned into a thread by `--follow`.
+    pub fn post(&self, path: &str, body: Option<&serde_json::Value>) -> Result<Reply, Error> {
+        self.control.post(path, body)
+    }
+
+    pub fn open_stream(&self, path: &str) -> Result<SseStream, Error> {
+        self.stream.open_stream(path)
+    }
+
+    /// A control client whose requests can be moved to another thread.
+    pub fn control_client(&self) -> Client {
+        self.control.clone()
     }
 }
 
@@ -234,6 +335,30 @@ impl Drop for Session {
         if let Some(embedded) = &self.embedded {
             embedded.abort();
         }
+    }
+}
+
+/// Ask before doing something that destroys state.
+///
+/// `--yes` answers up front. Otherwise: on a terminal, ask and read the answer;
+/// **not** on a terminal (a script, an AI, a pipe) there is nobody to ask, so the
+/// command is refused — silence is not consent.
+pub fn confirm(prompt: &str, yes: bool) -> Result<(), Error> {
+    if yes {
+        return Ok(());
+    }
+    if !std::io::stdin().is_terminal() {
+        return Err(Error::refused(format!(
+            "refusing without confirmation: {prompt} (stdin is not a terminal; pass --yes)"
+        )));
+    }
+    eprint!("{prompt} [y/N] ");
+    let mut answer = String::new();
+    let read = std::io::stdin().read_line(&mut answer);
+    let answer = answer.trim();
+    match read {
+        Ok(_) if answer.eq_ignore_ascii_case("y") || answer.eq_ignore_ascii_case("yes") => Ok(()),
+        _ => Err(Error::refused(format!("not confirmed: {prompt}"))),
     }
 }
 
@@ -246,7 +371,7 @@ fn remote_base_url(remote: &str) -> String {
     }
 }
 
-/// The credential for a remote control plane.
+/// The token for a remote control plane.
 ///
 /// `--token-file` first (only a path lands on the command line), then
 /// `RISCDOM_TOKEN` (not on the command line either), then `--token` — which does
@@ -255,19 +380,19 @@ fn remote_token(args: &Args) -> Result<Option<String>, Error> {
     if let Some(path) = &args.token_file {
         return read_token_file(path).map(Some);
     }
-    if let Ok(token) = std::env::var("RISCDOM_TOKEN") {
-        let token = token.trim().to_string();
-        if token.is_empty() {
+    if let Ok(value) = std::env::var("RISCDOM_TOKEN") {
+        let value = value.trim().to_string();
+        if value.is_empty() {
             return Err(Error::auth("RISCDOM_TOKEN is set but empty"));
         }
-        return Ok(Some(token));
+        return Ok(Some(value));
     }
-    if let Some(token) = &args.token {
+    if let Some(value) = &args.token {
         eprintln!(
-            "riscdom: warning: --token puts the bearer token in the shell history and in `ps`; \
+            "riscdom: warning: --token puts the token in the shell history and in `ps`; \
              prefer --token-file or RISCDOM_TOKEN"
         );
-        return Ok(Some(token.clone()));
+        return Ok(Some(value.clone()));
     }
     Ok(None)
 }
@@ -283,14 +408,14 @@ fn read_token_file(path: &Path) -> Result<String, Error> {
             path.display()
         ))
     })?;
-    let token = text.trim().to_string();
-    if token.is_empty() {
+    let value = text.trim().to_string();
+    if value.is_empty() {
         return Err(Error::auth(format!(
             "the token file {} is empty",
             path.display()
         )));
     }
-    Ok(token)
+    Ok(value)
 }
 
 /// Start the control plane inside this process, on a loopback port the OS picks.
@@ -308,19 +433,20 @@ pub fn start_embedded(workspace: &Path, data_dir: Option<&Path>) -> Result<Embed
     .map_err(|e| Error::local(format!("cannot open the workspace state: {e}")))?;
     let state = Arc::new(state);
 
-    let token_file = server::token::load_or_create(state.data_dir()).map_err(|e| {
+    let file = server::token::load_or_create(state.data_dir()).map_err(|e| {
         Error::local(format!(
             "cannot use the token in {}: {e}",
             state.data_dir().display()
         ))
     })?;
-    let token = token_file.token().to_string();
+    let token = file.token().to_string();
 
     let authn: Arc<dyn server::Authn> = Arc::new(server::TokenAuth::new(token.clone()));
     let bind: SocketAddr = "127.0.0.1:0"
         .parse()
         .expect("a loopback literal is an address");
-    // No heartbeat: the CLI does not subscribe to the stream.
+    // No heartbeat: the CLI subscribes only for `--follow`, and a frame nobody
+    // needs is not worth a thread in every short-lived invocation.
     let config = server::ServerConfig::new(bind)
         .with_heartbeat(None)
         .with_authn(authn);
@@ -388,6 +514,28 @@ mod tests {
     }
 
     #[test]
+    fn a_501_from_a_reserved_endpoint_is_a_remote_failure_with_its_message() {
+        let reply = Reply {
+            status: 501,
+            body: r#"{"code":"not_implemented","message":"starting a VM is reserved","retryable":false,"cause":null}"#
+                .to_string(),
+            json: Some(serde_json::json!({
+                "code": "not_implemented",
+                "message": "starting a VM is reserved",
+                "retryable": false,
+                "cause": null,
+            })),
+        };
+        let error = Error::from_reply(reply);
+        assert_eq!(error.code, EXIT_REMOTE);
+        assert!(
+            error.human().contains("not_implemented"),
+            "{}",
+            error.human()
+        );
+    }
+
+    #[test]
     fn a_local_failure_is_wrapped_in_the_error_shape() {
         let error = Error::local("cannot reach http://127.0.0.1:1/v0/health");
         assert_eq!(error.code, EXIT_LOCAL);
@@ -397,13 +545,20 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_confirmation_is_a_usage_error() {
+        let error = Error::refused("not confirmed: Delete snapshot \"a\"?");
+        assert_eq!(error.code, EXIT_USAGE);
+        assert!(error.human().contains("not confirmed"));
+    }
+
+    #[test]
     fn a_token_file_is_read_and_trimmed() {
-        let dir = std::env::temp_dir().join(format!("riscdom-cli-token-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("riscdom-cli-cred-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let path = dir.join("token");
         let mut file = std::fs::File::create(&path).expect("token file");
-        writeln!(file, "  a-token-value  ").expect("write");
-        assert_eq!(read_token_file(&path).expect("reads"), "a-token-value");
+        writeln!(file, "  a-value  ").expect("write");
+        assert_eq!(read_token_file(&path).expect("reads"), "a-value");
 
         std::fs::write(&path, "   \n").expect("write");
         let error = read_token_file(&path).expect_err("empty");
@@ -442,7 +597,7 @@ mod tests {
             Some("from-flag")
         );
 
-        // Without any of the three, there is simply no credential to present.
+        // Without any of the three, there is simply nothing to present.
         let parsed = parse(vec!["health".to_string()]).expect("parses");
         let args = match parsed {
             Parsed::Command(args) => args,
@@ -458,5 +613,12 @@ mod tests {
             remote_base_url("box.example:9000"),
             "http://box.example:9000"
         );
+    }
+
+    #[test]
+    fn yes_answers_the_prompt_without_reading_stdin() {
+        // The unit tests run with a stdin that may or may not be a terminal;
+        // `--yes` must not depend on which.
+        assert!(confirm("Delete everything?", true).is_ok());
     }
 }

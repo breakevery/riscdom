@@ -435,10 +435,35 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # against one that 
 | `riscdom audit status` | `GET /v0/audit/status` |
 | `riscdom audit events [--limit <n>]` | `GET /v0/audit/events` |
 | `riscdom snapshots list` | `GET /v0/snapshots` |
+| `riscdom run <task>` | `POST /v0/agent/run` |
+| `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
+| `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
+| `riscdom sessions create` / `open` / `rename` / `delete` / `clear-all` | `POST /v0/sessions/create` / `open` / `rename` / `delete` / `clear` |
+| `riscdom runs abandon-stale` | `POST /v0/runs/abandon-stale` |
+
+**`--follow` is the CLI's version of §5.** `riscdom run <task> --follow` subscribes to
+`/v0/events` first, then starts the run, so every event the run produces is printed as it
+arrives — the same frames a client of §5 would read — and the run's outcome comes last:
+
+```bash
+riscdom run "compile the blink example" --follow
+```
+
+```text
+agent:llm.stream.start {"iteration":1}
+agent:tool_call {"name":"write_source","arguments":{"path":"src/main.c"}}
+serial:chunk {"chunk":"hello from riscv\n"}
+agent:final {"kind":"final"}
+kind       final
+iterations 3
+```
 
 - **`--json`** prints exactly what the control plane sent — the same fields §2 and §5 document —
   so a client built against this document can be debugged with it. Failures print the error
-  object of §4 on **stderr**.
+  object of §4 on **stderr**. With `--follow`, each frame is the envelope verbatim.
+- **The destructive commands ask first** (`vm stop`, `snapshots resume`, `snapshots delete`,
+  `sessions delete`, `sessions clear-all`): a prompt on a terminal, `--yes` to answer up front,
+  and a refusal (exit `2`) when stdin is not a terminal — a script has to say `--yes`.
 - **Exit codes** turn the status codes of §4 into something a script can branch on: `0` success,
   `1` a local failure (no connection, no token), `2` usage or `400`, `3` refused or `5xx`,
   `4` `401`/`403`.

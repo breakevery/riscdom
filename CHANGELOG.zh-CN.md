@@ -146,6 +146,32 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
   `LocalDispatcher` 不再组装任何东西。执行者是子进程时两者必然不同 —— 而这正是监工区分「executor-0」
   与「真正应答的那个进程」所需要的。
 
+**CLI 能驱动控制平面了，而且在销毁前会先问。** `riscdom` 现在也覆盖了 API 的控制半边——`run`、`vm stop`、`vm start`（仍是预留的 `501`）、快照与会话的写操作、`runs abandon-stale`——随之而来两件事：五条销毁类命令要求的确认（终端上弹提示，脚本里用 `--yes`，没人可问时直接拒绝），以及 `--follow`：在运行期间打印 `/v0/events` 事件流。
+
+### 新增
+
+- **`riscdom` 新增十二个控制类子命令**：`run <task>`、`vm stop`、`vm start`、
+  `snapshots save|resume|delete <name>`、`sessions create|open|rename|delete|clear-all` 与
+  `runs abandon-stale`。每一个都是 HTTP `POST`，走的是只读命令同一份客户端；人类模式下，
+  运行的输出是 `kind`/`iterations` 加答案，保存是写入字节数，删快照是是否真的删掉了。
+- **确认机制与 `--yes`（别名 `-y`）**：五条销毁状态的命令（`vm stop`、`snapshots resume`、
+  `snapshots delete`、`sessions delete`、`sessions clear-all`）动手前先问。`--yes` 提前
+  回答；终端上弹提示，除 `y`/`yes` 外均算拒绝；stdin 不是终端时直接拒绝并退出 `2`，
+  因此脚本无法因沉默而销毁状态。
+- **`--follow`（别名 `-f`），仅 `run`**：CLI 在发起运行**之前**先订阅 `GET /v0/events`，
+  因此一个事件也不会漏；每个帧打一行（事件名加一小段 payload；带 `--json` 时是原样的
+  envelope），最后再打结果。用在其他命令上是用法错误。
+- **`cli/src/sse.rs`**：帧读取器——`id:` / `data:` 行、空行分帧、注释心跳跳过、
+  多行 `data:` 合并为一个 payload。
+
+### 变更
+
+- **`cli/src/lib.rs` 负责分发，`cli/src/client.rs` 负责会话**：每次调用一个 `Session`
+  （远程，或内嵌在自身进程里的控制平面，并把宿主自己的凭证回递给它），三个超时，
+  因为读立即应答、控制可能跑半小时、事件流则绝不能超时。
+- **`cli/tests/control.rs`** 用真实二进制对着真实控制平面跑，并清空模型环境变量，
+  因此测试不联网、不碰 QEMU。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

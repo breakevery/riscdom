@@ -13,6 +13,23 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The CLI can drive the control plane now** (v0.9 CLI batch 4/N). Twelve control
+  subcommands joined the eight read-only ones: `run <task>` (the outcome of one agent turn),
+  `vm stop`, `vm start` (the reserved `501`), `snapshots save|resume|delete`,
+  `sessions create|open|rename|delete|clear-all` and `runs abandon-stale` — all HTTP `POST`
+  against the control plane, none of them reaching into `AppState`. Two things came with them.
+  **Confirmation**: the five commands that destroy state (`vm stop`, `snapshots resume`,
+  `snapshots delete`, `sessions delete`, `sessions clear-all`) ask before they act — `--yes`
+  answers up front, a terminal is prompted, and stdin that is not a terminal is a refusal
+  (exit `2`), because silence is not consent. **`--follow`**: `run --follow` subscribes to
+  `/v0/events` *before* starting the run, prints each frame as it arrives (event name plus a
+  short payload; the envelope verbatim under `--json`) and then the outcome, so a run's stream
+  is never read after the fact. `cli/src/sse.rs` is new and reads the frames;
+  `client::confirm` owns the prompt; `cli/tests/control.rs` drives the real binary against a
+  control plane with no model configured, so it stays off the network and off QEMU. Known
+  rough edge, reported and not fixed: an embedded `--follow` that exits with the stream still
+  open can leave the server's `connection … ended` line on the CLI's stderr, ahead of the CLI's
+  own error object.
 - **`server` is inside the gate's clippy step, and clippy-clean** (v0.9 CLI batch 3/N).
   The crate had never been linted — the gate selected the portable crates plus
   `host-core`/`host-tauri` only — and adding `-p cli` to that step is what exposed it. Six

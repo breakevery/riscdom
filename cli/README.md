@@ -25,14 +25,44 @@ riscdom [options] <command> [args]
 | `audit events [--limit <n>]` | `GET /v0/audit/events` | recent events, newest first (default 20) |
 | `snapshots list` | `GET /v0/snapshots` | stored snapshots |
 
-Everything here is read-only. The control commands (`run`, `vm stop`, …) and
-`--follow` arrive in a later batch.
+Control commands — every one an HTTP `POST`, and every one needs the token:
+
+| Command | Asks for | Answers |
+|---|---|---|
+| `run <task> [--follow]` | `POST /v0/agent/run` | one agent turn's outcome; `--follow` prints the event stream while it runs |
+| `vm stop` | `POST /v0/vm/stop` | confirmation, then `ok` |
+| `vm start` | `POST /v0/vm/start` | `501` — reserved: today the VM starts inside a run |
+| `snapshots save <name>` | `POST /v0/snapshots/save` | how many bytes were written |
+| `snapshots resume <name>` | `POST /v0/snapshots/resume` | confirmation, then `ok` |
+| `snapshots delete <name>` | `POST /v0/snapshots/delete` | whether anything was deleted |
+| `sessions create <title>` | `POST /v0/sessions/create` | the new `session_id` |
+| `sessions open <session_id>` | `POST /v0/sessions/open` | the session's meta and how many messages it holds |
+| `sessions rename <id> <title>` | `POST /v0/sessions/rename` | `ok` |
+| `sessions delete <session_id>` | `POST /v0/sessions/delete` | confirmation, then `ok` |
+| `sessions clear-all` | `POST /v0/sessions/clear` | confirmation, then `ok` |
+| `runs abandon-stale` | `POST /v0/runs/abandon-stale` | how many stale runs were abandoned |
+
+### Confirmation
+
+Five commands destroy state — `vm stop`, `snapshots resume`, `snapshots delete`,
+`sessions delete`, `sessions clear-all` — and each one asks before it does:
+
+- `--yes` answers the question up front.
+- On a terminal the CLI asks and reads the answer: `y` or `yes` continues, anything
+  else declines.
+- **Not** on a terminal — a script, a pipe, an AI — there is nobody to ask, so the
+  command is refused and exits `2`. Silence is not consent.
+
+The one non-destructive control command is `runs abandon-stale`: it marks runs
+whose process is gone, and running it twice is the same as running it once.
 
 ## Options
 
 | Option | Meaning |
 |---|---|
 | `--json` | print the control plane's JSON, unchanged |
+| `--yes`, `-y` | answer a destructive command's confirmation up front |
+| `--follow`, `-f` | `run` only: print the event stream while the run is going |
 | `--remote <host:port>` | talk to a running `riscdom-server` instead of starting one here |
 | `--data-dir <dir>` | where settings, sessions and the token live (default: this platform's host data dir) |
 | `--workspace <dir>` | the workspace the embedded control plane owns (default: the current directory) |
@@ -98,6 +128,24 @@ unreadable, or that the credential was refused, and nothing more.
 - `agents` is the one derived view: `--json` still passes `/v0/status` through
   (that is the rule), while human mode shows only `agents` and `agent_id`.
 - A failure in human mode prints `code: message (cause: …)`.
+- `--follow` prints one line per event frame while the run is going — the event
+  name and a short payload — and then the outcome, exactly as without the flag:
+
+  ```text
+  $ riscdom run "print hello over the serial console" --follow
+  agent:llm.stream.start {"iteration":1}
+  agent:tool_call {"name":"write_source","arguments":{"path":"src/main.c"}}
+  serial:chunk {"chunk":"hello from riscv\n"}
+  agent:final {"kind":"final"}
+  kind       final
+  iterations 3
+
+  Hello from the sandbox.
+  ```
+
+  With `--json`, each frame is the envelope verbatim, and the outcome is the JSON
+  of the run. The subscription is opened *before* the run starts, so nothing the
+  run produces is missed.
 
 ## Exit codes
 
@@ -125,6 +173,15 @@ riscdom audit status
 
 # A token that does not live in your shell history.
 riscdom --remote box.example:7821 --token-file ~/.riscdom/token audit events --limit 50
+
+# Run one agent turn and print the event stream while it goes.
+riscdom run "print hello over the serial console" --follow
+
+# Delete a snapshot: a prompt on a terminal, `--yes` in a script.
+riscdom snapshots delete after-blink --yes
+
+# Start over on sessions.
+riscdom sessions clear-all --yes
 ```
 
 ## Relationship to `riscdom-server`

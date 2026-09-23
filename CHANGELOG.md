@@ -293,6 +293,41 @@ audit chain, the hash formula or the append-only triggers changes.
   `LocalDispatcher` no longer assembles anything. The two differ whenever the executor is a child process,
   which is exactly what a supervisor needs to tell "executor-0" apart from the process that answered.
 
+**The CLI drives the control plane, and it asks before it destroys.** `riscdom` now covers
+the control half of the API as well — `run`, `vm stop`, `vm start` (still the reserved
+`501`), the snapshot and session writes, `runs abandon-stale` — and two things came with
+them: a confirmation the five destructive commands require (a prompt on a terminal, `--yes`
+in a script, a refusal when there is nobody to ask), and `--follow`, which prints the
+`/v0/events` stream while a run is going.
+
+### Added
+
+- **Twelve control subcommands in `riscdom`**: `run <task>`, `vm stop`, `vm start`,
+  `snapshots save|resume|delete <name>`, `sessions create|open|rename|delete|clear-all` and
+  `runs abandon-stale`. Each one is an HTTP `POST` through the same client the read-only
+  commands use; human mode prints `kind`/`iterations` and the answer for a run, the byte
+  count for a save, and whether anything was deleted for a snapshot delete.
+- **The confirmation, and `--yes` (alias `-y`)**: the five commands that destroy state
+  (`vm stop`, `snapshots resume`, `snapshots delete`, `sessions delete`,
+  `sessions clear-all`) ask first. `--yes` answers up front; a terminal is prompted and
+  anything but `y`/`yes` declines; stdin that is not a terminal is refused with exit `2`,
+  so a script cannot destroy state by omission.
+- **`--follow` (alias `-f`), `run` only**: the CLI subscribes to `GET /v0/events`
+  *before* it starts the run, so no event is missed, prints one line per frame (the event
+  name and a short payload; the envelope verbatim under `--json`), and then the outcome.
+  On any other command it is a usage error.
+- **`cli/src/sse.rs`**: the frame reader — `id:` / `data:` lines, a blank line terminating
+  each frame, comment heartbeats skipped, several `data:` lines joined into one payload.
+
+### Changed
+
+- **`cli/src/lib.rs` owns the dispatch and `cli/src/client.rs` the session**: one `Session`
+  per invocation (remote, or the control plane embedded in this process, with the host's own
+  credential presented back to it), and three timeouts, because a read answers now, a control
+  may take half an hour, and an event stream must never time out.
+- **`cli/tests/control.rs`** drives the real binary against a real control plane with the
+  model environment cleared, so the suite stays off the network and off QEMU.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

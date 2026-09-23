@@ -21,13 +21,43 @@ riscdom [options] <command> [args]
 | `audit events [--limit <n>]` | `GET /v0/audit/events` | 最近事件，新的在前（默认 20） |
 | `snapshots list` | `GET /v0/snapshots` | 已存快照 |
 
-以上全部只读。控制类子命令（`run`、`vm stop` 等）与 `--follow` 留后续批次。
+控制类子命令——全部是 HTTP `POST`，全部需要 token：
+
+| 子命令 | 请求 | 得到 |
+|---|---|---|
+| `run <task> [--follow]` | `POST /v0/agent/run` | 一轮 agent 的结果；`--follow` 在运行时打印事件流 |
+| `vm stop` | `POST /v0/vm/stop` | 先确认，再 `ok` |
+| `vm start` | `POST /v0/vm/start` | `501`——预留：今天 VM 在运行内启动 |
+| `snapshots save <name>` | `POST /v0/snapshots/save` | 写入字节数 |
+| `snapshots resume <name>` | `POST /v0/snapshots/resume` | 先确认，再 `ok` |
+| `snapshots delete <name>` | `POST /v0/snapshots/delete` | 是否真的删掉了 |
+| `sessions create <title>` | `POST /v0/sessions/create` | 新会话的 `session_id` |
+| `sessions open <session_id>` | `POST /v0/sessions/open` | 会话的 meta 与消息条数 |
+| `sessions rename <id> <title>` | `POST /v0/sessions/rename` | `ok` |
+| `sessions delete <session_id>` | `POST /v0/sessions/delete` | 先确认，再 `ok` |
+| `sessions clear-all` | `POST /v0/sessions/clear` | 先确认，再 `ok` |
+| `runs abandon-stale` | `POST /v0/runs/abandon-stale` | 标记了多少个遗留运行 |
+
+### 确认
+
+有五条命令会销毁状态——`vm stop`、`snapshots resume`、`snapshots delete`、
+`sessions delete`、`sessions clear-all`——每一条动手前都会问：
+
+- `--yes` 提前把问题回答掉。
+- 在终端上，CLI 会问并读回答：`y` 或 `yes` 继续，其余都算拒绝。
+- **不在**终端上时——脚本、管道、AI——没人可问，于是命令被拒，退出码 `2`。
+  沉默不是同意。
+
+唯一不销毁状态的控制命令是 `runs abandon-stale`：它标记进程已消失的运行，
+跑一次和跑两次结果一样。
 
 ## 选项
 
 | 选项 | 含义 |
 |---|---|
 | `--json` | 原样打印控制平面的 JSON |
+| `--yes`、`-y` | 提前回答销毁类命令的确认 |
+| `--follow`、`-f` | 仅 `run`：在运行时打印事件流 |
 | `--remote <host:port>` | 连一个已在运行的 `riscdom-server`，而不是自己起一个 |
 | `--data-dir <dir>` | settings、会话与 token 所在（默认：本平台宿主数据目录） |
 | `--workspace <dir>` | 内嵌控制平面所属的 workspace（默认：当前目录） |
@@ -80,6 +110,22 @@ token 从不被打印、从不被记录：失败只说**哪个文件**读不到�
 
 - `agents` 是唯一的派生视图：`--json` 仍透传 `/v0/status`（这是规则），人类模式只显示 `agents` 与 `agent_id`。
 - 人类模式下失败打印 `code: message (cause: …)`。
+- `--follow` 在运行期间每个事件帧打一行——事件名加一小段 payload——然后照旧打结果：
+
+  ```text
+  $ riscdom run "print hello over the serial console" --follow
+  agent:llm.stream.start {"iteration":1}
+  agent:tool_call {"name":"write_source","arguments":{"path":"src/main.c"}}
+  serial:chunk {"chunk":"hello from riscv\n"}
+  agent:final {"kind":"final"}
+  kind       final
+  iterations 3
+
+  Hello from the sandbox.
+  ```
+
+  带 `--json` 时，每个帧是原样的 envelope，结果是运行的 JSON。订阅在运行开始**之前**
+  就已打开，因此运行产生的东西一个也不会漏。
 
 ## 退出码
 
@@ -107,6 +153,15 @@ riscdom audit status
 
 # 不落在 shell history 里的 token。
 riscdom --remote box.example:7821 --token-file ~/.riscdom/token audit events --limit 50
+
+# 跑一轮 agent，同时打印事件流。
+riscdom run "print hello over the serial console" --follow
+
+# 删快照：终端上会问，脚本里用 --yes。
+riscdom snapshots delete after-blink --yes
+
+# 会话重新开始。
+riscdom sessions clear-all --yes
 ```
 
 ## 与 `riscdom-server` 的关系

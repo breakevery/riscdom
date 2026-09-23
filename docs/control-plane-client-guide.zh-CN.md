@@ -376,8 +376,33 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # 对着已经跑�
 | `riscdom audit status` | `GET /v0/audit/status` |
 | `riscdom audit events [--limit <n>]` | `GET /v0/audit/events` |
 | `riscdom snapshots list` | `GET /v0/snapshots` |
+| `riscdom run <task>` | `POST /v0/agent/run` |
+| `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
+| `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
+| `riscdom sessions create` / `open` / `rename` / `delete` / `clear-all` | `POST /v0/sessions/create` / `open` / `rename` / `delete` / `clear` |
+| `riscdom runs abandon-stale` | `POST /v0/runs/abandon-stale` |
 
-- **`--json`** 打印的就是控制平面发来的原文——§2、§5 记录的那些字段——因此照着本文档写出的客户端可以用它来调试。失败时把 §4 的错误体打到 **stderr**。
+**`--follow` 就是 CLI 版的 §5。** `riscdom run <task> --follow` 先订阅 `/v0/events`，
+再发起运行，因此运行产生的事件一到达就打印——与 §5 的客户端读到的是同一批帧——
+运行的结果最后出来：
+
+```bash
+riscdom run "compile the blink example" --follow
+```
+
+```text
+agent:llm.stream.start {"iteration":1}
+agent:tool_call {"name":"write_source","arguments":{"path":"src/main.c"}}
+serial:chunk {"chunk":"hello from riscv\n"}
+agent:final {"kind":"final"}
+kind       final
+iterations 3
+```
+
+- **`--json`** 打印的就是控制平面发来的原文——§2、§5 记录的那些字段——因此照着本文档写出的客户端可以用它来调试。失败时把 §4 的错误体打到 **stderr**。带 `--follow` 时，每个帧是原样的 envelope。
+- **销毁类命令先问**（`vm stop`、`snapshots resume`、`snapshots delete`、`sessions delete`、
+  `sessions clear-all`）：终端上弹提示，`--yes` 提前回答；stdin 不是终端时直接拒绝（退出码 `2`）——
+  脚本必须显式写 `--yes`。
 - **退出码**把 §4 的状态码变成脚本可分叉的东西：`0` 成功、`1` 本地失败（连不上、没有 token）、`2` 用法或 `400`、`3` 被拒或 `5xx`、`4` `401`/`403`。
 - **token**：本地模式取自 `<data-dir>/token`；远程模式按 `--token-file`、`RISCDOM_TOKEN`、`--token` 的顺序取。从不被打印。
 
