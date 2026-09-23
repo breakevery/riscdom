@@ -87,14 +87,18 @@ cargo test -p agent -- --ignored --nocapture
 
 | 工具 | 说明 |
 | --- | --- |
-| `write_source(path, content)` | 写 C / 汇编源文件（仅 `.c/.h/.S/.s`） |
-| `compile(source_path, output_elf)` | 编译成裸机 ELF（加载地址 `0x80000000`） |
-| `start_vm(elf_path)` | 用 `sandbox` crate 启动 QEMU |
-| `read_serial()` | 读取当前串口缓冲 |
-| `stop_vm()` | 停止 QEMU |
-| `list_workspace()` | 列出工作区文件 |
-| `request_sandbox(action, sandbox?, reason?)` | 为有切换权限的人留一条沙箱申请（v0.9 沙箱 F2c） |
-| `sandbox_status()` | 本节点在跑什么，以及什么在等 |
+| `write_source` | 写 C / 汇编源文件（仅 `.c/.h/.S/.s`） |
+| `compile` | 编译成裸机 ELF（加载地址 `0x80000000`） |
+| `start_vm` | 用 `sandbox` crate 启动 QEMU |
+| `read_serial` | 读取当前串口缓冲 |
+| `stop_vm` | 停止 QEMU |
+| `list_workspace` | 列出工作区文件 |
+| `request_sandbox` | 为有切换权限的人留一条沙箱申请（v0.9 沙箱 F2c） |
+| `sandbox_status` | 本节点在跑什么，以及什么在等 |
+
+上表只是索引：每个工具的名字、描述与 JSON schema 参数——模型每轮拿到的 `tools[]` 数组——在 [`docs/tool-schema-executor.zh-CN.md`](../docs/tool-schema-executor.zh-CN.md)，由本 crate 生成并由 `tests/tool_schema_doc.rs` 校对。
+
+**监工**的工具集是另一回事（它在 HTTP 上驱动节点，而不是在节点里）：[`docs/tool-schema-control-plane.zh-CN.md`](../docs/tool-schema-control-plane.zh-CN.md)。
 
 ## agent 写下的审计事件
 

@@ -776,6 +776,30 @@ interface. The fleet comes from `executors` in `settings.json`, and from nothing
   here is `POST /v0/agent/run`. The two endpoints are siblings, not synonyms.
 - **No capability was added**: both routes declare `agent.run` (E0 decision 3).
 
+**Both tool schemas are documents, and both are checked.** The interface's other half was
+vocabulary: what an executor's model may call, and what an AI supervisor may call.
+
+### Added
+
+- **`docs/tool-schema-executor.md`**: the eight tools `tool_specs()` declares, as the exact
+  JSON array `tools_json()` puts in a request's `tools` field, plus a human table.
+- **`docs/tool-schema-control-plane.md`**: every endpoint as an OpenAI-style function
+  definition — 32 queries + 36 controls + 3 host-local + 4 path-parameter routes = 75 tools
+  — grouped, with each row's capability and arguments, and a `tools[]`-ready array per
+  group. Names are derived from the path (drop `/v0/`, fold separators; the `POST` side of a
+  two-method path takes `_post`; the four id-taking routes get a verb).
+- **`scripts/check-tool-schema.mjs`**, wired into `scripts/gate.sh`: the translation must
+  carry byte-identical marked blocks; every table name must be the document's own
+  derivation; every name needs both a row and a definition. It has a self-test that plants a
+  drift and requires a rejection.
+
+### Changed
+
+- **`agent/README.md`'s tool table is an index, not a second catalogue**: it points at
+  `docs/tool-schema-executor.md`, which a test compares with `tools_json()`
+  (`agent/tests/tool_schema_doc.rs`). The control plane's tables are compared with the
+  server's route table from `server/src/routes.rs`'s own tests.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

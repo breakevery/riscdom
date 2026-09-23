@@ -13,6 +13,24 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **Both tool schemas are documents, and both are checked** (v0.9 interface E2). The
+  interface's other half was vocabulary: what an executor's model may call, and what an AI
+  supervisor may call. `docs/tool-schema-executor.md` is the eight tools `tools_json()`
+  builds — verbatim, the same array `AgentLoop` puts in the request's `tools` field — and
+  `docs/tool-schema-control-plane.md` writes every endpoint as an OpenAI-style function
+  definition (32 queries + 36 controls + 3 host-local + 4 path-parameter routes = 75 tools),
+  named by a derivation from the path (drop `/v0/`, fold separators; a path served by both
+  methods gives its `POST` a `_post` suffix; the four id-taking routes get a verb). The
+  distinction is the point, and both documents say so: the executor's tools run *inside* an
+  executor, the supervisor's are how one *drives* a node. Hand-written schemas drift, so
+  each half has one owner: `agent/tests/tool_schema_doc.rs` compares the executor document
+  with `tools_json()`, `server/src/routes.rs`'s own tests compare the control plane's three
+  marked route tables with `ROUTES` + `LOCAL_ROUTES` + `resolve` (so an endpoint cannot
+  land without a tool), and a new `scripts/check-tool-schema.mjs` — one step in
+  `scripts/gate.sh` — owns what neither can see: the translation must carry the same marked
+  blocks, every table name must be the derivation of the document's §2, and every name must
+  have a definition and a row. `agent/README.md`'s tool table is now an index pointing at
+  the schema document instead of a second copy of the catalogue (decision §40).
 - **The node can be dispatched to, and its fleet is configuration** (v0.9 interface E0). The
   batch that made the `Dispatcher` reachable over HTTP. `executors` in `settings.json` — a
   label, a program and its arguments, and **no `env`**, because a settings file is not a

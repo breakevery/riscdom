@@ -598,7 +598,19 @@ riscdom toolchain download --wait
 
 完整表格（含人类模式形状）见 [../cli/README.zh-CN.md](../cli/README.zh-CN.md)。
 
-## 8. 还没有的东西
+## 8. 用 AI 监工驱动它
+
+上面写的都是给人看的客户端的。同一个表面就是应当交给 **AI 监工**当工具的那一套：全量在 [tool-schema-control-plane.zh-CN.md](tool-schema-control-plane.zh-CN.md)——每个端点一条 `{type:"function", …}`，分节，可直接贴进聊天请求的 `tools[]`。
+
+那份文档讲到的三件事在这里再说一遍，因为监工恰恰在这三处出错：
+
+- **监工不是执行者。** 执行者**内部**的工具是另一套、小得多的集合（[tool-schema-executor.zh-CN.md](tool-schema-executor.zh-CN.md)）；它们不可通过 HTTP 调用，也不是监工交给它模型的东西。
+- **HTTP 调用由监工发出。** 一次工具调用说的是**要什么**；随后由进程去发那次 HTTP 请求（比如 `POST /v0/tasks`），再把 JSON 当作工具结果交回去。没有带内 RPC。
+- **`GET /v0/events` 不是工具。** 它会一直开着；由监工订阅，把到达的东西当上下文喂给模型，而不是交给它一个永不返回的工具。
+
+一次派发就是最短的完整闭环：`executors`（不知道队伍时先问） → `tasks` → `TaskOutcome` → `run_get` / `audit_events` 看周围发生了什么。若监工还需要**改动**节点（`sandboxes_switch`、`snapshots_save` 等），就应当交给它一个能改的凭据——若本意只是读，就交一个只能读的。v0.9 只有一个持有全部的 token，所以按 capability 分令牌落地之前（v1.0），工具清单是唯一的杆。
+
+## 9. 还没有的东西
 
 - **细粒度凭证。** 每条路由的 capability 都已强制（见 §1）；v0.9 缺的只是不止一种凭证。单个 token 持有一切，因此没法只授予「只读审计链」的客户端——按能力细分的 token 属 v1.0。
 - **`POST /v0/vm/start`** 与 **`GET /v0/resources`** 回 `501`。

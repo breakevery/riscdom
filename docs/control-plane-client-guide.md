@@ -732,7 +732,33 @@ riscdom toolchain download --wait
 The full table, including the human-mode shapes, is in
 [../cli/README.md](../cli/README.md).
 
-## 8. What is not there yet
+## 8. Driving it from an AI supervisor
+
+Everything above is written for a human client. The same surface is what an **AI supervisor**
+should be handed, as tools: the full set is
+[tool-schema-control-plane.md](tool-schema-control-plane.md) — one `{type:"function", …}`
+per endpoint, in groups, ready to paste into a chat request's `tools[]`.
+
+Three things that document says, repeated here because they are the ones a supervisor gets
+wrong:
+
+- **A supervisor is not an executor.** The tools *inside* an executor are a different, much
+  smaller set ([tool-schema-executor.md](tool-schema-executor.md)); they are not callable
+  over HTTP, and they are not what a supervisor offers its model.
+- **The supervisor makes the call.** A tool call says *what* to ask for; the process then
+  performs the HTTP request (`POST /v0/tasks`, say) and hands the JSON back as the tool
+  result. There is no in-band RPC.
+- **`GET /v0/events` is not a tool.** It stays open; subscribe from the supervisor and feed
+  what arrives to the model as context, rather than offering it a tool that never returns.
+
+A dispatch is the shortest complete loop: `executors` (when you do not know the fleet) →
+`tasks` → the `TaskOutcome` → `run_get` / `audit_events` for what happened around it. A
+supervisor that also needs to *change* the node (`sandboxes_switch`, `snapshots_save`, …)
+should be handed a credential that may — and a credential that may only read, if that is the
+intent. v0.9 has one token that holds everything, so the tool list is the only lever until
+per-capability tokens land (v1.0).
+
+## 9. What is not there yet
 
 - **Fine-grained credentials.** Every route's capability is enforced (see §1); what v0.9 has
   only one of is credentials. The single token holds everything, so a client cannot be given

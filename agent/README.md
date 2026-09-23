@@ -94,16 +94,17 @@ deleted on failure and panic too).
 
 ## Tools
 
-| tool | description |
-| --- | --- |
-| `write_source(path, content)` | write a C / assembly source file (`.c/.h/.S/.s` only) |
-| `compile(source_path, output_elf)` | compile to a bare-metal ELF (load address `0x80000000`) |
-| `start_vm(elf_path)` | start QEMU through the `sandbox` crate |
-| `read_serial()` | read the current serial buffer |
-| `stop_vm()` | stop QEMU |
-| `list_workspace()` | list workspace files |
-| `request_sandbox(action, sandbox?, reason?)` | leave a sandbox request for someone who may switch (v0.9 sandbox F2c) |
-| `sandbox_status()` | what the node runs now, and what is waiting |
+The catalogue is eight tools. Each one's name, description and JSON-schema parameters — the
+`tools[]` array the model is offered on every turn — live in
+[`docs/tool-schema-executor.md`](../docs/tool-schema-executor.md), generated from this crate
+and checked against it by `tests/tool_schema_doc.rs`. The names, so this page still answers
+"what is there":
+
+`write_source`, `compile`, `start_vm`, `read_serial`, `stop_vm`, `list_workspace`,
+`request_sandbox`, `sandbox_status`.
+
+The **supervisor's** tool set is a different thing (it drives the node over HTTP, not from
+inside it): [`docs/tool-schema-control-plane.md`](../docs/tool-schema-control-plane.md).
 
 ## The audit events the agent writes
 

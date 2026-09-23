@@ -97,6 +97,9 @@ node ui/scripts/probe-ui-i18n.mjs || fail "ui probe (i18n)"
 echo "==> mirrored constants (host-core/src + host-tauri/src)"
 node scripts/check-mirrored-constants.mjs || fail "mirrored constants"
 
+echo "==> tool schema documents (executor + control plane)"
+node scripts/check-tool-schema.mjs || fail "tool schema"
+
 echo "==> wix version guard"
 node scripts/check-wix-version.mjs || fail "wix version guard"
 

@@ -1885,6 +1885,115 @@ mod tests {
         assert_eq!(controls, 36, "control rows");
     }
 
+    /// v0.9 interface E2 — the control plane's tool schema document must list exactly the
+    /// routes the server serves.
+    ///
+    /// The marked tables in `docs/tool-schema-control-plane.md` are what a supervisor
+    /// copies its `tools[]` from; a route that lands without a row there is a tool nobody
+    /// can call. The translation is checked too, because a drifted translation is a
+    /// drifted document.
+    const TOOL_SCHEMA_DOC: &str = include_str!("../../docs/tool-schema-control-plane.md");
+    const TOOL_SCHEMA_DOC_ZH: &str = include_str!("../../docs/tool-schema-control-plane.zh-CN.md");
+
+    /// The rows of the document's marked tables: `(block, tool, method, path, capability)`.
+    fn tool_rows(doc: &str) -> Vec<(String, String, String, String, String)> {
+        let mut rows = Vec::new();
+        let mut block = String::new();
+        for line in doc.lines() {
+            if let Some(rest) = line.trim().strip_prefix("<!-- tool-routes:") {
+                match rest.strip_suffix(":begin -->") {
+                    Some(name) => block = name.to_string(),
+                    None => block.clear(),
+                }
+                continue;
+            }
+            if block.is_empty() {
+                continue;
+            }
+            let cells: Vec<&str> = line
+                .trim()
+                .trim_matches('|')
+                .split('|')
+                .map(str::trim)
+                .collect();
+            // The header (`| Tool | …`) and the separator (`|---|…`) are not rows.
+            if cells.len() < 5 || !cells[0].starts_with('`') {
+                continue;
+            }
+            rows.push((
+                block.clone(),
+                cells[0].trim_matches('`').to_string(),
+                cells[1].to_string(),
+                cells[2].trim_matches('`').to_string(),
+                cells[3].trim_matches('`').to_string(),
+            ));
+        }
+        rows
+    }
+
+    #[test]
+    fn the_tool_schema_document_lists_exactly_the_routes_the_server_serves() {
+        for (language, doc) in [("en", TOOL_SCHEMA_DOC), ("zh-CN", TOOL_SCHEMA_DOC_ZH)] {
+            let rows = tool_rows(doc);
+            let block = |wanted: &str| -> Vec<(String, String, String)> {
+                let mut out: Vec<(String, String, String)> = rows
+                    .iter()
+                    .filter(|row| row.0 == wanted)
+                    .map(|row| (row.2.clone(), row.3.clone(), row.4.clone()))
+                    .collect();
+                out.sort();
+                out
+            };
+
+            let mut documented = block("queries");
+            documented.extend(block("controls"));
+            documented.sort();
+            let mut served: Vec<(String, String, String)> = ROUTES
+                .iter()
+                .map(|(method, path, capability, _)| {
+                    (
+                        method.to_string(),
+                        path.to_string(),
+                        capability.as_str().to_string(),
+                    )
+                })
+                .collect();
+            served.sort();
+            assert_eq!(documented, served, "{language}: the documented tool rows");
+
+            let locals: Vec<(String, String, String)> = LOCAL_ROUTES
+                .iter()
+                .map(|(path, _, capability)| {
+                    (
+                        "GET".to_string(),
+                        path.to_string(),
+                        capability.as_str().to_string(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                block("locals"),
+                {
+                    let mut sorted = locals;
+                    sorted.sort();
+                    sorted
+                },
+                "{language}: the host-local rows"
+            );
+
+            // The four path-parameter routes are served but are not rows in `ROUTES`
+            // (a pattern is not a row), so they are checked by `resolve` instead.
+            let patterns = block("patterns");
+            assert_eq!(patterns.len(), 4, "{language}: the path-parameter tools");
+            for (method, path, _) in &patterns {
+                assert!(
+                    matches!(resolve(method, path), Resolution::Query { .. }),
+                    "{language}: {method} {path} is documented but not served"
+                );
+            }
+        }
+    }
+
     #[test]
     fn resolve_matches_every_documented_path() {
         for (method, path, capability, _) in ROUTES {

@@ -448,6 +448,18 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 - **节点不是它自己的执行者之一**：目标写它就是 `404`，因为在这里跑是 `POST /v0/agent/run`。两个端点是兄弟，不是同义词。
 - **没有新增 capability**：两条路由都声明 `agent.run`（E0 裁决三）。
 
+**两份工具 schema 都是文档，且都被校对。** 这条接口的另一半是词汇：执行者的模型可以叫什么，AI 监工可以叫什么。
+
+### 新增
+
+- **`docs/tool-schema-executor.zh-CN.md`**：`tool_specs()` 声明的八个工具，写成 `tools_json()` 放进请求 `tools` 字段的那个确切 JSON 数组，并附一张给人看的表。
+- **`docs/tool-schema-control-plane.zh-CN.md`**：每个端点写成一条 OpenAI 风格函数定义——32 查询 + 36 控制 + 3 本机 + 4 带路径参数 = 75 条工具——分节，每行带 capability 与参数，每组各有一个可直接用的 `tools[]` 数组。名字从路径推导（去掉 `/v0/`、折叠分隔符；双方法路径的 `POST` 侧加 `_post`；四条带 id 的路由用一个动词）。
+- **`scripts/check-tool-schema.mjs`**，接进 `scripts/gate.sh`：译文必须携带逐字相同的带标记块；表里每个名字必须是文档自身的推导结果；每个名字既要有表行也要有定义。它带自证：植一个漂移，要求被拒绝。
+
+### 变更
+
+- **`agent/README.md` 的工具表变成索引，不再是第二份清单**：它指向 `docs/tool-schema-executor.zh-CN.md`，而后者由测试与 `tools_json()` 对校（`agent/tests/tool_schema_doc.rs`）。控制平面的那些表则由 `server/src/routes.rs` 自己的测试与服务端路由表对校。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

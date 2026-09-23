@@ -770,3 +770,41 @@ through the same `LocalDispatcher` via `dispatch_task_value`; two new `HostError
 (`NoSuchExecutor`, `TaskFailed`) let the route tell the caller's parameter apart from a broken
 host, and `task_error` maps them to `404 cause "target"` / `500 cause "task"`. Each surface
 gained a Tauri command (registered, not wired) and a CLI subcommand.
+
+## 40. Tool schemas are documents with one owner each
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; landed with the v0.9 interface E2 batch
+
+**Decision**: The interface's vocabulary is published as two documents, and each half of
+the truth has exactly one checker. `docs/tool-schema-executor.md` carries the eight tools
+`tools_json()` builds, as the array an executor's model is offered;
+`docs/tool-schema-control-plane.md` writes every endpoint as an OpenAI-style function
+definition (75 tools: 32 queries, 36 controls, 3 host-local, 4 path-parameter routes), named
+by a documented derivation from the path. The checks, in order of what each can see:
+`agent/tests/tool_schema_doc.rs` compares the executor document with `tools_json()`;
+`server/src/routes.rs`'s tests compare the control plane's marked route tables with `ROUTES`
++ `LOCAL_ROUTES` + `resolve`; `scripts/check-tool-schema.mjs` (one gate step) owns what
+neither can see — the translation carries byte-identical marked blocks, every table name is
+the document's own derivation, and every name has both a row and a definition.
+`agent/README.md`'s table becomes an index pointing at the schema document.
+
+**Why**: A tool schema is a contract with a model, not prose about one: an executor's model
+decides what to do from those descriptions, and a supervisor's model decides what to ask for
+from those definitions. Both are hand-written — the executor's because `tool_specs()` builds
+its `parameters` from `serde_json::json!` literals at call time, the control plane's because
+there is no machine-readable parameter source at all — so both can drift. Splitting the guard
+by **visibility** rather than by document is what makes it honest: Rust is the only thing that
+can read `tools_json()` and `ROUTES`, and a Node script is the only thing that can compare a
+document with its translation without compiling. Neither half restates the other's job, so a
+failure names one cause. The alternative — one generated file — was rejected because the
+control plane's descriptions and arguments are *authored*, and generating the surrounding text
+would have meant inventing a parameter source the server does not have.
+
+**Impact**: Four new documents (two pairs), two new checks, one gate step, and a smaller
+`agent/README.md`. What is deliberately **not** machine-checked, and is said so in both
+documents: the `description` and `arguments` columns and the `parameters` objects of the
+control-plane document. The normative tables remain the API document's §5. The naming
+derivation is enforced by the script (a table row whose name is not the derivation fails),
+and the six `_post` suffixes plus the four verb-named routes are the only exceptions — they
+are listed in the document and hard-coded in the script, so a fifth exception has to be
+decided rather than discovered.
