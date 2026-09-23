@@ -450,7 +450,10 @@ fn extract_tar_gz(
 ///
 /// The name comes from the sandbox, which owns discovery — the host does not keep
 /// a second copy of it (v0.4 1e-followup).
-fn find_qemu(dir: &Path) -> Option<PathBuf> {
+///
+/// `pub(crate)` since v0.9 F2a: the sandbox registry scans `<data-dir>/qemu`
+/// through this rather than growing a second copy of the scan.
+pub(crate) fn find_qemu(dir: &Path) -> Option<PathBuf> {
     let wanted = sandbox::qemu_discover::exe_name();
     fn walk(dir: &Path, wanted: &str, depth: usize) -> Option<PathBuf> {
         if depth > 4 {

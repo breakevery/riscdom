@@ -250,6 +250,36 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
   `cause: "qemu"` 并附安装指引，也不占槽。拒绝之后的每一层都由回环夹具测试覆盖，所以将来 pin
   一个版本只是数据变更。
 
+**沙箱先是名字，然后才是运行时；扫描从不写回。** F2a-1 落下定义层：人在 `settings.json` 里写的定义、控制平面将来服务的形状、对这台机器上实际已安装资源的扫描，以及三者的合并。切换、审批与 `Task.sandbox` 属后续批次（F2b / F2c / F2d），端点、Tauri 命令与 CLI 也一样（F2a-2）——本批停在「沙箱可以被命名、可以被读取」。
+
+### 新增
+
+- **`host-core/src/sandbox_def.rs`**：`SandboxDef`——`name` 加可选的 `display_name` /
+  `memory_mb` / `qemu_exe` / `toolchain_path` / `kernel` / `notes`——以及 API 服务的两种形状：
+  `SandboxView`（定义加上 `source`、`runnable`、`shadowed`）与 `CandidateView` /
+  `CandidatesView`（一个已安装资源；两个互相独立的列表，永不笛卡尔积）。`DEFAULT_SANDBOX_NAME`
+  为 `"default"`。
+- **`sandbox_def::discover_in(data_dir)`**，只读扫描：`<data-dir>/toolchain` 与 `<data-dir>/qemu`
+  下的每一个版本目录，经下载器自己的 `find_compiler` / `find_qemu` 找到，再加上本机已有的 QEMU。
+  安装器的 `.download-tmp` / `.extract-tmp` 副产物被跳过，目录不存在就是空列表，找到的东西从不写回。
+- **`LocalSettings::sandboxes` 与 `LocalSettings::default_sandbox`**，均 `#[serde(default)]`：
+  纯附加，因此 `SETTINGS_VERSION` 仍为 1，写于这两个字段存在之前的 `settings.json` 照样读得进。
+- **五个 `AppState` 方法**：`sandboxes()`（合并后的注册表：手写 → 扫描 → 内置 `default`）、
+  `sandbox(name)`、`current_sandbox()`、`sandbox_candidates()` 与 `sandbox_default_name()`。
+- **`Capability::SandboxRead`**，第 29 个名字（`sandbox.read`）：纯附加，因此持有其余 28 项的 actor
+  自动持有它，过去成功的请求不会被拒。
+
+### 变更
+
+- **`host-core::find_compiler` 与 `host-core::find_qemu` 改为 `pub(crate)`**，沙箱扫描因此复用下载器对
+  「已安装」的定义，而不另长第二份。
+- **同名时手写定义胜出，被遮的扫描项仍然可见**，标为 `shadowed`——合并会自报，而不是躲在胜者背后。
+- **`runnable` 每次读取时现算，从不存储**：QEMU 存在且 `--version` 能跑、工具链存在、内核存在或可编译。
+  资源被卸载的定义仍是定义，只是跑不了。
+- **文档中的 capability 计数为 29**（`docs/control-plane-api.md` 及其中文版、`server/README.md` 及其中文版、
+  `docs/control-plane-client-guide.md` 及其中文版）。§5 表格本身仍只列出已有的 28 条路由：
+  `sandbox.read` 的端点在 F2a-2 才落，所以计数故意走在表格前面一格。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

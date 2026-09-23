@@ -125,10 +125,10 @@ ones (delete a session, stop the VM, change the LLM configuration).
 
 **What a credential may do.** Authentication and permission are separate decisions: the
 hook says *who* the caller is, and the server decides what that actor may do. Every route
-declares exactly one capability — the 28 names in the API document's §5 tables — and the
+declares exactly one capability — the 29 names in the API document's §5 tables — and the
 server checks it before the handler runs, answering `403 forbidden` with
 `cause: "capability"` when the actor does not hold it. Default deny: an actor with an empty
-set can reach nothing. The token holder holds all 28, and so does `--no-auth`, so in v0.9 a
+set can reach nothing. The token holder holds all 29, and so does `--no-auth`, so in v0.9 a
 `403` only comes from a custom hook that returns a narrower actor.
 
 The hook is the `Authn` trait, so a distribution can install its own. Refusals map into the

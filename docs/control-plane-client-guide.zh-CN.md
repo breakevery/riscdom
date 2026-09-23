@@ -47,10 +47,10 @@ curl -sS http://127.0.0.1:7821/v0/status
 
 认证与授权是两个决定。`401` 表示服务端不接受该凭证；`403` 表示它接受了，但它解析出的 actor 不被允许做**这件事**。
 
-每个端点要求一个 capability，名字见 API 文档 §5 表格——共 28 个，例如 `agent.run`、`audit.read`、`runs.control`、`settings.write`、`vm.control`。服务端在运行处理器前检查，客户端因此可以事先规划，而不是撞上才知道：
+每个端点要求一个 capability，名字见 API 文档 §5 表格——共 29 个，例如 `agent.run`、`audit.read`、`runs.control`、`settings.write`、`vm.control`。服务端在运行处理器前检查，客户端因此可以事先规划，而不是撞上才知道：
 
 ```bash
-# token 持有者持有全部 28 项，此调用成功。
+# token 持有者持有全部 29 项，此调用成功。
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7821/v0/status \
   -H "Authorization: Bearer $RISCDOM_TOKEN"
 # 200

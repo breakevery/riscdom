@@ -95,9 +95,9 @@ pub struct Actor {
   its capability, so there is no route that silently skips the check.
 - **Default deny.** An actor is refused unless it positively holds what the route asks for;
   an actor with an empty set can reach nothing. "No capability" is not expressible.
-- **The vocabulary is the 28 names in the §5 tables** (`agent.run`, `audit.read`,
+- **The vocabulary is the 29 names in the §5 tables** (`agent.run`, `audit.read`,
   `runs.control`, `settings.write`, …). v0.9 ships two actor shapes: the token holder
-  (`operator`, `human`) holds all 28, and the `--no-auth` default holds the same set, so
+  (`operator`, `human`) holds all 29, and the `--no-auth` default holds the same set, so
   both behave identically once past the hook. A `403` therefore only comes from a hook
   that returns a narrower actor. Per-capability tokens are v1.0 work; the set is the shape
   they will fill in.
@@ -280,7 +280,7 @@ the tables above. They are part of this document's surface all the same.
 - **Capabilities are declared and enforced.** Every route names its capability in the
   route table and the server checks it against the actor the hook returned before the
   handler runs; a missing capability is `403 forbidden` with `cause: "capability"` (§3).
-  Under the v0.9 default every actor holds all 28, so a `403` can only come from a hook
+  Under the v0.9 default every actor holds all 29, so a `403` can only come from a hook
   that returns a narrower actor.
 - **Parameters.** A required parameter that is missing or unparsable is `400 bad_request`
   with `cause` set to the parameter's name. `limit` is required where the host command

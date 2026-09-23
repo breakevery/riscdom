@@ -459,3 +459,57 @@ guessing at the abstraction before F2 names what it is. Nothing about the toolch
 semantics changed. `spec_for_current_platform` remains the platform branch for QEMU, and it
 refuses on every platform today (`docs/qemu-distribution.md` §5): the shared shape means
 pinning a release later is a data change in one table.
+
+## 31. The sandbox registry: stored definitions, a scanned list, one merged view
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; landed with the v0.9 sandbox batch F2a-1
+
+**Decision**: A sandbox has one *definition*, and the definition is **stored data, not a
+runtime**: `{ name, display_name?, memory_mb?, qemu_exe?, toolchain_path?, kernel?, notes? }`,
+written by hand in `settings.json`. What the host *serves* is that plus the three things only
+it can answer at the moment of the question — `source` (`manual` / `discovered`), `runnable`
+and `shadowed` — and **neither `runnable` nor `shadowed` is ever stored**. The registry is
+assembled on every read from three sources in a fixed order — hand-written definitions, what
+the scan found, one built-in fallback named `default` — and a name collision is resolved in
+favour of the hand-written entry **while the shadowed entry stays in the list, marked**.
+
+**Why**: The three questions a client asks about a sandbox — what is installed here, what is
+written down, and what can run now — have three different lifetimes. Installed resources
+change without anyone editing a file; `runnable` changes when a QEMU is uninstalled, and
+storing it would make a definition a lie the moment the machine changes; a merge that hid the
+losing entry would make a shadowed scan invisible, which is exactly the case a person needs to
+see when their hand-written definition is not the one being used. Writing the scan back was
+rejected for the same reason: it would turn a cache of the machine into settings a person is
+supposed to own, and make two hosts in one process overwrite each other's view.
+
+**Impact**: `LocalSettings` gains `sandboxes` and `default_sandbox`, both additive
+(`#[serde(default)]`), so no migration runs and `SETTINGS_VERSION` stays at 1. The scan is
+bounded to the host's own data directory (`<data-dir>/toolchain/*`, `<data-dir>/qemu/*`) plus
+the machine's QEMU, reusing the downloaders' `find_compiler` / `find_qemu` (now `pub(crate)`)
+rather than keeping a second notion of "installed". `sandbox.read` is the 29th capability; the
+endpoints, Tauri commands and CLI are F2a-2, switching is F2b, approval is F2c and
+`Task.sandbox` is F2d. **The definition is deliberately not the runtime configuration**: it
+names resources, and what a run does with them remains F2b's decision.
+
+## 32. The QEMU assembly spec is empty on purpose (supply-chain safety)
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; recorded while landing the v0.9 sandbox batch F1
+
+**Decision**: `spec_for_current_platform()` refuses on **every** platform: RiscDom pins no
+QEMU release, ships no URL and no digest, and never fetches an emulator. `POST
+/v0/qemu/download` answers `503 unavailable` with `cause: "qemu"` and the install guidance,
+and claims no download slot. The toolchain's assembly is unaffected: its release is pinned,
+hashed and fetched.
+
+**Why**: Upstream QEMU publishes no Windows binary, so any URL RiscDom chose would be either
+a third party's repackaging or a release we cannot verify. A digest invented for a binary we
+did not fetch is not verification, it is an integrity hole with a hash in front of it — the
+exact failure mode the pinned toolchain exists to avoid. Guiding the user to an emulator they
+install themselves keeps the trust boundary where it can actually be checked.
+
+**Impact**: The QEMU download path is complete behind the refusal (slot, status, cancel,
+adoption, audit events, the `qemu:download` event family, the Tauri commands, the endpoints
+and the CLI), so **pinning a release later is a data change**: the answer becomes `202` and
+nothing else moves. One asymmetry is left standing and reported rather than fixed: the spec
+being empty is the reason `qemu.read` / `qemu.configure` endpoints can report "not available"
+without a network call, which is what makes them testable against a loopback fixture offline.

@@ -50,7 +50,7 @@ pub struct Actor {
 - **钩子负责认证，服务端负责授权。** `authorise` 回答的是「调用者是谁」；这个 actor 能不能做这件事是另一个决定，且由服务端作出：每条被服务的路由都恰好声明一个 capability，请求路径会问钩子返回的 actor 是否 `allows` 它，不持有即 `403 forbidden`，`cause` 为 `capability`（`server/src/http.rs`）。钩子也能看到这项要求（`ReqMeta.capability`）以便自行判断，但它**不能**凭空授予：只能返回持有更少的 actor。
 - **capability 是路由表的类型化列**，不是处理器记得去查的字符串（`server/src/routes.rs`）。写不出一条不声明 capability 的路由，也就不存在悄悄跳过检查的路由。
 - **默认拒绝。** 除非 actor 确实持有路由所要的权限，否则一律拒绝；空集合的 actor 什么也到不了。「没有 capability」不可表达。
-- **词汇表就是 §5 表格里的 28 个名字**（`agent.run`、`audit.read`、`runs.control`、`settings.write`……）。v0.9 只有两种 actor 形状：token 持有者（`operator`、`human`）持有全部 28 项；`--no-auth` 的默认持有同一集合，因此两者过了钩子之后行为一致。故 `403` 只可能来自返回更窄 actor 的钩子。按能力细分的 token 属 v1.0；这个集合就是它们日后的填充位置。
+- **词汇表就是 §5 表格里的 29 个名字**（`agent.run`、`audit.read`、`runs.control`、`settings.write`……）。v0.9 只有两种 actor 形状：token 持有者（`operator`、`human`）持有全部 29 项；`--no-auth` 的默认持有同一集合，因此两者过了钩子之后行为一致。故 `403` 只可能来自返回更窄 actor 的钩子。按能力细分的 token 属 v1.0；这个集合就是它们日后的填充位置。
 - 钩子返回的 `Actor` 就是该请求写下的每一行审计所携带的身份。「人做的」与「监工 AI 做的」由 `agent_id` 区分，正是 architecture-evolution.md §6 的要求。
 - **token 永不落日志。** 不进访问日志、不进错误、不进审计 detail。钩子返回 `Actor`，原始 token 随即丢弃；`ReqMeta` 的 `Debug` 亦对其打码，误写的 `{:?}` 也写不出去。
 - **传输安全归调用方（开源版边界）。** 开源版只提供明文 HTTP 加认证钩子，仅此而已。TLS 终止、网络边界、或只绑本地，是部署决策；把控制平面暴露到回环之外的分发方，自行负责把它放在 TLS 之后。这条写在这里，以免有集成者以为开源版替他做了。
@@ -192,7 +192,7 @@ pub struct Actor {
 - **查询类与控制类均已实现。** `POST /v0/vm/start`（§6 G1）与 `/v0/resources`（§6 G3）在各自的内核工作落地前回 `501`。
 - **报成功的控制操作可能什么都没改。** 宿主的会话改名与删除是幂等的：未知 `session_id` 不算错误（端点回 `204`），而 `/v0/sessions/open` 回 `404`。端点是照搬宿主，而不是另造一套差异。
 - **`POST /v0/toolchain/download` 会真的开始下载**固定的 RISC-V GCC 归档并回 `202`；进度以 `toolchain:download` 事件抵达。
-- **权限既声明、也强制。** 每条路由在路由表里标注自己的 capability，处理器运行前服务端拿它与钩子返回的 actor 比对；不持有即 `403 forbidden`，`cause` 为 `"capability"`（§3）。v0.9 默认下每个 actor 都持有全部 28 项，故 `403` 只可能来自返回更窄 actor 的钩子。
+- **权限既声明、也强制。** 每条路由在路由表里标注自己的 capability，处理器运行前服务端拿它与钩子返回的 actor 比对；不持有即 `403 forbidden`，`cause` 为 `"capability"`（§3）。v0.9 默认下每个 actor 都持有全部 29 项，故 `403` 只可能来自返回更窄 actor 的钩子。
 - **参数。** 必填参数缺失或无法解析 → `400 bad_request`，`cause` 为该参数名。`limit` 在宿主命令要求处为必填、其余为可选：`/v0/runs` 默认 20，`/v0/audit/events` 与 `/v0/sessions` 必填。`/v0/workspace/file` 的 `?path=` 会做百分号解码。
 - **`/v0/audit/status` 不消费失败队列。** Tauri 命令会**取走**待报的审计失败；`GET` 不能取，否则一个轮询客户端会吞掉另一个客户端的告警。该端点按现状报告队列。
 - **`/v0/runs/diff` 遇到不存在的 run 回 `internal`。** 宿主把「找不到 run」报成不透明消息而非有类型的 not-found，控制平面若不臆造规则就无法映射成 `404`。一个宿主侧的类型化错误能闭合它；不在本批内。

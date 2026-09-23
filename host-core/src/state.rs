@@ -7,6 +7,9 @@ use crate::events::{
 };
 use crate::keyring::{user_for_provider, InMemoryKeyring, KeyringBackend, OsKeyring, SERVICE};
 use crate::run_diff::{self, FingerprintFieldDiff};
+use crate::sandbox_def::{
+    CandidatesView, SandboxDef, SandboxSource, SandboxView, DEFAULT_SANDBOX_NAME,
+};
 use crate::session::{SessionMessage, SessionMeta, SessionStore};
 use crate::settings::LocalSettings;
 use crate::toolchain_download::DownloadEvent;
@@ -1497,6 +1500,131 @@ impl AppState {
     /// overwrite each other's downloads.
     pub fn toolchain_dir(&self) -> PathBuf {
         crate::paths::toolchain_dir_in(&self.data_dir)
+    }
+
+    // ----- Sandboxes (v0.9 sandbox F2a) -------------------------------------
+
+    /// The definitions written by hand in `settings.json`.
+    fn manual_sandbox_defs(&self) -> Vec<SandboxDef> {
+        self.settings
+            .lock()
+            .ok()
+            .map(|settings| settings.sandboxes.clone())
+            .unwrap_or_default()
+    }
+
+    /// The raw scan: what is installed under **this instance's** data directory,
+    /// plus the QEMU this machine already has.
+    ///
+    /// Read-only by contract: the result is a candidate list, and it is never
+    /// written back to `settings.json` (F2a decision 3).
+    pub fn sandbox_candidates(&self) -> CandidatesView {
+        crate::sandbox_def::discover_in(&self.data_dir)
+    }
+
+    /// Could this definition run **right now**? (F2a decision 7.)
+    ///
+    /// Three parts, all required: a QEMU that exists and answers `--version`, a
+    /// toolchain that exists, and a kernel that exists — or, when the definition
+    /// pins none, one this toolchain can compile. Everything the definition does
+    /// not pin falls back to what the host would use anyway, so the answer is the
+    /// same question `probe_qemu` / `probe_toolchain` answer. A definition whose
+    /// QEMU was uninstalled stays a valid definition; it is simply not runnable.
+    fn sandbox_runnable(&self, def: &SandboxDef) -> bool {
+        let qemu_ok = match &def.qemu_exe {
+            Some(path) => path.is_file() && toolchain_runs(path).is_ok(),
+            None => self.probe_qemu().found,
+        };
+        let toolchain_ok = match &def.toolchain_path {
+            Some(path) => path.is_file(),
+            None => self.probe_toolchain().found,
+        };
+        let kernel_ok = match &def.kernel {
+            Some(path) => path.is_file(),
+            None => toolchain_ok,
+        };
+        qemu_ok && toolchain_ok && kernel_ok
+    }
+
+    /// One definition as the API serves it: the stored fields plus the three the
+    /// host answers at the moment of the question (`source`, `runnable`,
+    /// `shadowed`).
+    fn sandbox_view(&self, def: &SandboxDef, source: SandboxSource, shadowed: bool) -> SandboxView {
+        SandboxView {
+            name: def.name.clone(),
+            display_name: def.display_name.clone(),
+            memory_mb: def.memory_mb,
+            qemu_exe: def.qemu_exe.as_ref().map(|p| p.display().to_string()),
+            toolchain_path: def.toolchain_path.as_ref().map(|p| p.display().to_string()),
+            kernel: def.kernel.as_ref().map(|p| p.display().to_string()),
+            notes: def.notes.clone(),
+            source,
+            runnable: self.sandbox_runnable(def),
+            shadowed,
+        }
+    }
+
+    /// The merged registry: the hand-written definitions first, then what the
+    /// scan found, then the built-in fallback (F2a decision 4).
+    ///
+    /// A hand-written definition wins on a name collision, and the shadowed entry
+    /// **stays in the list, marked**, so the merge is visible instead of silent.
+    /// Nothing here is persisted.
+    pub fn sandboxes(&self) -> Vec<SandboxView> {
+        let manual = self.manual_sandbox_defs();
+        let taken: std::collections::HashSet<&str> =
+            manual.iter().map(|def| def.name.as_str()).collect();
+        let mut views: Vec<SandboxView> = manual
+            .iter()
+            .map(|def| self.sandbox_view(def, SandboxSource::Manual, false))
+            .collect();
+
+        // One entry per scanned resource, named `<kind>-<version>`; the toolchain
+        // and QEMU lists stay independent (F2a decision 6 — no cartesian product).
+        let candidates = self.sandbox_candidates();
+        let mut discovered: Vec<SandboxDef> = Vec::new();
+        for candidate in candidates.toolchains.iter().chain(candidates.qemus.iter()) {
+            discovered.push(SandboxDef::for_resource(
+                &candidate.kind,
+                &candidate.version,
+                PathBuf::from(&candidate.path),
+            ));
+        }
+        // A registry needs unique keys; the scan cannot name two resources alike,
+        // but a duplicated version directory could.
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        discovered.retain(|def| seen.insert(def.name.clone()));
+        discovered.sort_by(|a, b| a.name.cmp(&b.name));
+        for def in &discovered {
+            let shadowed = taken.contains(def.name.as_str());
+            views.push(self.sandbox_view(def, SandboxSource::Discovered, shadowed));
+        }
+
+        let fallback = SandboxDef::fallback();
+        let shadowed = taken.contains(fallback.name.as_str());
+        views.push(self.sandbox_view(&fallback, SandboxSource::Discovered, shadowed));
+        views
+    }
+
+    /// One merged definition by name, as the API serves it.
+    pub fn sandbox(&self, name: &str) -> Option<SandboxView> {
+        self.sandboxes().into_iter().find(|view| view.name == name)
+    }
+
+    /// The definition a run uses when the caller names none.
+    ///
+    /// The stored choice only: switching a running node is F2b (F2a decision 1).
+    pub fn current_sandbox(&self) -> Option<String> {
+        self.settings
+            .lock()
+            .ok()
+            .and_then(|settings| settings.default_sandbox.clone())
+    }
+
+    /// The default definition's name: the stored choice, else the fallback's.
+    pub fn sandbox_default_name(&self) -> String {
+        self.current_sandbox()
+            .unwrap_or_else(|| DEFAULT_SANDBOX_NAME.to_string())
     }
 
     /// Read settings from disk and apply them (missing/corrupt → defaults).

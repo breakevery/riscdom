@@ -113,6 +113,7 @@ pub enum Capability {
     QemuRead,
     RunsControl,
     RunsRead,
+    SandboxRead,
     SerialExport,
     SerialRead,
     SessionRead,
@@ -147,6 +148,7 @@ impl Capability {
         Capability::QemuRead,
         Capability::RunsControl,
         Capability::RunsRead,
+        Capability::SandboxRead,
         Capability::SerialExport,
         Capability::SerialRead,
         Capability::SessionRead,
@@ -180,6 +182,7 @@ impl Capability {
             Capability::QemuRead => "qemu.read",
             Capability::RunsControl => "runs.control",
             Capability::RunsRead => "runs.read",
+            Capability::SandboxRead => "sandbox.read",
             Capability::SerialExport => "serial.export",
             Capability::SerialRead => "serial.read",
             Capability::SessionRead => "session.read",
@@ -355,7 +358,7 @@ mod tests {
     fn the_capability_vocabulary_is_well_formed() {
         assert_eq!(
             Capability::ALL.len(),
-            28,
+            29,
             "the vocabulary the document lists"
         );
         let mut names: Vec<&str> = Capability::ALL.iter().map(Capability::as_str).collect();

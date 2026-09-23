@@ -26,6 +26,7 @@ pub mod paths;
 pub mod preflight;
 pub mod qemu_download;
 pub mod run_diff;
+pub mod sandbox_def;
 pub mod session;
 pub mod settings;
 pub mod state;
@@ -38,6 +39,9 @@ pub use executor::{StdioExecutorHandle, DEFAULT_EXECUTOR_TIMEOUT};
 pub use keyring::{KeyringBackend, OsKeyring, SERVICE};
 pub use preflight::{PreflightCache, PreflightRow, PreflightView};
 pub use run_diff::{diff_fingerprints, FingerprintFieldDiff, FINGERPRINT_FIELDS};
+pub use sandbox_def::{
+    CandidateView, CandidatesView, SandboxDef, SandboxSource, SandboxView, DEFAULT_SANDBOX_NAME,
+};
 pub use session::{SessionMessage, SessionMeta, SessionStore};
 pub use state::{
     AgentOutcomeView, AppState, AuditStatusView, ChainStatusView, LlmConfigInput, LlmConfigStatus,

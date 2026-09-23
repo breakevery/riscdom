@@ -432,7 +432,11 @@ fn extract_tar_gz(
 }
 
 /// Find a RISC-V compiler inside `dir` (bounded recursive scan).
-fn find_compiler(dir: &Path) -> Option<PathBuf> {
+///
+/// `pub(crate)` since v0.9 F2a: the sandbox registry scans `<data-dir>/toolchain`
+/// through this rather than growing a second copy of the scan (or of the names,
+/// which come from `agent::GCC_NAMES`).
+pub(crate) fn find_compiler(dir: &Path) -> Option<PathBuf> {
     fn walk(dir: &Path, depth: usize) -> Option<PathBuf> {
         if depth > 4 {
             return None;

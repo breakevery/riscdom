@@ -39,6 +39,8 @@ fn save_then_load_round_trips() {
         theme: None,
         language: None,
         alert_on_audit_failure: false,
+        default_sandbox: None,
+        sandboxes: Vec::new(),
     };
     settings.save(&path).expect("save");
     assert!(path.is_file(), "{path:?}");

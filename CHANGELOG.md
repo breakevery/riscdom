@@ -434,6 +434,48 @@ decision (no QEMU release is pinned; the project guides instead of fetching).
   layer behind the refusal is tested against a loopback fixture, so pinning a release later
   is a data change.
 
+**Sandboxes are names before they are runtimes, and the scan never writes back.** F2a-1
+lands the definition layer: a definition a person writes in `settings.json`, the shapes the
+control plane will serve, the scan of what is actually installed on this machine, and the
+merge of the three. Switching, approval and `Task.sandbox` are later batches (F2b / F2c /
+F2d), and so are the endpoints, the Tauri commands and the CLI (F2a-2) — this batch stops at
+"a sandbox can be named and read".
+
+### Added
+
+- **`host-core/src/sandbox_def.rs`**: `SandboxDef` — `name`, plus the optional
+  `display_name` / `memory_mb` / `qemu_exe` / `toolchain_path` / `kernel` / `notes` — and the
+  shapes the API serves, `SandboxView` (the definition plus `source`, `runnable` and
+  `shadowed`) and `CandidateView` / `CandidatesView` (one installed resource; the two
+  independent lists, never a cartesian product). `DEFAULT_SANDBOX_NAME` is `"default"`.
+- **`sandbox_def::discover_in(data_dir)`**, the read-only scan: every version directory under
+  `<data-dir>/toolchain` and `<data-dir>/qemu`, found through the downloaders' own
+  `find_compiler` / `find_qemu`, plus the QEMU this machine already has. The installers'
+  `.download-tmp` / `.extract-tmp` by-products are skipped, a missing directory is an empty
+  list, and nothing found is ever written back.
+- **`LocalSettings::sandboxes` and `LocalSettings::default_sandbox`**, both `#[serde(default)]`:
+  additive, so `SETTINGS_VERSION` stays at 1 and a `settings.json` written before the fields
+  existed loads unchanged.
+- **Five `AppState` methods**: `sandboxes()` (the merged registry: hand-written, then scanned,
+  then the built-in `default`), `sandbox(name)`, `current_sandbox()`,
+  `sandbox_candidates()` and `sandbox_default_name()`.
+- **`Capability::SandboxRead`**, the 29th name (`sandbox.read`): additive, so every actor that
+  held the other 28 holds it too and no request that used to succeed is refused.
+
+### Changed
+
+- **`host-core::find_compiler` and `host-core::find_qemu` are `pub(crate)`**, so the sandbox
+  scan reuses the downloaders' notion of "installed" instead of keeping a second copy of it.
+- **A hand-written definition wins a name collision, and the scanned entry stays visible**,
+  marked `shadowed` — the merge reports itself instead of hiding behind the winner.
+- **`runnable` is computed per read, never stored**: a QEMU that exists and answers
+  `--version`, a toolchain that exists, and a kernel that exists or can be compiled. A
+  definition whose resource was uninstalled is still a definition; it simply cannot run.
+- **The capability count in the documents is 29** (`docs/control-plane-api.md` and its
+  Chinese pair, `server/README.md` and its pair, `docs/control-plane-client-guide.md` and its
+  pair). The §5 tables themselves still name the 28 routes that exist: `sandbox.read` gets
+  its endpoints in F2a-2, so the count moves one ahead of the tables on purpose.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

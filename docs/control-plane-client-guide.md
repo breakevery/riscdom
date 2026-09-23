@@ -62,13 +62,13 @@ curl -sS http://127.0.0.1:7821/v0/status
 Authentication and permission are two decisions. `401` means the server did not accept the
 credential; `403` means it did, and the actor it resolved is not allowed to do *this*.
 
-Every endpoint requires one capability, named in the API document's §5 tables — 28 names
+Every endpoint requires one capability, named in the API document's §5 tables — 29 names
 such as `agent.run`, `audit.read`, `runs.control`, `settings.write` and `vm.control`. The
 server checks it before the handler runs, so a client can plan around it instead of
 discovering it:
 
 ```bash
-# The token holder holds all 28, so this succeeds.
+# The token holder holds all 29, so this succeeds.
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7821/v0/status \
   -H "Authorization: Bearer $RISCDOM_TOKEN"
 # 200

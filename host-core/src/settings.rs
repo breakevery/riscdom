@@ -38,6 +38,20 @@ pub struct LocalSettings {
     /// this only controls whether the interface shouts about it.
     #[serde(default = "default_alert_on_audit_failure")]
     pub alert_on_audit_failure: bool,
+    /// Sandbox definitions written by hand (v0.9 sandbox F2a).
+    ///
+    /// Additive: a file written before this field existed loads with an empty
+    /// list, and a file that carries it is still readable by a version that does
+    /// not know it (`SETTINGS_VERSION` does not move, F2a decision 1). The scan's
+    /// own findings never land here — the registry is merged on read.
+    #[serde(default)]
+    pub sandboxes: Vec<crate::sandbox_def::SandboxDef>,
+    /// Which definition a caller gets when it names none (v0.9 sandbox F2a).
+    ///
+    /// `None` means the built-in fallback
+    /// ([`DEFAULT_SANDBOX_NAME`](crate::sandbox_def::DEFAULT_SANDBOX_NAME)).
+    #[serde(default)]
+    pub default_sandbox: Option<String>,
 }
 
 /// The alert is on unless the user turns it off (v0.8).
@@ -55,6 +69,8 @@ impl Default for LocalSettings {
             theme: None,
             language: None,
             alert_on_audit_failure: true,
+            sandboxes: Vec::new(),
+            default_sandbox: None,
         }
     }
 }

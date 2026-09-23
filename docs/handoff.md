@@ -13,6 +13,29 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The sandbox registry exists: definitions, the scan, and the merge** (v0.9 sandbox
+  F2a-1). A *sandbox* is now a nameable thing. `host-core/src/sandbox_def.rs` holds
+  `SandboxDef` — the **stored** fields `name` / `display_name` / `memory_mb` / `qemu_exe` /
+  `toolchain_path` / `kernel` / `notes`, every one but the name optional — and the two shapes
+  the API **serves**: `SandboxView` (the definition plus the three things only the host can
+  answer at the moment of the question, `source`, `runnable` and `shadowed`) and
+  `CandidateView` / `CandidatesView` (one installed resource; the two independent lists).
+  `LocalSettings` gained `sandboxes` and `default_sandbox`, both `#[serde(default)]`, so no
+  migration runs and a file written before the fields existed still loads. `AppState` answers
+  `sandboxes()` (the merged registry), `sandbox(name)`, `current_sandbox()`,
+  `sandbox_candidates()` and `sandbox_default_name()`. The merge is hand-written first, then
+  the scan, then the built-in `default`; a hand-written definition wins a name collision and
+  the scanned entry **stays in the list, marked `shadowed`**, so the merge is visible instead
+  of silent. The scan is bounded to `<data-dir>/toolchain/*` and `<data-dir>/qemu/*` —
+  through the downloaders' own `find_compiler` / `find_qemu`, now `pub(crate)`, rather than a
+  second copy of the scan — plus the machine's own QEMU, and it is **never written back to
+  `settings.json`**. `runnable` is computed, never stored: a QEMU that exists and answers
+  `--version`, a toolchain that exists, and a kernel that exists or can be compiled, so
+  uninstalling a resource leaves a valid definition that simply cannot run. `Capability`
+  gains its 29th name, `sandbox.read`; the four endpoints, the Tauri commands and the CLI
+  are F2a-2. Reported, not fixed: the API document's §5 tables still name the capabilities
+  of the 28 routes that exist, because `sandbox.read` gets its endpoints in F2a-2 — the
+  count moved one ahead of the table on purpose.
 - **QEMU is wired like the toolchain, and the refusal is the recorded decision** (v0.9
   sandbox F1). The F reconnaissance found one asymmetry: `toolchain_download` ran end to end
   (host methods, endpoints, events, CLI) while `qemu_download` was **code without a caller**.
