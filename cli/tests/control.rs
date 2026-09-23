@@ -375,6 +375,135 @@ fn a_control_command_with_a_missing_argument_is_a_usage_error() {
 }
 
 #[test]
+fn the_project_goes_out_and_comes_back_through_the_cli() {
+    let workspace = unique_dir("project-ws");
+    let data_dir = unique_dir("project-data");
+    // The workspace it owns: the CLI's embedded control plane resolves paths
+    // against the workspace root it was given.
+    std::fs::write(workspace.join("hello.c"), "int main(void){return 0;}\n").expect("seed");
+
+    // Out: `--out` writes the archive, and the count goes to stderr.
+    let archive = unique_dir("project-out").join("project.tar.gz");
+    let output = run_in(
+        &workspace,
+        &data_dir,
+        &[
+            "workspace",
+            "export",
+            "--out",
+            archive.to_str().expect("utf8"),
+        ],
+    );
+    assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
+    assert!(
+        stderr(&output).contains("exported") && stderr(&output).contains("bytes"),
+        "stderr: {}",
+        stderr(&output)
+    );
+    let bytes = std::fs::read(&archive).expect("the archive");
+    assert_eq!(&bytes[..2], &[0x1f, 0x8b], "a gzip stream");
+
+    // Out to stdout: the archive is on stdout, the sentence on stderr — so
+    // `> project.tar.gz` gets no prose in it.
+    let output = run_in(&workspace, &data_dir, &["workspace", "export"]);
+    assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
+    assert_eq!(&output.stdout[..2], &[0x1f, 0x8b], "stdout is the archive");
+    assert!(
+        stderr(&output).contains("exported"),
+        "stderr: {}",
+        stderr(&output)
+    );
+
+    // In: the same archive, into a workspace where `hello.c` is already there.
+    let output = run_in(
+        &workspace,
+        &data_dir,
+        &[
+            "--json",
+            "workspace",
+            "import",
+            archive.to_str().expect("utf8"),
+        ],
+    );
+    assert_eq!(exit_code(&output), 3, "stderr: {}", stderr(&output));
+    let body = error_body(&output);
+    assert_eq!(body["code"], "conflict", "{body}");
+    assert_eq!(body["cause"], "exists", "{body}");
+
+    // …and with `--force` it lands, reporting what it wrote.
+    let output = run_in(
+        &workspace,
+        &data_dir,
+        &[
+            "--json",
+            "workspace",
+            "import",
+            archive.to_str().expect("utf8"),
+            "--force",
+        ],
+    );
+    assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
+    let body = json_stdout(&output);
+    assert_eq!(body["files"], 1, "{body}");
+    assert!(body["bytes"].as_u64().unwrap_or(0) > 0, "{body}");
+
+    // Human mode says the same in a sentence.
+    let output = run_in(
+        &workspace,
+        &data_dir,
+        &[
+            "workspace",
+            "import",
+            archive.to_str().expect("utf8"),
+            "--force",
+        ],
+    );
+    assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
+    assert!(
+        stdout(&output).contains("imported 1 file(s)"),
+        "stdout: {}",
+        stdout(&output)
+    );
+}
+
+#[test]
+fn importing_something_that_is_not_an_archive_is_refused_before_the_host_sees_it() {
+    let workspace = unique_dir("not-archive-ws");
+    let data_dir = unique_dir("not-archive-data");
+    let file = unique_dir("not-archive-file").join("notes.txt");
+    std::fs::write(&file, "this is not an archive").expect("seed");
+    let output = run_in(
+        &workspace,
+        &data_dir,
+        &["workspace", "import", file.to_str().expect("utf8")],
+    );
+    assert_eq!(
+        exit_code(&output),
+        1,
+        "a local failure: {}",
+        stderr(&output)
+    );
+    assert!(
+        stderr(&output).contains("neither a zip nor a tar"),
+        "stderr: {}",
+        stderr(&output)
+    );
+
+    let missing = unique_dir("not-archive-gone").join("gone.tar.gz");
+    let output = run_in(
+        &workspace,
+        &data_dir,
+        &["workspace", "import", missing.to_str().expect("utf8")],
+    );
+    assert_eq!(exit_code(&output), 1, "stderr: {}", stderr(&output));
+    assert!(
+        stderr(&output).contains("cannot read"),
+        "stderr: {}",
+        stderr(&output)
+    );
+}
+
+#[test]
 fn the_parser_agrees_with_the_binary_about_the_new_commands() {
     // A sanity check that the library view and the binary share one parser: the
     // commands the tests drive above are the ones `parse` produces.
@@ -431,6 +560,18 @@ fn the_parser_agrees_with_the_binary_about_the_new_commands() {
             "/v0/sandboxes/requests/req-1-1/reject",
             "POST",
         ),
+        // v0.9 project in/out.
+        (
+            vec!["workspace", "import", "/tmp/p.tar.gz"],
+            "/v0/workspace/import",
+            "POST",
+        ),
+        (
+            vec!["workspace", "import", "/tmp/p.tar.gz", "--force"],
+            "/v0/workspace/import?force=true",
+            "POST",
+        ),
+        (vec!["workspace", "export"], "/v0/workspace/export", "POST"),
     ] {
         let parsed = parse(words.iter().map(|w| w.to_string()).collect()).expect("parses");
         let args = match parsed {

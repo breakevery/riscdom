@@ -5,7 +5,9 @@
 //! audit `agent.policy.deny`. Failures return `Err`, which the agent loop
 //! feeds back to the model as the tool result.
 
-use crate::audit_hook::{record_policy_deny, record_tool_call, record_tool_result};
+use crate::audit_hook::{
+    record_file_write, record_policy_deny, record_tool_call, record_tool_result,
+};
 use crate::compiler::{compile_freestanding, CompilerConfig};
 use crate::error::AgentError;
 use crate::message::{FunctionCall, ToolCall};
@@ -304,6 +306,9 @@ fn tool_write_source(
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&abs, content)?;
+    // The project's own record of what the AI wrote (v0.9 project in/out): one row
+    // per write, so an export can say which files came from the model.
+    record_file_write(&ctx.audit, ctx.agent_id, path, content.len());
     Ok(format!("wrote {} bytes to {}", content.len(), path))
 }
 

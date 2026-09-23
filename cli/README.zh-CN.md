@@ -45,6 +45,8 @@ riscdom [options] <command> [args]
 | `sandboxes switch <name>` | `POST /v0/sandboxes/switch` | 先确认，然后打印 `switched from <old> to <new>`（原先没有当前项时打印 `switched to <new>`） |
 | `sandboxes requests approve <id>` | `POST /v0/sandboxes/requests/<id>/approve` | 先确认，再打印 `<id> is now approved` |
 | `sandboxes requests reject <id>` | `POST /v0/sandboxes/requests/<id>/reject` | 先确认，再打印 `<id> is now rejected` |
+| `workspace import <archive> [--force]` | `POST /v0/workspace/import` | `imported <n> file(s), <bytes> bytes` |
+| `workspace export [--out <file>]` | `POST /v0/workspace/export` | 归档本体：写到 `--out`，或写 stdout 而计数走 stderr |
 
 ### 确认
 

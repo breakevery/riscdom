@@ -39,6 +39,10 @@ pub fn human(command: &Command, reply: &Reply) -> String {
         Command::SandboxesRequestsApprove { .. } | Command::SandboxesRequestsReject { .. } => {
             sandbox_request_decided(value)
         }
+        // Project in/out: the export's answer is bytes (the CLI writes them, not
+        // this), and the import's is the little summary JSON (v0.9).
+        Command::WorkspaceImport { .. } => workspace_imported(value),
+        Command::WorkspaceExport { .. } => "ok".to_string(),
         Command::Run { .. } => outcome(value),
         Command::VmStop | Command::VmStart => "ok".to_string(),
         Command::SnapshotsSave { .. } => written(value),
@@ -498,6 +502,15 @@ fn sandbox_requests(value: &Value) -> String {
 /// What a decision landed on.
 fn sandbox_request_decided(value: &Value) -> String {
     format!("{} is now {}", text(value, "id"), text(value, "status"))
+}
+
+/// An import's answer: how many files and how many bytes landed.
+fn workspace_imported(value: &Value) -> String {
+    format!(
+        "imported {} file(s), {} bytes",
+        number(value, "files"),
+        number(value, "bytes")
+    )
 }
 
 /// One definition, one `key value` line per field.

@@ -62,13 +62,13 @@ curl -sS http://127.0.0.1:7821/v0/status
 Authentication and permission are two decisions. `401` means the server did not accept the
 credential; `403` means it did, and the actor it resolved is not allowed to do *this*.
 
-Every endpoint requires one capability, named in the API document's §5 tables — 31 names
+Every endpoint requires one capability, named in the API document's §5 tables — 32 names
 such as `agent.run`, `audit.read`, `runs.control`, `settings.write` and `vm.control`. The
 server checks it before the handler runs, so a client can plan around it instead of
 discovering it:
 
 ```bash
-# The token holder holds all 31, so this succeeds.
+# The token holder holds all 32, so this succeeds.
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7821/v0/status \
   -H "Authorization: Bearer $RISCDOM_TOKEN"
 # 200
@@ -263,6 +263,45 @@ merged and nothing written back — and `/v0/sandboxes/{name}` is a `404` naming
 parameter when no definition carries that name. The literal sub-paths (`current`,
 `candidates`, and `requests` / `switch` / `assemble`) are never read as a name.
 
+### The project: out, and back in
+
+The workspace is the project, and a project travels as one archive. Export answers
+**bytes** — the only non-JSON body here apart from the event stream — and import takes
+bytes.
+
+```bash
+# Out. `curl -o` writes the archive; an empty workspace exports a valid empty one.
+curl -sS -X POST http://127.0.0.1:7821/v0/workspace/export \
+  -H "Authorization: Bearer ***" -o project.tar.gz
+
+# In. `--data-binary` matters: a tool that strips newlines or re-encodes would
+# corrupt the archive, and the Content-Type picks the reader (zip / gzip / tar).
+curl -sS -X POST 'http://127.0.0.1:7821/v0/workspace/import' \
+  -H "Authorization: Bearer ***" -H 'Content-Type: application/gzip' \
+  --data-binary @project.tar.gz
+# {"files":17,"bytes":48211}
+
+# A file that is already there is a 409 unless you say otherwise.
+curl -sS -X POST 'http://127.0.0.1:7821/v0/workspace/import?force=true' \
+  -H "Authorization: Bearer ***" -H 'Content-Type: application/gzip' \
+  --data-binary @project.tar.gz
+```
+
+What an archive may not do is checked as it is read, and each refusal names itself: an
+entry that escapes the workspace, a symlink or hard link, something under `.riscdom/`
+(the host's own state — the audit DB, snapshots, the preflight cache), or a body that is
+not a readable archive are all `400` with `cause: "archive"`; a file already in the
+workspace is `409` with `cause: "exists"`; and more than 64 MiB is `413`. Importing
+needs `workspace.write`, exporting `workspace.read`.
+
+The same two trips from the CLI:
+
+```bash
+riscdom workspace export --out project.tar.gz   # or `> project.tar.gz`: count on stderr
+riscdom workspace import project.tar.gz         # refuses to replace what is there
+riscdom workspace import project.tar.gz --force # replaces it, and says how much landed
+```
+
 ### Sandbox requests: asking, and deciding
 
 A **request** is how an actor that may not switch says what it wants. An agent's
@@ -425,8 +464,8 @@ complete.
 
 ## 6. The control endpoints
 
-30 `POST` endpoints, the API table's §5.2 (plus the sandbox switch and the three request
-endpoints, below). All of them need the
+The API table's §5.2 controls, plus the sandbox switch and the request and project in/out
+endpoints, are all `POST`s. All of them need the
 token (that is the point of the batch that added them: they include destructive operations).
 
 ```bash
@@ -551,6 +590,8 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # against one that 
 | `riscdom sandboxes switch <name>` | `POST /v0/sandboxes/switch` |
 | `riscdom sandboxes requests [--status <s>]` | `GET /v0/sandboxes/requests` |
 | `riscdom sandboxes requests approve <id>` / `reject <id>` | `POST /v0/sandboxes/requests/<id>/approve` / `/reject` |
+| `riscdom workspace export [--out <file>]` | `POST /v0/workspace/export` |
+| `riscdom workspace import <archive> [--force]` | `POST /v0/workspace/import` |
 | `riscdom run <task>` | `POST /v0/agent/run` |
 | `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
@@ -594,6 +635,13 @@ riscdom sandboxes requests                    # newest first
 riscdom sandboxes requests --status pending
 riscdom sandboxes requests approve req-4711-1 --yes
 # req-4711-1 is now approved
+
+# The project, out and back. `--out` writes the archive and the count goes to
+# stderr, so `riscdom workspace export > project.tar.gz` works the same way.
+riscdom workspace export --out project.tar.gz
+# exported 48211 bytes to project.tar.gz
+riscdom workspace import project.tar.gz --force
+# imported 17 file(s), 48211 bytes
 
 # Configure the model; the key comes from a file, so it stays out of `ps`.
 riscdom llm set --api-key-file ~/.riscdom/api-key \

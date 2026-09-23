@@ -379,6 +379,34 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 - **文档里的 capability 计数为 31**，§5.1 / §5.2 携带 32 / 33 个端点：API 文档（双语）、`server/README`（双语）与客户端指南（双语）。
 - **`all_events_are_named` 重新列全十四个事件**，事件文档 §3 表格有十四行。
 
+**一个项目以一个文件的形式行走，而 AI 的写入就在链上。** workspace 现在可以以 `tar.gz` 离开、
+以一个归档回来——两个端点、两个打包器、那些守卫与 capability 的划分——而 `write_source`
+会记下它写了什么。
+
+### 新增
+
+- **`POST /v0/workspace/export`**：workspace 作为 `tar.gz`，以**字节**作答（那个表面上除事件流
+  之外的第一个非 JSON body）并带 `Content-Disposition`。空 workspace 导出合法空归档。宿主自己的
+  `.riscdom/` 状态不打包。
+- **`POST /v0/workspace/import`**：归档就是请求体——zip、tar.gz 或 tar，由 `Content-Type` 选、
+  不认知时看字节——答 `{files, bytes}`。带**自己的 64 MiB 上限**（`413`），所以共用的
+  64 KiB JSON 上限原地不动。workspace 里已有同名文件 → `409`、`cause: "exists"`，除非
+  `?force=true`；逃出 workspace、以符号/硬链接到访、命名 `.riscdom/`、或不是可读归档的 entry
+  → `400`、`cause: "archive"`。
+- **`workspace.write`，第 32 个 capability**：导入替换项目，导出读它，两者不是同一种权限。
+- **`agent.file.write` `{path, bytes}`**：每次 `write_source` 写文件一行审计，于是项目的来龙去脉
+  是一行记录，而不是去重剖一个被截断的工具参数。它是审计事件，不是 SSE 事件——事件计数仍为 14。
+- **两条 Tauri 命令**（`import_workspace`、`export_workspace`）与**两个 CLI 子命令**
+  （`workspace import <archive> [--force]`、`workspace export [--out <file>]`；归档写到 `--out`
+  或 stdout，计数走 stderr）。
+
+### 变更
+
+- **`zip` 与 `flate2` + `tar` 对每个平台都声明。** 它们本来就在 `Cargo.lock` 里——Windows 宿主
+  只读 zip，unix 宿主只读 tar.gz——而项目归档是用户工具链产出什么就是什么。
+- **文档里的 capability 计数为 32**，§5.2 携带 35 个端点：API 文档（双语）、`server/README`（双语）
+  与客户端指南（双语）。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

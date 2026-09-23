@@ -626,8 +626,7 @@ one route" became "is enforced somewhere", because `sandbox.assemble` has no rou
 own until the assemble endpoint lands — it is enforced inside that handler, where a decision
 knows what it is deciding.
 
-**Impact**: `AppState` grew a request queue (`SandboxRequests`: a `Vec<SandboxRequest>`
-behind a `Mutex`, cloned into the loop's tool gateway, plus the `Arc` on `current_sandbox`
+**Impact**: `AppState` grew a request queue (`SandboxRequests`: a `Vec<SandboxRequest>`behind a `Mutex`, cloned into the loop's tool gateway, plus the `Arc` on `current_sandbox`
 so the two views cannot drift), ids are `req-<pid>-<seq>` in their own namespace, and the
 record is `{id, requester_agent_id, action, sandbox, definition, reason, requested_at_ms,
 status, decided_by, decided_at_ms}`. **Approving executes nothing** (the switch remains a
@@ -638,3 +637,43 @@ loop reaches the queue through `agent::SandboxRequester`, a trait the `agent` cr
 because it cannot name `AppState`, implemented by the host over cloned sub-handles (the loop
 lives inside `AppState`, so an `Arc<AppState>` would be a cycle). `sandbox:request` is the
 14th event: one frame per change, `{id, status, requester, action}`.
+
+## 37. A project leaves and enters as one file; the AI's writes are on the chain
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; the v0.9 endpoints landed, the git integration (B) is v1.0
+
+**Decision**: "Take the project with you" is **two HTTP endpoints**, not a mount and not a
+repository. `POST /v0/workspace/export` answers the workspace as a `tar.gz`; `POST
+/v0/workspace/import` takes an archive as its body (zip, tar.gz or tar). A **git
+integration is B, and B is v1.0**: a project that leaves as an archive is something every
+host can already do, while a repository brings a second source of truth and a second
+credential story with it. A **bind mount is C, and C is not done**: sharing a host
+directory into the sandbox is exactly the boundary the sandbox exists to draw. One
+workspace per node for v0.9 (multi-project is v1.0 with B).
+
+**Why**: The archive is the format a shell already speaks (`tar czf`, `unzip`), so a
+project can leave this tool and enter it again without this tool deciding anything about
+how a project is stored. The alternative — writing the archive server-side and answering a
+path, the way the audit exports do — would be the wrong shape here: those exports write
+**into** the workspace because the file is a product of the run, while a project export is
+the workspace being taken away, and a client on another machine cannot read a path.
+
+**Impact**: `host-core/src/workspace_io.rs` owns both directions and every guard: no entry
+may escape the destination, no symlink or hard link is followed, and `.riscdom/` — the
+host's own state (the audit DB, snapshots, the preflight cache) — is neither packed nor
+unpacked. **Containment only, no extension allow-list**, for the same reason the existing
+exports use it: `WorkspacePolicy::check_write` allows four source extensions, and a
+project is not made of source files alone. Import has its **own 64 MiB ceiling** (`413`)
+rather than raising the shared 64 KiB `MAX_BODY_BYTES` every JSON body uses; the body is
+read as bytes, the first non-JSON request on the surface; and an existing file is a `409`
+unless `?force=true`, because replacing what is in a workspace is a decision, not a
+default. The capabilities split by direction: **`workspace.write`** (the 32nd) to import,
+`workspace.read` to export — reading a project and replacing it are not the same
+permission. The packers (`zip`, `flate2` + `tar`) were already in `Cargo.lock` and are now
+declared for **every** platform: a project archive is whatever the user's tooling
+produced, so a Windows host must read a `.tar.gz` and a unix host a `.zip`. Finally, the
+AI's own writes are visible: `write_source` records **`agent.file.write`** `{path,
+bytes}` on the audit chain. That is an audit event, not an SSE one — the event count stays
+14 — because it belongs where the provenance is provable, and it exists so that "which
+files did the model write" is a row rather than a re-parse of `agent.tool.call`'s
+arguments, which are truncated at 4 KiB.

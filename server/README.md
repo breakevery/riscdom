@@ -13,7 +13,7 @@ portable half (`host-core`, Layer 2) and links **no Tauri crate** — `cargo tre
 names none. (Before v0.9's A1 wave 3 it did, because it depended on `host`, which depends on
 `tauri` unconditionally.)
 
-All 60 endpoints of the API tables answer over HTTP, plus the three host-local ones, the
+All 62 endpoints of the API tables answer over HTTP, plus the three host-local ones, the
 two reserved routes that say so with `501`, and the event stream. The token is on by
 default and every route's capability is enforced.
 
@@ -65,7 +65,9 @@ listen on a public interface unless you tell it to.
 | `/v0/sandboxes/switch` | POST | Switch this node to another definition (`sandbox.switch`): `200` with `{from, to}`, or `404` / `409` / `503` / `500` with a `cause` naming the reason. |
 | `/v0/sandboxes/requests` | GET / POST | The request queue (`sandbox.read` for the read, `agent.run` to leave one): a list newest-first, or `201` with the new id. |
 | `/v0/sandboxes/requests/{id}/approve`, `…/reject` | POST | Decide a pending request. The route's gate is `sandbox.read`; the decision itself needs the capability the request's `action` implies (`sandbox.switch` / `sandbox.assemble`). `200` with the record, `404` / `409` / `403`. |
-| `/v0/sessions/create`, `/v0/settings/theme`, … | POST | The 33 controls of §5.2: sessions, snapshots, VM, toolchain, QEMU, sandboxes, preflight, LLM config, exports. |
+| `/v0/sessions/create`, `/v0/settings/theme`, … | POST | The 35 controls of §5.2: sessions, snapshots, VM, toolchain, QEMU, sandboxes, preflight, LLM config, exports. |
+| `/v0/workspace/import` | POST | Unpack a project archive into the workspace (`workspace.write`): the body is **the archive itself** (zip / tar.gz / tar), answered with `{files, bytes}` or `400` / `409` / `413`. |
+| `/v0/workspace/export` | POST | The project as a `tar.gz` (`workspace.read`) — **bytes, not JSON**, with `Content-Disposition: attachment`. |
 
 `/v0/qemu/download` is the one path in the QEMU family served under both methods: `GET` asks
 whether a download is running, `POST` would start one. **Today the `POST` answers `503
@@ -130,10 +132,10 @@ ones (delete a session, stop the VM, change the LLM configuration).
 
 **What a credential may do.** Authentication and permission are separate decisions: the
 hook says *who* the caller is, and the server decides what that actor may do. Every route
-declares exactly one capability — the 31 names in the API document's §5 tables — and the
+declares exactly one capability — the 32 names in the API document's §5 tables — and the
 server checks it before the handler runs, answering `403 forbidden` with
 `cause: "capability"` when the actor does not hold it. Default deny: an actor with an empty
-set can reach nothing. The token holder holds all 31, and so does `--no-auth`, so in v0.9 a
+set can reach nothing. The token holder holds all 32, and so does `--no-auth`, so in v0.9 a
 `403` only comes from a custom hook that returns a narrower actor — or from the two request
 decisions, which check the capability the request's `action` implies after their own gate.
 

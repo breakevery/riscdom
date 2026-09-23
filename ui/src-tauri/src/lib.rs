@@ -92,6 +92,8 @@ pub fn run() {
             host_tauri::commands::request_sandbox,
             host_tauri::commands::approve_sandbox_request,
             host_tauri::commands::reject_sandbox_request,
+            host_tauri::commands::import_workspace,
+            host_tauri::commands::export_workspace,
             host_tauri::commands::run_agent,
             host_tauri::commands::get_workspace_files,
             host_tauri::commands::read_workspace_file,

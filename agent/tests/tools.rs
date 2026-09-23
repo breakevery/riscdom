@@ -44,7 +44,7 @@ fn count_actions(store: &AuditStore, action: &str) -> usize {
 }
 
 #[test]
-fn write_source_writes_file_and_audits_two_events() {
+fn write_source_writes_file_and_audits_three_events() {
     let root = unique_dir("write");
     let policy = WorkspacePolicy::new(root.clone());
     let (audit, shared) = sink();
@@ -73,9 +73,24 @@ fn write_source_writes_file_and_audits_two_events() {
     let store = shared.lock().unwrap();
     assert_eq!(count_actions(&store, "agent.tool.call"), 1);
     assert_eq!(count_actions(&store, "agent.tool.result"), 1);
+    // And the file itself is on the chain (v0.9 project in/out): one row per write,
+    // naming the path and how much landed, so a project's provenance does not have
+    // to be re-derived from a truncated tool argument.
+    assert_eq!(count_actions(&store, "agent.file.write"), 1);
+    let written = store
+        .all()
+        .expect("events")
+        .into_iter()
+        .find(|event| event.event.action == "agent.file.write")
+        .expect("the file write event");
+    assert_eq!(written.event.detail["path"], "hello.c");
+    assert_eq!(
+        written.event.detail["bytes"].as_u64(),
+        Some("int main(void){return 0;}".len() as u64)
+    );
     assert_eq!(
         verify_chain(&store).unwrap(),
-        ChainStatus::Intact { length: 2 }
+        ChainStatus::Intact { length: 3 }
     );
 }
 

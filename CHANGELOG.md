@@ -681,6 +681,39 @@ second, authorised call, so a request is a ledger of intent rather than a queued
 - **`all_events_are_named` lists fourteen events again**, and the events document's §3 table
   has fourteen rows.
 
+**A project travels as one file, and the AI's writes are on the chain.** The workspace can
+now leave as a `tar.gz` and come back as an archive — the two endpoints, the packers, the
+guards and the capability split — and `write_source` records what it wrote.
+
+### Added
+
+- **`POST /v0/workspace/export`**: the workspace as a `tar.gz`, answered as **bytes**
+  (the first non-JSON body on that surface apart from the event stream) with
+  `Content-Disposition`. An empty workspace exports a valid empty archive. The host's own
+  `.riscdom/` state is not packed.
+- **`POST /v0/workspace/import`**: an archive as the request body — zip, tar.gz or tar,
+  chosen by `Content-Type` and falling back to the bytes — answered with
+  `{files, bytes}`. Its own **64 MiB** ceiling (`413`), so the shared 64 KiB JSON limit
+  stays where it is. A file already in the workspace is `409` `cause: "exists"` unless
+  `?force=true`; an entry that escapes the workspace, arrives as a symlink or hard link,
+  names `.riscdom/`, or is not a readable archive is `400` `cause: "archive"`.
+- **`workspace.write`, the 32nd capability**: importing replaces the project, exporting
+  reads it, and the two are not the same permission.
+- **`agent.file.write` `{path, bytes}`**: one audit row per `write_source` write, so a
+  project's provenance is a row rather than a re-parse of a truncated tool argument. It is
+  an audit event, not an SSE one — the event count stays 14.
+- **Two Tauri commands** (`import_workspace`, `export_workspace`) and **two CLI
+  subcommands** (`workspace import <archive> [--force]`, `workspace export [--out <file>]`;
+  the archive goes to `--out` or stdout, the count to stderr).
+
+### Changed
+
+- **`zip` and `flate2` + `tar` are declared for every platform.** They were already in
+  `Cargo.lock` — a Windows host read only zips, a unix host only tar.gz — and a project
+  archive is whatever the user's tooling produced.
+- **The capability count in the documents is 32**, and §5.2 carries 35 endpoints: the API
+  document (both languages), `server/README` (both) and the client guide (both).
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

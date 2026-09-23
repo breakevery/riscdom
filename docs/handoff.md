@@ -13,6 +13,25 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **A project travels as one file** (v0.9 project in/out). `POST /v0/workspace/export`
+  answers the workspace as a `tar.gz` — **bytes, not JSON**, the first such body on that
+  surface apart from the event stream — and `POST /v0/workspace/import` takes an archive
+  as its body (zip, tar.gz or tar, chosen by `Content-Type` and falling back to the
+  bytes). The host's own `.riscdom/` state is never packed and never unpacked; entries
+  that escape the workspace, arrive as links, or are unreadable are `400`
+  `cause: "archive"`; an existing file is `409` `cause: "exists"` unless `?force=true`;
+  and the import has its own **64 MiB** ceiling (`413`) instead of raising the shared
+  64 KiB one every JSON body uses. Capability-wise the pair splits: import needs the new
+  **`workspace.write`** (32nd), export `workspace.read`. The AI's writes became visible
+  too: `write_source` now records **`agent.file.write`** `{path, bytes}` on the audit
+  chain (not an SSE event — the event count stays 14), so "which files did the model
+  write" is a row rather than a re-parse of a truncated tool argument. Both packers
+  (`zip`, `flate2`+`tar`) were already in the lock file and are now declared for every
+  platform: a Windows host reads a `.tar.gz`, a unix host reads a `.zip`. Two Tauri
+  commands (registered, not wired — the D line) and two CLI subcommands
+  (`workspace import <archive> [--force]`, `workspace export [--out <file>]`; the export
+  writes the archive to `--out` or stdout, and the count to stderr). Eight documents
+  went with it, including decision §37.
 - **An agent may ask for a sandbox change, and somebody else decides it** (v0.9 sandbox
   F2c). The control plane grew a request queue: `POST /v0/sandboxes/requests` (declared
   `agent.run` — the actor that may run an agent is the actor that may say what it wants)

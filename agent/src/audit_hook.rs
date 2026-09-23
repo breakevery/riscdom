@@ -139,6 +139,27 @@ pub fn record_tool_result(
     );
 }
 
+/// Record a file the AI wrote into its workspace (v0.9 project in/out).
+///
+/// `write_source` is the only tool that puts project content on disk, and "which
+/// files did the AI write" is a question about the project — so it is answered by a
+/// row per write, not by parsing the tool arguments later (`agent.tool.call`
+/// truncates them past 4 KiB, which a source file reaches easily). The path is the
+/// one the tool named (workspace-relative), and `bytes` is what landed.
+pub fn record_file_write(
+    sink: &Arc<Mutex<dyn AuditSink>>,
+    agent_id: &str,
+    path: &str,
+    bytes: usize,
+) {
+    emit(
+        sink,
+        agent_id,
+        "agent.file.write",
+        serde_json::json!({ "path": path, "bytes": bytes }),
+    );
+}
+
 /// Record a capability-policy denial.
 pub fn record_policy_deny(
     sink: &Arc<Mutex<dyn AuditSink>>,

@@ -131,6 +131,7 @@ pub enum Capability {
     VmControl,
     VmRead,
     WorkspaceRead,
+    WorkspaceWrite,
 }
 
 impl Capability {
@@ -168,6 +169,7 @@ impl Capability {
         Capability::VmControl,
         Capability::VmRead,
         Capability::WorkspaceRead,
+        Capability::WorkspaceWrite,
     ];
 
     /// The name the route table, the API document and the error body use.
@@ -204,6 +206,7 @@ impl Capability {
             Capability::VmControl => "vm.control",
             Capability::VmRead => "vm.read",
             Capability::WorkspaceRead => "workspace.read",
+            Capability::WorkspaceWrite => "workspace.write",
         }
     }
 }
@@ -364,7 +367,7 @@ mod tests {
     fn the_capability_vocabulary_is_well_formed() {
         assert_eq!(
             Capability::ALL.len(),
-            31,
+            32,
             "the vocabulary the document lists"
         );
         let mut names: Vec<&str> = Capability::ALL.iter().map(Capability::as_str).collect();

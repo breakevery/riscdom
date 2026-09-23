@@ -47,10 +47,10 @@ curl -sS http://127.0.0.1:7821/v0/status
 
 认证与授权是两个决定。`401` 表示服务端不接受该凭证；`403` 表示它接受了，但它解析出的 actor 不被允许做**这件事**。
 
-每个端点要求一个 capability，名字见 API 文档 §5 表格——共 31 个，例如 `agent.run`、`audit.read`、`runs.control`、`settings.write`、`vm.control`。服务端在运行处理器前检查，客户端因此可以事先规划，而不是撞上才知道：
+每个端点要求一个 capability，名字见 API 文档 §5 表格——共 32 个，例如 `agent.run`、`audit.read`、`runs.control`、`settings.write`、`vm.control`。服务端在运行处理器前检查，客户端因此可以事先规划，而不是撞上才知道：
 
 ```bash
-# token 持有者持有全部 31 项，此调用成功。
+# token 持有者持有全部 32 项，此调用成功。
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7821/v0/status \
   -H "Authorization: Bearer $RISCDOM_TOKEN"
 # 200
@@ -213,6 +213,38 @@ curl -sS 'http://127.0.0.1:7821/v0/sandboxes/blink'   # 单项，与列表行同
 
 `/v0/sandboxes/candidates` 答的是原始扫描——两个互相独立的列表，不合并、也不写回——而 `/v0/sandboxes/{name}` 在没有这个名字的定义时答 `404` 并在 `cause` 指出参数。字面子路径（`current`、`candidates`，以及 `requests` / `switch` / `assemble`）永不被当作名字读。
 
+### 项目：出去，再回来
+
+workspace 就是项目，而一个项目以一个归档的形式行走。导出答的是**字节**——除事件流之外这里唯一的非 JSON body——导入收的也是字节。
+
+```bash
+# 出去。`curl -o` 写归档；空 workspace 导出的也是合法归档。
+curl -sS -X POST http://127.0.0.1:7821/v0/workspace/export \
+  -H "Authorization: Bearer ***" -o project.tar.gz
+
+# 回来。`--data-binary` 很重要：会删换行或重编码的工具会把归档弄坏；
+# Content-Type 选读法（zip / gzip / tar）。
+curl -sS -X POST 'http://127.0.0.1:7821/v0/workspace/import' \
+  -H "Authorization: Bearer ***" -H 'Content-Type: application/gzip' \
+  --data-binary @project.tar.gz
+# {"files":17,"bytes":48211}
+
+# 已有同名文件就是 409，除非你说要换掉。
+curl -sS -X POST 'http://127.0.0.1:7821/v0/workspace/import?force=true' \
+  -H "Authorization: Bearer ***" -H 'Content-Type: application/gzip' \
+  --data-binary @project.tar.gz
+```
+
+一条 entry 不允许做的事在读取时就被检查，每种拒绝都自己报名：逃出 workspace、符号链接或硬链接、`.riscdom/` 下的东西（宿主自己的状态——审计库、快照、预检缓存）、或一个不是可读归档的 body，都是 `400`、`cause: "archive"`；workspace 里已有同名文件是 `409`、`cause: "exists"`；超过 64 MiB 是 `413`。导入需要 `workspace.write`，导出需要 `workspace.read`。
+
+同样两趟，走 CLI：
+
+```bash
+riscdom workspace export --out project.tar.gz   # 或 `> project.tar.gz`：计数走 stderr
+riscdom workspace import project.tar.gz         # 拒绝替换已有的东西
+riscdom workspace import project.tar.gz --force # 替换它，并报出落了多少
+```
+
 ### 沙箱申请：提出与裁决
 
 **申请**是不能切换的 actor 表达它所想的方式。AI 的 `request_sandbox` 工具会落一条；`POST /v0/sandboxes/requests` 在 HTTP 上做同一件事，需要 `agent.run`。
@@ -355,7 +387,7 @@ curl -sS -N http://127.0.0.1:7821/v0/events \
 
 ## 6. 控制端点
 
-30 个 `POST` 端点，即 API 表的 §5.2（外加下面的沙箱切换与三条申请端点）。它们全部需要 token（这正是引入它们的那一批的要点：其中包含破坏性操作）。
+API 表的 §5.2 控制类端点，加上沙箱切换、申请端点与两条项目进出端点，全部是 `POST`。它们全部需要 token（这正是引入它们的那一批的要点：其中包含破坏性操作）。
 
 ```bash
 # 跑一轮 agent。进度以 `agent:*` 事件抵达事件流。
@@ -451,6 +483,8 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # 对着已经跑�
 | `riscdom sandboxes switch <name>` | `POST /v0/sandboxes/switch` |
 | `riscdom sandboxes requests [--status <s>]` | `GET /v0/sandboxes/requests` |
 | `riscdom sandboxes requests approve <id>` / `reject <id>` | `POST /v0/sandboxes/requests/<id>/approve` / `/reject` |
+| `riscdom workspace export [--out <file>]` | `POST /v0/workspace/export` |
+| `riscdom workspace import <archive> [--force]` | `POST /v0/workspace/import` |
 | `riscdom run <task>` | `POST /v0/agent/run` |
 | `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |

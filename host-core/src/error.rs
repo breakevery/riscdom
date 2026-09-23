@@ -64,6 +64,21 @@ pub enum HostError {
     #[error("sandbox_request_decided: {0}")]
     SandboxRequestDecided(String),
 
+    /// An archive an import cannot accept (v0.9 project in/out).
+    ///
+    /// One variant for every way an archive can be unusable or hostile —
+    /// unreadable, a traversing entry, a link, an absolute path, the host's own
+    /// state directory, too many entries, too much decompressed content. The
+    /// message names which.
+    #[error("archive: {0}")]
+    Archive(String),
+
+    /// An import would replace a file that is already in the workspace, and
+    /// `force` was not asked for (v0.9 project in/out). The message is the file's
+    /// name.
+    #[error("workspace entry exists: {0}")]
+    WorkspaceEntryExists(String),
+
     #[error("{0}")]
     Other(String),
 }

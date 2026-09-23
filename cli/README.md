@@ -49,6 +49,8 @@ Control commands — every one an HTTP `POST`, and every one needs the token:
 | `sandboxes switch <name>` | `POST /v0/sandboxes/switch` | confirmation, then `switched from <old> to <new>` (or `switched to <new>` when nothing was current) |
 | `sandboxes requests approve <id>` | `POST /v0/sandboxes/requests/<id>/approve` | confirmation, then `<id> is now approved` |
 | `sandboxes requests reject <id>` | `POST /v0/sandboxes/requests/<id>/reject` | confirmation, then `<id> is now rejected` |
+| `workspace import <archive> [--force]` | `POST /v0/workspace/import` | `imported <n> file(s), <bytes> bytes` |
+| `workspace export [--out <file>]` | `POST /v0/workspace/export` | the archive itself: to `--out`, or to stdout with the count on stderr |
 
 ### Confirmation
 

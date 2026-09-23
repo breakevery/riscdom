@@ -29,6 +29,12 @@ read-only commands:
   sandboxes switch <name>       switch this node to that definition (asks first:
                                 the running VM is stopped and started again)
                                 (`POST /v0/sandboxes/switch`)
+  sandboxes requests [--status <s>]
+                                the sandbox requests waiting for a decision
+                                (`GET /v0/sandboxes/requests`)
+  workspace export [--out <file>]
+                                the project as a tar.gz; without --out it goes to
+                                stdout, and the count goes to stderr
 
 control commands:
   run <task> [--follow]         run one agent turn; --follow prints the event
@@ -45,6 +51,13 @@ control commands:
   sessions delete <session_id>  delete one (asks for confirmation)
   sessions clear-all            delete every session (asks for confirmation)
   runs abandon-stale            mark abandoned runs (idempotent)
+  sandboxes requests approve <id>
+  sandboxes requests reject <id>
+                                decide a sandbox request (asks first: a decision is
+                                a permission action, and it is not reversible)
+  workspace import <archive> [--force]
+                                unpack a project archive into the workspace; an
+                                existing file is kept unless --force says otherwise
 
 export commands:
   export audit-jsonl [--out <path>]         the whole audit chain as JSONL
@@ -156,6 +169,17 @@ pub enum Command {
     },
     SandboxesRequestsReject {
         id: String,
+    },
+    /// Project in/out (v0.9): an archive goes to the host, an archive comes back.
+    WorkspaceImport {
+        /// The local file that holds the archive.
+        archive: PathBuf,
+        /// `--force`: replace files that are already in the workspace.
+        force: bool,
+    },
+    WorkspaceExport {
+        /// Where the archive is written; `None` means stdout.
+        out: Option<PathBuf>,
     },
     // ---- control ----
     Run {
@@ -292,6 +316,11 @@ impl Command {
             Command::SandboxesRequestsReject { id } => {
                 format!("/v0/sandboxes/requests/{}/reject", url_encode(id))
             }
+            Command::WorkspaceImport { force: false, .. } => "/v0/workspace/import".to_string(),
+            Command::WorkspaceImport { force: true, .. } => {
+                "/v0/workspace/import?force=true".to_string()
+            }
+            Command::WorkspaceExport { .. } => "/v0/workspace/export".to_string(),
             Command::Run { .. } => "/v0/agent/run".to_string(),
             Command::VmStop => "/v0/vm/stop".to_string(),
             Command::VmStart => "/v0/vm/start".to_string(),
@@ -386,6 +415,11 @@ impl Command {
             Command::SandboxesRequestsApprove { .. } | Command::SandboxesRequestsReject { .. } => {
                 Some(json!({}))
             }
+            // Project in/out: the import sends the archive itself (the CLI reads the
+            // file and posts the bytes, outside the JSON body path), the export
+            // sends a bodyless `POST` like the other controls that answer themselves.
+            Command::WorkspaceImport { .. } => None,
+            Command::WorkspaceExport { .. } => Some(json!({})),
             Command::QemuPath { path } | Command::ToolchainPath { path } => {
                 Some(json!({ "path": path }))
             }
@@ -482,6 +516,8 @@ struct Flags {
     out: Option<String>,
     /// `--status <s>`: the request queue's filter (v0.9 sandbox F2c).
     status: Option<String>,
+    /// `--force`: an import may replace what is already in the workspace.
+    force: bool,
     api_key: Option<String>,
     api_key_file: Option<PathBuf>,
     base_url: Option<String>,
@@ -525,6 +561,7 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
             "--token" => token = Some(value("--token")?),
             "--out" => flags.out = Some(value("--out")?),
             "--status" => flags.status = Some(value("--status")?),
+            "--force" => flags.force = true,
             "--api-key" => flags.api_key = Some(value("--api-key")?),
             "--api-key-file" => flags.api_key_file = Some(PathBuf::from(value("--api-key-file")?)),
             "--base-url" => flags.base_url = Some(value("--base-url")?),
@@ -617,6 +654,17 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
         (Some("sandboxes"), Some("requests"), Some("reject"), Some(id)) => {
             Some(Command::SandboxesRequestsReject { id: id.to_string() })
         }
+        // Project in/out (v0.9). `workspace import <archive>` is three words,
+        // `workspace export` two; the flags (`--force`, `--out`) may sit anywhere.
+        (Some("workspace"), Some("import"), Some(archive), None) => {
+            Some(Command::WorkspaceImport {
+                archive: PathBuf::from(archive),
+                force: flags.force,
+            })
+        }
+        (Some("workspace"), Some("export"), None, None) => Some(Command::WorkspaceExport {
+            out: flags.out.clone().map(PathBuf::from),
+        }),
         (Some("run"), Some(task), None, None) => Some(Command::Run {
             task: task.to_string(),
         }),
@@ -726,6 +774,12 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
         }
         (Some("sandboxes"), Some(other), _) => {
             Err(format!("unknown sandboxes subcommand {other:?}"))
+        }
+        (Some("workspace"), Some("import"), None) => {
+            Err("workspace import needs an <archive>".to_string())
+        }
+        (Some("workspace"), Some(other), _) => {
+            Err(format!("unknown workspace subcommand {other:?}"))
         }
         (Some("audit"), Some("alert"), Some("set")) => {
             Err("audit alert set needs on|off".to_string())

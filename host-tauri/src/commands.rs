@@ -16,6 +16,7 @@ use crate::state::{
 use crate::SessionMeta;
 use crate::{CandidatesView, SandboxRequestView, SandboxView};
 use host_core::SandboxAction;
+use host_core::UnpackReport;
 use std::sync::Arc;
 use tauri::{Manager, State};
 
@@ -250,6 +251,34 @@ pub async fn reject_sandbox_request(
     state
         .reject_sandbox_request(&id, state.agent_id(), emitter)
         .map_err(|e| e.user_message())
+}
+
+/// Bring a project in: unpack an archive into the workspace (v0.9 project in/out).
+///
+/// The bytes are the archive itself (Tauri moves them as a byte array), and the
+/// format is read from them rather than from a parameter — the desktop shell has no
+/// `Content-Type` to pass along, and reading the magic bytes is what the HTTP
+/// endpoint falls back to as well. `force` replaces files that are already there;
+/// without it the host refuses and the answer names the first clash.
+///
+/// The interface is not wired to this command in this batch (that is the D line).
+#[tauri::command]
+pub async fn import_workspace(
+    state: State<'_, AppState>,
+    archive: Vec<u8>,
+    force: Option<bool>,
+) -> Result<UnpackReport, String> {
+    let format = host_core::ArchiveFormat::from_magic(&archive)
+        .ok_or_else(|| "the file is neither a zip nor a tar/tar.gz archive".to_string())?;
+    state
+        .import_workspace(&archive, format, force.unwrap_or(false))
+        .map_err(|e| e.user_message())
+}
+
+/// Take the project out: the workspace as a `tar.gz` (v0.9 project in/out).
+#[tauri::command]
+pub async fn export_workspace(state: State<'_, AppState>) -> Result<Vec<u8>, String> {
+    state.export_workspace().map_err(|e| e.user_message())
 }
 
 /// List snapshots on disk (real `.mig` and reboot-fallback `.json`).

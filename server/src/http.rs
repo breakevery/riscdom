@@ -37,6 +37,16 @@ pub(crate) type RespBody = BoxBody<Bytes, std::io::Error>;
 /// not read into memory.
 pub(crate) const MAX_BODY_BYTES: usize = 64 * 1024;
 
+/// The largest project archive an import will accept (v0.9 project in/out).
+///
+/// Its own ceiling on purpose: `MAX_BODY_BYTES` exists because a control body is a
+/// small JSON object, and a project archive is neither small nor a control body.
+/// Raising the shared limit to fit one import would let every other endpoint be
+/// handed a megabyte, so the import carries its own and the shared one stays.
+/// Public because the limit is part of the contract a client plans around (and
+/// because the test that proves `413` is worth more when it uses the real number).
+pub const MAX_IMPORT_BYTES: usize = 64 * 1024 * 1024;
+
 /// A server, before it is bound.
 pub struct Server {
     app: Arc<AppState>,
@@ -357,11 +367,30 @@ async fn handle(
             if let Some((name, value)) = path_param {
                 params.insert(name, value);
             }
+            // One endpoint takes bytes instead of a JSON object (v0.9 project
+            // in/out). The JSON path is unchanged and still the default: this is a
+            // branch on what the route's body *is*, not a change to how bodies are
+            // read.
+            let mut archive: Option<Bytes> = None;
             if method == "POST" {
-                match read_json_body(request).await {
-                    Ok(Some(body)) => params.merge(body),
-                    Ok(None) => {}
-                    Err(response) => return *response,
+                if action == routes::Action::WorkspaceImport {
+                    let content_type = request
+                        .headers()
+                        .get(CONTENT_TYPE)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string();
+                    params.insert("content_type", content_type);
+                    match read_binary_body(request, MAX_IMPORT_BYTES, "archive").await {
+                        Ok(bytes) => archive = Some(bytes),
+                        Err(response) => return *response,
+                    }
+                } else {
+                    match read_json_body(request).await {
+                        Ok(Some(body)) => params.merge(body),
+                        Ok(None) => {}
+                        Err(response) => return *response,
+                    }
                 }
             }
             let app = Arc::clone(&shared.app);
@@ -372,7 +401,15 @@ async fn handle(
             // a `--version` probe, a download): it runs off the async runtime, so
             // a request never stalls the event stream.
             match tokio::task::spawn_blocking(move || {
-                routes::dispatch(action, &params, &app, &hub, log_level, &actor)
+                routes::dispatch(
+                    action,
+                    &params,
+                    &app,
+                    &hub,
+                    log_level,
+                    &actor,
+                    archive.as_deref(),
+                )
             })
             .await
             {
@@ -426,6 +463,52 @@ async fn read_json_body(
         )));
     }
     Ok(Some(routes::Params::from_json(&value)))
+}
+
+/// Read a **binary** request body, up to `limit` bytes (v0.9 project in/out).
+///
+/// The sibling of [`read_json_body`] for the one endpoint whose body is not a JSON
+/// object. It differs in exactly two ways: the ceiling is the caller's (an import
+/// says how big an archive it accepts), and the bytes are handed back rather than
+/// parsed. Over the limit is `413`, not the JSON path's `400`, because the caller
+/// sent something well-formed and simply too large — a distinction a client can
+/// act on (raise the limit, split the archive) where `400` would only say "bad".
+async fn read_binary_body(
+    request: Request<hyper::body::Incoming>,
+    limit: usize,
+    what: &str,
+) -> Result<Bytes, Box<Response<RespBody>>> {
+    let limited = Limited::new(request.into_body(), limit);
+    match limited.collect().await {
+        Ok(collected) => Ok(collected.to_bytes()),
+        Err(_) => Err(Box::new(error_response(
+            413,
+            "payload_too_large",
+            &format!(
+                "the {what} is larger than the {} bytes this host accepts",
+                limit
+            ),
+            Some("body"),
+        ))),
+    }
+}
+
+/// A `200`-family response whose body is bytes, not JSON (v0.9 project in/out).
+///
+/// The first non-JSON body on this surface apart from the event stream. The type
+/// does not change — [`RespBody`] has always been `BoxBody<Bytes, _>` — so this is
+/// a helper, not a new shape: the caller says what the bytes are.
+pub(crate) fn binary_response(
+    status: StatusCode,
+    content_type: &str,
+    bytes: Bytes,
+) -> Response<RespBody> {
+    let mut response = Response::new(full_body(bytes));
+    *response.status_mut() = status;
+    if let Ok(value) = HeaderValue::from_str(content_type) {
+        response.headers_mut().insert(CONTENT_TYPE, value);
+    }
+    response
 }
 
 /// The credential an `Authorization` header presents, when it is one.

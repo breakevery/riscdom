@@ -93,6 +93,27 @@ cargo test -p agent -- --ignored --nocapture
 | `read_serial()` | 读取当前串口缓冲 |
 | `stop_vm()` | 停止 QEMU |
 | `list_workspace()` | 列出工作区文件 |
+| `request_sandbox(action, sandbox?, reason?)` | 为有切换权限的人留一条沙箱申请（v0.9 沙箱 F2c） |
+| `sandbox_status()` | 本节点在跑什么，以及什么在等 |
+
+## agent 写下的审计事件
+
+每件发生过的事一行，都经 `audit_hook`：
+
+| action | 何时 | detail |
+| --- | --- | --- |
+| `agent.user.input` | 一轮开始 | 输入，哈希并截断 |
+| `agent.llm.request` / `.response` | 每次模型调用 | 大小与哈希，从不存原始 body——**从不存 API key** |
+| `agent.llm.stream.start` / `.end` | 流式回答 | 与块式路径同一纪律 |
+| `agent.tool.call` | 工具运行前 | `{id, name, arguments, arguments_len}`——arguments **截到 4 KiB**，一个源文件轻易就到 |
+| `agent.tool.result` | 工具运行后 | `{call_id, ok, result_len, result}` |
+| `agent.file.write` | **`write_source` 写好一个文件**（v0.9 项目进出） | `{path, bytes}`——工具给的工作区相对路径，以及落了多少 |
+| `agent.compile.start` / `.result` | 一次构建 | 编译器、源与结果 |
+| `agent.policy.deny` | 策略拒绝的路径 | 工具、路径、原因 |
+
+`agent.file.write` 存在，是因为「AI 写过哪些文件」是关于项目的问题，而不应当从
+`agent.tool.call` 被截断的 arguments 里反推。它是一条**审计**行，不是 SSE 事件：
+它属于链（项目的来龙去脉在那里可证），不属于事件流。
 
 ## 能力策略
 

@@ -7,10 +7,14 @@
 //! The tables are `docs/control-plane-api.md` §5.1 and §5.2.
 
 use crate::auth::{Actor, Capability};
-use crate::http::{error_response, json_response, no_content, RespBody};
+use crate::http::{binary_response, error_response, json_response, no_content, RespBody};
 use crate::log::{self, LogLevel};
 use crate::sse::{HttpEventSink, SseHub};
-use host_core::{AppState, EventSink, HostError, SandboxAction, SandboxRequestStatus};
+use host_core::{
+    AppState, ArchiveFormat, EventSink, HostError, SandboxAction, SandboxRequestStatus,
+};
+use hyper::body::Bytes;
+use hyper::header::{HeaderValue, CONTENT_DISPOSITION};
 use hyper::{Response, StatusCode};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -96,6 +100,9 @@ pub(crate) enum Action {
     /// Decide a request: the two halves of the one write the queue allows.
     SandboxRequestApprove,
     SandboxRequestReject,
+    /// Bring a project in, and take one out (v0.9 project in/out).
+    WorkspaceImport,
+    WorkspaceExport,
 }
 
 /// What a request resolves to.
@@ -499,6 +506,21 @@ const ROUTES: &[(&str, &str, Capability, Action)] = &[
         Capability::AgentRun,
         Action::SandboxRequestCreate,
     ),
+    // Project in/out (v0.9). Import is the only route whose body is not JSON, and
+    // it is the only one that needs `workspace.write`: everything else on the
+    // workspace surface reads.
+    (
+        "POST",
+        "/v0/workspace/import",
+        Capability::WorkspaceWrite,
+        Action::WorkspaceImport,
+    ),
+    (
+        "POST",
+        "/v0/workspace/export",
+        Capability::WorkspaceRead,
+        Action::WorkspaceExport,
+    ),
 ];
 
 /// `/v0/runs/{run_id}` is the one path with a parameter.
@@ -805,6 +827,10 @@ const LANGUAGES: &[&str] = &["system", "en", "zh"];
 /// already checked the capability the route declares — but a decision on a
 /// sandbox request does: which capability it needs follows from the request's own
 /// `action`, and only the handler knows the request (F2c decision 1).
+///
+/// `archive` is the raw body of the one endpoint that takes bytes rather than a
+/// JSON object (`POST /v0/workspace/import`, v0.9 project in/out); it is `None`
+/// everywhere else.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn dispatch(
     action: Action,
@@ -813,6 +839,7 @@ pub(crate) fn dispatch(
     hub: &Arc<SseHub>,
     log_level: LogLevel,
     actor: &Actor,
+    archive: Option<&[u8]>,
 ) -> Response<RespBody> {
     match action {
         // ---- queries ----
@@ -1049,6 +1076,61 @@ pub(crate) fn dispatch(
                 Err(e) => sandbox_request_error(e),
             }
         }
+        // Project in/out (v0.9). Import is the one endpoint whose body is bytes
+        // rather than a JSON object, so the archive arrives as an argument rather
+        // than through `params`; everything it is checked for (traversal, links,
+        // the host's own state, overwrite) lives in `host-core`'s archive reader,
+        // so the HTTP surface cannot forget one of them.
+        Action::WorkspaceImport => {
+            let Some(archive) = archive else {
+                return error_response(
+                    400,
+                    "bad_request",
+                    "the request body must be a zip or a tar.gz archive",
+                    Some("body"),
+                );
+            };
+            // What the caller says it sent, or the bytes themselves when it says
+            // nothing we recognise: a `.tar.gz` uploaded as octet-stream is still a
+            // tar.gz, and refusing it would be pedantry.
+            let format = params
+                .get("content_type")
+                .and_then(ArchiveFormat::from_content_type)
+                .or_else(|| ArchiveFormat::from_magic(archive));
+            let Some(format) = format else {
+                return error_response(
+                    400,
+                    "bad_request",
+                    "the body is neither a zip nor a gzip stream (send application/zip or application/gzip)",
+                    Some("archive"),
+                );
+            };
+            let force = match params.bool_or("force", false) {
+                Ok(force) => force,
+                Err(response) => return *response,
+            };
+            match app.import_workspace(archive, format, force) {
+                Ok(report) => ok_json(&report),
+                Err(e) => workspace_io_error(e),
+            }
+        }
+        Action::WorkspaceExport => match app.export_workspace() {
+            // Bytes, not JSON: the project itself is the answer. The name is the
+            // caller's to choose; this is the one a browser saves it under.
+            Ok(bytes) => {
+                let mut response = binary_response(
+                    StatusCode::OK,
+                    ArchiveFormat::TarGz.content_type(),
+                    Bytes::from(bytes),
+                );
+                response.headers_mut().insert(
+                    CONTENT_DISPOSITION,
+                    HeaderValue::from_static("attachment; filename=\"workspace.tar.gz\""),
+                );
+                response
+            }
+            Err(e) => host_error(e),
+        },
 
         // ---- controls ----
         Action::AgentRun => {
@@ -1506,6 +1588,28 @@ fn sandbox_request_error(error: HostError) -> Response<RespBody> {
     }
 }
 
+/// An import's own refusals (v0.9 project in/out).
+///
+/// An archive the host cannot accept is the **caller's input** being unusable, so
+/// it is a `400` with `cause: "archive"` — the message names which entry and why.
+/// A file that is already in the workspace is the other answer: `409`, with
+/// `cause: "exists"`, because nothing is wrong with the archive and the caller can
+/// decide (send `?force=true`). Anything else is the host's own failure.
+fn workspace_io_error(error: HostError) -> Response<RespBody> {
+    match &error {
+        HostError::Archive(_) => {
+            error_response(400, "bad_request", &error.user_message(), Some("archive"))
+        }
+        HostError::WorkspaceEntryExists(name) => error_response(
+            409,
+            "conflict",
+            &format!("{name:?} is already in the workspace; send ?force=true to replace it"),
+            Some("exists"),
+        ),
+        _ => host_error(error),
+    }
+}
+
 /// A `200` with the serialised value.
 fn ok_json<T: serde::Serialize>(value: &T) -> Response<RespBody> {
     match serde_json::to_value(value) {
@@ -1617,6 +1721,47 @@ mod tests {
     }
 
     #[test]
+    fn the_project_endpoints_declare_their_own_capability() {
+        // Import writes into the workspace and is the only route needing
+        // `workspace.write`; export reads it, like every other workspace route.
+        for (path, capability, action) in [
+            (
+                "/v0/workspace/import",
+                Capability::WorkspaceWrite,
+                Action::WorkspaceImport,
+            ),
+            (
+                "/v0/workspace/export",
+                Capability::WorkspaceRead,
+                Action::WorkspaceExport,
+            ),
+        ] {
+            match resolve("POST", path) {
+                Resolution::Query {
+                    action: found,
+                    capability: found_capability,
+                    path_param,
+                } => {
+                    assert_eq!(found, action, "{path}");
+                    assert_eq!(found_capability, capability, "{path}");
+                    assert!(path_param.is_none(), "{path}");
+                }
+                other => panic!("POST {path}: {other:?}"),
+            }
+            // Both are writes, so a `GET` is a `405`.
+            assert!(
+                matches!(resolve("GET", path), Resolution::MethodNotAllowed { .. }),
+                "GET {path}"
+            );
+        }
+        // A workspace route that is not one of the three queries or these two.
+        assert!(matches!(
+            resolve("GET", "/v0/workspace/nope"),
+            Resolution::NotFound
+        ));
+    }
+
+    #[test]
     fn the_table_has_the_documented_endpoints() {
         let queries = ROUTES
             .iter()
@@ -1633,14 +1778,15 @@ mod tests {
         //
         // The two request decisions (`approve` / `reject`) carry an id, so they
         // are pattern routes like `/v0/runs/{run_id}` and are **not** rows here —
-        // the count is rows, and a pattern is not one.
+        // the count is rows, and a pattern is not one. Project in/out (v0.9) added
+        // no query: both of its endpoints write a body.
         assert_eq!(queries, 31, "query rows");
         // The 27 controls of §5.2, plus the reserved `POST /v0/vm/start` and
         // `POST /v0/runs/abandon-stale` (§6, G1 and G4), plus the QEMU download
-        // start and cancel (v0.9 F1), the sandbox switch (v0.9 sandbox F2b-2) and
-        // the request queue's create (v0.9 sandbox F2c) — its two decisions are
-        // pattern routes, as above.
-        assert_eq!(controls, 33, "control rows");
+        // start and cancel (v0.9 F1), the sandbox switch (v0.9 sandbox F2b-2), the
+        // request queue's create (v0.9 sandbox F2c) and project in/out's two
+        // (v0.9) — its two request decisions are pattern routes, as above.
+        assert_eq!(controls, 35, "control rows");
     }
 
     #[test]

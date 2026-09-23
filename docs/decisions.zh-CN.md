@@ -373,3 +373,13 @@
 **理由**：替代方案——路由表每条路由只名一个 capability——表达不了「随便这条请求要哪一个」：那张表是处理器运行前就检查的静态列，而 action 要等请求被解析出来才知晓。所以两条决策以 `sandbox.read` 为门，由处理器再拿精确的那个对 actor 检查，这也是 `dispatch` 现在接收 actor 的原因。由此产生的后果被记下来而不是藏起来：文档里那句「词汇表里每一个 capability 都至少有一条路由」改成「都在某处被强制」——因为 `sandbox.assemble` 在装配端点落地前没有自己的路由，它是在那个处理器内部被强制的，而那里正好知道自己在决断什么。
 
 **影响**：`AppState` 长出一条申请队列（`SandboxRequests`：`Mutex` 包着的 `Vec<SandboxRequest>`，被克隆进 loop 的工具网关，另加 `current_sandbox` 上的 `Arc`，使两个视图不会分叉），id 是自成命名空间的 `req-<pid>-<seq>`，记录形状为 `{id, requester_agent_id, action, sandbox, definition, reason, requested_at_ms, status, decided_by, decided_at_ms}`。**批准不执行任何东西**（切换仍是另一次带授权的调用），决策不可逆（`409`），id 未知是 `404`，并且**没有 TTL**：`expired` 为预留、无任何路径产生它——一排申请不是高危资源，清扫器会是为无人受益而新加的机制。loop 经 `agent::SandboxRequester` 抵达队列；该 trait 属于 `agent` crate，因为它无法命名 `AppState`，由宿主用克隆的子句柄实现（loop 住在 `AppState` 里面，所以 `Arc<AppState>` 会构成循环）。`sandbox:request` 是第 14 个事件：每次变化一帧，`{id, status, requester, action}`。
+
+## 37. 项目以一个文件的形式离开与回来；AI 的写入就在链上
+
+**日期**：2026-09-23 ｜ **状态**：已定；v0.9 落了端点，git 集成（B）属 v1.0
+
+**决策**：「把项目带上」是**两个 HTTP 端点**，不是挂载、也不是仓库。`POST /v0/workspace/export` 把 workspace 以 `tar.gz` 作答；`POST /v0/workspace/import` 把归档当请求体收（zip、tar.gz 或 tar）。**git 集成是 B，而 B 属 v1.0**：以归档离开的项目每个宿主今天就能做，而一个仓库会带来第二个真相来源与第二套凭证故事。**bind mount 是 C，C 不做**：把宿主目录共进沙箱，恰好是沙箱存在要划的那条边界。v0.9 一个节点一个 workspace（多项目随 B 到 v1.0）。
+
+**理由**：归档是 shell 本来就会说的格式（`tar czf`、`unzip`），所以一个项目可以离开这个工具、再进来，而不必由这个工具决定项目怎么存。替代方案——服务端写归档、答一个路径，像审计导出那样——在这里形状是错的：那些导出把文件写**进** workspace，因为那是运行的产物；而项目导出是被拿走的 workspace 本身，另一台机器上的客户端读不了一个路径。
+
+**影响**：`host-core/src/workspace_io.rs` 拥有两个方向与全部守卫：没有 entry 可以逃出目标，符号链接/硬链接一律不跟随，`.riscdom/`——宿主自己的状态（审计库、快照、预检缓存）——既不打包也不解包。**只做包含性检查、不走扩展名白名单**，理由与现有 exports 相同：`WorkspacePolicy::check_write` 只允许四个源文件扩展名，而项目不只有源文件。import 带**自己的 64 MiB 上限**（`413`），而不是抬高每个 JSON body 共用的 64 KiB `MAX_BODY_BYTES`；请求体按字节读，是该表面上的第一个非 JSON 请求；已有同名文件是 `409`，除非 `?force=true`——因为替换 workspace 里的东西是一个决定，不是默认。capability 按方向分开：导入需 **`workspace.write`**（第 32 个），导出需 `workspace.read`——读一个项目和替换它不是同一种权限。两个打包器（`zip`、`flate2` + `tar`）本来就在 `Cargo.lock` 里，现在对**每个**平台都声明：项目归档是用户工具链产出什么就是什么，所以 Windows 宿主必须能读 `.tar.gz`，unix 宿主必须能读 `.zip`。最后，AI 自己的写入也可见：`write_source` 往审计链记 **`agent.file.write`** `{path, bytes}`。它是审计事件、不是 SSE 事件——事件计数仍为 14——因为它属于来龙去脉可证的地方；它存在，是为了让「模型写过哪些文件」是一行记录，而不是去重剖 `agent.tool.call` 的 arguments——那些被截到 4 KiB。

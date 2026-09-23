@@ -32,6 +32,7 @@ pub mod session;
 pub mod settings;
 pub mod state;
 pub mod toolchain_download;
+pub mod workspace_io;
 
 pub use dispatch::{local_dispatcher, HostAgentHandle};
 pub use error::HostError;
@@ -54,4 +55,8 @@ pub use state::{
     LlmReadiness, LocalProbeResult, LocalProviderInfo, ProviderPresetView, QemuDownloadStatus,
     QemuView, RunView, SessionDetailView, SnapshotMetaView, StoredEventView,
     ToolchainDownloadStatus, ToolchainView, VmStatusView,
+};
+pub use workspace_io::{
+    pack_workspace, unpack_archive, ArchiveFormat, UnpackReport, HOST_STATE_DIR,
+    MAX_ARCHIVE_ENTRIES, MAX_UNPACKED_BYTES,
 };

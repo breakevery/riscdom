@@ -3329,6 +3329,35 @@ impl AppState {
         Ok(std::fs::read_to_string(abs)?)
     }
 
+    /// Bring a project in: unpack `archive` (zip or tar.gz) into the workspace
+    /// (v0.9 project in/out).
+    ///
+    /// Containment, not the write allow-list: an import carries a *project*, and a
+    /// project is not only `.c` / `.h` / `.S` / `.s` (the same reasoning the
+    /// exports already use). What the entries may not do is escape the workspace,
+    /// arrive as a link, or touch the host's own state — see
+    /// [`crate::workspace_io::unpack_archive`].
+    ///
+    /// `force` decides what happens when an entry names a file already here: by
+    /// default the import refuses, and the caller hears which entry.
+    pub fn import_workspace(
+        &self,
+        archive: &[u8],
+        format: crate::workspace_io::ArchiveFormat,
+        force: bool,
+    ) -> Result<crate::workspace_io::UnpackReport, HostError> {
+        crate::workspace_io::unpack_archive(archive, &self.workspace_root, format, force)
+    }
+
+    /// Take the project out: the workspace as a `tar.gz` (v0.9 project in/out).
+    ///
+    /// The host's own state directory is left out, and an empty workspace packs to
+    /// a valid empty archive — "export this project" is never an error because the
+    /// project is empty.
+    pub fn export_workspace(&self) -> Result<Vec<u8>, HostError> {
+        crate::workspace_io::pack_workspace(&self.workspace_root)
+    }
+
     // ----- Serial -----------------------------------------------------------
 
     /// The accumulated serial text pushed by the sandbox so far.

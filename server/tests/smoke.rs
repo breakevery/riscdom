@@ -8,7 +8,8 @@
 use host_core::AppState;
 use host_core::EventSink;
 use server::{
-    Authn, Capability, HttpEventSink, NoAuth, Server, ServerConfig, TokenAuth, REPLAY_CAPACITY,
+    Authn, Capability, HttpEventSink, NoAuth, Server, ServerConfig, TokenAuth, MAX_IMPORT_BYTES,
+    REPLAY_CAPACITY,
 };
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -177,6 +178,94 @@ fn call_with(
         .map(|(_, body)| body.to_string())
         .unwrap_or_default();
     (status, body)
+}
+
+/// One request whose body is bytes, answered as bytes (v0.9 project in/out).
+///
+/// The JSON helpers cannot carry an archive: their body is a `&str` and their
+/// header says `application/json`. This one is byte-for-byte on purpose — the wire
+/// format is the deliverable, and what is tested is that an archive survives it.
+fn post_bytes_with_headers(
+    addr: SocketAddr,
+    path: &str,
+    content_type: &str,
+    body: &[u8],
+) -> (u16, String, Vec<u8>) {
+    let mut stream = TcpStream::connect(addr).expect("connect");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .expect("read timeout");
+    let head = format!(
+        "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    stream.write_all(head.as_bytes()).expect("write head");
+    // A refusal can arrive while the body is still going out (the `413`), so a
+    // write error here is not a failure: the answer is read either way.
+    let _ = stream.write_all(body);
+    let mut raw = Vec::new();
+    let _ = stream.read_to_end(&mut raw);
+    split_response(&raw)
+}
+
+/// A `POST` of bytes, answered as JSON (the import's success and error shapes).
+fn post_bytes_json(
+    addr: SocketAddr,
+    path: &str,
+    content_type: &str,
+    body: &[u8],
+) -> (u16, serde_json::Value) {
+    let (status, _headers, bytes) = post_bytes_with_headers(addr, path, content_type, body);
+    let json = serde_json::from_slice(&bytes)
+        .unwrap_or_else(|e| panic!("{path} is JSON ({e}): {}", String::from_utf8_lossy(&bytes)));
+    (status, json)
+}
+
+/// Split a raw HTTP/1.1 response into status, lowercased headers and body.
+fn split_response(raw: &[u8]) -> (u16, String, Vec<u8>) {
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|i| i + 4)
+        .unwrap_or(raw.len());
+    let head = String::from_utf8_lossy(&raw[..split]).to_ascii_lowercase();
+    let status = head
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    (status, head, raw[split..].to_vec())
+}
+
+/// A plain tar with the given `(name, contents)` entries, built byte by byte.
+///
+/// Hand-built for the same reason the endpoint is tested with raw bytes: it needs
+/// no dependency this test crate does not have, and it can name an entry the `tar`
+/// crate would refuse to write (which is what a hostile upload looks like).
+fn a_tar(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for (name, content) in entries {
+        let mut header = [0u8; 512];
+        let name_bytes = name.as_bytes();
+        header[..name_bytes.len()].copy_from_slice(name_bytes);
+        let octal = |value: u64, width: usize| format!("{:0>width$o}\0", value, width = width - 1);
+        header[100..108].copy_from_slice(octal(0o644, 8).as_bytes());
+        header[108..116].copy_from_slice(octal(0, 8).as_bytes());
+        header[116..124].copy_from_slice(octal(0, 8).as_bytes());
+        header[124..136].copy_from_slice(octal(content.len() as u64, 12).as_bytes());
+        header[136..148].copy_from_slice(octal(0, 12).as_bytes());
+        header[148..156].copy_from_slice(b"        ");
+        header[156] = b'0';
+        header[257..263].copy_from_slice(b"ustar\0");
+        header[263..265].copy_from_slice(b"00");
+        let checksum: u32 = header.iter().map(|b| *b as u32).sum();
+        header[148..156].copy_from_slice(format!("{:06o}\0 ", checksum).as_bytes());
+        out.extend_from_slice(&header);
+        out.extend_from_slice(content);
+        out.resize(out.len().div_ceil(512) * 512, 0);
+    }
+    out.extend_from_slice(&[0u8; 1024]);
+    out
 }
 
 /// A `GET` whose body must parse as JSON.
@@ -433,6 +522,170 @@ fn a_sandbox_switch_without_the_capability_is_403() {
     let (status, body) = post(addr, "/v0/sandboxes/switch", r#"{"name":"default"}"#);
     assert_eq!(status, 403, "{body}");
     assert_eq!(body["code"], "forbidden");
+}
+
+#[test]
+fn an_import_that_carries_the_hosts_state_is_a_400() {
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let archive = a_tar(&[(".riscdom/audit.db", b"pwned")]);
+    let (status, body) =
+        post_bytes_json(addr, "/v0/workspace/import", "application/x-tar", &archive);
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["code"], "bad_request");
+    assert_eq!(body["cause"], "archive");
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains(".riscdom"),
+        "the message names the entry: {body}"
+    );
+}
+
+#[test]
+fn an_import_of_rubbish_is_a_400() {
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    // A body that is neither a zip nor a gzip stream nor a tar, whatever it claims
+    // to be.
+    for content_type in ["application/zip", "application/gzip", "application/x-tar"] {
+        let (status, body) = post_bytes_json(
+            addr,
+            "/v0/workspace/import",
+            content_type,
+            b"not an archive at all",
+        );
+        assert_eq!(status, 400, "{content_type}: {body}");
+        assert_eq!(body["cause"], "archive", "{content_type}: {body}");
+    }
+}
+
+#[test]
+fn an_import_without_the_capability_is_403() {
+    // The one endpoint on the workspace surface that is a write, so the one that
+    // needs `workspace.write` (v0.9 project in/out).
+    let (addr, _sink, _ws) = start_server(Arc::new(RefuseAll));
+    let archive = a_tar(&[("project.c", b"x")]);
+    let (status, body) =
+        post_bytes_json(addr, "/v0/workspace/import", "application/x-tar", &archive);
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["code"], "forbidden");
+    // The hook refused, so there is no capability to name (`cause` is the
+    // route-level refusal's business — see the narrowed-actor test below).
+
+    let (status, body) = post(addr, "/v0/workspace/export", "{}");
+    assert_eq!(status, 403, "{body}");
+}
+
+#[test]
+fn a_holder_of_the_read_capability_cannot_import() {
+    // The two workspace capabilities are not the same one: reading the project does
+    // not let you replace it (v0.9 project in/out).
+    let (addr, _sink, _ws) = start_server(Arc::new(FixedCaps {
+        seen: Arc::new(std::sync::Mutex::new(Vec::new())),
+        held: vec![Capability::WorkspaceRead],
+    }));
+    let (status, body) = get(addr, "/v0/workspace/files");
+    assert_eq!(status, 200, "the capability it holds: {body}");
+    // It may export: that is reading.
+    let (status, _headers, bytes) =
+        post_bytes_with_headers(addr, "/v0/workspace/export", "application/json", b"{}");
+    assert_eq!(status, 200, "export reads the workspace");
+    assert_eq!(&bytes[..2], &[0x1f, 0x8b]);
+    // It may not import.
+    let archive = a_tar(&[("project.c", b"x")]);
+    let (status, body) =
+        post_bytes_json(addr, "/v0/workspace/import", "application/x-tar", &archive);
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["code"], "forbidden");
+    assert_eq!(body["cause"], "capability", "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("workspace.write"),
+        "the message names the capability: {body}"
+    );
+}
+
+#[test]
+fn an_import_larger_than_the_limit_is_a_413() {
+    // Its own ceiling, not the shared 64 KiB one: a control body is a small JSON
+    // object, a project archive is neither.
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let too_big = vec![0u8; MAX_IMPORT_BYTES + 4096];
+    let (status, body) = post_bytes_json(addr, "/v0/workspace/import", "application/zip", &too_big);
+    assert_eq!(status, 413, "{body}");
+    assert_eq!(body["code"], "payload_too_large");
+    assert_eq!(body["cause"], "body");
+}
+
+#[test]
+fn the_project_leaves_and_comes_back() {
+    let (addr, _sink, ws) = start_server(Arc::new(NoAuth));
+    // The workspace has a project in it (the test writes it directly: the host's
+    // own file-writing tool is the AI's, not the control plane's).
+    std::fs::write(ws.join("project.c"), "int main(void){return 0;}\n").expect("write");
+
+    // Out: bytes, not JSON, with the name a browser saves it under.
+    let (status, headers, bytes) =
+        post_bytes_with_headers(addr, "/v0/workspace/export", "application/json", b"{}");
+    assert_eq!(status, 200, "{} bytes", bytes.len());
+    assert!(
+        headers.contains("content-type: application/gzip"),
+        "{headers}"
+    );
+    assert!(
+        headers.contains("content-disposition: attachment; filename=\"workspace.tar.gz\""),
+        "{headers}"
+    );
+    assert_eq!(&bytes[..2], &[0x1f, 0x8b], "a gzip stream");
+
+    // In: the same bytes, refused while the file is still there…
+    let (status, body) = post_bytes_json(addr, "/v0/workspace/import", "application/gzip", &bytes);
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["code"], "conflict");
+    assert_eq!(body["cause"], "exists");
+
+    // …and accepted with `force`, which replaces it. Two files travel: the one the
+    // test wrote and the one the smoke harness seeds (`src/main.c`).
+    std::fs::write(ws.join("project.c"), "(replaced)\n").expect("write");
+    let (status, body) = post_bytes_json(
+        addr,
+        "/v0/workspace/import?force=true",
+        "application/gzip",
+        &bytes,
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["files"], 2, "{body}");
+    assert!(body["bytes"].as_u64().unwrap_or(0) > 0, "{body}");
+    assert_eq!(
+        std::fs::read_to_string(ws.join("project.c")).expect("read"),
+        "int main(void){return 0;}\n",
+        "the import did not put the project back"
+    );
+}
+
+#[test]
+fn an_export_comes_back_through_an_import() {
+    // The harness seeds `src/main.c`, so this is the small but complete round trip:
+    // out as bytes, back through the archive reader, with the file intact.
+    let (addr, _sink, ws) = start_server(Arc::new(NoAuth));
+    let (status, _headers, bytes) =
+        post_bytes_with_headers(addr, "/v0/workspace/export", "application/json", b"{}");
+    assert_eq!(status, 200);
+    assert_eq!(&bytes[..2], &[0x1f, 0x8b], "a gzip stream");
+
+    // Take the seeded file away, then put the project back through the archive.
+    std::fs::remove_dir_all(ws.join("src")).expect("clear the workspace");
+
+    let (status, body) = post_bytes_json(addr, "/v0/workspace/import", "application/gzip", &bytes);
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["files"], 1, "{body}");
+    assert_eq!(
+        std::fs::read_to_string(ws.join("src").join("main.c")).expect("read"),
+        "int main(void) { return 0; }\n",
+        "the round trip lost or changed the file"
+    );
 }
 
 #[test]

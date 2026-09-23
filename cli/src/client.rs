@@ -202,6 +202,39 @@ impl Client {
         self.send(url, request)
     }
 
+    /// `POST <path>` with bytes, answering **bytes** (v0.9 project in/out).
+    ///
+    /// The one request on this surface whose body is not JSON and whose answer is
+    /// not JSON: an archive goes out and an archive comes back. A failure still
+    /// answers the error model, so a non-2xx body is parsed as JSON and reported the
+    /// way every other refusal is.
+    pub fn post_bytes(
+        &self,
+        path: &str,
+        body: Vec<u8>,
+        content_type: &str,
+    ) -> Result<Vec<u8>, Error> {
+        let url = self.url(path);
+        let mut request = self.http.post(&url).header("Content-Type", content_type);
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
+        let response = request
+            .body(body)
+            .send()
+            .map_err(|e| Error::local(format!("cannot reach {url}: {e}")))?;
+        let status = response.status().as_u16();
+        let bytes = response
+            .bytes()
+            .map_err(|e| Error::local(format!("cannot read the answer from {url}: {e}")))?;
+        if !(200..=299).contains(&status) {
+            let body = String::from_utf8_lossy(&bytes).to_string();
+            let json = serde_json::from_str(&body).ok();
+            return Err(Error::from_reply(Reply { status, body, json }));
+        }
+        Ok(bytes.to_vec())
+    }
+
     /// Open an event stream (`GET /v0/events`).
     ///
     /// The response is handed back before its body ends: the caller reads frames.
@@ -319,6 +352,16 @@ impl Session {
     /// A control request. Cloned into a thread by `--follow`.
     pub fn post(&self, path: &str, body: Option<&serde_json::Value>) -> Result<Reply, Error> {
         self.control.post(path, body)
+    }
+
+    /// A control request whose body and answer are bytes (project in/out).
+    pub fn post_bytes(
+        &self,
+        path: &str,
+        body: Vec<u8>,
+        content_type: &str,
+    ) -> Result<Vec<u8>, Error> {
+        self.control.post_bytes(path, body, content_type)
     }
 
     pub fn open_stream(&self, path: &str) -> Result<SseStream, Error> {

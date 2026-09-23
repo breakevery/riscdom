@@ -95,6 +95,17 @@ pub fn run(parsed: Parsed, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     }
 
     let path = args.command.request_path();
+    // Project in/out carries **bytes**, in and out, so it never goes through the
+    // JSON reply path (v0.9 project in/out).
+    match &args.command {
+        Command::WorkspaceImport { archive, force } => {
+            return import_workspace(&args, &session, archive, *force, out, err);
+        }
+        Command::WorkspaceExport { out: file } => {
+            return export_workspace(&args, &session, file.as_deref(), out, err);
+        }
+        _ => {}
+    }
     let body = args.command.body();
     let reply = if args.command.method() == "GET" {
         session.get(&path)
@@ -119,6 +130,119 @@ pub fn run(parsed: Parsed, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         let _ = writeln!(out, "{}", render::human(&args.command, &reply));
     }
     0
+}
+
+/// What an archive is, from its first bytes (the host checks the same way).
+fn archive_content_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"PK") {
+        Some("application/zip")
+    } else if bytes.starts_with(&[0x1f, 0x8b]) {
+        Some("application/gzip")
+    } else if bytes.len() > 262 && &bytes[257..262] == b"ustar" {
+        Some("application/x-tar")
+    } else {
+        None
+    }
+}
+
+/// Bring a project in: read the archive, post the bytes, report what landed.
+fn import_workspace(
+    args: &Args,
+    session: &Session,
+    archive: &std::path::Path,
+    _force: bool,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let bytes = match std::fs::read(archive) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return report(
+                args,
+                &Error::local(format!("cannot read {}: {e}", archive.display())),
+                err,
+            )
+        }
+    };
+    let Some(content_type) = archive_content_type(&bytes) else {
+        return report(
+            args,
+            &Error::local(format!(
+                "{} is neither a zip nor a tar/tar.gz archive",
+                archive.display()
+            )),
+            err,
+        );
+    };
+    // `force` rides in the path the command built, so it is sent by construction.
+    let path = args.command.request_path();
+    match session.post_bytes(&path, bytes, content_type) {
+        Ok(answer) => {
+            if args.json {
+                let _ = writeln!(out, "{}", String::from_utf8_lossy(&answer));
+            } else {
+                let value: serde_json::Value =
+                    serde_json::from_slice(&answer).unwrap_or(serde_json::Value::Null);
+                let _ = writeln!(
+                    out,
+                    "imported {} file(s), {} bytes",
+                    value["files"], value["bytes"]
+                );
+            }
+            0
+        }
+        Err(error) => report(args, &error, err),
+    }
+}
+
+/// Take the project out: post a bodyless control request, write the answer's bytes
+/// where the caller asked (or to stdout), and say how much was written.
+///
+/// The count goes to **stderr** when the archive goes to stdout: one stream carries
+/// the project, the other narrates it, so `> project.tar.gz` never gets a sentence
+/// inside the archive.
+fn export_workspace(
+    args: &Args,
+    session: &Session,
+    file: Option<&std::path::Path>,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let path = args.command.request_path();
+    // A bodyless `POST`, like the controls that answer themselves: the archive is
+    // the answer, not the request.
+    let bytes = match session.post_bytes(&path, Vec::new(), "application/json") {
+        Ok(bytes) => bytes,
+        Err(error) => return report(args, &error, err),
+    };
+    match file {
+        Some(file) => match std::fs::write(file, &bytes) {
+            Ok(()) => {
+                if !args.json {
+                    let _ = writeln!(err, "exported {} bytes to {}", bytes.len(), file.display());
+                }
+                0
+            }
+            Err(e) => report(
+                args,
+                &Error::local(format!("cannot write {}: {e}", file.display())),
+                err,
+            ),
+        },
+        None => {
+            if out.write_all(&bytes).is_err() {
+                return report(
+                    args,
+                    &Error::local("cannot write the archive to stdout"),
+                    err,
+                );
+            }
+            if !args.json {
+                let _ = writeln!(err, "exported {} bytes", bytes.len());
+            }
+            0
+        }
+    }
 }
 
 /// What a `--wait` invocation is waiting for.

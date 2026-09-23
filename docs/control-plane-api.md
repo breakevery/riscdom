@@ -16,7 +16,7 @@ from the control plane; the audit chain tells them apart by `agent_id`. Building
 control channels instead of one is the mistake this design exists to avoid.
 
 **Implementation status (v0.9).** Everything in §5 is implemented — the 32 query
-endpoints of §5.1, the 33 controls of §5.2, the host-local endpoints of §5.3, the error
+endpoints of §5.1, the 35 controls of §5.2, the host-local endpoints of §5.3, the error
 model of §4, the event envelope with `Last-Event-ID` replay and `gap` frames, and the
 bearer token of §3. Only two routes are reserved: `/v0/resources` (§6, G3) and
 `POST /v0/vm/start` (§6, G1), and both say so with `501`. Capability enforcement (§3) is in: every served
@@ -100,9 +100,9 @@ pub struct Actor {
   its capability, so there is no route that silently skips the check.
 - **Default deny.** An actor is refused unless it positively holds what the route asks for;
   an actor with an empty set can reach nothing. "No capability" is not expressible.
-- **The vocabulary is the 31 names in the §5 tables** (`agent.run`, `audit.read`,
+- **The vocabulary is the 32 names in the §5 tables** (`agent.run`, `audit.read`,
   `runs.control`, `settings.write`, …). v0.9 ships two actor shapes: the token holder
-  (`operator`, `human`) holds all 31, and the `--no-auth` default holds the same set, so
+  (`operator`, `human`) holds all 32, and the `--no-auth` default holds the same set, so
   both behave identically once past the hook. A `403` therefore only comes from a hook
   that returns a narrower actor. Per-capability tokens are v1.0 work; the set is the shape
   they will fill in.
@@ -206,7 +206,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/sandboxes/{name}` | GET | `sandbox.read` | path: `name` | `SandboxView`, or `404` | `get_sandbox` |
 | `/v0/sandboxes/requests` | GET | `sandbox.read` | query: `status`? | `{ "requests": [SandboxRequestView] }`, or `400` on an unknown `status` | `list_sandbox_requests` |
 
-### 5.2 Controls (33) — implemented in v0.9 batch 4, extended by sandbox F1, F2b-2 and F2c
+### 5.2 Controls (35) — implemented in v0.9 batch 4, extended by sandbox F1, F2b-2, F2c and project in/out
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
@@ -243,6 +243,8 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/sandboxes/requests` | POST | `agent.run` | `{ "action": "switch"\|"define"\|"assemble", "sandbox"?, "reason"? }` | `201 { "id": string }` | `request_sandbox` |
 | `/v0/sandboxes/requests/{id}/approve` | POST | `sandbox.read`, then the request's action (see the note below) | — | `SandboxRequestView`, or `404` / `409` / `403` | `approve_sandbox_request` |
 | `/v0/sandboxes/requests/{id}/reject` | POST | as `approve` | — | `SandboxRequestView`, or `404` / `409` / `403` | `reject_sandbox_request` |
+| `/v0/workspace/import` | POST | `workspace.write` | **the archive itself** (zip / tar.gz / tar), with `Content-Type: application/zip` \| `application/gzip` \| `application/x-tar`; query `force`? | `200 { "files": number, "bytes": number }`, or `400` / `409` / `413` (see the note below) | `import_workspace` |
+| `/v0/workspace/export` | POST | `workspace.read` | — | **the archive itself** (`application/gzip`, `Content-Disposition: attachment`) | `export_workspace` |
 
 Response shapes named above are the `host-core` view types (`host-core/src/state.rs`); a client
 may read their fields directly from that file. `AgentOutcomeView` is
@@ -328,10 +330,30 @@ the tables above. They are part of this document's surface all the same.
   `sandbox_toolchain_missing`, `sandbox_kernel_missing`) when the definition cannot run; and
   `500 internal` with `cause: "sandbox_start_failed"` when every check passed and the VM
   still would not start — in which case the node is **stopped**, not half-switched.
+- **A project leaves and enters as one file** (v0.9 project in/out). `POST
+  /v0/workspace/export` answers the workspace as a `tar.gz` — **bytes, not JSON**, the
+  first such body on this surface apart from the event stream — with
+  `Content-Disposition: attachment; filename="workspace.tar.gz"`. An empty workspace
+  exports a valid empty archive: "export this project" is never an error because the
+  project is empty. The host's own state directory (`.riscdom/`: the audit DB,
+  snapshots, the preflight cache) is **not** packed. `POST /v0/workspace/import` takes
+  the archive as its **body** (not JSON), accepting `application/zip`,
+  `application/gzip` and `application/x-tar` — and falling back to the bytes themselves
+  when the `Content-Type` says nothing it knows, so a `.tar.gz` sent as
+  `application/octet-stream` still works. It answers `{files, bytes}`. Everything an
+  entry may not do is checked by the host, and each has its own answer: an entry that
+  escapes the workspace, arrives as a symlink or hard link, names `.riscdom/`, or is
+  simply not a readable archive is `400` with `cause: "archive"`; a file already in the
+  workspace is `409` with `cause: "exists"` unless `?force=true` says to replace it; and
+  a body above **64 MiB** is `413 payload_too_large` — the import's own ceiling, not the
+  shared 64 KiB one every JSON body uses. Importing needs `workspace.write` (the 32nd
+  capability) where exporting needs `workspace.read`: reading a project and replacing it
+  are not the same permission. Import is **containment-only** (no extension allow-list),
+  for the same reason the exports are: a project is not only `.c` / `.h` / `.S` / `.s`.
 - **Capabilities are declared and enforced.** Every route names its capability in the
   route table and the server checks it against the actor the hook returned before the
   handler runs; a missing capability is `403 forbidden` with `cause: "capability"` (§3).
-  Under the v0.9 default every actor holds all 31, so a `403` can only come from a hook
+  Under the v0.9 default every actor holds all 32, so a `403` can only come from a hook
   that returns a narrower actor — or from the two request decisions, which check the
   capability the request's `action` implies after the route's own gate has passed.
 - **Parameters.** A required parameter that is missing or unparsable is `400 bad_request`

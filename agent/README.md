@@ -102,6 +102,28 @@ deleted on failure and panic too).
 | `read_serial()` | read the current serial buffer |
 | `stop_vm()` | stop QEMU |
 | `list_workspace()` | list workspace files |
+| `request_sandbox(action, sandbox?, reason?)` | leave a sandbox request for someone who may switch (v0.9 sandbox F2c) |
+| `sandbox_status()` | what the node runs now, and what is waiting |
+
+## The audit events the agent writes
+
+One row per thing that happened, through `audit_hook`:
+
+| action | when | detail |
+| --- | --- | --- |
+| `agent.user.input` | a turn starts | the input, hashed and truncated |
+| `agent.llm.request` / `.response` | every model call | sizes and a hash, never the raw body — **never the API key** |
+| `agent.llm.stream.start` / `.end` | a streamed answer | the same discipline as the block path |
+| `agent.tool.call` | before a tool runs | `{id, name, arguments, arguments_len}` — the arguments are **truncated at 4 KiB**, which a source file reaches easily |
+| `agent.tool.result` | after a tool runs | `{call_id, ok, result_len, result}` |
+| `agent.file.write` | **`write_source` wrote a file** (v0.9 project in/out) | `{path, bytes}` — the workspace-relative path the tool named, and how much landed |
+| `agent.compile.start` / `.result` | a build | the compiler, the source and the outcome |
+| `agent.policy.deny` | a path the policy refused | the tool, the path, the reason |
+
+`agent.file.write` exists because "which files did the AI write" is a question about the
+project, and the answer should not have to be re-derived from `agent.tool.call`'s
+truncated arguments. It is an **audit** row, not an SSE event: it belongs on the chain
+(where a project's provenance is provable), not on the event stream.
 
 ## Capability policy
 
