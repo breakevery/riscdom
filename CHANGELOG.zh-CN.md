@@ -33,6 +33,13 @@
 - **退出码**：`0` 成功、`1` 本地失败、`2` 用法或 `400`、`3` 被拒或 `5xx`、`4` `401`/`403`。见 `cli/README.md`。
 - **token 处理**：本地模式经 `riscdom-server` 同一套代码读取（首次运行时生成）`<data-dir>/token`；远程模式优先 `--token-file`，其次 `RISCDOM_TOKEN`，最后才是 `--token`——且会警告，因为它会落入 shell history。token 从不被打印或记录。
 
+**`server` 已 clippy-clean，且门禁会 lint 它。** 该 crate 此前从未被 lint 过——把 `-p cli` 加进 clippy 步骤才暴露了它。
+
+### 修复
+
+- **`server` 的 6 处 `clippy::result_large_err`**：`http.rs:379` 与 `routes.rs:489/495/503/513/522` 返回 `Result<_, Response<RespBody>>`，而 hyper 的 `Response` 有 128+ 字节。错误类型改为 `Box<Response<RespBody>>`，所有调用方返回 `*response`——同一条路径上同一个 Response 值。随之一并修的还有 `routes.rs` 测试里 3 处 `bool_assert_comparison` 与 `tests/smoke.rs` 里 1 处 `filter_next`。行为未变。
+- **`scripts/gate.sh`** 选 `-p cli -p server -p host-core -p host-tauri`（仍带 `--no-deps`），控制平面与我们自己的其它 crate 一样被 lint。
+
 ### 变更
 
 - **`scripts/gate.sh`** 用 `--no-deps` lint `-p cli -p host-core -p host-tauri`：新 crate 被覆盖，同时不把（从未被 lint 过的）`server` crate 自身的问题拖进门禁。

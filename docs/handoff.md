@@ -13,6 +13,16 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **`server` is inside the gate's clippy step, and clippy-clean** (v0.9 CLI batch 3/N).
+  The crate had never been linted — the gate selected the portable crates plus
+  `host-core`/`host-tauri` only — and adding `-p cli` to that step is what exposed it. Six
+  `clippy::result_large_err` sites (`http.rs:379`, `routes.rs:489/495/503/513/522`) are fixed the
+  way the lint asks: the error type is `Box<Response<RespBody>>`, and every caller returns
+  `*response` — the same response value, only boxed. Three `bool_assert_comparison` assertions in
+  `routes.rs`'s tests and one `filter_next` in `tests/smoke.rs` came with it.
+  `cargo clippy -p server --all-targets --no-deps -- -D warnings` is now silent, and the step lints
+  `-p cli -p server -p host-core -p host-tauri` with `--no-deps`. No behaviour changed: the same
+  `400` objects, built the same way, travel the same path.
 - **The CLI is a control-plane client now** (v0.9 CLI batch 2/N). A new `cli` crate (bin
   `riscdom`) speaks HTTP to the control plane and nothing else: with `--remote host:port` it talks
   to a running `riscdom-server`, and without it it starts the control plane **inside its own

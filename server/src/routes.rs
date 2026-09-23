@@ -486,44 +486,44 @@ impl Params {
     }
 
     /// Read a required parameter, or the `400` to answer with.
-    pub fn required(&self, name: &str) -> Result<&str, Response<RespBody>> {
+    pub fn required(&self, name: &str) -> Result<&str, Box<Response<RespBody>>> {
         self.get(name)
-            .ok_or_else(|| bad_request(name, "is required"))
+            .ok_or_else(|| Box::new(bad_request(name, "is required")))
     }
 
     /// Read a required non-negative integer, or the `400` to answer with.
-    pub fn usize_required(&self, name: &str) -> Result<usize, Response<RespBody>> {
+    pub fn usize_required(&self, name: &str) -> Result<usize, Box<Response<RespBody>>> {
         match self.required(name)?.parse() {
             Ok(value) => Ok(value),
-            Err(_) => Err(bad_request(name, "must be a non-negative number")),
+            Err(_) => Err(Box::new(bad_request(name, "must be a non-negative number"))),
         }
     }
 
     /// Read an optional non-negative integer, falling back to `default`.
-    pub fn usize_or(&self, name: &str, default: usize) -> Result<usize, Response<RespBody>> {
+    pub fn usize_or(&self, name: &str, default: usize) -> Result<usize, Box<Response<RespBody>>> {
         match self.get(name) {
             Some(raw) => raw
                 .parse()
-                .map_err(|_| bad_request(name, "must be a non-negative number")),
+                .map_err(|_| Box::new(bad_request(name, "must be a non-negative number"))),
             None => Ok(default),
         }
     }
 
     /// Read a required boolean (`true` / `false`), or the `400` to answer with.
-    pub fn bool_required(&self, name: &str) -> Result<bool, Response<RespBody>> {
+    pub fn bool_required(&self, name: &str) -> Result<bool, Box<Response<RespBody>>> {
         match self.required(name)? {
             "true" => Ok(true),
             "false" => Ok(false),
-            _ => Err(bad_request(name, "must be true or false")),
+            _ => Err(Box::new(bad_request(name, "must be true or false"))),
         }
     }
 
     /// Read an optional boolean, falling back to `default`.
-    pub fn bool_or(&self, name: &str, default: bool) -> Result<bool, Response<RespBody>> {
+    pub fn bool_or(&self, name: &str, default: bool) -> Result<bool, Box<Response<RespBody>>> {
         match self.get(name) {
             Some("true") => Ok(true),
             Some("false") => Ok(false),
-            Some(_) => Err(bad_request(name, "must be true or false")),
+            Some(_) => Err(Box::new(bad_request(name, "must be true or false"))),
             None => Ok(default),
         }
     }
@@ -664,7 +664,7 @@ pub(crate) fn dispatch(
         Action::AuditEvents => {
             let limit = match params.usize_required("limit") {
                 Ok(limit) => limit,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             let actor = params.get("actor").map(str::to_string);
             let action_prefix = params.get("action_prefix").map(str::to_string);
@@ -672,20 +672,20 @@ pub(crate) fn dispatch(
         }
         Action::Runs => match params.usize_or("limit", 20) {
             Ok(limit) => result_json(app.list_runs(limit)),
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::Run => match params.required("run_id") {
             Ok(run_id) => result_json(app.get_run(run_id)),
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::RunDiff => {
             let run_a = match params.required("run_a") {
                 Ok(v) => v,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             let run_b = match params.required("run_b") {
                 Ok(v) => v,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             result_json(app.compare_run_fingerprints(run_a, run_b))
         }
@@ -697,11 +697,11 @@ pub(crate) fn dispatch(
             Ok(provider_id) => {
                 ok_json(&serde_json::json!({ "present": app.has_stored_key(provider_id) }))
             }
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::Sessions => match params.usize_required("limit") {
             Ok(limit) => result_json(app.list_sessions(limit)),
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::SessionCurrent => {
             ok_json(&serde_json::json!({ "session_id": app.current_session_id() }))
@@ -724,7 +724,7 @@ pub(crate) fn dispatch(
                 Ok(content) => ok_json(&serde_json::json!({ "content": content })),
                 Err(e) => host_error(e),
             },
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::Serial => ok_json(&serde_json::json!({ "buffer": app.serial_buffer() })),
         // §6 G3: the shape is settled, the aggregate is not built.
@@ -750,7 +750,7 @@ pub(crate) fn dispatch(
             }
             let user_input = match params.required("user_input") {
                 Ok(value) => value,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             let sink: Arc<dyn host_core::EventSink> =
                 Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
@@ -762,11 +762,11 @@ pub(crate) fn dispatch(
         Action::RunExport => {
             let run_id = match params.required("run_id") {
                 Ok(value) => value,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             let path = match params.required("path") {
                 Ok(value) => value,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             match app.get_run(run_id) {
                 Ok(Some(_)) => {}
@@ -805,7 +805,7 @@ pub(crate) fn dispatch(
         Action::SnapshotSave => {
             let name = match params.required("name") {
                 Ok(value) => value,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             if !app.vm_is_running() {
                 return error_response(
@@ -825,7 +825,7 @@ pub(crate) fn dispatch(
         Action::SnapshotResume => {
             let name = match params.required("name") {
                 Ok(value) => value,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             let known = match app.list_snapshots() {
                 Ok(snapshots) => snapshots.iter().any(|s| s.name == name),
@@ -849,30 +849,30 @@ pub(crate) fn dispatch(
                 Ok(deleted) => ok_json(&serde_json::json!({ "deleted": deleted })),
                 Err(e) => host_error(e),
             },
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::SessionCreate => match params.required("title") {
             Ok(title) => match app.create_session(title) {
                 Ok(session_id) => ok_json(&serde_json::json!({ "session_id": session_id })),
                 Err(e) => host_error(e),
             },
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::SessionOpen => match params.required("session_id") {
             Ok(session_id) => match app.open_session(session_id) {
                 Ok(view) => ok_json(&view),
                 Err(e) => not_found_or_internal(e, "session_id", session_id),
             },
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::SessionRename => {
             let session_id = match params.required("session_id") {
                 Ok(value) => value,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             let title = match params.required("title") {
                 Ok(value) => value,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             // The host's rename is idempotent: an unknown id is a no-op, not an
             // error. The endpoint mirrors that rather than inventing a 404.
@@ -886,7 +886,7 @@ pub(crate) fn dispatch(
                 Ok(()) => no_content(),
                 Err(e) => host_error(e),
             },
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::SessionClear => match app.clear_all_sessions() {
             Ok(()) => no_content(),
@@ -951,7 +951,7 @@ pub(crate) fn dispatch(
                 Ok(()) => no_content(),
                 Err(e) => unusable_input(e, "path"),
             },
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::ToolchainPathClear => match app.clear_toolchain_path() {
             Ok(()) => no_content(),
@@ -962,7 +962,7 @@ pub(crate) fn dispatch(
                 Ok(()) => no_content(),
                 Err(e) => unusable_input(e, "path"),
             },
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::QemuPathClear => match app.clear_qemu_path() {
             Ok(()) => no_content(),
@@ -989,7 +989,7 @@ pub(crate) fn dispatch(
                 Ok(()) => no_content(),
                 Err(e) => host_error(e),
             },
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::AuditExport => match params.required("path") {
             Ok(path) => match app.export_audit_jsonl(path.to_string()) {
@@ -998,7 +998,7 @@ pub(crate) fn dispatch(
                 }
                 Err(e) => host_error(e),
             },
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::SettingsThemeSet => match params.required("theme") {
             Ok(theme) if THEMES.contains(&theme.trim().to_lowercase().as_str()) => {
@@ -1013,7 +1013,7 @@ pub(crate) fn dispatch(
                 "theme must be one of \"light\", \"dark\", \"system\"",
                 Some("theme"),
             ),
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::SettingsLanguageSet => match params.required("language") {
             Ok(language) if LANGUAGES.contains(&language.trim().to_lowercase().as_str()) => {
@@ -1028,25 +1028,25 @@ pub(crate) fn dispatch(
                 "language must be one of \"system\", \"en\", \"zh\"",
                 Some("language"),
             ),
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::LlmConfigSet => {
             let api_key = match params.required("api_key") {
                 Ok(value) => value,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             let base_url = match params.required("base_url") {
                 Ok(value) => value,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             let model = match params.required("model") {
                 Ok(value) => value,
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             let provider_id = params.get("provider_id").map(str::to_string);
             let remember = match params.bool_or("remember", false) {
                 Ok(value) => Some(value),
-                Err(response) => return response,
+                Err(response) => return *response,
             };
             match app.set_llm_config_with(
                 provider_id,
@@ -1071,7 +1071,7 @@ pub(crate) fn dispatch(
                     Some("provider_id"),
                 ),
             },
-            Err(response) => response,
+            Err(response) => *response,
         },
         Action::LlmConfigClear => {
             app.clear_llm_config();
@@ -1084,7 +1084,7 @@ pub(crate) fn dispatch(
                 }
                 Err(e) => host_error(e),
             },
-            Err(response) => response,
+            Err(response) => *response,
         },
     }
 }
@@ -1319,8 +1319,8 @@ mod tests {
             "nested": { "no": "not addressable" },
         }));
         assert_eq!(params.get("name"), Some("after-blink"));
-        assert_eq!(params.bool_required("enabled").expect("enabled"), true);
-        assert_eq!(params.bool_or("remember", true).expect("remember"), false);
+        assert!(params.bool_required("enabled").expect("enabled"));
+        assert!(!params.bool_or("remember", true).expect("remember"));
         assert_eq!(params.usize_required("limit").expect("limit"), 7);
         assert_eq!(params.get("nested"), None);
     }
@@ -1334,6 +1334,6 @@ mod tests {
         assert!(params.usize_required("limit").is_err());
         assert_eq!(params.usize_or("limit", 20).expect("default"), 20);
         assert!(params.bool_required("enabled").is_err());
-        assert_eq!(params.bool_or("enabled", true).expect("default"), true);
+        assert!(params.bool_or("enabled", true).expect("default"));
     }
 }

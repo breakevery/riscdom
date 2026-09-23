@@ -352,7 +352,7 @@ async fn handle(
                 match read_json_body(request).await {
                     Ok(Some(body)) => params.merge(body),
                     Ok(None) => {}
-                    Err(response) => return response,
+                    Err(response) => return *response,
                 }
             }
             let app = Arc::clone(&shared.app);
@@ -376,17 +376,17 @@ async fn handle(
 /// parameters are all optional.
 async fn read_json_body(
     request: Request<hyper::body::Incoming>,
-) -> Result<Option<routes::Params>, Response<RespBody>> {
+) -> Result<Option<routes::Params>, Box<Response<RespBody>>> {
     let limited = Limited::new(request.into_body(), MAX_BODY_BYTES);
     let collected = match limited.collect().await {
         Ok(collected) => collected,
         Err(_) => {
-            return Err(error_response(
+            return Err(Box::new(error_response(
                 400,
                 "bad_request",
                 "the request body could not be read (or is larger than 64 KiB)",
                 Some("body"),
-            ))
+            )))
         }
     };
     let bytes = collected.to_bytes();
@@ -396,21 +396,21 @@ async fn read_json_body(
     let value: serde_json::Value = match serde_json::from_slice(&bytes) {
         Ok(value) => value,
         Err(e) => {
-            return Err(error_response(
+            return Err(Box::new(error_response(
                 400,
                 "bad_request",
                 &format!("the request body is not JSON: {e}"),
                 Some("body"),
-            ))
+            )))
         }
     };
     if !value.is_object() {
-        return Err(error_response(
+        return Err(Box::new(error_response(
             400,
             "bad_request",
             "the request body must be a JSON object",
             Some("body"),
-        ));
+        )));
     }
     Ok(Some(routes::Params::from_json(&value)))
 }

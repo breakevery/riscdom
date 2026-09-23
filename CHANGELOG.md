@@ -63,6 +63,20 @@ plane inside its own process.
   `RISCDOM_TOKEN`, and only then `--token` — which warns, because it lands in the shell history.
   The token is never printed or logged.
 
+**`server` is clippy-clean, and the gate lints it.** The crate had never been linted — adding
+`-p cli` to the clippy step is what surfaced it.
+
+### Fixed
+
+- **Six `clippy::result_large_err` sites in `server`**: `http.rs:379` and
+  `routes.rs:489/495/503/513/522` returned `Result<_, Response<RespBody>>`, and hyper's
+  `Response` is 128+ bytes. The error is now `Box<Response<RespBody>>` and every caller returns
+  `*response` — the same response value on the same path. Three `bool_assert_comparison`
+  assertions in `routes.rs`'s tests and one `filter_next` in `tests/smoke.rs` are fixed with
+  them. No behaviour changed.
+- **`scripts/gate.sh`** selects `-p cli -p server -p host-core -p host-tauri` (still
+  `--no-deps`), so the control plane is linted like everything else we own.
+
 ### Changed
 
 - **`scripts/gate.sh`** lints `-p cli -p host-core -p host-tauri` with `--no-deps`, so the new

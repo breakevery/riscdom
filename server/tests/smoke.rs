@@ -185,8 +185,7 @@ fn read_until(stream: &mut TcpStream, needles: &[&str]) -> String {
 /// The `id:` of the last frame in a stream capture.
 fn last_id(text: &str) -> String {
     text.lines()
-        .filter(|line| line.starts_with("id: "))
-        .next_back()
+        .rfind(|line| line.starts_with("id: "))
         .map(|line| line.trim_start_matches("id: ").to_string())
         .unwrap_or_else(|| panic!("no id in: {text}"))
 }

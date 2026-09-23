@@ -13,8 +13,8 @@
 # several tests boot a real guest.
 #
 # Platform differences are printed, never skipped silently:
-#   - non-Windows: `host-core` / `host-tauri` / `ui/src-tauri` lint and check are skipped (Tauri needs
-#     the webkit2gtk / gtk / librsvg system libraries)
+#   - non-Windows: `cli` / `server` / `host-core` / `host-tauri` / `ui/src-tauri` lint and check are
+#     skipped (the build needs webkit2gtk / gtk / librsvg or Windows-only platform crates)
 #   - without QEMU + a RISC-V GCC: the guest-booting tests are skipped and the
 #     portable library tests run instead.
 #
@@ -59,11 +59,9 @@ echo "==> cargo check (portable crates audit sandbox agent)"
 cargo check -p audit -p sandbox -p agent || fail "cargo check"
 
 if [ "$host_os" = "windows" ]; then
-  echo "==> cargo clippy (cli + host-core + host-tauri)"
-  # `--no-deps`: the three crates we own are linted, their dependencies are only
-  # built. Without it, `-p cli` would drag `server` into the lint set (it has never
-  # been clippy-clean) and fail the gate on code this step does not own.
-  cargo clippy -p cli -p host-core -p host-tauri --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + host-core + host-tauri"
+  echo "==> cargo clippy (cli + server + host-core + host-tauri)"
+  # `--no-deps`: the crates we own are linted, their dependencies are only built.
+  cargo clippy -p cli -p server -p host-core -p host-tauri --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + server + host-core + host-tauri"
 
   echo "==> cargo clippy (ui/src-tauri)"
   cargo clippy --manifest-path ui/src-tauri/Cargo.toml --all-targets -- -D warnings || fail "cargo clippy ui/src-tauri"

@@ -289,3 +289,13 @@
 **理由**：放进 `server` 会让同一个 crate 既是被服务的进程又是它的客户端；放进 `host-tauri` 会把 Tauri 链进一个无头工具。既然本地调用与远程调用必须表现一致，本地模式绕过 HTTP 直接摸 `AppState` 就毫无收益——代价却很大：那样只有远程路径会被真正走到。
 
 **影响**：CLI 依赖 `server`（内嵌模式）、`host-core`、`reqwest`、`serde_json`——全部已在锁文件内；没有新增参数解析 crate，CLI 像 `riscdom-server`、`worker` 与两个 `audit` 二进制一样手写解析。`--json` 原样透传控制平面的 JSON；token 从不被打印或记录。门禁的 clippy 步骤以 `--no-deps` 覆盖 `-p cli`，于是新 crate 被 lint，同时不会把 `server` 自身（既有）的问题拖进门禁。控制类子命令与 `--follow` 属下一批。
+
+## 29. 控制平面的参数错误装箱
+
+**日期**：2026-09-23 ｜ **状态**：已定；随 v0.9 CLI 批次 3/N 落地
+
+**决策**：`Params` 的五个读取器（`required`、`usize_required`、`usize_or`、`bool_required`、`bool_or`）与 `read_json_body` 返回 `Result<_, Box<Response<RespBody>>>`，而不是 `Result<_, Response<RespBody>>`。
+
+**理由**：`400` 的应答方式是直接把一个现成的 response 交给调用方——正是这个形状让处理器保持可读；但 hyper 的 `Response` 有 128+ 字节，于是每个携带它的 `Result` 在体积上主要由错误构成（`clippy::result_large_err`）。装箱把大值放到真正产生它的那条路径背后的指针里，代价只是构造错误时的一次分配——成功路径上零成本。
+
+**影响**：调用方写 `return *response`，因此同一条路径上传的仍是同一个值：行为不变，只换了地址。这些方法挂在一个 `pub(crate)` 类型上，所以 crate 之外看不到该签名。`server` 现在也在门禁的 clippy 步骤里——正是它最初让这六处浮出水面。

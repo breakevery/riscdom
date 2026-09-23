@@ -413,3 +413,22 @@ hand like `riscdom-server`, `worker` and the two `audit` binaries. `--json` pass
 plane's JSON through unchanged, and the token is never printed or logged. The gate's clippy step
 covers `-p cli` with `--no-deps`, so the crate is linted without pulling `server`'s own
 (pre-existing) findings into the gate. The control commands and `--follow` are the next batch.
+
+## 29. The control plane boxes its parameter errors
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; landed with the v0.9 CLI batch 3/N
+
+**Decision**: `Params`'s five readers (`required`, `usize_required`, `usize_or`,
+`bool_required`, `bool_or`) and `read_json_body` return `Result<_, Box<Response<RespBody>>>`
+rather than `Result<_, Response<RespBody>>`.
+
+**Why**: A `400` is answered by handing the caller a ready-made response, which is the shape that
+keeps the handlers readable; but hyper's `Response` is 128+ bytes, so every `Result` carrying one
+was mostly error by size (`clippy::result_large_err`). Boxing puts the large value behind a
+pointer on the path that actually produces one, and costs a single allocation when an error is
+built — never on the success path.
+
+**Impact**: Callers write `return *response`, so the response that travels is the same value on
+the same path: no behaviour change, only its address. The helpers are `pub` on a
+`pub(crate)` type, so nothing outside the crate sees the signature. `server` is now inside the
+gate's clippy step, which is what surfaced the six sites in the first place.
