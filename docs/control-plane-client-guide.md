@@ -763,7 +763,28 @@ A worked example of that shape is [`../examples/python/dispatch.py`](../examples
 `--self-test` that proves itself against a fake control plane, and the CLI's exit-code
 convention. It is the skeleton, not a product: one task at a time, in order.
 
-## 9. What is not there yet
+## 9. A remote executor handle
+
+Section 8 was about a supervisor reaching an executor from outside. This is the same
+reaching, from the kernel's side: an [`AgentHandle`](../agent/src/dispatch.rs) whose executor
+is another node, so a `LocalDispatcher` can hold it exactly as it holds a stdio or in-process
+one. The worked example is [`worker/examples/remote_executor.rs`](../worker/examples/remote_executor.rs)
+(with its section in [`worker/README.md`](../worker/README.md)).
+
+The three facts a handle's author needs, and none of them is a new endpoint:
+
+- **`POST /v0/tasks` is the dispatch.** A remote handle sends a `Task` there and gets the
+  `TaskOutcome` a *remote* executor produced. `POST /v0/agent/run` is the wrong endpoint for
+  this job: it runs on the node itself and answers `AgentOutcomeView`, a different shape.
+- **The target is the remote node's label, not yours.** A handle has two names — the one the
+  local dispatcher routes on, and the one the far side knows. Sending your own label asks the
+  remote node for an executor it may not own, and the answer is its `404`.
+- **The identity that comes back wins.** `TaskOutcome.agent_id` is the far node's answer, and
+  whether you believe it is the whole point of the trait: for an in-process loop it is its
+  own id, for a child process the id the child announces, for a remote node the id it
+  reports.
+
+## 10. What is not there yet
 
 - **Fine-grained credentials.** Every route's capability is enforced (see §1); what v0.9 has
   only one of is credentials. The single token holds everything, so a client cannot be given

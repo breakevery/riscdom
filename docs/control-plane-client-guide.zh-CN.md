@@ -612,7 +612,17 @@ riscdom toolchain download --wait
 
 那个形状的一个可跑示例是 [`../examples/python/dispatch.py`](../examples/python/dispatch.py)（文档见 [`README`](../examples/python/README.zh-CN.md)）：仅标准库、三个端点、一个用假控制平面自证的 `--self-test`，以及 CLI 的退出码约定。它是骨架，不是产品：一次一条、按顺序。
 
-## 9. 还没有的东西
+## 9. 远程执行者句柄
+
+§8 讲的是监工从外面抵达一个执行者。这一节是同一件事，从内核这一侧看：一个 [`AgentHandle`](../agent/src/dispatch.rs)，它的执行者是另一个节点，于是 `LocalDispatcher` 能像持有一个 stdio 或进程内句柄那样持有它。可跑示例是 [`worker/examples/remote_executor.rs`](../worker/examples/remote_executor.rs)（以及 [`worker/README.zh-CN.md`](../worker/README.zh-CN.md) 里的那一节）。
+
+写句柄的人需要的三个事实，而三个都不需要新端点：
+
+- **`POST /v0/tasks` 就是那次派发。** 远程句柄把 `Task` 发到那里，拿回一个**远端**执行者产出的 `TaskOutcome`。`POST /v0/agent/run` 对这件事是错的端点：它在节点自身上跑，答的是 `AgentOutcomeView`，形状不同。
+- **target 是远端节点的 label，不是你的。** 一个句柄有两个名字——本地派发器路由用的那个，与对面认识的那个。发自己的 label 就是在向远端节点要一个它未必拥有的执行者，答案是它的 `404`。
+- **回来的那个身份胜出。** `TaskOutcome.agent_id` 是远端节点的答案，而你要不要相信它，正是这个 trait 的全部意义：进程内 loop 是它自己的 id，子进程是子进程宣告的 id，远端节点是它上报的 id。
+
+## 10. 还没有的东西
 
 - **细粒度凭证。** 每条路由的 capability 都已强制（见 §1）；v0.9 缺的只是不止一种凭证。单个 token 持有一切，因此没法只授予「只读审计链」的客户端——按能力细分的 token 属 v1.0。
 - **`POST /v0/vm/start`** 与 **`GET /v0/resources`** 回 `501`。

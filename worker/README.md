@@ -76,6 +76,50 @@ runtime endpoint to add an executor, and the `worker` binary is the natural
 events on stderr — exactly the protocol `StdioExecutorHandle` speaks, since that is
 what this crate's tests already drive).
 
+## A remote executor (v0.9 interface E4)
+
+`examples/remote_executor.rs` is the other end of the same seam `examples/dispatch.rs` and
+`host-core`'s `StdioExecutorHandle` sit on: an [`AgentHandle`](../agent/src/dispatch.rs) whose
+executor is **another node**, reached over HTTP. `agent`'s trait says it has been waiting for
+one since v0.8 (*"A remote implementation … implements exactly this trait. None is written
+yet"*); this is it, written against the seam and nothing else — no crate in this workspace
+changed.
+
+```text
+cargo run -p worker --example remote_executor                  # a stand-in node, no setup
+cargo run -p worker --example remote_executor -- --self-test    # prove the handle offline
+cargo run -p worker --example remote_executor -- --server 127.0.0.1:7821 --target executor-0 "say hi"
+```
+
+What it demonstrates:
+
+- **The endpoint is `POST /v0/tasks`.** That is the one that routes a task to an executor
+  the remote node owns and answers the `TaskOutcome` — the same contract the stdio handle
+  gets from a child process, one transport over. It is therefore a real executor, not a
+  shape demo.
+- **Two names, one handle.** The local dispatcher routes on the handle's `agent_id`; the
+  remote node routes on a label **it** knows, so the task body carries that as `target`
+  (`--remote-target`, the same string by default). The stdio handle has the same split — a
+  supervisor's label versus the identity the child announces.
+- **The identity in the answer wins.** `TaskOutcome.agent_id` comes from the response, never
+  from the handle's own label, and an answer naming a different task is a protocol break —
+  both exactly as `StdioExecutorHandle` does it.
+- **The registration is one line**: `LocalDispatcher::new(vec![Arc::new(handle) as Arc<dyn
+  AgentHandle>])`, beside a stdio handle or instead of it.
+
+`--self-test` binds a stand-in node on `127.0.0.1:0` (the technique
+`host-core/tests/common/mod.rs` uses for its download fixture) and asserts seven things:
+the request body is task-shaped (id, target, input), the answer parses, the node's identity
+wins over the label, a target the node does not own is `NoSuchAgent`, an answer to another
+task fails, an unreachable node fails with the address named, and a task addressed to
+somebody else is refused locally. `scripts/gate.sh` runs it (`cargo run -q -p worker
+--example remote_executor -- --self-test`).
+
+It is **not** production code and **not** a cross-device story: the transport is HTTP on
+loopback, and a handle between two machines would be the same code with a different `base`
+(the part that is *not* the same — mutual authentication, what a token authorises on the
+other side — is v1.0 work, and the client guide says so).
+
 ## Tests
 
 ```text

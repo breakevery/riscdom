@@ -44,6 +44,27 @@ cargo run  -p worker --example dispatch -- --tasks tasks.jsonl --executors 3
 
 节点自己**故意不是**它自己的执行者之一——目标写它就是 `404`——因为**在这里**跑是 `POST /v0/agent/run`。两个端点是兄弟，不是同义词。登记是配置、不是 API：没有运行时加执行者的端点，而 `worker` 二进制就是天然的 `program`（stdin 进一行任务、stdout 出一行结果、事件走 stderr——正是 `StdioExecutorHandle` 讲的协议，因为本 crate 的测试驱的就是它）。
 
+## 远程执行者（v0.9 接口交付 E4）
+
+`examples/remote_executor.rs` 是 `examples/dispatch.rs` 与 `host-core` 的 `StdioExecutorHandle` 所在那条缝的另一端：一个 [`AgentHandle`](../agent/src/dispatch.rs)，它的执行者是**另一个节点**，经 HTTP 抵达。`agent` 的 trait 自 v0.8 起就说它在等人（*「远程实现……正好实现这个 trait。**尚未写**」*）；这就是它，只对着那条缝写——本工作区**没有**任何 crate 被改动。
+
+```text
+cargo run -p worker --example remote_executor                  # 一个替身节点，零配置
+cargo run -p worker --example remote_executor -- --self-test    # 离线自证这个句柄
+cargo run -p worker --example remote_executor -- --server 127.0.0.1:7821 --target executor-0 "say hi"
+```
+
+它演示什么：
+
+- **端点是 `POST /v0/tasks`。** 它是把任务路由到**远端节点拥有的**那个执行者、并回 `TaskOutcome` 的那一个——与 stdio 句柄从子进程拿到的契约相同，只是换了一层传输。所以它是真正的执行者，不是形状演示。
+- **两个名字，一个句柄。** 本地派发器按句柄的 `agent_id` 路由；远端节点按**它自己**认识的 label 路由，所以请求体把它作为 `target` 带上（`--remote-target`，默认同名）。stdio 句柄有同样的分裂——监工的 label 对比子进程宣告的身份。
+- **应答里的身份胜出。** `TaskOutcome.agent_id` 来自响应，绝不来自句柄自己的 label；而一条指向别的任务的应答是协议破裂——两点都与 `StdioExecutorHandle` 一致。
+- **注册就一行**：`LocalDispatcher::new(vec![Arc::new(handle) as Arc<dyn AgentHandle>])`，与 stdio 句柄并排，或替掉它。
+
+`--self-test` 在 `127.0.0.1:0` 绑一个替身节点（`host-core/tests/common/mod.rs` 为它的下载夹具用的同一手法），并断言七件事：请求体是任务形状（id、target、input）、应答能解析、节点的身份胜过 label、节点不认识的目标是 `NoSuchAgent`、指向别的任务的应答失败、不可达的节点失败且报文里带地址、以及指向别人的任务在本地就被拒。`scripts/gate.sh` 会跑它（`cargo run -q -p worker --example remote_executor -- --self-test`）。
+
+它**不是**生产代码，也**不是**跨设备方案：传输是回环上的 HTTP，两台机器之间的句柄会是一模一样的代码、只是 `base` 不同（而**不**相同的那部分——双向认证、对端一个 token 授权了什么——是 v1.0 的工作，客户端指南也这么写）。
+
 ## 测试
 
 ```text

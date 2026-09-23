@@ -473,6 +473,18 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 
 - **`docs/control-plane-client-guide.zh-CN.md` §8** 指向这个示例，作为 AI 监工的可跑形状。
 
+**那条缝有了另一半。** `AgentHandle` 自 v0.8 起就说，远程实现正好实现它，而尚未有人写过。现在有了。
+
+### 新增
+
+- **`worker/examples/remote_executor.rs`**：`HttpExecutorHandle`，一个经 HTTP 把执行者放在另一个节点上的 `AgentHandle`。它的 `run` 把一个任务形状的 body POST 到 `POST /v0/tasks`，并返回远端执行者产出的 `TaskOutcome`——身份是**节点的**，绝不是句柄的 label。`404` 映射为 `NoSuchAgent`，其它失败都是 `Failed`；一条指向别的任务的应答是协议破裂。
+- **`--self-test`**：`127.0.0.1:0` 上的替身节点，以及跨真实句柄路径的七条断言（请求体形状、解析、节点身份、未知目标、指错的应答、不可达节点、指向别人的任务）。`scripts/gate.sh` 会跑它。
+- **`worker/README.zh-CN.md` 的一节**与**客户端指南 §9**：远程句柄是什么、它带的两个名字、以及为什么那次派发是 `POST /v0/tasks`（而不是 `/v0/agent/run`）。
+
+### 变更
+
+- **生产代码一行未动**：本工作区没有任何 crate 被改动。集成就是那条缝承诺的那一行——`LocalDispatcher::new(vec![Arc::new(handle) as Arc<dyn AgentHandle>])`。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

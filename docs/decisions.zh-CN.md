@@ -443,3 +443,13 @@
 **理由**：侦察发现四个 Rust example、Python 侧无任何可复用——于是「写一个监工」从白纸开始。参考实现是拿来**读**的，不只是跑的：它得展示**形状**——三个端点、一条任务进一个结果出、一次派发的四种归宿——而不是把它埋在客户端库下面。`requests` 与 `httpx` 因此被否决（它们会教一个监工并不需要的依赖，还会把「线上格式就是接口」这件事藏起来），靠 stdio 直接跟 `worker` 说话也被否决（那是 `worker/examples/dispatch.rs` 的活，而它根本不需要节点）。自证是让这份示例诚实的那部分：无法验证的示例会烂，而这一份是 gate 的一步，没办法悄悄烂掉。选 Python 而不是第五个 Rust example，是因为读者是写监工的人——多半不是 Rust 开发者——也因为 stdlib Python 是最短的真实示意。
 
 **影响**：`examples/python/`（脚本 + 双语 README，于是一般的文档门禁同样适用它）、`scripts/gate.sh` 的一步新步骤（带打印的 skip）、客户端指南的一节（§8）以及本条。已在 README 里写明而非藏起来的已知限制：任务一条一条发（真正的监工会让它们重叠，而一个队列会把契约藏起来）；`--follow` 无法把一帧归因到某条任务，因为信封的 `task_id` 对宿主事件是 `null`——归因在审计链里；节点必须已经配好 `executors`，因为队伍是配置（E0）。`worker/examples/dispatch.rs` 未动：它是同一幅画的另一半，README 把差别列成表。
+
+## 42. 远程执行者是一个示例，且它的传输是手写的
+
+**日期**：2026-09-23 ｜ **状态**：已定；随 v0.9 接口交付 E4 批次落地
+
+**决策**：`agent::AgentHandle` 自 v0.8 留开的那条缝（*「远程实现……正好实现这个 trait。**尚未写**」*）由一个**示例**填上：`worker/examples/remote_executor.rs`，而不是生产代码。`HttpExecutorHandle` 持一个本地 label、节点的 base URL、可选的 bearer token 与远端 target；它的 `run` 把一个任务形状的 body POST 到 `POST /v0/tasks`，并返回远端执行者产出的 `TaskOutcome`——身份是**节点的**，绝不是它自己的 label。注册就是那条缝承诺的那一行——`LocalDispatcher::new(vec![Arc::new(handle) as Arc<dyn AgentHandle>])`——而**本工作区没有任何 crate 被改动**。传输是用 `std::net::TcpStream` 手写的 HTTP；自证对着回环上的替身节点跑。
+
+**理由**：（一）**那条缝本身就是交付物**。这个 trait 被设计成可以从外部实现，所以证明就是一份什么都不碰的实现——如果填它需要改 `agent` 或 `host-core`，那说明那条缝不对，而那才是真正的发现。（二）**是示例，不是随行句柄**。生产级的 `HttpExecutorHandle` 需要一套关 token、TLS、重试与身份的策略，而 v0.9 尚未定下这些；示例可以展示形状并在 README 里说明这件事。（三）**不新增依赖**。`worker` 只依赖 `host-core`、`agent` 与 `serde_json`；`reqwest` 0.12 在锁里是因为 `cli` 用它，但在这里加上它会让参考实现把它要展示的那根线藏起来。请求用手写，用的是本仓已有的手法（`server/tests/smoke.rs`、`host-core/tests/common/mod.rs`）。（四）**端点是 `POST /v0/tasks` 而不是 `/v0/agent/run`**。后者在节点自身上跑、答 `AgentOutcomeView`；只有前者路由给远端节点**拥有的**执行者并答 `TaskOutcome`——与 `StdioExecutorHandle` 从子进程拿到的契约相同，这正是它是真正执行者而非形状演示的原因。（五）**两个名字，与 stdio 句柄一样**。本地派发器按句柄的 `agent_id` 路由；远端节点按它认识的 label 路由，所以 body 把它作为 `target` 带上。发本地 label 就是在要一个远端节点未必拥有的执行者。
+
+**影响**：一个新示例、一步新 gate 步骤（`cargo run -q -p worker --example remote_executor -- --self-test`，与 Python 那一步并列）、`worker/README.zh-CN.md` 的一节、客户端指南 §9（于是「还没有的东西」重编号为 §10）以及本条。映射是刻意的、并写在代码里：远端节点的 `404` 是 `DispatchError::NoSuchAgent`（缺的是**对面**的队伍——一个路由事实），其它都是 `Failed`，而一条指向别的任务的应答是协议破裂而不是结果，与 stdio 句柄的处理完全一致。已在 README 写明而非藏起来的已知缺口：它是回环 HTTP，不是跨设备方案——真正的跨机句柄需要双向认证以及对端一个 token 授权什么的叙事，那是 v1.0 的工作；而示例是对着替身节点证明的，因为真的那个住在 `server` crate 里，而 `worker` 刻意不依赖它（`POST /v0/tasks` 由服务端自己的测试拥有）。

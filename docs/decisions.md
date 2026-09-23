@@ -844,3 +844,48 @@ envelope's `task_id` is `null` for host events — attribution lives in the audi
 the node must already have `executors` configured, because the fleet is configuration (E0).
 `worker/examples/dispatch.rs` is untouched: it is the other half of the picture, and the
 README tabulates the difference.
+
+## 42. The remote executor is an example, and its transport is hand-written
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; landed with the v0.9 interface E4 batch
+
+**Decision**: The seam `agent::AgentHandle` left open since v0.8 (*"a remote implementation …
+implements exactly this trait. **None is written yet**"*) is filled by an **example**,
+`worker/examples/remote_executor.rs`, not by production code. `HttpExecutorHandle` holds a
+local label, the node's base URL, an optional bearer token and the remote target; its `run`
+POSTs a task-shaped body to `POST /v0/tasks` and returns the `TaskOutcome` the remote
+executor produced, with the **node's** identity and never its own label. Registration is the
+single line the seam promised — `LocalDispatcher::new(vec![Arc::new(handle) as Arc<dyn
+AgentHandle>])` — and **no crate in the workspace changed**. The transport is HTTP written by
+hand over `std::net::TcpStream`; the self-test runs against a stand-in node on loopback.
+
+**Why**: (1) **The seam is the deliverable.** The trait was designed to be implementable from
+outside, so the proof is an implementation that touches nothing — if filling it had needed a
+change to `agent` or `host-core`, the seam would have been wrong and that would have been the
+finding. (2) **An example, not a shipped handle.** A production `HttpExecutorHandle` would
+need a policy for tokens, TLS, retries and identity that v0.9 has not decided; an example can
+demonstrate the shape and say so in its README. (3) **No new dependency.** `worker` depends on
+`host-core`, `agent` and `serde_json` only; `reqwest` 0.12 is in the lock because `cli` uses
+it, but adding it here would make a reference implementation hide the very wire it is meant to
+show. The request is written by hand with the technique already in the repository
+(`server/tests/smoke.rs`, `host-core/tests/common/mod.rs`). (4) **The endpoint is
+`POST /v0/tasks`, not `/v0/agent/run`.** The latter runs on the node itself and answers an
+`AgentOutcomeView`; only the former routes to an executor the far node *owns* and answers a
+`TaskOutcome` — the same contract `StdioExecutorHandle` gets from a child process, which is
+what makes this a real executor rather than a shape demo. (5) **Two names, like the stdio
+handle.** The local dispatcher routes on the handle's `agent_id`; the far node routes on a
+label it knows, so the body carries that as `target`. Sending the local label would ask for an
+executor the far node may not own.
+
+**Impact**: One new example, one new gate step (`cargo run -q -p worker --example
+remote_executor -- --self-test`, alongside the Python one), a section in `worker/README.md`,
+§9 of the client guide (which renumbers "what is not there yet" to §10) and this entry. The
+mapping is deliberate and documented in the code: a `404` from the far node is
+`DispatchError::NoSuchAgent` (the *far* fleet is what is missing — a routing fact), everything
+else is `Failed`, and an answer naming a different task is a protocol break rather than a
+result, exactly as the stdio handle treats it. Known gaps, stated in the README rather than
+hidden: it is loopback HTTP, not a cross-device story — a real two-machine handle needs
+mutual authentication and a story for what a token authorises on the far side, which is v1.0
+work; and the example is proven against a stand-in node, because the real one lives in the
+`server` crate, which `worker` deliberately does not depend on (the server's own tests own
+`POST /v0/tasks`).

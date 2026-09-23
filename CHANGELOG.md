@@ -823,6 +823,28 @@ outside the kernel that drives a node over HTTP, with no model of its own.
 - **`docs/control-plane-client-guide.md` §8** points at the example as the worked shape of
   an AI supervisor.
 
+**The seam has its other half.** `AgentHandle` said since v0.8 that a remote implementation
+implements exactly it and that none was written. One is now.
+
+### Added
+
+- **`worker/examples/remote_executor.rs`**: `HttpExecutorHandle`, an `AgentHandle` whose
+  executor is another node over HTTP. Its `run` POSTs a task-shaped body to
+  `POST /v0/tasks` and returns the `TaskOutcome` the remote executor produced — with the
+  **node's** identity, never the handle's label. `404` maps to `NoSuchAgent`, every other
+  failure to `Failed`, and an answer naming a different task is a protocol break.
+- **`--self-test`**: a stand-in node on `127.0.0.1:0`, and seven assertions over the real
+  handle path (body shape, parse, the node's identity, an unknown target, a mismatched
+  answer, an unreachable node, a task addressed to someone else). `scripts/gate.sh` runs it.
+- **A section in `worker/README.md`** and **§9 of the client guide**: what a remote handle is,
+  the two names it carries, and why `POST /v0/tasks` (and not `/v0/agent/run`) is the
+  dispatch.
+
+### Changed
+
+- **Nothing in production**: no crate in the workspace changed. The integration is the line
+  the seam promised — `LocalDispatcher::new(vec![Arc::new(handle) as Arc<dyn AgentHandle>])`.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

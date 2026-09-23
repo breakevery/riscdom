@@ -123,6 +123,9 @@ else
   skip "the python reference supervisor self-test (no python3/python on PATH)"
 fi
 
+echo "==> remote executor example self-test (worker)"
+cargo run -q -p worker --example remote_executor -- --self-test || fail "remote executor example"
+
 echo "==> wix version guard"
 node scripts/check-wix-version.mjs || fail "wix version guard"
 

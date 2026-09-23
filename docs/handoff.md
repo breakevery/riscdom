@@ -13,6 +13,24 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The seam has its other half: a remote executor** (v0.9 interface E4).
+  `agent/src/dispatch.rs` has said since v0.8 that "a remote implementation … implements
+  exactly this trait. **None is written yet**"; `worker/examples/remote_executor.rs` is it.
+  `HttpExecutorHandle` carries a local label, the node's base URL, an optional bearer token
+  and the **remote target**, and its `run` POSTs a task-shaped body to `POST /v0/tasks` — the
+  endpoint that routes to an executor the *remote* node owns and answers the `TaskOutcome`,
+  which is what makes this a real executor and not a shape demo. The identity in the answer
+  is the node's, never the handle's label; an answer naming another task is a protocol break;
+  `404` is `NoSuchAgent` (the far fleet is what is missing) and every other failure is
+  `Failed`. **No transport crate**: `worker` depends on `host-core`, `agent` and `serde_json`
+  only, and the request is written by hand over `std::net::TcpStream` — the technique
+  `server/tests/smoke.rs` and `host-core/tests/common/mod.rs` already use, so the reader sees
+  what crosses. **No production crate changed**: `LocalDispatcher::new(vec![Arc::new(handle)
+  as Arc<dyn AgentHandle>])` is the whole integration, which is what the seam promised. The
+  example runs with no setup (an in-process stand-in node on `127.0.0.1:0`) and proves itself
+  with `--self-test` (seven assertions); `scripts/gate.sh` runs that step. The client guide
+  gained §9 on writing a handle, and the README states what it is not: loopback HTTP, not a
+  cross-device story (decision §42).
 - **A supervisor you can run** (v0.9 interface E3). `examples/python/dispatch.py` is the
   smallest complete external supervisor: a process outside the kernel, with no model of its
   own, that drives a node through the control plane — `GET /v0/executors` for the fleet,
