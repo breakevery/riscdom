@@ -62,13 +62,13 @@ curl -sS http://127.0.0.1:7821/v0/status
 Authentication and permission are two decisions. `401` means the server did not accept the
 credential; `403` means it did, and the actor it resolved is not allowed to do *this*.
 
-Every endpoint requires one capability, named in the API document's §5 tables — 29 names
+Every endpoint requires one capability, named in the API document's §5 tables — 30 names
 such as `agent.run`, `audit.read`, `runs.control`, `settings.write` and `vm.control`. The
 server checks it before the handler runs, so a client can plan around it instead of
 discovering it:
 
 ```bash
-# The token holder holds all 29, so this succeeds.
+# The token holder holds all 30, so this succeeds.
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7821/v0/status \
   -H "Authorization: Bearer $RISCDOM_TOKEN"
 # 200
@@ -393,14 +393,27 @@ complete.
 
 ## 6. The control endpoints
 
-29 `POST` endpoints, the API table's §5.2. All of them need the token (that is the point
-of the batch that added them: they include destructive operations).
+29 `POST` endpoints, the API table's §5.2 (plus the sandbox switch, below). All of them need the
+token (that is the point of the batch that added them: they include destructive operations).
 
 ```bash
 # Run one agent turn. Progress arrives as `agent:*` events on the stream.
 curl -sS -X POST http://127.0.0.1:7821/v0/agent/run \
   -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
   -d '{"user_input":"compile the blink example"}'
+
+# Switch this node to another sandbox definition. Validation happens before the
+# running VM is touched, and the answer says where the node came from:
+curl -sS -X POST http://127.0.0.1:7821/v0/sandboxes/switch \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"blink"}'
+# {"from":null,"to":"blink"}
+
+# What it refuses with, and why: a name nobody has (`404`, `cause: "name"`), a
+# switch while a run is in flight (`409`, `cause: "run"`), a second switch while
+# one is in progress (`409`, `cause: "sandbox"`), a definition that cannot run
+# (`503`, `cause` = the reason code), or a VM that would not start (`500`,
+# `cause: "sandbox_start_failed"` — the node is then stopped, not half-switched).
 
 # Sessions.
 curl -sS -X POST http://127.0.0.1:7821/v0/sessions/create \
@@ -488,6 +501,7 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # against one that 
 | `riscdom audit events [--limit <n>]` | `GET /v0/audit/events` |
 | `riscdom snapshots list` | `GET /v0/snapshots` |
 | `riscdom sandboxes list` / `current` / `candidates` / `show <name>` | `GET /v0/sandboxes` / `/v0/sandboxes/current` / `/v0/sandboxes/candidates` / `/v0/sandboxes/<name>` |
+| `riscdom sandboxes switch <name>` | `POST /v0/sandboxes/switch` |
 | `riscdom run <task>` | `POST /v0/agent/run` |
 | `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
@@ -518,6 +532,11 @@ riscdom sandboxes list
 riscdom sandboxes current          # just the two names
 riscdom sandboxes show blink       # one definition, one line per field
 riscdom sandboxes candidates       # what is installed here (the raw scan)
+
+# Switching asks first (it stops the running VM and refuses while a run is in
+# flight); `--yes` answers up front, and a non-terminal stdin needs it.
+riscdom sandboxes switch blink --yes
+# switched to blink
 
 # Configure the model; the key comes from a file, so it stays out of `ps`.
 riscdom llm set --api-key-file ~/.riscdom/api-key \
@@ -561,7 +580,8 @@ riscdom toolchain download --wait
   `--api-key-file` is the shape to prefer, and `--remember` is what makes the key survive a
   restart (the host stores it in the OS credential store).
 - **The destructive commands ask first** (`vm stop`, `snapshots resume`, `snapshots delete`,
-  `sessions delete`, `sessions clear-all`, `llm clear`, `qemu clear`, `toolchain clear`): a
+  `sandboxes switch`, `sessions delete`, `sessions clear-all`, `llm clear`, `qemu clear`,
+  `toolchain clear`): a
   prompt on a terminal, `--yes` to answer up front, and a refusal (exit `2`) when stdin is
   not a terminal — a script has to say `--yes`.
 - **Exit codes** turn the status codes of §4 into something a script can branch on: `0` success,

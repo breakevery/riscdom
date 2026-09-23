@@ -329,6 +329,23 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 - **切换失败 = 已停，不是半切换**：新句柄被丢弃，`Drop` 杀掉它 spawn 的东西，当前值不变。校验失败的定义则完全不碰正在跑的 VM——这个顺序本身就是重点。
 - **注册表的合并只剩一份实现**（`merged_sandbox_defs`），`sandboxes()` 与切换共用，因此切换用的定义就是列表里胜出的那个。
 
+**切换有了对外表面：一个事件、一个端点、一个 capability 与一个 CLI 命令。** F2b-2 把 F2b-1 造的东西露出来。`sandbox:switch` 是第 13 个事件（`{from, to, ok, reason}`，每次尝试一条，成功失败都发）；`POST /v0/sandboxes/switch` 是沙箱表面上唯一的一写，为每种失败各答一个状态而不是一句话；`sandbox.switch` 是第 30 个 capability；`riscdom sandboxes switch <name>` 是它的 CLI，属破坏性家族。`events.rs` 的守卫恢复完整——列全 13 个名字，F1 的 `qemu:download` 不再遗漏。
+
+### 新增
+
+- **`sandbox:switch`**，第 13 个事件，每次出口带 `{from, to, ok, reason}`——`from` 是切换前正在用的定义（没有则为 `null`），`ok` 为 `false` 时 `reason` 携带原因码。
+- **`POST /v0/sandboxes/switch`**（capability `sandbox.switch`）：`200` 带 `{from, to}`；`404` `cause: "name"`；`409` `cause: "run"` 或 `cause: "sandbox"`；`503` 的 `cause` 就是原因码；`500` `cause: "sandbox_start_failed"`。
+- **`HostError::SandboxStart`**，让「每项校验都过而 VM 仍起不来」那种情形以原因码而不是散文作答（此时节点是已停，不是半切换）。
+- **`AppState::sandbox_switch_in_progress()`**，决定 `409 cause: "sandbox"` 的探针——即 `toolchain_download_status().in_progress` 已有的形状。
+- **`riscdom sandboxes switch <name>`**，先问（它停掉正在跑的 VM，且运行中拒绝）；`--yes` 提前回答，非终端 stdin 拒绝并退出 `2`。成功时打印 `switched from <old> to <new>`。
+- **一个 Tauri 命令** `switch_sandbox`，已在桌面外壳注册。界面未与它接线（那是 D 线）。
+
+### 变更
+
+- **`switch_sandbox` 改为接收调用方自己的 `EventSink`**，事件因此与其它宿主事件同路：路由注入 `HttpEventSink`，Tauri 命令注入 `TauriEventSink`。切换本身的逻辑未变。
+- **`events.rs` 的守卫列全 13 个事件**（`all_events_are_named`，原 `all_eleven_events_are_named`），并断言名字互不重复——它自 F1 起一直漏着 `qemu:download`。
+- **文档里的 capability 计数为 30，§5.2 多了切换一行**：API 文档（双语）、`server/README`（双语）与客户端指南（双语）。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见

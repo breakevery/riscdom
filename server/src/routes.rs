@@ -87,6 +87,8 @@ pub(crate) enum Action {
     LlmStoredKeyLoad,
     LlmConfigClear,
     SerialExport,
+    /// The sandbox switch (v0.9 sandbox F2b-2): the one write on that surface.
+    SandboxSwitch,
 }
 
 /// What a request resolves to.
@@ -469,6 +471,12 @@ const ROUTES: &[(&str, &str, Capability, Action)] = &[
         Capability::SerialExport,
         Action::SerialExport,
     ),
+    (
+        "POST",
+        "/v0/sandboxes/switch",
+        Capability::SandboxSwitch,
+        Action::SandboxSwitch,
+    ),
 ];
 
 /// `/v0/runs/{run_id}` is the one path with a parameter.
@@ -839,6 +847,43 @@ pub(crate) fn dispatch(
             },
             Err(response) => *response,
         },
+        // The one write on the sandbox surface (v0.9 sandbox F2b-2). The switch is
+        // synchronous — validation, a stop, a start — so it runs inline here (and
+        // inline in a Tauri command), and the two pre-checks exist so a refusal
+        // carries the status and `cause` a client can branch on (§4) instead of a
+        // message nobody can match on.
+        Action::SandboxSwitch => {
+            let name = match params.required("name") {
+                Ok(name) => name,
+                Err(response) => return *response,
+            };
+            if app.run_in_flight() {
+                return error_response(
+                    409,
+                    "conflict",
+                    "a run is in flight; a sandbox switch would take its VM away",
+                    Some("run"),
+                );
+            }
+            if app.sandbox_switch_in_progress() {
+                return error_response(
+                    409,
+                    "conflict",
+                    "a sandbox switch is already in progress",
+                    Some("sandbox"),
+                );
+            }
+            let from = app.current_sandbox();
+            let emitter: Arc<dyn host_core::EventSink> =
+                Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
+            match app.switch_sandbox(name, emitter) {
+                // 200 with the two ends, not an empty `204`: a switch has something
+                // to say, and a client that only reads the answer should not have
+                // to subscribe to the stream to learn what changed.
+                Ok(()) => ok_json(&serde_json::json!({ "from": from, "to": name })),
+                Err(e) => sandbox_switch_error(e),
+            }
+        }
         // §6 G3: the shape is settled, the aggregate is not built.
         Action::Resources => error_response(
             501,
@@ -1338,6 +1383,27 @@ fn state_clash(error: HostError) -> Response<RespBody> {
     error_response(409, "conflict", &error.user_message(), None)
 }
 
+/// The status a failed switch answers with, read from the reason it carries.
+///
+/// A definition that is not there is the caller's parameter (`404`, the same answer
+/// `/v0/sandboxes/{name}` gives), a definition that cannot run is the environment
+/// (`503`, the same answer the unpinned QEMU download gives), and a VM that would
+/// not start is the host failing (`500`). `cause` is the reason code, so a client
+/// branches on a name rather than on a sentence.
+fn sandbox_switch_error(error: HostError) -> Response<RespBody> {
+    let message = error.user_message();
+    let (status, code, cause) = match &error {
+        HostError::SandboxNotFound(_) => (404, "not_found", "name"),
+        HostError::SandboxQemuMissing(_) => (503, "unavailable", "sandbox_qemu_missing"),
+        HostError::SandboxToolchainMissing(_) => (503, "unavailable", "sandbox_toolchain_missing"),
+        HostError::SandboxKernelMissing(_) => (503, "unavailable", "sandbox_kernel_missing"),
+        HostError::SandboxStart(_) => (500, "internal", "sandbox_start_failed"),
+        // Anything else is the host's own shape (an IO error, a poisoned lock).
+        _ => return host_error(error),
+    };
+    error_response(status, code, &message, Some(cause))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1377,8 +1443,8 @@ mod tests {
         assert_eq!(queries, 30, "query rows");
         // The 27 controls of §5.2, plus the reserved `POST /v0/vm/start` and
         // `POST /v0/runs/abandon-stale` (§6, G1 and G4), plus the QEMU download
-        // start and cancel (v0.9 F1).
-        assert_eq!(controls, 31, "control rows");
+        // start and cancel (v0.9 F1) and the sandbox switch (v0.9 sandbox F2b-2).
+        assert_eq!(controls, 32, "control rows");
     }
 
     #[test]
@@ -1463,13 +1529,25 @@ mod tests {
                 other => panic!("GET {path}: {other:?}"),
             }
         }
-        // The three the rest of the F2 line reserves are not definitions either:
-        // nothing serves them yet, so they are `404`, not a sandbox named `switch`.
-        for path in [
-            "/v0/sandboxes/switch",
-            "/v0/sandboxes/assemble",
-            "/v0/sandboxes/requests",
-        ] {
+        // `switch` is a route of its own since F2b-2 (`POST`-only, so a `GET` is a
+        // `405`), while `assemble` and `requests` are still nothing, and none of
+        // the three is a definition.
+        match resolve("GET", "/v0/sandboxes/switch") {
+            Resolution::MethodNotAllowed { allowed } => assert_eq!(allowed, "POST"),
+            other => panic!("GET /v0/sandboxes/switch: {other:?}"),
+        }
+        match resolve("POST", "/v0/sandboxes/switch") {
+            Resolution::Query {
+                action: Action::SandboxSwitch,
+                path_param,
+                capability,
+            } => {
+                assert_eq!(capability, Capability::SandboxSwitch);
+                assert!(path_param.is_none());
+            }
+            other => panic!("POST /v0/sandboxes/switch: {other:?}"),
+        }
+        for path in ["/v0/sandboxes/assemble", "/v0/sandboxes/requests"] {
             assert!(
                 matches!(resolve("GET", path), Resolution::NotFound),
                 "{path}"

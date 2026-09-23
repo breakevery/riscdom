@@ -1,10 +1,11 @@
-//! v0.9 sandbox batch F2b-1 — the core switch.
+//! v0.9 sandbox batch F2b-1/F2b-2 — the core switch and the event it emits.
 //!
 //! What is exercised here: `current_sandbox` is runtime state (a stored default is
 //! what a restart starts from, not what is current); validation runs **before** the
 //! running VM is touched, so a definition that cannot run changes nothing; one
-//! switch at a time; and a switch that passes validation but cannot start leaves
-//! the node **stopped**, not half-switched.
+//! switch at a time; a switch that passes validation but cannot start leaves the
+//! node **stopped**; and every one of those exits emits exactly one
+//! `sandbox:switch` carrying the reason (F2b-2).
 //!
 //! No QEMU is run and nothing leaves the machine. The one test that reaches
 //! `start` hands it a runnable stand-in (a copied `cmd.exe` / `/bin/echo`, the
@@ -14,11 +15,15 @@
 //! The success path itself — a switch that boots a real guest and becomes
 //! current — needs a real QEMU and a real kernel ELF: the same ticket the golden
 //! path walks (`tests/golden_path.rs`, `--ignored`), and it is deliberately not
-//! pretended at here.
+//! pretended at here. Its event shape (`ok: true`, `reason: null`) is pinned by
+//! `events.rs`'s own `sandbox_switch_names_both_ends`.
 
+use host_core::events::RecordingEventSink;
 use host_core::state::AppState;
-use serde_json::json;
+use host_core::EventSink;
+use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 fn unique_dir(tag: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -99,6 +104,25 @@ fn workable(data_dir: &Path, name: &str) -> serde_json::Value {
     })
 }
 
+/// The one `sandbox:switch` payload a sink recorded, asserted to be exactly one.
+fn switch_event(sink: &RecordingEventSink) -> Value {
+    let events = sink.events();
+    let found: Vec<&(String, Value)> = events
+        .iter()
+        .filter(|(event, _)| event == host_core::EV_SANDBOX_SWITCH)
+        .collect();
+    assert_eq!(found.len(), 1, "one event per switch: {events:?}");
+    found[0].1.clone()
+}
+
+/// A switch call site: the sink is what the event lands in.
+fn switch(state: &AppState, name: &str, sink: &Arc<RecordingEventSink>) -> Result<(), String> {
+    let emitter: Arc<dyn EventSink> = sink.clone();
+    state
+        .switch_sandbox(name, emitter)
+        .map_err(|e| e.to_string())
+}
+
 // ----- the runtime current --------------------------------------------------
 
 #[test]
@@ -132,7 +156,8 @@ fn a_switch_that_never_ran_leaves_nothing_current() {
     // The converse of the above, for the failure paths below: a switch that is
     // refused (whatever the reason) must not claim to have switched.
     let (state, _data_dir) = state("no-current");
-    let _ = state.switch_sandbox("no-such-sandbox");
+    let sink = Arc::new(RecordingEventSink::new());
+    let _ = switch(&state, "no-such-sandbox", &sink);
     assert_eq!(state.current_sandbox(), None);
 }
 
@@ -141,14 +166,23 @@ fn a_switch_that_never_ran_leaves_nothing_current() {
 #[test]
 fn an_unknown_name_is_refused_with_sandbox_not_found() {
     let (state, _data_dir) = state("unknown");
-    let err = state
-        .switch_sandbox("no-such-sandbox")
-        .expect_err("there is no such definition");
-    assert!(err.to_string().starts_with("sandbox_not_found:"), "{err}");
+    let sink = Arc::new(RecordingEventSink::new());
+    let err = switch(&state, "no-such-sandbox", &sink).expect_err("there is no such definition");
+    assert!(err.starts_with("sandbox_not_found:"), "{err}");
     assert_eq!(state.current_sandbox(), None);
     // The switch slot is not left claimed by a refusal that never got that far.
     assert!(state.begin_sandbox_switch("any").is_ok());
     state.finish_sandbox_switch();
+
+    // Even this exit announces itself, so a client watching the stream sees the
+    // attempt and its reason (F2b-2).
+    let event = switch_event(&sink);
+    assert_eq!(event["to"], "no-such-sandbox");
+    assert_eq!(event["ok"], false);
+    assert!(event["reason"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("sandbox_not_found"));
 }
 
 #[test]
@@ -170,13 +204,10 @@ fn a_qemu_that_is_not_there_refuses_the_switch() {
     let restarted = restart(&state);
     let before = restarted.audit_status().expect("status").count;
 
-    let err = restarted
-        .switch_sandbox("broken-qemu")
+    let sink = Arc::new(RecordingEventSink::new());
+    let err = switch(&restarted, "broken-qemu", &sink)
         .expect_err("a QEMU that is not a file cannot be switched to");
-    assert!(
-        err.to_string().starts_with("sandbox_qemu_missing:"),
-        "{err}"
-    );
+    assert!(err.starts_with("sandbox_qemu_missing:"), "{err}");
 
     // Nothing was touched: no VM, no audit row, nothing current, no slot held.
     assert!(!restarted.vm_status().running);
@@ -184,6 +215,15 @@ fn a_qemu_that_is_not_there_refuses_the_switch() {
     assert_eq!(restarted.current_sandbox(), None);
     assert!(restarted.begin_sandbox_switch("any").is_ok());
     restarted.finish_sandbox_switch();
+
+    let event = switch_event(&sink);
+    assert_eq!(event["to"], "broken-qemu");
+    assert!(event["from"].is_null(), "{event}");
+    assert_eq!(event["ok"], false);
+    assert!(event["reason"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("sandbox_qemu_missing"));
 }
 
 #[test]
@@ -205,17 +245,18 @@ fn a_toolchain_that_is_not_there_refuses_the_switch() {
     let restarted = restart(&state);
     let before = restarted.audit_status().expect("status").count;
 
-    let err = restarted
-        .switch_sandbox("broken-toolchain")
+    let sink = Arc::new(RecordingEventSink::new());
+    let err = switch(&restarted, "broken-toolchain", &sink)
         .expect_err("a toolchain that is not a file cannot compile anything");
-    assert!(
-        err.to_string().starts_with("sandbox_toolchain_missing:"),
-        "{err}"
-    );
+    assert!(err.starts_with("sandbox_toolchain_missing:"), "{err}");
 
     assert!(!restarted.vm_status().running);
     assert_eq!(restarted.audit_status().expect("status").count, before);
     assert_eq!(restarted.current_sandbox(), None);
+    assert!(switch_event(&sink)["reason"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("sandbox_toolchain_missing"));
 }
 
 #[test]
@@ -237,17 +278,18 @@ fn a_kernel_that_is_not_there_refuses_the_switch() {
     let restarted = restart(&state);
     let before = restarted.audit_status().expect("status").count;
 
-    let err = restarted
-        .switch_sandbox("broken-kernel")
+    let sink = Arc::new(RecordingEventSink::new());
+    let err = switch(&restarted, "broken-kernel", &sink)
         .expect_err("a kernel that is not a file cannot be booted");
-    assert!(
-        err.to_string().starts_with("sandbox_kernel_missing:"),
-        "{err}"
-    );
+    assert!(err.starts_with("sandbox_kernel_missing:"), "{err}");
 
     assert!(!restarted.vm_status().running);
     assert_eq!(restarted.audit_status().expect("status").count, before);
     assert_eq!(restarted.current_sandbox(), None);
+    assert!(switch_event(&sink)["reason"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("sandbox_kernel_missing"));
 }
 
 #[test]
@@ -267,13 +309,9 @@ fn a_definition_with_no_kernel_and_no_elf_in_the_workspace_refuses() {
         }),
     );
     let restarted = restart(&state);
-    let err = restarted
-        .switch_sandbox("unpinned")
-        .expect_err("there is no ELF to boot");
-    assert!(
-        err.to_string().starts_with("sandbox_kernel_missing:"),
-        "{err}"
-    );
+    let sink = Arc::new(RecordingEventSink::new());
+    let err = switch(&restarted, "unpinned", &sink).expect_err("there is no ELF to boot");
+    assert!(err.starts_with("sandbox_kernel_missing:"), "{err}");
     assert_eq!(restarted.current_sandbox(), None);
 }
 
@@ -285,6 +323,7 @@ fn a_second_switch_is_refused_while_one_is_in_progress() {
     state
         .begin_sandbox_switch("blink")
         .expect("the first claim");
+    assert!(state.sandbox_switch_in_progress());
 
     // Through the primitive…
     let err = state
@@ -294,14 +333,19 @@ fn a_second_switch_is_refused_while_one_is_in_progress() {
 
     // …and through the switch itself. The name is valid (the fallback always
     // exists), so the refusal is about the slot and nothing else.
-    let err = state
-        .switch_sandbox(host_core::DEFAULT_SANDBOX_NAME)
+    let sink = Arc::new(RecordingEventSink::new());
+    let err = switch(&state, host_core::DEFAULT_SANDBOX_NAME, &sink)
         .expect_err("a switch during a switch must be refused");
-    assert!(err.to_string().contains("already in progress"), "{err}");
+    assert!(err.contains("already in progress"), "{err}");
+    assert!(switch_event(&sink)["reason"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("already in progress"));
 
     // Releasing it lets the next caller in; cancelling an idle slot is an error,
     // the same shape as the download slots' `cancel`.
     state.finish_sandbox_switch();
+    assert!(!state.sandbox_switch_in_progress());
     assert!(state.begin_sandbox_switch("blink").is_ok());
     state.cancel_sandbox_switch().expect("cancel");
     assert!(
@@ -335,10 +379,10 @@ fn a_switch_that_cannot_start_leaves_the_node_stopped() {
     );
     let restarted = restart(&state);
 
-    let err = restarted
-        .switch_sandbox("not-qemu")
-        .expect_err("the stand-in is not a QEMU");
-    assert!(err.to_string().contains("failed after 3 attempts"), "{err}");
+    let sink = Arc::new(RecordingEventSink::new());
+    let err = switch(&restarted, "not-qemu", &sink).expect_err("the stand-in is not a QEMU");
+    assert!(err.starts_with("sandbox_start_failed:"), "{err}");
+    assert!(err.contains("failed after 3 attempts"), "{err}");
 
     // Stopped, not half-switched — and what is current did not change.
     assert!(
@@ -349,6 +393,14 @@ fn a_switch_that_cannot_start_leaves_the_node_stopped() {
     // The slot is free again, so the next attempt is a fresh one.
     assert!(restarted.begin_sandbox_switch("not-qemu").is_ok());
     restarted.finish_sandbox_switch();
+
+    let event = switch_event(&sink);
+    assert_eq!(event["to"], "not-qemu");
+    assert_eq!(event["ok"], false);
+    assert!(event["reason"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("sandbox_start_failed"));
 }
 
 // ----- what a switch does NOT change ----------------------------------------
@@ -369,7 +421,8 @@ fn a_switch_never_writes_the_configuration() {
     let restarted = restart(&state);
     let text = std::fs::read_to_string(restarted.settings_path()).expect("settings.json");
 
-    let _ = restarted.switch_sandbox("not-qemu");
+    let sink = Arc::new(RecordingEventSink::new());
+    let _ = switch(&restarted, "not-qemu", &sink);
 
     assert_eq!(
         std::fs::read_to_string(restarted.settings_path()).expect("settings.json"),

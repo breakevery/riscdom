@@ -44,6 +44,14 @@ pub enum HostError {
     #[error("sandbox_kernel_missing: {0}")]
     SandboxKernelMissing(String),
 
+    /// Every check passed and the VM still would not start (v0.9 sandbox F2b).
+    ///
+    /// The node is **stopped**, not half-switched: the failed handle's `Drop`
+    /// killed whatever it spawned. The message carries the attempts and the last
+    /// reason.
+    #[error("sandbox_start_failed: {0}")]
+    SandboxStart(String),
+
     #[error("{0}")]
     Other(String),
 }

@@ -3,7 +3,8 @@
 use crate::error::HostError;
 use crate::events::{
     EventSink, EV_AGENT_FINAL, EV_AGENT_ITERATION, EV_AGENT_STREAM_DELTA, EV_AGENT_STREAM_DONE,
-    EV_AGENT_TOOL_CALL, EV_AGENT_TOOL_RESULT, EV_AUDIT_FAILED, EV_SERIAL_CHUNK, EV_VM_STATE,
+    EV_AGENT_TOOL_CALL, EV_AGENT_TOOL_RESULT, EV_AUDIT_FAILED, EV_SANDBOX_SWITCH, EV_SERIAL_CHUNK,
+    EV_VM_STATE,
 };
 use crate::keyring::{user_for_provider, InMemoryKeyring, KeyringBackend, OsKeyring, SERVICE};
 use crate::run_diff::{self, FingerprintFieldDiff};
@@ -1799,6 +1800,20 @@ impl AppState {
         }
     }
 
+    /// Is a sandbox switch in progress right now? (v0.9 sandbox F2b-2.)
+    ///
+    /// The probe the control plane answers `409` from *before* it calls
+    /// [`Self::switch_sandbox`], the same shape as
+    /// [`Self::toolchain_download_status`]'s `in_progress`. The switch refuses a
+    /// second caller itself; this exists so the refusal can carry a status and a
+    /// `cause` instead of a message nobody can branch on.
+    pub fn sandbox_switch_in_progress(&self) -> bool {
+        self.switch_slot
+            .lock()
+            .map(|slot| slot.is_some())
+            .unwrap_or(false)
+    }
+
     /// Switch this node to the sandbox `name` (v0.9 sandbox F2b).
     ///
     /// The order is the whole point (F2b decision 2): everything that can be
@@ -1812,105 +1827,125 @@ impl AppState {
     /// the loop shares this VM slot and takes it per tool call, so a switch under a
     /// running agent would silently hand it a different guest (F2b decision 4).
     ///
-    /// No event and no audit row of its own yet — F2b-2 adds the `sandbox:switch`
-    /// family with the endpoint and the CLI. The VM's own `vm.stop` / `vm.start`
-    /// audit rows are the sandbox's, and they arrive as they always did.
-    pub fn switch_sandbox(&self, name: &str) -> Result<(), HostError> {
-        // ① The definition, or the reason there is none.
-        let def = self
-            .sandbox_def_by_name(name)
-            .ok_or_else(|| HostError::SandboxNotFound(name.to_string()))?;
-        // ② One switch at a time.
-        self.begin_sandbox_switch(name)?;
-
+    /// Emits exactly one [`EV_SANDBOX_SWITCH`] on every exit — with `ok: true` and
+    /// a new sandbox running, or with `ok: false` and the reason it did not. The
+    /// VM's own `vm.stop` / `vm.start` audit rows are the sandbox's, and they
+    /// arrive as they always did.
+    pub fn switch_sandbox(&self, name: &str, emitter: Arc<dyn EventSink>) -> Result<(), HostError> {
+        // What was current before, for the event's `from` (F2b-2).
+        let from = self.current_sandbox();
         let outcome = (|| -> Result<(), HostError> {
-            // F2b decision 4: a run in flight means the loop is holding this slot.
-            if self.run_in_flight() {
-                return Err(HostError::Other(
-                    "a run is in flight; a sandbox switch would take its VM away".into(),
-                ));
-            }
-            // ③④⑤ Everything checkable, before anything is stopped: the QEMU and
-            // the toolchain (`sandbox_check`), then the kernel.
-            self.sandbox_check(&def)?;
-            let kernel = match &def.kernel {
-                Some(path) => path.clone(),
-                None => self.resume_kernel().map_err(|e| {
-                    HostError::SandboxKernelMissing(format!(
-                        "the definition pins none and the workspace has none: {}",
-                        e.user_message()
-                    ))
-                })?,
-            };
+            // ① The definition, or the reason there is none.
+            let def = self
+                .sandbox_def_by_name(name)
+                .ok_or_else(|| HostError::SandboxNotFound(name.to_string()))?;
+            // ② One switch at a time.
+            self.begin_sandbox_switch(name)?;
 
-            // ⑥ Only now is the running VM touched.
-            self.stop_current_vm()?;
+            let switched = (|| -> Result<(), HostError> {
+                // F2b decision 4: a run in flight means the loop is holding this slot.
+                if self.run_in_flight() {
+                    return Err(HostError::Other(
+                        "a run is in flight; a sandbox switch would take its VM away".into(),
+                    ));
+                }
+                // ③④⑤ Everything checkable, before anything is stopped: the QEMU and
+                // the toolchain (`sandbox_check`), then the kernel.
+                self.sandbox_check(&def)?;
+                let kernel = match &def.kernel {
+                    Some(path) => path.clone(),
+                    None => self.resume_kernel().map_err(|e| {
+                        HostError::SandboxKernelMissing(format!(
+                            "the definition pins none and the workspace has none: {}",
+                            e.user_message()
+                        ))
+                    })?,
+                };
 
-            // ⑦ A fresh VM on fresh ports, up to three times: the lease narrows
-            // the window on a port race and the retry covers what is left — the
-            // same shape `tool_start_vm` uses (`agent/src/tools.rs`).
-            const START_ATTEMPTS: usize = 3;
-            let mut last_error = String::from("unknown error");
-            for attempt in 1..=START_ATTEMPTS {
-                let mut leases = sandbox::relay::lease_local_ports(2)
-                    .map_err(|e| HostError::Other(e.to_string()))?;
-                let mut serial_lease = leases.pop().expect("two leases were requested");
-                let mut qmp_lease = leases.pop().expect("two leases were requested");
-                let config = VMConfig {
-                    kernel: kernel.clone(),
-                    memory_mb: def.memory_mb.unwrap_or(agent::VM_MEMORY_MB),
-                    qmp: QmpEndpoint::tcp("127.0.0.1", qmp_lease.port()),
-                    serial: SerialEndpoint::tcp("127.0.0.1", serial_lease.port()),
-                    snapshot_dir: self.snapshot_dir(),
-                    serial_observer: Some(agent::tools::serial_observer_for(Arc::clone(
-                        &self.serial_senders,
-                    ))),
-                    // A switch boots fresh: it is not a restore (F2b decision 3 —
-                    // resuming a snapshot stays its own action).
-                    incoming_snapshot: None,
-                    incoming_relay_addr: None,
-                    // The definition's QEMU wins, then the host's manual one.
-                    qemu_exe: def.qemu_exe.clone().or_else(|| self.manual_qemu_path()),
-                };
-                let mut vm = match RiscVVirtualMachine::new(config, Arc::clone(&self.sink)) {
-                    Ok(vm) => vm,
-                    Err(e) => {
-                        last_error = format!("attempt {attempt}: {e}");
-                        std::thread::sleep(std::time::Duration::from_millis(150));
-                        continue;
-                    }
-                };
-                // Last moment: hand the ports over to QEMU.
-                qmp_lease.hand_off();
-                serial_lease.hand_off();
-                match vm.start() {
-                    Ok(()) => {
-                        // ⑧ A VM that started *is* the switch; adopt it, then the name.
-                        *self
-                            .vm_slot
-                            .lock()
-                            .map_err(|_| HostError::Other("vm slot poisoned".into()))? = Some(vm);
-                        self.clear_vm_started();
-                        self.mark_vm_started();
-                        if let Ok(mut slot) = self.current_sandbox.lock() {
-                            *slot = Some(name.to_string());
+                // ⑥ Only now is the running VM touched.
+                self.stop_current_vm()?;
+
+                // ⑦ A fresh VM on fresh ports, up to three times: the lease narrows
+                // the window on a port race and the retry covers what is left — the
+                // same shape `tool_start_vm` uses (`agent/src/tools.rs`).
+                const START_ATTEMPTS: usize = 3;
+                let mut last_error = String::from("unknown error");
+                for attempt in 1..=START_ATTEMPTS {
+                    let mut leases = sandbox::relay::lease_local_ports(2)
+                        .map_err(|e| HostError::Other(e.to_string()))?;
+                    let mut serial_lease = leases.pop().expect("two leases were requested");
+                    let mut qmp_lease = leases.pop().expect("two leases were requested");
+                    let config = VMConfig {
+                        kernel: kernel.clone(),
+                        memory_mb: def.memory_mb.unwrap_or(agent::VM_MEMORY_MB),
+                        qmp: QmpEndpoint::tcp("127.0.0.1", qmp_lease.port()),
+                        serial: SerialEndpoint::tcp("127.0.0.1", serial_lease.port()),
+                        snapshot_dir: self.snapshot_dir(),
+                        serial_observer: Some(agent::tools::serial_observer_for(Arc::clone(
+                            &self.serial_senders,
+                        ))),
+                        // A switch boots fresh: it is not a restore (F2b decision 3 —
+                        // resuming a snapshot stays its own action).
+                        incoming_snapshot: None,
+                        incoming_relay_addr: None,
+                        // The definition's QEMU wins, then the host's manual one.
+                        qemu_exe: def.qemu_exe.clone().or_else(|| self.manual_qemu_path()),
+                    };
+                    let mut vm = match RiscVVirtualMachine::new(config, Arc::clone(&self.sink)) {
+                        Ok(vm) => vm,
+                        Err(e) => {
+                            last_error = format!("attempt {attempt}: {e}");
+                            std::thread::sleep(std::time::Duration::from_millis(150));
+                            continue;
                         }
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        last_error = format!("attempt {attempt}: {e}");
-                        std::thread::sleep(std::time::Duration::from_millis(150));
+                    };
+                    // Last moment: hand the ports over to QEMU.
+                    qmp_lease.hand_off();
+                    serial_lease.hand_off();
+                    match vm.start() {
+                        Ok(()) => {
+                            // ⑧ A VM that started *is* the switch; adopt it, then the name.
+                            *self
+                                .vm_slot
+                                .lock()
+                                .map_err(|_| HostError::Other("vm slot poisoned".into()))? =
+                                Some(vm);
+                            self.clear_vm_started();
+                            self.mark_vm_started();
+                            if let Ok(mut slot) = self.current_sandbox.lock() {
+                                *slot = Some(name.to_string());
+                            }
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            last_error = format!("attempt {attempt}: {e}");
+                            std::thread::sleep(std::time::Duration::from_millis(150));
+                        }
                     }
                 }
-            }
-            // ⑨ The slot is released by the caller. The node is stopped, not
-            // half-switched: the last handle was dropped and killed its child.
-            Err(HostError::Other(format!(
-                "sandbox switch to {name:?} failed after {START_ATTEMPTS} attempts: {last_error}"
-            )))
+                // ⑨ The slot is released by the caller. The node is stopped, not
+                // half-switched: the last handle was dropped and killed its child.
+                Err(HostError::SandboxStart(format!(
+                    "switch to {name:?} failed after {START_ATTEMPTS} attempts: {last_error}"
+                )))
+            })();
+
+            self.finish_sandbox_switch();
+            switched
         })();
 
-        self.finish_sandbox_switch();
+        // One event per attempt, either way (F2b-2). A client that sees `ok: false`
+        // reads `reason`; nothing else changes hands here.
+        let reason = outcome.as_ref().err().map(|e| e.user_message());
+        emitter.emit(
+            EV_SANDBOX_SWITCH,
+            crate::events::sandbox_switch_payload(
+                from.as_deref(),
+                name,
+                outcome.is_ok(),
+                reason.as_deref(),
+            ),
+        );
         outcome
     }
 

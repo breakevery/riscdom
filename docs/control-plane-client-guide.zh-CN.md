@@ -47,10 +47,10 @@ curl -sS http://127.0.0.1:7821/v0/status
 
 认证与授权是两个决定。`401` 表示服务端不接受该凭证；`403` 表示它接受了，但它解析出的 actor 不被允许做**这件事**。
 
-每个端点要求一个 capability，名字见 API 文档 §5 表格——共 29 个，例如 `agent.run`、`audit.read`、`runs.control`、`settings.write`、`vm.control`。服务端在运行处理器前检查，客户端因此可以事先规划，而不是撞上才知道：
+每个端点要求一个 capability，名字见 API 文档 §5 表格——共 30 个，例如 `agent.run`、`audit.read`、`runs.control`、`settings.write`、`vm.control`。服务端在运行处理器前检查，客户端因此可以事先规划，而不是撞上才知道：
 
 ```bash
-# token 持有者持有全部 29 项，此调用成功。
+# token 持有者持有全部 30 项，此调用成功。
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7821/v0/status \
   -H "Authorization: Bearer $RISCDOM_TOKEN"
 # 200
@@ -331,7 +331,7 @@ curl -sS -N http://127.0.0.1:7821/v0/events \
 
 ## 6. 控制端点
 
-29 个 `POST` 端点，即 API 表的 §5.2。它们全部需要 token（这正是引入它们的那一批的要点：其中包含破坏性操作）。
+29 个 `POST` 端点，即 API 表的 §5.2（外加下面的沙箱切换）。它们全部需要 token（这正是引入它们的那一批的要点：其中包含破坏性操作）。
 
 ```bash
 # 跑一轮 agent。进度以 `agent:*` 事件抵达事件流。
@@ -340,6 +340,16 @@ curl -sS -X POST http://127.0.0.1:7821/v0/agent/run \
   -d '{"user_input":"compile the blink example"}'
 
 # 会话。
+# 把本节点切到另一个沙箱定义。校验发生在动到正在跑的 VM 之前，应答会说明来自哪里：
+curl -sS -X POST http://127.0.0.1:7821/v0/sandboxes/switch \
+  -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"blink"}'
+# {"from":null,"to":"blink"}
+
+# 它会以什么理由拒绝：没有这个名字的定义（`404`，`cause: "name"`）；运行中切换（`409`，
+# `cause: "run"`）；另一次切换进行中（`409`，`cause: "sandbox"`）；定义不能跑（`503`，`cause`
+# 就是原因码）；或者 VM 起不来（`500`，`cause: "sandbox_start_failed"`——此时节点是已停，不是半切换）。
+
 curl -sS -X POST http://127.0.0.1:7821/v0/sessions/create \
   -H "Authorization: Bearer $RISCDOM_TOKEN" -H 'Content-Type: application/json' \
   -d '{"title":"blink"}'
@@ -414,6 +424,7 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # 对着已经跑�
 | `riscdom audit events [--limit <n>]` | `GET /v0/audit/events` |
 | `riscdom snapshots list` | `GET /v0/snapshots` |
 | `riscdom sandboxes list` / `current` / `candidates` / `show <name>` | `GET /v0/sandboxes` / `/v0/sandboxes/current` / `/v0/sandboxes/candidates` / `/v0/sandboxes/<name>` |
+| `riscdom sandboxes switch <name>` | `POST /v0/sandboxes/switch` |
 | `riscdom run <task>` | `POST /v0/agent/run` |
 | `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |
 | `riscdom snapshots save` / `resume` / `delete <name>` | `POST /v0/snapshots/save` / `resume` / `delete` |
@@ -443,6 +454,10 @@ riscdom sandboxes list
 riscdom sandboxes current          # 只要那两个名字
 riscdom sandboxes show blink       # 一个定义，一行一个字段
 riscdom sandboxes candidates       # 这台机器上装了什么（原始扫描）
+
+# 切换会先问（它会停掉正在跑的 VM，且运行中拒绝）；`--yes` 提前回答，非终端 stdin 必须给。
+riscdom sandboxes switch blink --yes
+# switched to blink
 
 # 配置模型；key 从文件来，所以不会落进 `ps`。
 riscdom llm set --api-key-file ~/.riscdom/api-key \
@@ -482,7 +497,7 @@ riscdom toolchain download --wait
 - **`--api-key` 会像 `--token` 一样警告**（会落入 shell history 与 `ps`）；`--api-key-file`
   是更该用的形状，`--remember` 才让 key 活过重启（宿主把它存进操作系统凭据存储）。
 - **销毁类命令先问**（`vm stop`、`snapshots resume`、`snapshots delete`、`sessions delete`、
-  `sessions clear-all`、`llm clear`、`qemu clear`、`toolchain clear`）：终端上弹提示，`--yes`
+  `sessions clear-all`、`llm clear`、`qemu clear`、`toolchain clear`、`sandboxes switch`）：终端上弹提示，`--yes`
   提前回答；stdin 不是终端时直接拒绝（退出码 `2`）——脚本必须显式写 `--yes`。
 - **退出码**把 §4 的状态码变成脚本可分叉的东西：`0` 成功、`1` 本地失败（连不上、没有 token）、`2` 用法或 `400`、`3` 被拒或 `5xx`、`4` `401`/`403`（认证与授权；workspace 策略拒绝的路径属于上面的 `400`，故为退出码 `2`）。
 - **token**：本地模式取自 `<data-dir>/token`；远程模式按 `--token-file`、`RISCDOM_TOKEN`、`--token` 的顺序取。从不被打印。

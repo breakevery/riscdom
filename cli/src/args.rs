@@ -26,6 +26,9 @@ read-only commands:
   sandboxes current             the definition a run would use, and the fallback
   sandboxes candidates          what is installed on this machine (the raw scan)
   sandboxes show <name>         one definition (`GET /v0/sandboxes/<name>`)
+  sandboxes switch <name>       switch this node to that definition (asks first:
+                                the running VM is stopped and started again)
+                                (`POST /v0/sandboxes/switch`)
 
 control commands:
   run <task> [--follow]         run one agent turn; --follow prints the event
@@ -136,6 +139,10 @@ pub enum Command {
     SandboxesCurrent,
     SandboxesCandidates,
     SandboxesShow {
+        name: String,
+    },
+    /// The one sandbox write: switch this node to another definition (F2b-2).
+    SandboxesSwitch {
         name: String,
     },
     // ---- control ----
@@ -259,6 +266,7 @@ impl Command {
             Command::SandboxesShow { name } => {
                 format!("/v0/sandboxes/{}", url_encode(name))
             }
+            Command::SandboxesSwitch { .. } => "/v0/sandboxes/switch".to_string(),
             Command::Run { .. } => "/v0/agent/run".to_string(),
             Command::VmStop => "/v0/vm/stop".to_string(),
             Command::VmStart => "/v0/vm/start".to_string(),
@@ -347,6 +355,7 @@ impl Command {
                 Some(body)
             }
             Command::LlmLoadKey { provider_id } => Some(json!({ "provider_id": provider_id })),
+            Command::SandboxesSwitch { name } => Some(json!({ "name": name })),
             Command::QemuPath { path } | Command::ToolchainPath { path } => {
                 Some(json!({ "path": path }))
             }
@@ -365,6 +374,11 @@ impl Command {
             // Restoring stops the current VM first, so it interrupts like `vm stop`.
             Command::SnapshotsResume { name } => Some(format!(
                 "Resume from snapshot {name:?}? The current VM is stopped first."
+            )),
+            // A switch stops the running VM too, and refuses while a run is in
+            // flight — same family as `vm stop`.
+            Command::SandboxesSwitch { name } => Some(format!(
+                "Switch this node's sandbox to {name:?}? The running VM is stopped and started again."
             )),
             Command::SnapshotsDelete { name } => Some(format!("Delete snapshot {name:?}?")),
             Command::SessionsDelete { session_id } => {
@@ -547,6 +561,9 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
         (Some("sandboxes"), Some("show"), Some(name), None) => Some(Command::SandboxesShow {
             name: name.to_string(),
         }),
+        (Some("sandboxes"), Some("switch"), Some(name), None) => Some(Command::SandboxesSwitch {
+            name: name.to_string(),
+        }),
         (Some("run"), Some(task), None, None) => Some(Command::Run {
             task: task.to_string(),
         }),
@@ -645,6 +662,9 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
         }
         (Some("qemu"), Some(other), _) => Err(format!("unknown qemu subcommand {other:?}")),
         (Some("sandboxes"), Some("show"), None) => Err("sandboxes show needs a <name>".to_string()),
+        (Some("sandboxes"), Some("switch"), None) => {
+            Err("sandboxes switch needs a <name>".to_string())
+        }
         (Some("sandboxes"), Some(other), _) => {
             Err(format!("unknown sandboxes subcommand {other:?}"))
         }
@@ -1514,6 +1534,39 @@ mod tests {
             .request_path(),
             "/v0/sandboxes/blink"
         );
+        // The switch is the family's one write: `POST`, a body, and a question.
+        assert_eq!(
+            command(&["sandboxes", "switch", "blink"]),
+            Command::SandboxesSwitch {
+                name: "blink".to_string()
+            }
+        );
+        assert_eq!(
+            Command::SandboxesSwitch {
+                name: "blink".into()
+            }
+            .method(),
+            "POST"
+        );
+        assert_eq!(
+            Command::SandboxesSwitch {
+                name: "blink".into()
+            }
+            .request_path(),
+            "/v0/sandboxes/switch"
+        );
+        assert_eq!(
+            Command::SandboxesSwitch {
+                name: "blink".into()
+            }
+            .body(),
+            Some(serde_json::json!({ "name": "blink" }))
+        );
+        assert!(Command::SandboxesSwitch {
+            name: "blink".into()
+        }
+        .confirmation()
+        .is_some());
         // A name is percent-encoded like a run id, so a slash cannot escape the
         // one segment the route matches on.
         assert_eq!(
@@ -1530,6 +1583,7 @@ mod tests {
         for args in [
             vec!["sandboxes"],
             vec!["sandboxes", "show"],
+            vec!["sandboxes", "switch"],
             vec!["sandboxes", "nope"],
             vec!["sandboxes", "list", "extra"],
         ] {

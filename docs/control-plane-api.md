@@ -16,13 +16,14 @@ from the control plane; the audit chain tells them apart by `agent_id`. Building
 control channels instead of one is the mistake this design exists to avoid.
 
 **Implementation status (v0.9).** Everything in §5 is implemented — the 31 query
-endpoints of §5.1, the 29 controls of §5.2, the host-local endpoints of §5.3, the error
+endpoints of §5.1, the 30 controls of §5.2, the host-local endpoints of §5.3, the error
 model of §4, the event envelope with `Last-Event-ID` replay and `gap` frames, and the
 bearer token of §3. Only two routes are reserved: `/v0/resources` (§6, G3) and
 `POST /v0/vm/start` (§6, G1), and both say so with `501`. Capability enforcement (§3) is in: every served
 route declares exactly one capability and the server refuses with `403` when the actor
 does not hold it. **Every capability in the vocabulary has at least one route**: the
-29th, `sandbox.read`, is served by the four sandbox queries below.
+29th, `sandbox.read`, is served by the four sandbox queries below, and the 30th,
+`sandbox.switch`, by the switch on the same surface.
 
 ## 1. Position and protocol
 
@@ -96,9 +97,9 @@ pub struct Actor {
   its capability, so there is no route that silently skips the check.
 - **Default deny.** An actor is refused unless it positively holds what the route asks for;
   an actor with an empty set can reach nothing. "No capability" is not expressible.
-- **The vocabulary is the 29 names in the §5 tables** (`agent.run`, `audit.read`,
+- **The vocabulary is the 30 names in the §5 tables** (`agent.run`, `audit.read`,
   `runs.control`, `settings.write`, …). v0.9 ships two actor shapes: the token holder
-  (`operator`, `human`) holds all 29, and the `--no-auth` default holds the same set, so
+  (`operator`, `human`) holds all 30, and the `--no-auth` default holds the same set, so
   both behave identically once past the hook. A `403` therefore only comes from a hook
   that returns a narrower actor. Per-capability tokens are v1.0 work; the set is the shape
   they will fill in.
@@ -201,7 +202,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/sandboxes/candidates` | GET | `sandbox.read` | — | `CandidatesView` | `sandbox_candidates` |
 | `/v0/sandboxes/{name}` | GET | `sandbox.read` | path: `name` | `SandboxView`, or `404` | `get_sandbox` |
 
-### 5.2 Controls (29) — implemented in v0.9 batch 4, extended by sandbox F1
+### 5.2 Controls (30) — implemented in v0.9 batch 4, extended by sandbox F1 and F2b-2
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
@@ -234,6 +235,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/llm/stored-key/load` | POST | `llm.configure` | `{ "provider_id": string }` | `204 No Content` | `load_stored_key` |
 | `/v0/llm/config/clear` | POST | `llm.configure` | — | `204 No Content` | `clear_llm_config` |
 | `/v0/serial/export` | POST | `serial.export` | `{ "path": string }` | `{ "bytes_written": number }` | `export_serial_log` |
+| `/v0/sandboxes/switch` | POST | `sandbox.switch` | `{ "name": string }` | `{ "from": string \| null, "to": string }`, or `404` / `409` / `503` / `500` (see the note below) | `switch_sandbox` |
 
 Response shapes named above are the `host-core` view types (`host-core/src/state.rs`); a client
 may read their fields directly from that file. `AgentOutcomeView` is
@@ -290,13 +292,25 @@ the tables above. They are part of this document's surface all the same.
   **stays in the list, marked**. `/v0/sandboxes/candidates` answers the raw scan instead
   (the two independent lists), and nothing there is a definition. `/v0/sandboxes/{name}`
   is a `404` naming the parameter when no definition has that name; the literal sub-paths
-  (`current`, `candidates`, and the three the rest of the F2 line reserves — `requests`,
-  `switch`, `assemble`) are never read as a name. Switching is F2b; these routes cannot
+  (`current`, `candidates`, and the two the rest of the F2 line reserves — `requests`,
+  `assemble`) are never read as a name. The switch is a route of its own now (`POST`,
+  declared above), so a `GET` on it is a `405`.
   change anything.
+- **The sandbox switch answers a status per reason** (v0.9 sandbox F2b-2). `POST
+  /v0/sandboxes/switch` is the one write on the sandbox surface, and it is synchronous:
+  validation, a stop, a start. Its answers are chosen so a client branches on a name, not on
+  a sentence: `200` with `{from, to}` when a new sandbox is running; `404 not_found` with
+  `cause: "name"` when no definition has that name (the same answer the name route gives);
+  `409 conflict` with `cause: "run"` while a run is in flight (the switch would take the VM
+  the loop is using) and with `cause: "sandbox"` while another switch is in progress;
+  `503 unavailable` with `cause` set to the reason code (`sandbox_qemu_missing`,
+  `sandbox_toolchain_missing`, `sandbox_kernel_missing`) when the definition cannot run; and
+  `500 internal` with `cause: "sandbox_start_failed"` when every check passed and the VM
+  still would not start — in which case the node is **stopped**, not half-switched.
 - **Capabilities are declared and enforced.** Every route names its capability in the
   route table and the server checks it against the actor the hook returned before the
   handler runs; a missing capability is `403 forbidden` with `cause: "capability"` (§3).
-  Under the v0.9 default every actor holds all 29, so a `403` can only come from a hook
+  Under the v0.9 default every actor holds all 30, so a `403` can only come from a hook
   that returns a narrower actor.
 - **Parameters.** A required parameter that is missing or unparsable is `400 bad_request`
   with `cause` set to the parameter's name. `limit` is required where the host command

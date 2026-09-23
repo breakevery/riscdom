@@ -62,7 +62,8 @@ listen on a public interface unless you tell it to.
 | `/v0/runs`, `/v0/sessions`, `/v0/snapshots`, `/v0/llm/…`, `/v0/preflight`, `/v0/serial` | GET | The rest of the query surface: see the API document's §5.1. |
 | `/v0/sandboxes`, `/v0/sandboxes/current`, `/v0/sandboxes/candidates` | GET | The sandbox registry (`sandbox.read`): the merged list with its `current` / `default`, or the raw scan. |
 | `/v0/sandboxes/{name}` | GET | One definition (`SandboxView`), or `404` naming the parameter. |
-| `/v0/sessions/create`, `/v0/settings/theme`, … | POST | The 29 controls of §5.2: sessions, snapshots, VM, toolchain, QEMU, preflight, LLM config, exports. |
+| `/v0/sandboxes/switch` | POST | Switch this node to another definition (`sandbox.switch`): `200` with `{from, to}`, or `404` / `409` / `503` / `500` with a `cause` naming the reason. |
+| `/v0/sessions/create`, `/v0/settings/theme`, … | POST | The 30 controls of §5.2: sessions, snapshots, VM, toolchain, QEMU, sandboxes, preflight, LLM config, exports. |
 
 `/v0/qemu/download` is the one path in the QEMU family served under both methods: `GET` asks
 whether a download is running, `POST` would start one. **Today the `POST` answers `503
@@ -127,10 +128,10 @@ ones (delete a session, stop the VM, change the LLM configuration).
 
 **What a credential may do.** Authentication and permission are separate decisions: the
 hook says *who* the caller is, and the server decides what that actor may do. Every route
-declares exactly one capability — the 29 names in the API document's §5 tables — and the
+declares exactly one capability — the 30 names in the API document's §5 tables — and the
 server checks it before the handler runs, answering `403 forbidden` with
 `cause: "capability"` when the actor does not hold it. Default deny: an actor with an empty
-set can reach nothing. The token holder holds all 29, and so does `--no-auth`, so in v0.9 a
+set can reach nothing. The token holder holds all 30, and so does `--no-auth`, so in v0.9 a
 `403` only comes from a custom hook that returns a narrower actor.
 
 The hook is the `Authn` trait, so a distribution can install its own. Refusals map into the

@@ -49,7 +49,8 @@ riscdom-server --bind 127.0.0.1:7821 --workspace ./my-workspace
 | `/v0/runs`、`/v0/sessions`、`/v0/snapshots`、`/v0/llm/…`、`/v0/preflight`、`/v0/serial` | GET | 查询面其余部分：见 API 文档 §5.1。 |
 | `/v0/sandboxes`、`/v0/sandboxes/current`、`/v0/sandboxes/candidates` | GET | 沙箱注册表（`sandbox.read`）：合并后的列表及其 `current` / `default`，或原始扫描。 |
 | `/v0/sandboxes/{name}` | GET | 一个定义（`SandboxView`），或 `404` 并在 `cause` 指出参数。 |
-| `/v0/sessions/create`、`/v0/settings/theme` 等 | POST | §5.2 的 29 个控制端点：会话、快照、VM、工具链、QEMU、预检、LLM 配置、导出。 |
+| `/v0/sandboxes/switch` | POST | 把本节点切到另一个定义（`sandbox.switch`）：`200` 带 `{from, to}`，或 `404` / `409` / `503` / `500`，`cause` 指出原因。 |
+| `/v0/sessions/create`、`/v0/settings/theme` 等 | POST | §5.2 的 30 个控制端点：会话、快照、VM、工具链、QEMU、沙箱、预检、LLM 配置、导出。 |
 
 `/v0/qemu/download` 是 QEMU 家族里唯一条两种方法都服务的路径：`GET` 问是否在下载，`POST` 则
 会发起一次。**今天 `POST` 答 `503 unavailable` 并附安装指引**：RiscDom 引导用户自己安装
@@ -102,7 +103,7 @@ curl -sS http://127.0.0.1:7821/v0/health \
 
 token **从不被打印或记入日志**；启动行只报文件路径，不报值。运维也可以自行放置该文件而不接受自动生成。`--no-auth` 取消该要求并打印警告——控制端点里含破坏性操作（删除会话、停止 VM、修改 LLM 配置）。
 
-**一份凭证能做什么。** 认证与授权是两个决定：钩子回答**调用者是谁**，服务端决定这个 actor 能做什么。每条路由恰好声明一个 capability——就是 API 文档 §5 表格里的 29 个名字——服务端在处理器运行前检查，actor 不持有时回 `403 forbidden`，`cause` 为 `"capability"`。默认拒绝：空集合的 actor 什么也到不了。token 持有者持有全部 29 项，`--no-auth` 也一样，故 v0.9 里 `403` 只来自返回更窄 actor 的自定义钩子。
+**一份凭证能做什么。** 认证与授权是两个决定：钩子回答**调用者是谁**，服务端决定这个 actor 能做什么。每条路由恰好声明一个 capability——就是 API 文档 §5 表格里的 30 个名字——服务端在处理器运行前检查，actor 不持有时回 `403 forbidden`，`cause` 为 `"capability"`。默认拒绝：空集合的 actor 什么也到不了。token 持有者持有全部 30 项，`--no-auth` 也一样，故 v0.9 里 `403` 只来自返回更窄 actor 的自定义钩子。
 
 钩子是 `Authn` trait，发行版可装入自己的实现。拒绝按错误模型映射：`401 unauthorized`（无凭证或凭证错误）、`403 forbidden`（已认证但不被允许）。
 

@@ -34,7 +34,7 @@ pub mod toolchain_download;
 
 pub use dispatch::{local_dispatcher, HostAgentHandle};
 pub use error::HostError;
-pub use events::{EventSink, EV_PREFLIGHT};
+pub use events::{EventSink, EV_PREFLIGHT, EV_SANDBOX_SWITCH};
 pub use executor::{StdioExecutorHandle, DEFAULT_EXECUTOR_TIMEOUT};
 pub use keyring::{KeyringBackend, OsKeyring, SERVICE};
 pub use preflight::{PreflightCache, PreflightRow, PreflightView};

@@ -87,6 +87,7 @@ pub fn run() {
             host_tauri::commands::current_sandbox,
             host_tauri::commands::sandbox_candidates,
             host_tauri::commands::get_sandbox,
+            host_tauri::commands::switch_sandbox,
             host_tauri::commands::run_agent,
             host_tauri::commands::get_workspace_files,
             host_tauri::commands::read_workspace_file,

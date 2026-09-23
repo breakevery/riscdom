@@ -12,7 +12,7 @@ use server::{
 };
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -56,6 +56,14 @@ fn start_server_with_two_sinks(
     authn: Arc<dyn Authn>,
 ) -> (SocketAddr, HttpEventSink, HttpEventSink, PathBuf) {
     let workspace = temp_workspace("smoke");
+    let (addr, first, second) = serve(workspace.clone(), authn);
+    (addr, first, second, workspace)
+}
+
+/// Serve one workspace on an ephemeral port, keeping the runtime driven on a
+/// thread. Split out of [`start_server_with_two_sinks`] so a test can seed the
+/// workspace (a hand-written sandbox definition, say) before the host reads it.
+fn serve(workspace: PathBuf, authn: Arc<dyn Authn>) -> (SocketAddr, HttpEventSink, HttpEventSink) {
     let app = Arc::new(AppState::in_memory(&workspace).expect("in-memory state"));
     let cfg = ServerConfig::new("127.0.0.1:0".parse().expect("addr"))
         .with_heartbeat(None)
@@ -76,7 +84,33 @@ fn start_server_with_two_sinks(
     std::thread::spawn(move || {
         runtime.block_on(std::future::pending::<()>());
     });
-    (addr, first, second, workspace)
+    (addr, first, second)
+}
+
+/// Write `settings.json` into a workspace, before a state reads it.
+fn write_settings(workspace: &Path, settings: serde_json::Value) {
+    let dir = workspace.join(".riscdom");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    std::fs::write(
+        dir.join("settings.json"),
+        serde_json::to_string_pretty(&settings).expect("serde"),
+    )
+    .expect("settings");
+}
+
+/// A runnable binary that is not the tool it pretends to be (`<path> --version`
+/// exits 0), the same stand-in `tests/qemu_injection.rs` uses.
+fn a_runnable_binary(dir: &Path, name: &str) -> PathBuf {
+    let path = dir.join(name);
+    #[cfg(target_os = "windows")]
+    {
+        std::fs::copy(r"C:\Windows\System32\cmd.exe", &path).expect("copy cmd.exe");
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::fs::copy("/bin/echo", &path).expect("copy echo");
+    }
+    path
 }
 
 /// One request, read to the end of the response (every request asks to close).
@@ -87,9 +121,31 @@ fn call(
     credential: &str,
     body: Option<&str>,
 ) -> (u16, String) {
+    call_with(
+        addr,
+        method,
+        path,
+        credential,
+        body,
+        Duration::from_secs(20),
+    )
+}
+
+/// The same, with the read timeout spelled out.
+///
+/// A sandbox switch that has to fail through three start attempts takes longer
+/// than the default: the answer is the point of the test, so it waits for it.
+fn call_with(
+    addr: SocketAddr,
+    method: &str,
+    path: &str,
+    credential: &str,
+    body: Option<&str>,
+    read_timeout: Duration,
+) -> (u16, String) {
     let mut stream = TcpStream::connect(addr).expect("connect");
     stream
-        .set_read_timeout(Some(Duration::from_secs(20)))
+        .set_read_timeout(Some(read_timeout))
         .expect("read timeout");
     let auth = if credential.is_empty() {
         String::new()
@@ -135,6 +191,13 @@ fn get(addr: SocketAddr, path: &str) -> (u16, serde_json::Value) {
 /// A `POST` with a JSON body, answered as JSON.
 fn post(addr: SocketAddr, path: &str, body: &str) -> (u16, serde_json::Value) {
     let (status, raw) = call(addr, "POST", path, "", Some(body));
+    let json = serde_json::from_str(&raw).unwrap_or_else(|e| panic!("{path} is JSON ({e}): {raw}"));
+    (status, json)
+}
+
+/// A `POST` that is allowed to take longer than the default read timeout.
+fn post_patient(addr: SocketAddr, path: &str, body: &str) -> (u16, serde_json::Value) {
+    let (status, raw) = call_with(addr, "POST", path, "", Some(body), Duration::from_secs(90));
     let json = serde_json::from_str(&raw).unwrap_or_else(|e| panic!("{path} is JSON ({e}): {raw}"));
     (status, json)
 }
@@ -334,7 +397,9 @@ fn a_sandbox_name_is_a_path_parameter_and_a_literal_sub_path_is_not() {
     for (path, want) in [
         ("/v0/sandboxes/current", 200),
         ("/v0/sandboxes/candidates", 200),
-        ("/v0/sandboxes/switch", 404),
+        // `switch` is a route of its own now (v0.9 sandbox F2b-2): `POST`-only, so
+        // a `GET` is a `405` and never a definition that happens to be called that.
+        ("/v0/sandboxes/switch", 405),
         ("/v0/sandboxes/assemble", 404),
         ("/v0/sandboxes/requests", 404),
     ] {
@@ -355,6 +420,81 @@ fn a_sandbox_read_without_the_capability_is_403() {
     let (status, body) = get(addr, "/v0/sandboxes");
     assert_eq!(status, 403, "{body}");
     assert_eq!(body["code"], "forbidden");
+}
+
+#[test]
+fn a_sandbox_switch_without_the_capability_is_403() {
+    // The write next to those reads: refused by the server before the handler runs
+    // (v0.9 sandbox F2b-2).
+    let (addr, _sink, _ws) = start_server(Arc::new(RefuseAll));
+    let (status, body) = post(addr, "/v0/sandboxes/switch", r#"{"name":"default"}"#);
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["code"], "forbidden");
+}
+
+#[test]
+fn the_sandbox_switch_answers_each_failure_with_its_own_status_and_cause() {
+    // `404`: no definition by that name — the caller's parameter, the same answer
+    // the name route next door gives.
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let (status, body) = post(
+        addr,
+        "/v0/sandboxes/switch",
+        r#"{"name":"no-such-sandbox"}"#,
+    );
+    assert_eq!(status, 404, "{body}");
+    assert_eq!(body["cause"], "name");
+
+    // `503`: a definition that cannot run — the environment, with the reason code
+    // as `cause` so a client branches on a name.
+    let workspace = temp_workspace("switch-validation");
+    let missing = workspace.join("no-qemu-here");
+    write_settings(
+        &workspace,
+        serde_json::json!({
+            "version": 1,
+            "sandboxes": [{ "name": "broken", "qemu_exe": missing.display().to_string() }]
+        }),
+    );
+    let (addr, _first, _second) = serve(workspace, Arc::new(NoAuth));
+    let (status, body) = post(addr, "/v0/sandboxes/switch", r#"{"name":"broken"}"#);
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(body["cause"], "sandbox_qemu_missing");
+
+    // `500`, and `409` while it runs: the stand-in is not QEMU, so the switch
+    // passes every check and then spends three serial-connect timeouts failing to
+    // start — which is the window a second request is refused in.
+    let workspace = temp_workspace("switch-slow");
+    let stand_in = a_runnable_binary(&workspace, "stand-in-qemu");
+    let gcc = workspace.join("pinned-gcc");
+    let kernel = workspace.join("guest.elf");
+    std::fs::write(&gcc, b"not really a compiler").expect("write");
+    std::fs::write(&kernel, b"not really a kernel").expect("write");
+    write_settings(
+        &workspace,
+        serde_json::json!({
+            "version": 1,
+            "sandboxes": [{
+                "name": "stand-in",
+                "qemu_exe": stand_in.display().to_string(),
+                "toolchain_path": gcc.display().to_string(),
+                "kernel": kernel.display().to_string()
+            }]
+        }),
+    );
+    let (addr, _first, _second) = serve(workspace, Arc::new(NoAuth));
+    let slow = std::thread::spawn(move || {
+        post_patient(addr, "/v0/sandboxes/switch", r#"{"name":"stand-in"}"#)
+    });
+    // Long enough that the first switch is inside its start attempt (the slot is
+    // claimed before any of that happens), short enough not to wait for it.
+    std::thread::sleep(Duration::from_millis(700));
+    let (status, body) = post(addr, "/v0/sandboxes/switch", r#"{"name":"stand-in"}"#);
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["cause"], "sandbox");
+    let (status, body) = slow.join().expect("the first switch answers");
+    assert_eq!(status, 500, "{body}");
+    assert_eq!(body["cause"], "sandbox_start_failed");
 }
 
 // ---------------------------------------------------------------------------
@@ -946,6 +1086,10 @@ fn the_capability_of_each_route_reaches_the_hook() {
         let (status, body) = get(addr, path);
         assert_eq!(status, 200, "{path}: {body}");
     }
+    // The switch route too: an unknown name answers `404`, and the hook still saw
+    // what the route asked for.
+    let (status, body) = post(addr, "/v0/sandboxes/switch", r#"{"name":"no-such"}"#);
+    assert_eq!(status, 404, "{body}");
     let (status, _) = call(addr, "POST", "/v0/sessions/clear", "", Some("{}"));
     assert_eq!(status, 204);
 
@@ -956,6 +1100,7 @@ fn the_capability_of_each_route_reaches_the_hook() {
         Capability::HealthRead,
         Capability::SessionWrite,
         Capability::SandboxRead,
+        Capability::SandboxSwitch,
     ] {
         assert!(seen.contains(&expected), "{expected} in {seen:?}");
     }
@@ -978,6 +1123,7 @@ fn an_actor_without_the_capability_is_refused_with_403() {
         ("GET", "/v0/audit/status", None),
         ("GET", "/v0/health", None),
         ("GET", "/v0/sandboxes", None),
+        ("POST", "/v0/sandboxes/switch", Some(r#"{"name":"any"}"#)),
         ("POST", "/v0/sessions/clear", Some("{}")),
     ] {
         let (status, raw) = call(addr, method, path, "", body);

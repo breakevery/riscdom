@@ -13,6 +13,29 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The switch has a surface: an event, an endpoint, a capability and a CLI command**
+  (v0.9 sandbox F2b-2). `sandbox:switch` is the thirteenth SSE event — `{from, to, ok,
+  reason}`, emitted once on every exit, success or failure — and `POST /v0/sandboxes/switch`
+  (`capability sandbox.switch`, the 30th) answers a status per reason: `200` with
+  `{from, to}`; `404` with `cause: "name"` (no such definition); `409` with `cause: "run"`
+  (a run is in flight) or `cause: "sandbox"` (a switch is in progress); `503` with the
+  reason code as `cause` (`sandbox_qemu_missing` / `sandbox_toolchain_missing` /
+  `sandbox_kernel_missing`); and `500` with `cause: "sandbox_start_failed"` — the "stopped,
+  not half-switched" case, which became its own `HostError` (`SandboxStart`) so the answer
+  could carry a code. The route answers with the two ends rather than an empty `204`, so a
+  client that only reads the answer still learns what changed. `switch_sandbox` now takes
+  the `EventSink` its caller owns (the route injects an `HttpEventSink`, the Tauri command a
+  `TauriEventSink`; the interface is still not wired — that is the D line), and
+  `sandbox_switch_in_progress()` is the probe the `409` is decided from. The CLI has
+  `sandbox switch <name>` — `sandboxes switch <name>`, in the destructive family: it asks,
+  `--yes` answers up front, a non-terminal stdin is refused (`2`), and the answer prints
+  `switched from <old> to <new>`. **The `events.rs` guard is whole again**:
+  `all_events_are_named` lists all thirteen names and asserts they are unique, so F1's
+  `qemu:download` is no longer missing from it, and `docs/control-plane-events.md` §3 carries
+  thirteen rows. Still open, reported since F2b-1: the *success* path has no hermetic test
+  (a real QEMU and a kernel ELF — the golden path's `--ignored` ticket), and the endpoint's
+  `409 cause: "run"` branch cannot be walked in a test either (a run in flight needs an LLM
+  and a toolchain), so it is guarded at the state level instead.
 - **A node can be switched to another sandbox, validate-before-stop** (v0.9 sandbox
   F2b-1). `AppState::current_sandbox()` became **runtime state** (F2b decision 1, ledger
   §34): `None` until a switch succeeds, never written to `settings.json`, while
@@ -33,10 +56,10 @@ current request authorising it (§2).
   **stopped**, not half-switched (`Drop` kills whatever the failed handle spawned); a
   definition that fails validation leaves the running VM alone. No event, no endpoint, no
   Tauri command, no CLI and no `sandbox:switch` audit row yet — that is F2b-2, together with
-  the capability (29 → 30). Reported, not fixed: the success path has no hermetic test (it
-  needs a real QEMU and a kernel ELF — the golden path's `--ignored` ticket), and the
-  `events.rs` guard `all_eleven_events_are_named` still lists eleven names while the document
-  counts twelve (`qemu:download` is missing from the list).
+  the capability (29 → 30). Reported and now closed in F2b-2: the `events.rs` guard listed
+  eleven names while the document counted twelve (`qemu:download` was missing from it).
+  Still open: the success path has no hermetic test (it needs a real QEMU and a kernel ELF —
+  the golden path's `--ignored` ticket).
 - **A version-less scanned resource is named for the resource, not for a missing version**
   (v0.9 sandbox F2a-3). F2a-1's `format!("{kind}-{version}")` turned the machine's own QEMU
   — which the scan records no version for — into a definition called `qemu--`, and F2a-2
@@ -60,8 +83,8 @@ current request authorising it (§2).
   that is the D line. Four CLI subcommands (`sandboxes list` / `current` / `candidates` /
   `show <name>`) print a table in human mode and pass the JSON through unchanged with
   `--json`. **The gap F2a-1 reported is closed**: §5.1 is 31 queries, the vocabulary is 29
-  names, and every name now has at least one route. Switching is F2b, approval is F2c,
-  `Task.sandbox` is F2d.
+  names, and every name now has at least one route. (Switching landed above, in F2b; approval is
+  F2c, `Task.sandbox` is F2d.)
 - **The sandbox registry exists: definitions, the scan, and the merge** (v0.9 sandbox
   F2a-1). A *sandbox* is now a nameable thing. `host-core/src/sandbox_def.rs` holds
   `SandboxDef` — the **stored** fields `name` / `display_name` / `memory_mb` / `qemu_exe` /

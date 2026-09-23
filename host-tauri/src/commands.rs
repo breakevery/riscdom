@@ -152,6 +152,26 @@ pub async fn get_sandbox(
     Ok(state.sandbox(&name))
 }
 
+/// Switch this node to another sandbox definition (v0.9 sandbox F2b-2).
+///
+/// Blocking, the way a snapshot restore is: validation, a stop and a start are
+/// seconds of work and the outcome is what the caller asked for, so it is not
+/// pushed onto a worker and answered with an acknowledgement. The
+/// `sandbox:switch` event reaches the interface either way; the interface is not
+/// wired to this command in this batch (that is the D line).
+#[tauri::command]
+pub async fn switch_sandbox(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<(), String> {
+    let emitter: Arc<dyn crate::events::EventSink> =
+        Arc::new(TauriEventSink::new(app.clone(), state.agent_id()));
+    state
+        .switch_sandbox(&name, emitter)
+        .map_err(|e| e.user_message())
+}
+
 /// List snapshots on disk (real `.mig` and reboot-fallback `.json`).
 #[tauri::command]
 pub async fn list_snapshots(state: State<'_, AppState>) -> Result<Vec<SnapshotMetaView>, String> {

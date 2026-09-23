@@ -164,6 +164,9 @@ fn a_destructive_command_refuses_without_yes_when_stdin_is_a_pipe() {
         vec!["snapshots", "resume", "nope"],
         vec!["sessions", "delete", "s-1"],
         vec!["sessions", "clear-all"],
+        // A switch stops the running VM and refuses while a run is in flight, so
+        // it is in the same family (v0.9 sandbox F2b-2).
+        vec!["sandboxes", "switch", "blink"],
     ] {
         let output = run("confirm", &args);
         assert_eq!(exit_code(&output), 2, "{args:?}: {}", stderr(&output));
@@ -172,6 +175,20 @@ fn a_destructive_command_refuses_without_yes_when_stdin_is_a_pipe() {
         assert!(text.contains("--yes"), "{args:?}: {text}");
         assert!(stdout(&output).is_empty(), "{args:?} wrote to stdout");
     }
+}
+
+#[test]
+fn a_switch_to_an_unknown_sandbox_is_the_control_planes_404() {
+    // `--yes` gets past the confirmation; the answer is the control plane's, and
+    // the CLI keeps its status-derived exit code (3 — refused or failed).
+    let output = run(
+        "switch-missing",
+        &["--json", "sandboxes", "switch", "no-such-sandbox", "--yes"],
+    );
+    assert_eq!(exit_code(&output), 3, "stderr: {}", stderr(&output));
+    let body = error_body(&output);
+    assert_eq!(body["code"], "not_found", "{body}");
+    assert_eq!(body["cause"], "name", "{body}");
 }
 
 #[test]

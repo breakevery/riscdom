@@ -66,13 +66,22 @@ pub const EV_PREFLIGHT: &str = "preflight:progress";
 /// what can be switched off, the event and its log line cannot.
 pub const EV_AUDIT_FAILED: &str = "audit:failed";
 
+/// A sandbox switch finished — with a new sandbox running, or with a reason it
+/// did not (v0.9 sandbox F2b-2).
+///
+/// The payload is [`sandbox_switch_payload`]: `{from, to, ok, reason}`, where
+/// `from` is the definition that was current before (or `null` when none was) and
+/// `to` is the definition the switch was asked for. One event per attempt, either
+/// way: a client that sees `ok: false` reads `reason` for the code.
+pub const EV_SANDBOX_SWITCH: &str = "sandbox:switch";
+
 /// The envelope schema version (v0.9 line). A payload field added later does not
 /// bump it; a change to a field's meaning, type, or presence does.
 pub const ENVELOPE_VERSION: u32 = 1;
 
 /// The frame kinds of the event stream.
 pub mod kind {
-    /// One of the eleven events; `event` names it.
+    /// One of the thirteen events; `event` names it.
     pub const EVENT: &str = "event";
     /// The stream opened; the payload describes the buffer and the filters.
     pub const HELLO: &str = "hello";
@@ -99,7 +108,7 @@ pub struct Envelope {
     pub version: u32,
     /// [`kind::EVENT`] / [`kind::HELLO`] / [`kind::GAP`].
     pub kind: String,
-    /// One of the eleven event names, or `null` for `hello` / `gap`.
+    /// One of the thirteen event names, or `null` for `hello` / `gap`.
     pub event: Option<String>,
     /// The agent that caused the event, `<device>-<pid>-<seq>`.
     pub agent_id: String,
@@ -145,7 +154,7 @@ pub fn envelope(
     }
 }
 
-/// One of the eleven events, wrapped. The common case: no task identity yet, so
+/// One of the thirteen events, wrapped. The common case: no task identity yet, so
 /// `task_id` is `null`.
 pub fn event_envelope(event: &str, agent_id: &str, payload: Value) -> Envelope {
     envelope(kind::EVENT, Some(event), agent_id, None, payload)
@@ -167,6 +176,26 @@ pub fn vm_state_payload(
         "running": running,
         "since_ms": since_ms,
         "name": name,
+    })
+}
+
+/// The `sandbox:switch` payload.
+///
+/// `from` is the definition that was current before the switch (`null` when the
+/// node had none), `to` is the one it was asked for, `ok` says whether it is
+/// running now, and `reason` carries the code when it is not — the same names the
+/// API's error model uses, so a client reads one vocabulary for both surfaces.
+pub fn sandbox_switch_payload(
+    from: Option<&str>,
+    to: &str,
+    ok: bool,
+    reason: Option<&str>,
+) -> Value {
+    serde_json::json!({
+        "from": from,
+        "to": to,
+        "ok": ok,
+        "reason": reason,
     })
 }
 
@@ -236,7 +265,7 @@ impl EventSink for RecordingEventSink {
 mod tests {
     use super::*;
 
-    /// The envelope every transport puts around the eleven events.
+    /// The envelope every transport puts around the thirteen events.
     fn wrap(event: &str, payload: Value) -> Envelope {
         event_envelope(event, "local-4711-1", payload)
     }
@@ -389,8 +418,10 @@ mod tests {
     }
 
     #[test]
-    fn all_eleven_events_are_named() {
-        // A guard against a name drifting: the doc lists eleven.
+    fn all_events_are_named() {
+        // A guard against a name drifting: the doc lists thirteen. The list was
+        // eleven while `qemu:download` (F1) was missing from it — a guard that
+        // misses an event is not a guard (v0.9 sandbox F2b-2).
         let names = [
             EV_AGENT_ITERATION,
             EV_AGENT_TOOL_CALL,
@@ -403,8 +434,41 @@ mod tests {
             EV_PREFLIGHT,
             EV_AUDIT_FAILED,
             TOOLCHAIN_DOWNLOAD,
+            EV_QEMU_DOWNLOAD,
+            EV_SANDBOX_SWITCH,
         ];
-        assert_eq!(names.len(), 11);
+        assert_eq!(names.len(), 13);
+        // Every name is unique, so a copy-paste cannot hide a missing one.
+        let mut sorted = names.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len(), "{names:?}");
+    }
+
+    #[test]
+    fn sandbox_switch_names_both_ends() {
+        let payload = sandbox_switch_payload(
+            Some("blink"),
+            "scratch",
+            false,
+            Some("sandbox_qemu_missing: not a file"),
+        );
+        assert_eq!(payload["from"], "blink");
+        assert_eq!(payload["to"], "scratch");
+        assert_eq!(payload["ok"], false);
+        assert!(payload["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("sandbox_qemu_missing"));
+
+        // A node with nothing current says so with `null`, not with an empty string.
+        let fresh = sandbox_switch_payload(None, "blink", true, None);
+        assert!(fresh["from"].is_null());
+        assert_eq!(fresh["ok"], true);
+        assert!(fresh["reason"].is_null());
+
+        let env = wrap(EV_SANDBOX_SWITCH, fresh);
+        assert_envelope(&env, EV_SANDBOX_SWITCH);
     }
 
     #[test]

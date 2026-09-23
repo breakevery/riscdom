@@ -33,6 +33,7 @@ pub fn human(command: &Command, reply: &Reply) -> String {
         Command::SandboxesCurrent => sandbox_current(value),
         Command::SandboxesCandidates => sandbox_candidates(value),
         Command::SandboxesShow { .. } => sandbox_detail(value),
+        Command::SandboxesSwitch { .. } => sandbox_switched(value),
         Command::Run { .. } => outcome(value),
         Command::VmStop | Command::VmStart => "ok".to_string(),
         Command::SnapshotsSave { .. } => written(value),
@@ -442,6 +443,16 @@ fn sandbox_candidates(value: &Value) -> String {
         }
     }
     lines.join("\n")
+}
+
+/// The switch's answer: where the node came from and where it went.
+fn sandbox_switched(value: &Value) -> String {
+    let to = text(value, "to");
+    match value.get("from").and_then(Value::as_str) {
+        Some(from) => format!("switched from {from} to {to}"),
+        // Nothing was current before: say where it went, not "from null".
+        None => format!("switched to {to}"),
+    }
 }
 
 /// One definition, one `key value` line per field.

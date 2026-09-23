@@ -45,12 +45,13 @@ Control commands — every one an HTTP `POST`, and every one needs the token:
 | `sessions delete <session_id>` | `POST /v0/sessions/delete` | confirmation, then `ok` |
 | `sessions clear-all` | `POST /v0/sessions/clear` | confirmation, then `ok` |
 | `runs abandon-stale` | `POST /v0/runs/abandon-stale` | how many stale runs were abandoned |
+| `sandboxes switch <name>` | `POST /v0/sandboxes/switch` | confirmation, then `switched from <old> to <new>` (or `switched to <new>` when nothing was current) |
 
 ### Confirmation
 
-Eight commands destroy state — `vm stop`, `snapshots resume`, `snapshots delete`,
-`sessions delete`, `sessions clear-all`, `llm clear`, `qemu clear`, `toolchain clear`
-— and each one asks before it does:
+Nine commands destroy or replace state — `vm stop`, `snapshots resume`, `snapshots delete`,
+`sessions delete`, `sessions clear-all`, `llm clear`, `qemu clear`, `toolchain clear`,
+`sandboxes switch` — and each one asks before it does:
 
 - `--yes` answers the question up front.
 - On a terminal the CLI asks and reads the answer: `y` or `yes` continues, anything

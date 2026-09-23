@@ -567,6 +567,43 @@ flight. The endpoints, the Tauri commands, the CLI and the `sandbox:switch` even
   `sandboxes()` and by the switch, so the definition a switch uses is the winner the list
   shows.
 
+**The switch has a surface: an event, an endpoint, a capability and a CLI command.**
+F2b-2 exposes what F2b-1 built. `sandbox:switch` is the thirteenth event (`{from, to, ok,
+reason}`, one per attempt, success or failure); `POST /v0/sandboxes/switch` is the one write
+on the sandbox surface and answers a status per reason rather than a sentence; `sandbox.switch`
+is the 30th capability; and `riscdom sandboxes switch <name>` is its CLI, in the destructive
+family. The `events.rs` guard is whole again — it lists all thirteen names, so F1's
+`qemu:download` is no longer missing from it.
+
+### Added
+
+- **`sandbox:switch`**, the thirteenth event, with `{from, to, ok, reason}` on every exit —
+  `from` is the definition that was current (`null` when none was), `reason` carries the code
+  when `ok` is `false`.
+- **`POST /v0/sandboxes/switch`** (`capability sandbox.switch`): `200` with `{from, to}`;
+  `404` `cause: "name"`; `409` `cause: "run"` or `cause: "sandbox"`; `503` with the reason
+  code as `cause`; `500` `cause: "sandbox_start_failed"`.
+- **`HostError::SandboxStart`**, so the "every check passed and the VM still would not
+  start" case answers with a code rather than prose (the node is stopped, not half-switched).
+- **`AppState::sandbox_switch_in_progress()`**, the probe the `409 cause: "sandbox"` is
+  decided from — the shape `toolchain_download_status().in_progress` already had.
+- **`riscdom sandboxes switch <name>`**, which asks first (it stops the running VM and
+  refuses while a run is in flight); `--yes` answers up front and a non-terminal stdin is
+  refused with exit `2`. The answer prints `switched from <old> to <new>`.
+- **A Tauri command** `switch_sandbox`, registered in the desktop shell. The interface is
+  not wired to it (that is the D line).
+
+### Changed
+
+- **`switch_sandbox` takes the `EventSink` its caller owns**, so the event travels the same
+  way every other host event does: the route injects an `HttpEventSink`, the Tauri command a
+  `TauriEventSink`. The switching itself is unchanged.
+- **`events.rs`'s guard names all thirteen events** (`all_events_are_named`, was
+  `all_eleven_events_are_named`), and asserts the names are unique — it had been missing
+  `qemu:download` since F1.
+- **The capability count in the documents is 30, and §5.2 has the switch row**: the
+  API document (both languages), `server/README` (both) and the client guide (both).
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

@@ -41,12 +41,13 @@ riscdom [options] <command> [args]
 | `sessions delete <session_id>` | `POST /v0/sessions/delete` | 先确认，再 `ok` |
 | `sessions clear-all` | `POST /v0/sessions/clear` | 先确认，再 `ok` |
 | `runs abandon-stale` | `POST /v0/runs/abandon-stale` | 标记了多少个遗留运行 |
+| `sandboxes switch <name>` | `POST /v0/sandboxes/switch` | 先确认，然后打印 `switched from <old> to <new>`（原先没有当前项时打印 `switched to <new>`） |
 
 ### 确认
 
-有八条命令会销毁状态——`vm stop`、`snapshots resume`、`snapshots delete`、
-`sessions delete`、`sessions clear-all`、`llm clear`、`qemu clear`、`toolchain clear`
-——每一条动手前都会问：
+有九条命令会销毁或替换状态——`vm stop`、`snapshots resume`、`snapshots delete`、
+`sessions delete`、`sessions clear-all`、`llm clear`、`qemu clear`、`toolchain clear`、
+`sandboxes switch`——它们在动手前都会先问：
 
 - `--yes` 提前把问题回答掉。
 - 在终端上，CLI 会问并读回答：`y` 或 `yes` 继续，其余都算拒绝。
