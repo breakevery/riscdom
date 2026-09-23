@@ -13,6 +13,18 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The repository owns its line endings now** (v0.9 line-ending batch, mechanical). A
+  `.gitattributes` (`* text=auto eol=lf`; `*.sh` named; the six tracked binaries marked
+  `binary`; **no `*.ps1` exception**, because all five PowerShell scripts are LF today and
+  are what every batch's gate and commit run through). The working tree held 38 CRLF or
+  mixed files (`sandbox/src/relay.rs` worst, 401 of 413 lines) that git could not see: the
+  **index** had been LF all along, so `git add --renormalize .` staged nothing and **the
+  commit carries no line-ending change** — it is a working-tree repair, proven content-free
+  by comparing all 356 tracked files with their committed blobs (byte-identical). Seven
+  relative links were wrong (a root-level file referenced from `docs/` or the reverse:
+  the CHANGELOG's `multi-agent-foundation`, `handoff(.zh-CN).md` → `RELEASE_NOTES`,
+  `qemu-distribution(.zh-CN).md` → `THIRD_PARTY_NOTICES`, `toolchain-setup(.zh-CN).md` →
+  `ENVIRONMENT`); all 365 relative links in the repository now resolve.
 - **The small debts are paid** (v0.9 clean-up). Four things, no new surface. (1) **No
   hand-bumped counts in the tests**: `every_control_endpoint_answers` derives its expectation
   from the route table through a new read-only accessor (`server::routes::control_paths()`),
@@ -576,7 +588,7 @@ current request authorising it (§2).
   `v0.7.0` and then `v0.8.0`.)
   <https://github.com/breakevery/riscdom/releases/tag/v0.5.0> — assets `RiscDom_0.5.0_x64_en-US.msi`
   and `RiscDom_0.5.0_x64-setup.exe`, built without the preview's MSI version override (so *Apps &
-  features* shows `0.5.0`). What it proves and what it does not is in [RELEASE_NOTES.md](RELEASE_NOTES.md).
+  features* shows `0.5.0`). What it proves and what it does not is in [RELEASE_NOTES.md](../RELEASE_NOTES.md).
 - **`v0.5.0-preview.1` is kept as history** (a pre-release, which is why `v0.4.0` held the Latest
   marker until this release). Its assets stay where they were.
 - **One walk has been recorded, and it was local**: [../walkthroughs/2026-09-19-preview1-local.md](../walkthroughs/2026-09-19-preview1-local.md)

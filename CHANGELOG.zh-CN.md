@@ -494,6 +494,20 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 - **注释里的陈旧计数**——`server/src/lib.rs` 的「26 个查询 / 27 个控制端点」、`routes.rs` 的「两条带路径参数的路由」——现在是正确的，或者不在了：一个数端点的注释是一个会烂的注释。
 - **`agent/README.zh-CN.md` 的工具表**变成与它的英文兄弟一样的东西：八个名字加上一个指向 schema 文档的指针，而不是描述的第二份。
 
+**机械性的一批：行尾现在归仓库管。** 没有行为改动、没有正文改动——一份 `.gitattributes`、一次工作树归一、七处链接路径。
+
+### 新增
+
+- **`.gitattributes`**：`* text=auto eol=lf`，`*.sh` 明确写出，六个被跟踪的二进制（`*.png`、`*.ico`、`*.icns`）标 `binary`。**没有 `*.ps1` 例外**：`scripts/` 里五个 PowerShell 脚本今天就是 LF，**而且**每一批的 gate 与提交都是经它们跑的——声明 CRLF 等于把这五个文件拿去重写，而不是保住现状。
+
+### 修正
+
+- **七处相对链接**：从 `docs/` 指向根级文件（或反之）时漏了前缀——CHANGELOG 里那条 `multi-agent-foundation`、`handoff(.zh-CN).md` → `RELEASE_NOTES`、`qemu-distribution(.zh-CN).md` → `THIRD_PARTY_NOTICES`、`toolchain-setup(.zh-CN).md` → `ENVIRONMENT`。全仓 365 条相对链接重扫 → **0 失效**。
+
+### 变更
+
+- **工作树已全为 LF。** 38 个文件带着 CRLF 或混用行尾（27 个纯 CRLF、11 个混用——最重的是 `sandbox/src/relay.rs`，413 行里 401 行），因为 `core.autocrlf=true` 的 checkout 与编辑工具写法不一致，而 git 看不见这个差别。**索引里一直是 LF**，所以 `git add --renormalize .` 一无所获，而**本提交不含任何行尾改动**：它是一次工作树修理，并且已被证明与内容无关——356 个被跟踪文件逐个与其已提交 blob 对比，**逐字节相同**（0 处差异）。
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 批次 1 —— 面向多 Agent 运行时的技术债清理。** 架构重估点名的三个堵死点已清除；黄金路径上无可见
@@ -539,7 +553,7 @@ optional），以及子进程自己的 agent 身份是经**事件**回来的，�
 依赖）；指向不在机群里的执行者会被**拒绝**，而不是发给「猜一个」的执行者。监工里没有任何模型：这一阶段的
 监工是派发器，不是 agent。同批收尾：`worker` 的 `audit` 依赖声明了却从未使用（执行者经 `host::AppState`
 触链），已删除；监工逻辑放进 `worker` 的库，使演示与测试共用一份实现而非两份循环；四项已定决策写进了
-[docs/multi-agent-foundation.zh-CN.md](multi-agent-foundation.zh-CN.md)。
+[docs/multi-agent-foundation.zh-CN.md](docs/multi-agent-foundation.zh-CN.md)。
 
 ### 变更
 

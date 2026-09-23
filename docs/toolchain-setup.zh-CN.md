@@ -88,7 +88,7 @@ riscv-none-elf-gcc --version
 - **编译报 relocation / `medlow` 相关错误** —— RiscDom 已经传了 `-mcmodel=medany`；
   请检查你是否通过异常的包装脚本覆盖了编译参数。
 
-另见：[ENVIRONMENT.md](ENVIRONMENT.md)（本项目开发机上实测的版本）。
+另见：[ENVIRONMENT.md](../ENVIRONMENT.md)（本项目开发机上实测的版本）。
 
 ## 环境预检
 

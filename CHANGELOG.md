@@ -865,6 +865,35 @@ implements exactly it and that none was written. One is now.
 - **`agent/README.zh-CN.md`'s tool table** is the index its English sibling already was: the
   eight names and a pointer at the schema document, not a second copy of the descriptions.
 
+**Mechanical: the repository owns its line endings now.** No behaviour, no prose — a
+`.gitattributes`, a working-tree normalisation, and seven link paths.
+
+### Added
+
+- **`.gitattributes`**: `* text=auto eol=lf`, with `*.sh` named out loud and the six tracked
+  binaries (`*.png`, `*.ico`, `*.icns`) marked `binary`. **No `*.ps1` exception**: all five
+  PowerShell scripts in `scripts/` are LF today *and* are what every batch's gate and commit
+  run through, so declaring CRLF would have meant writing it into five files rather than
+  preserving it.
+
+### Fixed
+
+- **Seven relative links** that pointed at a root-level file from `docs/` (or the reverse)
+  without the prefix: the CHANGELOG's `multi-agent-foundation` link,
+  `handoff(.zh-CN).md` → `RELEASE_NOTES`, `qemu-distribution(.zh-CN).md` →
+  `THIRD_PARTY_NOTICES`, `toolchain-setup(.zh-CN).md` → `ENVIRONMENT`. A scan of all 365
+  relative links in the repository now reports **zero broken**.
+
+### Changed
+
+- **The working tree is LF everywhere.** 38 files held CRLF or mixed endings (27 pure CRLF,
+  11 mixed — `sandbox/src/relay.rs` worst at 401 of its 413 lines), because
+  `core.autocrlf=true` checked files out one way while the editing tools wrote another, and
+  git could not see the difference. The **index** had been LF all along, so
+  `git add --renormalize .` staged nothing and **this commit contains no line-ending
+  change**: it is a working-tree repair, proven content-free by comparing every one of the
+  356 tracked files with its committed blob (byte-identical, 0 differences).
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

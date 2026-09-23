@@ -11,6 +11,7 @@
 
 ## 1. 快照 —— `v0.8.0` 是最新的发行版（下次正式发布时更新本节）
 
+- **行尾现在归仓库管**（v0.9 行尾批次，机械性）。一份 `.gitattributes`（`* text=auto eol=lf`；`*.sh` 明确写出；六个被跟踪的二进制标 `binary`；**没有 `*.ps1` 例外**——五个 PowerShell 脚本今天就是 LF，而且每批的 gate 与提交都是经它们跑的）。工作树里躺着 38 个 CRLF 或混用行尾的文件（最重 `sandbox/src/relay.rs`，413 行里 401 行），而 git 看不见：**索引里一直就是 LF**，所以 `git add --renormalize .` 一无所获，**本提交不含任何行尾改动**——它是一次工作树修理，并已被证明与内容无关（356 个被跟踪文件逐个与其已提交 blob 对比，逐字节相同）。七处相对链接是错的（从 `docs/` 指向根级文件或反之漏了前缀：CHANGELOG 的 `multi-agent-foundation`、`handoff(.zh-CN).md` → `RELEASE_NOTES`、`qemu-distribution(.zh-CN).md` → `THIRD_PARTY_NOTICES`、`toolchain-setup(.zh-CN).md` → `ENVIRONMENT`）；全仓 365 条相对链接现在全部有效。
 - **小债还清**（v0.9 清账）。四件事，没有新表面。（一）**测试里不再有需要手改的计数**：`every_control_endpoint_answers` 通过一个新的只读访问子（`server::routes::control_paths()`）从路由表算出预期，于是少一条用例的控制端会点名缺失的路径而失败，而测试不管的七个是被**点名**而不是被数出来的；`the_table_has_the_documented_endpoints` 从 API 文档的 §5 标题读计数，两个语言都读。（二）**忽略 `__pycache__/` 与 `*.pyc`**。（三）数端点的注释（「26 查询 / 27 控制」、「两条带路径参数的路由」）已改正或去掉数字。（四）`agent/README.zh-CN.md` 的工具表变成与它英文兄弟一样的索引。扫描带出两个发现，按本批规矩**只报不修**：**七处相对链接失效**（从 `docs/` 指向根级文件或反之——`CHANGELOG.zh-CN.md` → `docs/multi-agent-foundation.zh-CN.md`、`handoff(.zh-CN).md` → `../RELEASE_NOTES(.zh-CN).md`、`qemu-distribution(.zh-CN).md` → `../THIRD_PARTY_NOTICES.md`、`toolchain-setup(.zh-CN).md` → `../ENVIRONMENT.md`），以及**11 个文件在工作树里行尾 CRLF/LF 混用**（`sandbox/src/relay.rs` 及邻居）——编辑工具与 `core.autocrlf=true` 的产物，git 看不见。本批要找的两个缺陷**并不存在**：85 份 Markdown 里没有 lone `\r`，也没有不配对的围栏。
 - **那条缝有了另一半：远程执行者**（v0.9 接口交付 E4）。`agent/src/dispatch.rs` 自 v0.8 起就写着「远程实现……正好实现这个 trait。**尚未写**」；`worker/examples/remote_executor.rs` 就是它。`HttpExecutorHandle` 持一个本地 label、节点的 base URL、可选的 bearer token 与**远端 target**，它的 `run` 把一个任务形状的 body POST 到 `POST /v0/tasks`——那个把任务路由给**远端**节点拥有的执行者、并回 `TaskOutcome` 的端点，这正是它是真正执行者而非形状演示的原因。应答里的身份是节点的，绝不是句柄的 label；一条指向别的任务的应答是协议破裂；`404` 是 `NoSuchAgent`（缺的是对面的队伍），其它失败都是 `Failed`。**没有传输层 crate**：`worker` 只依赖 `host-core`、`agent` 与 `serde_json`，请求是用 `std::net::TcpStream` 手写的——`server/tests/smoke.rs` 与 `host-core/tests/common/mod.rs` 已在用的手法，于是读者看得见究竟过了什么。**没有生产 crate 被改动**：`LocalDispatcher::new(vec![Arc::new(handle) as Arc<dyn AgentHandle>])` 就是全部集成，这正是那条缝承诺的。示例零配置即可跑（`127.0.0.1:0` 上的进程内替身节点），并用 `--self-test` 自证（七条断言）；`scripts/gate.sh` 会跑这一步。客户端指南多了 §9（怎么写一个句柄），README 写明它不是：回环 HTTP，不是跨设备方案（决策 §42）。
 
@@ -110,7 +111,7 @@
 - **`v0.5.0` 已发布，当时它持有 Latest 标记。**（Latest 此后已先后移到 `v0.7.0`、`v0.8.0`。）
   <https://github.com/breakevery/riscdom/releases/tag/v0.5.0> —— 附件为 `RiscDom_0.5.0_x64_en-US.msi`
   与 `RiscDom_0.5.0_x64-setup.exe`，构建时已去掉预览版的 MSI 版本覆盖（因此「应用和功能」里显示
-  `0.5.0`）。它证明了什么、没证明什么，写在 [RELEASE_NOTES.zh-CN.md](RELEASE_NOTES.zh-CN.md)。
+  `0.5.0`）。它证明了什么、没证明什么，写在 [RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md)。
 - **`v0.5.0-preview.1` 作为历史保留**（它是预发布版，所以直到本版发布前 Latest 一直由 `v0.4.0` 持有）。
   它的附件仍留在原处。
 - **走查记录已有一份，且是本地那次**：[../walkthroughs/2026-09-19-preview1-local.md](../walkthroughs/2026-09-19-preview1-local.md)

@@ -1,0 +1,28 @@
+# Line endings, by file type (v0.9 line-ending batch).
+#
+# Before this file, the working tree's endings depended on `core.autocrlf` and on which tool
+# last touched a file: the **index** was LF everywhere (autocrlf normalised on commit), but
+# the working tree held 27 CRLF files and 11 mixed ones. Git could not see the difference,
+# so nothing was ever committed about it — but an exact-text edit could fail for a reason
+# the reader could not see. These rules put the repository in charge instead of the machine.
+#
+# Default: a text file is stored and checked out with LF. `text=auto` leaves the text/binary
+# decision to git, and the images below are named so that decision is never a guess.
+* text=auto eol=lf
+
+# Shell scripts: run by Git Bash or a POSIX shell, where LF is required. The default already
+# covers them; they are named to say so out loud.
+*.sh text eol=lf
+
+# PowerShell: no exception. It was considered — CRLF is the conventional choice for Windows
+# scripts — and the evidence says it is not needed here: all five scripts in `scripts/` are
+# LF today (`commit.ps1`, `gate.ps1`, `preflight.ps1`, `check-bilingual.ps1`,
+# `clean-temp.ps1`), they are what every batch's gate and commit run through, and PowerShell
+# 5.1 reads them without complaint. Declaring CRLF would mean *writing* it into five working
+# files to satisfy a rule with no need behind it. If a future script really needs CRLF, add
+# the one line then.
+
+# Binary: never translated, never diffed.
+*.png binary
+*.ico binary
+*.icns binary

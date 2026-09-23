@@ -58,7 +58,7 @@ QEMU 若走**下载**路线，所需的只是这个文件的变体：另一个�
   分发"、从而是否附带上文义务，是**法律定性**问题，不是技术问题。
 - **我们当前的状态**：仓库为 Apache-2.0（`LICENSE`），应用不链接任何 QEMU 代码，QEMU 以独立进程运行、
   我们通过 stdio/TCP 与它对话。这些事实现在写在用户能查到的地方：
-  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 说明了 QEMU 与那份下载来的 RISC-V GCC 的许可证，
+  [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) 说明了 QEMU 与那份下载来的 RISC-V GCC 的许可证，
   以及我们**用**与**不用**它们的哪些部分。
 
 ## 5. 决定

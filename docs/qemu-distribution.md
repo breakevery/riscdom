@@ -70,7 +70,7 @@ Facts, each of which should be verified against the exact build before acting:
   the obligations above attach, is a legal classification, not a technical one.
 - **Our own position today**: the repository is Apache-2.0 (`LICENSE`), the app links no QEMU code,
   and QEMU runs as a separate process we start and talk to over stdio/TCP. Those facts are now written
-  down where a user can find them: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) states the
+  down where a user can find them: [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) states the
   licences of QEMU and of the downloaded RISC-V GCC, and how we do — and do not — use them.
 
 ## 5. Decision

@@ -96,7 +96,7 @@ In the app, the toolchain row should show a green dot with a source badge
 - **Compiles fail with relocation/`medlow` errors** — RiscDom already passes
   `-mcmodel=medany`; check that you are not overriding flags through an unusual wrapper script.
 
-See also: [ENVIRONMENT.md](ENVIRONMENT.md) for the versions verified on this project's
+See also: [ENVIRONMENT.md](../ENVIRONMENT.md) for the versions verified on this project's
 development machine.
 
 ## Environment preflight
