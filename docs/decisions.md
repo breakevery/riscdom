@@ -513,3 +513,36 @@ and the CLI), so **pinning a release later is a data change**: the answer become
 nothing else moves. One asymmetry is left standing and reported rather than fixed: the spec
 being empty is the reason `qemu.read` / `qemu.configure` endpoints can report "not available"
 without a network call, which is what makes them testable against a loopback fixture offline.
+
+## 33. Centralised connection and the temporary centre
+
+**Date**: 2026-09-23 ｜ **Status**: Decided; implemented in v1.0 (cross-device)
+
+**Decision**: A centre is a RiscDom node with a different **role** — the same kernel,
+differentiated by deployment. The rules: legitimacy comes from a reserved priority order;
+the priority is issued by the centre at registration and every node keeps a copy; a
+disagreement about what a node knows is settled by majority; the trigger is **every** node
+failing to reach the centre (a global confirmation, not one node's); when the events are
+merged, the temporary centre's chain folds into the main one; the authority is AI-initiated
+with an after-the-fact audit; ending the period means returning to the centre; a bridge
+machine stays inside its own network and can stand in for the centre temporarily; the kernel
+interface is "the node interface plus an optional centre capability", and the deployer
+decides.
+
+**Suppression (all three layers are required)**: first, a waiting period (30 s – 2 min of
+silent retries); second, global confirmation (most nodes must report "cannot reach the
+centre" before anything fires); third, backoff plus precedence (the first in line waits a
+random backoff and stands down the moment it sees a takeover broadcast).
+
+**Audit merge (option A)**: events written during a temporary centre carry `provisional:
+true`; when the real centre returns, a conflict-free run is merged and the mark cleared,
+while a conflicting one keeps **both** sides marked `fork` — never a silent merge. The
+chain's semantics extend to "main chain + temporary segments", where the cross-segment
+reference at a segment's head **adds metadata and does not change the hash formula**.
+
+**Impact**: one code base, differentiated by deployment (the cell-differentiation model);
+the commercial edition's multi-centre redundancy is not part of this model.
+
+**Pending authorisation**: the cross-device design of v1.0 must be approved on its own —
+extending the audit chain to "main chain + temporary segments" touches the boundary of red
+line 5 (`When in doubt, ask first`, PROJECT_CONSTITUTION.md §8).
