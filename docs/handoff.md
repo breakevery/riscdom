@@ -13,6 +13,23 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The small debts are paid** (v0.9 clean-up). Four things, no new surface. (1) **No
+  hand-bumped counts in the tests**: `every_control_endpoint_answers` derives its expectation
+  from the route table through a new read-only accessor (`server::routes::control_paths()`),
+  so a control without a case fails naming the missing path, and the seven the test leaves
+  alone are named rather than counted; `the_table_has_the_documented_endpoints` reads the
+  counts off the API document's §5 headings, both languages. (2) **`__pycache__/` and `*.pyc`
+  are ignored**. (3) Comments that counted endpoints ("26 query / 27 control", "the two
+  path-parameter routes") are corrected or de-numbered. (4) `agent/README.zh-CN.md`'s tool
+  table became the index its English sibling is. Two findings came out of the scan and are
+  **reported, not fixed** (the batch's rule): **seven broken relative links** (a root file
+  referenced from `docs/` or the reverse — `CHANGELOG.zh-CN.md` → `docs/multi-agent-foundation.zh-CN.md`,
+  `handoff(.zh-CN).md` → `../RELEASE_NOTES(.zh-CN).md`, `qemu-distribution(.zh-CN).md` →
+  `../THIRD_PARTY_NOTICES.md`, `toolchain-setup(.zh-CN).md` → `../ENVIRONMENT.md`), and
+  **eleven files with mixed CRLF/LF endings** in the working tree (`sandbox/src/relay.rs` and
+  neighbours) — an artefact of the editing tools versus `core.autocrlf=true`, invisible to
+  git. The two defects the batch went looking for do **not** exist: no lone `\r` and no
+  unpaired fence in any of the 85 Markdown files.
 - **The seam has its other half: a remote executor** (v0.9 interface E4).
   `agent/src/dispatch.rs` has said since v0.8 that "a remote implementation … implements
   exactly this trait. **None is written yet**"; `worker/examples/remote_executor.rs` is it.

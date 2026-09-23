@@ -8,10 +8,9 @@
 //! The interface this implements is the one settled in
 //! `docs/control-plane-api.md` and `docs/control-plane-events.md`. What is here:
 //!
-//! - the **26 query endpoints** and the **27 control endpoints** of the API
-//!   tables (`routes.rs`), plus the reserved `/v0/resources` and
-//!   `POST /v0/vm/start` (both `501`) and the host-local `/v0/health`,
-//!   `/v0/status`;
+//! - the **query** and **control** endpoints of the API tables (`routes.rs`), plus the
+//!   reserved `/v0/resources` and `POST /v0/vm/start` (both `501`) and the host-local
+//!   `/v0/health`, `/v0/status`;
 //! - the **event stream** (`GET /v0/events`), carrying the envelope built in
 //!   `host_core::events`, with a bounded replay buffer for `Last-Event-ID` and a `gap`
 //!   frame when the hole is older than the buffer;

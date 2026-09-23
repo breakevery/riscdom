@@ -22,6 +22,10 @@ dist/
 # Tauri generated
 /ui/src-tauri/gen/schemas
 
+# Python
+__pycache__/
+*.pyc
+
 # OS
 .DS_Store
 Thumbs.db

@@ -845,6 +845,26 @@ implements exactly it and that none was written. One is now.
 - **Nothing in production**: no crate in the workspace changed. The integration is the line
   the seam promised — `LocalDispatcher::new(vec![Arc::new(handle) as Arc<dyn AgentHandle>])`.
 
+**Small debts paid, so the ground is clear.** Nothing new: four things tidied.
+
+### Changed
+
+- **No hand-bumped counts in the tests.** `server/tests/smoke.rs`'s
+  `every_control_endpoint_answers` derives its expectation from the route table
+  (`server::routes::control_paths()`, a new read-only accessor over the paths) instead of
+  asserting a literal, so a control that lands without a case fails with the **missing path**
+  in the message — and the seven controls the test deliberately leaves alone are *named*, not
+  counted. `routes.rs`'s `the_table_has_the_documented_endpoints` now reads the counts off
+  the API document's own §5 headings, in both languages, rather than carrying them as
+  literals.
+- **`__pycache__/` and `*.pyc` are ignored**: the Python reference supervisor's byte cache
+  dirtied the working tree.
+- **Stale counts in comments** — `server/src/lib.rs`'s "26 query / 27 control endpoints",
+  `routes.rs`'s "the two path-parameter routes" — are either correct now or gone: a comment
+  that counts endpoints is a comment that rots.
+- **`agent/README.zh-CN.md`'s tool table** is the index its English sibling already was: the
+  eight names and a pointer at the schema document, not a second copy of the descriptions.
+
 ## [0.8.0] - 2026-09-22
 
 **v0.8 batch 1 — technical-debt cleanup ahead of the multi-agent runtime.** Three dead-ends the

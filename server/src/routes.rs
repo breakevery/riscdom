@@ -1,8 +1,8 @@
 //! The endpoint surface: the queries and the controls of `docs/control-plane-api.md`
-//! §5.1 and §5.2, the two path-parameter routes (`/v0/runs/{run_id}` and
-//! `/v0/sandboxes/{name}`), the reserved `/v0/resources` and `/v0/vm/start`, the
-//! host-local endpoints, the route table that names them, and the dispatcher that
-//! calls `AppState`.
+//! §5.1 and §5.2, the four path-parameter routes (`/v0/runs/{run_id}`,
+//! `/v0/sandboxes/{name}` and the request queue's `approve` / `reject`), the reserved
+//! `/v0/resources` and `/v0/vm/start`, the host-local endpoints, the route table that
+//! names them, and the dispatcher that calls `AppState`.
 //!
 //! The tables are `docs/control-plane-api.md` §5.1 and §5.2.
 
@@ -554,6 +554,20 @@ const LOCAL_ROUTES: &[(&str, Local, Capability)] = &[
     ("/v0/status", Local::Status, Capability::StatusRead),
     ("/v0/events", Local::Events, Capability::EventsSubscribe),
 ];
+
+/// The `POST` paths this server serves, in table order.
+///
+/// The route table itself stays private — its `Action` column is an internal vocabulary —
+/// but the paths are the surface, and a client (or a test that has to answer every control)
+/// is entitled to know them. The smoke tests derive "every control has an answer" from this
+/// rather than counting cases by hand (v0.9 clean-up batch).
+pub fn control_paths() -> Vec<&'static str> {
+    ROUTES
+        .iter()
+        .filter(|(method, ..)| *method == "POST")
+        .map(|(_, path, ..)| *path)
+        .collect()
+}
 
 /// Query-string and body parameters, flattened to strings.
 #[derive(Debug, Default)]
@@ -1796,6 +1810,34 @@ fn sandbox_switch_error(error: HostError) -> Response<RespBody> {
 mod tests {
     use super::*;
 
+    /// The API document and its translation: the numbers in §5's headings are the counts
+    /// the route table must have (v0.9 clean-up batch — no literal here to bump).
+    const API_DOC: &str = include_str!("../../docs/control-plane-api.md");
+    const API_DOC_ZH: &str = include_str!("../../docs/control-plane-api.zh-CN.md");
+
+    /// The count a §5 heading claims: `### 5.1 Queries (32)`, or the translation's
+    /// `### 5.1 查询类（32）`.
+    fn documented_count(doc: &str, heading: &str) -> usize {
+        let line = doc
+            .lines()
+            .find(|line| line.starts_with(heading))
+            .unwrap_or_else(|| panic!("no heading starting {heading:?}"));
+        let open = line
+            .find(['(', '（'])
+            .unwrap_or_else(|| panic!("{line:?} carries no count"));
+        // Only as far as the closing parenthesis: the §5.2 heading goes on to name the
+        // batches that extended it, and those numbers are not this count.
+        let close = line[open..]
+            .find([')', '）'])
+            .unwrap_or_else(|| panic!("{line:?} carries no count"));
+        line[open..open + close]
+            .chars()
+            .filter(char::is_ascii_digit)
+            .collect::<String>()
+            .parse()
+            .unwrap_or_else(|_| panic!("{line:?} carries no count"))
+    }
+
     #[test]
     fn every_route_declares_a_capability_the_owner_holds() {
         // A capability the enum has but `ALL` forgot would be a route the owner
@@ -1865,24 +1907,33 @@ mod tests {
             .iter()
             .filter(|(method, ..)| *method == "POST")
             .count();
-        // 31 queries (two of them patterns — `/v0/runs/{run_id}` and
-        // `/v0/sandboxes/{name}` — so 29 rows), plus the reserved aggregate and
-        // the QEMU download status (v0.9 F1) and the three sandbox queries
-        // (v0.9 sandbox F2a-2) and the request queue (v0.9 sandbox F2c).
-        //
-        // The two request decisions (`approve` / `reject`) carry an id, so they
-        // are pattern routes like `/v0/runs/{run_id}` and are **not** rows here —
-        // the count is rows, and a pattern is not one. Project in/out (v0.9) added
-        // no query: both of its endpoints write a body. The executor list (v0.9
-        // interface E0) is one row.
-        assert_eq!(queries, 32, "query rows");
-        // The 27 controls of §5.2, plus the reserved `POST /v0/vm/start` and
-        // `POST /v0/runs/abandon-stale` (§6, G1 and G4), plus the QEMU download
-        // start and cancel (v0.9 F1), the sandbox switch (v0.9 sandbox F2b-2), the
-        // request queue's create (v0.9 sandbox F2c) and project in/out's two
-        // (v0.9) — its two request decisions are pattern routes, as above — and the
-        // task dispatch (v0.9 interface E0).
-        assert_eq!(controls, 36, "control rows");
+        // The counts come from the document, not from a literal here: these two tables *are*
+        // `docs/control-plane-api.md` §5.1 and §5.2, and a row that lands without the
+        // document being touched (or the other way round) is what this catches. The
+        // path-parameter routes (`/v0/runs/{run_id}`, `/v0/sandboxes/{name}`, and the
+        // request queue's `approve` / `reject`) are not rows — a pattern is not one — and
+        // `resolve` is what covers them.
+        assert_eq!(
+            queries,
+            documented_count(API_DOC, "### 5.1 "),
+            "query rows against the document"
+        );
+        assert_eq!(
+            controls,
+            documented_count(API_DOC, "### 5.2 "),
+            "control rows against the document"
+        );
+        // The translation claims the same numbers, so the pair cannot drift apart.
+        assert_eq!(
+            documented_count(API_DOC, "### 5.1 "),
+            documented_count(API_DOC_ZH, "### 5.1 "),
+            "the two languages' §5.1"
+        );
+        assert_eq!(
+            documented_count(API_DOC, "### 5.2 "),
+            documented_count(API_DOC_ZH, "### 5.2 "),
+            "the two languages' §5.2"
+        );
     }
 
     /// v0.9 interface E2 — the control plane's tool schema document must list exactly the

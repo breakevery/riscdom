@@ -1207,12 +1207,34 @@ fn every_control_endpoint_answers() {
         // §6 G1: reserved.
         ("/v0/vm/start", "{}".to_string(), 501, "code"),
     ];
-    // 28 controls of §5.2, minus the three that would reach outside the machine
-    // (`toolchain/download` fetches an archive, `preflight/run` compiles and boots a
-    // guest, and `qemu/download` would fetch one if a release were pinned), plus the
-    // reserved `POST /v0/vm/start`, `POST /v0/runs/abandon-stale` and the QEMU cancel
-    // (nothing is running, so it is the documented conflict).
-    assert_eq!(cases.len(), 29, "one case per control the tests can answer");
+    // Every control the tests can answer has a case above. The exceptions are *named*, not
+    // counted, so a control that lands without a case fails this test with the missing path
+    // in the message — and the arithmetic lives in the route table rather than in a number
+    // somebody has to remember to bump (v0.9 clean-up batch).
+    //
+    // Three reach outside the machine: `toolchain/download` fetches an archive,
+    // `preflight/run` compiles and boots a guest, and `qemu/download` would fetch one if a
+    // release were pinned. Four are owned end to end by their own tests: the sandbox
+    // switch, the request queue's create, and project in/out. The two request decisions are
+    // pattern routes rather than rows, so they are not in the table at all.
+    let answered_elsewhere = [
+        "/v0/toolchain/download",
+        "/v0/preflight/run",
+        "/v0/qemu/download",
+        "/v0/sandboxes/switch",
+        "/v0/sandboxes/requests",
+        "/v0/workspace/import",
+        "/v0/workspace/export",
+    ];
+    let covered: std::collections::BTreeSet<&str> = cases.iter().map(|(path, ..)| *path).collect();
+    let expected: std::collections::BTreeSet<&str> = server::routes::control_paths()
+        .into_iter()
+        .filter(|path| !answered_elsewhere.contains(path))
+        .collect();
+    assert_eq!(
+        covered, expected,
+        "every control the tests can answer has a case"
+    );
 
     for (path, body, want_status, key) in &cases {
         let (status, raw) = call(addr, "POST", path, "", Some(body));
