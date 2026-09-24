@@ -1191,3 +1191,30 @@ renegotiating a non-negotiable principle; it is reading the clause's own time co
 **Impact**: §3.6, §4.6 and §5 each carry an annotation (originals intact, the `non-negotiable`
 heading untouched); §9 — the v0.1 status list — is not touched, because it is history: in v0.1
 only C was supported. The supported languages are now C / Zig / Rust; Python waits for v1.x.
+
+## 54. The sessions store waits for a lock, but is deliberately not the audit store
+
+**Date**: 2026-09-24 ｜ **Status**: Decided
+
+**Decision**: `SessionStore` sets a `busy_timeout` (5 s, `session::BUSY_TIMEOUT`) **before** its first
+write, and `append_message` runs the message insert and the session's `updated_at_ms` bump as **one
+transaction**. It gets **no WAL, no `synchronous = NORMAL` and no open retry** — the three things the
+audit store has carried since v0.8/v0.9.
+
+**Why**: the two stores' concurrency models differ on purpose. `audit.db` is **shared across
+processes by design** (one chain per workspace, several writers appending), which is what makes WAL,
+the busy timeout and the open retry load-bearing there — `PRAGMA journal_mode = WAL` bypasses the busy
+handler, so the switch itself needs the retry. The sessions DB is **per instance**: `with_data_dir`
+gives every instance its own `<data-dir>/sessions.db`. But "per instance" is a default, not a
+guarantee — two default-path CLI or server processes resolve to the same `<temp>/riscdom/sessions.db`,
+and an explicitly shared `--data-dir` collides on purpose — and in those cases SQLite's default
+`busy_timeout` of zero turned the second writer into an immediate `SQLITE_BUSY`. That failure lands
+in `SessionStore::open`, so it did not fail one command; it failed the whole instance at startup. The
+busy timeout is what removes it; WAL would only add its two side files (`-wal`, `-shm`) for a sharing
+model this store does not have. If sessions ever become shared, **this entry is the one to reopen** —
+not to quietly copy the audit store's WAL in.
+
+**Impact**: `session.rs` sets one pragma and wraps one method in a transaction; nothing else changed,
+and the audit store is untouched. The leftover `docs/multi-agent-foundation.md` recorded ("the
+sessions DB has no WAL or busy timeout") is superseded. The asymmetry between the two stores is now a
+decision rather than an omission.

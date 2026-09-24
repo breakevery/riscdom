@@ -13,6 +13,21 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The sessions DB waits for a lock, and an append is one transaction** (v0.9 sessions batch — the
+  A3 leftover). `SessionStore::init` now sets a five-second `busy_timeout` **before** its first
+  write, the shape the audit store uses: SQLite's default of zero answered the second writer with
+  `SQLITE_BUSY` on the spot, and because that failure lands in `SessionStore::open` it took the
+  whole instance down rather than one command. Two processes can meet on `sessions.db` (two
+  default-path CLI or server processes, or an explicitly shared `--data-dir`); per-instance remains
+  the default. **WAL and `synchronous` are deliberately not set** — the audit store is shared across
+  processes by design and this one is not, so the asymmetry is the decision, not an omission
+  (decisions §54). `append_message` is now **one transaction** (insert + the session's `updated_at_ms`
+  bump): the two statements could previously half-land, leaving a message that its session's
+  timestamp denied. **+2 tests** (`a_file_database_gets_a_busy_timeout`; and
+  `a_failed_append_leaves_no_message_behind`, which injects the failure with a trigger that refuses
+  every `UPDATE` on `sessions` — it fails before the fix, and the same shape in autocommit does
+  leave the message behind).
+
 - **The constitution no longer disagrees with the compiler about Rust either — the F line is closed**
   (v0.9 multi-language batch F3b-3). `PROJECT_CONSTITUTION.md` forbids Rust in §3.6 (inside the
   `non-negotiable` list), §4.6 and §5 — and §47 had annotated the Zig half of those three while

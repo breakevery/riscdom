@@ -10,7 +10,7 @@
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 /// Errors produced by the session store.
@@ -70,6 +70,23 @@ impl SessionMessage {
     }
 }
 
+/// How long a writer waits inside SQLite for another process's lock.
+///
+/// The same five seconds the audit store waits with, and it is set **first**,
+/// before this connection's first write (the schema is that write): with
+/// SQLite's default of zero, a second process holding the lock is answered
+/// `SQLITE_BUSY` immediately instead of being waited out.
+///
+/// The sessions DB is per-instance by default (v0.8), so this is not the audit
+/// store's situation — but two processes can still meet on one file (two
+/// default-path CLI or server processes, or an explicitly shared `--data-dir`),
+/// and a failed open takes the whole instance down with it.
+///
+/// **WAL is deliberately not set here**, and neither is `synchronous`: the audit
+/// store is shared across processes on purpose, this one is not, so the two
+/// stores' concurrency models differ by design — see `docs/decisions.md` §54.
+pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS sessions (
     id            TEXT PRIMARY KEY,
@@ -112,6 +129,10 @@ impl SessionStore {
     }
 
     fn init(conn: Connection) -> Result<Self, SessionError> {
+        // The busy timeout goes on **first**: the schema below is this
+        // connection's first write, and with SQLite's default of zero a second
+        // process holding the lock turns it into an immediate `SQLITE_BUSY`.
+        conn.busy_timeout(BUSY_TIMEOUT)?;
         // Required for ON DELETE CASCADE to behave.
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         conn.execute_batch(SCHEMA)?;
@@ -169,12 +190,21 @@ impl SessionStore {
     }
 
     /// Append a message; returns its row id. Also bumps the session timestamp.
+    ///
+    /// The insert and the timestamp bump are **one transaction**: a message that
+    /// landed while its session's `updated_at_ms` did not would leave the
+    /// session list lying about when the session was last used. The transaction
+    /// is opened with [`Connection::unchecked_transaction`] because the store is
+    /// shared behind a `Mutex` and this method takes `&self`; nothing here opens
+    /// a second transaction, and a failure anywhere inside rolls the whole
+    /// append back rather than leaving half of it.
     pub fn append_message(
         &self,
         session_id: &str,
         msg: SessionMessage,
     ) -> Result<i64, SessionError> {
-        self.conn.execute(
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
             "INSERT INTO session_messages \
              (session_id, role, content, tool_call_json, tool_call_id, created_at_ms) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -187,8 +217,9 @@ impl SessionStore {
                 msg.created_at_ms
             ],
         )?;
-        let id = self.conn.last_insert_rowid();
-        self.touch_session(session_id)?;
+        let id = tx.last_insert_rowid();
+        touch_session_in(&tx, session_id)?;
+        tx.commit()?;
         Ok(id)
     }
 
@@ -223,11 +254,7 @@ impl SessionStore {
 
     /// Update `updated_at_ms`.
     pub fn touch_session(&self, id: &str) -> Result<(), SessionError> {
-        self.conn.execute(
-            "UPDATE sessions SET updated_at_ms = ?2 WHERE id = ?1",
-            params![id, now_ms()],
-        )?;
-        Ok(())
+        touch_session_in(&self.conn, id)
     }
 
     /// Delete every session (their messages cascade).
@@ -245,6 +272,28 @@ impl SessionStore {
         )?;
         Ok(n as usize)
     }
+
+    /// This connection's current `busy_timeout`, in milliseconds ([`BUSY_TIMEOUT`]
+    /// unless something changed it). It is a per-connection setting, so this
+    /// reports the value *this* store was opened with. Diagnostics and tests.
+    pub fn busy_timeout_ms(&self) -> Result<i64, SessionError> {
+        Ok(self
+            .conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))?)
+    }
+}
+
+/// `UPDATE sessions SET updated_at_ms = ?2 WHERE id = ?1`.
+///
+/// One writer for both [`SessionStore::touch_session`] and the append
+/// transaction, so the public method and the update inside an append cannot
+/// drift apart.
+fn touch_session_in(conn: &Connection, id: &str) -> Result<(), SessionError> {
+    conn.execute(
+        "UPDATE sessions SET updated_at_ms = ?2 WHERE id = ?1",
+        params![id, now_ms()],
+    )?;
+    Ok(())
 }
 
 /// Milliseconds since the Unix epoch.

@@ -129,8 +129,13 @@ directory isolation, and a Tauri-free executor binary.
    prompts, no budget policy.
 5. **No remote executor.** The trait seam exists; nothing implements it for another process or machine
    beyond the local stdio handle.
-6. **The sessions DB has no WAL or busy timeout.** Harmless while each process owns its data directory;
-   worth revisiting if sessions ever become shared.
+6. **The sessions DB waits for a lock, and still has no WAL** (v0.9). SQLite's default
+   `busy_timeout` of zero made a second process's write fail on the spot — and a failed open took
+   the whole instance down with it. Two processes can meet on one file (two default-path CLI or
+   server processes, or a shared `--data-dir`), so the connection now waits five seconds, set
+   before its first write, the shape the audit store uses. WAL stays off **on purpose**, unlike the
+   audit store: that one is shared across processes by design, this one is per instance, so the two
+   concurrency models differ (decisions §54).
 7. **Temporary directories are never removed by the code.** Tests and the demo leave
    `riscdom-*` entries in the system temp directory; `scripts/clean-temp.ps1` / `clean-temp.sh` clear
    them (dry run by default, `-Force` / `--force` to delete). One-off artefacts from manual debugging

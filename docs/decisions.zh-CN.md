@@ -573,3 +573,13 @@
 **理由**：Rust 的 `riscv64gc-unknown-none-elf` target 加 `no_std` 能编出载入地址 `0x80000000` 的裸机 ELF——与 C、Zig 路径同形，所以沙箱本身无需改。`rustc` 由系统提供（照 QEMU 的「用户自装」先例）；`rust-std` 自下载，且与 `rustc` 版本耦合，pin 在 1.98.1（§52）。禁令自带「MVP 阶段」限定词，而 MVP 已于 v0.8.0 结束——因此解禁 Rust **不是协商一条不可协商的原则**，而是诚实读条款自己的时效条件。
 
 **影响**：§3.6、§4.6、§5 各带一条时效旁注（原句完整、`non-negotiable` 标题未动）；§9（v0.1 完成情况）未改，因为那是历史：v0.1 当时确实只支持 C。受支持的语言现为 C / Zig / Rust；Python 待 v1.x。
+
+## 54. 会话库会等锁，但故意不做成审计库
+
+**日期**：2026-09-24 ｜ **状态**：已定
+
+**决策**：`SessionStore` 在它**第一次写之前**设好 `busy_timeout`（5 秒，`session::BUSY_TIMEOUT`），且 `append_message` 把消息插入与会话 `updated_at_ms` 更新当成**一个事务**。它**不拿 WAL、不拿 `synchronous = NORMAL`、不拿打开重试**——那三样是审计库自 v0.8/v0.9 起就带着的。
+
+**理由**：两个库的并发模型**本就不同**。`audit.db` 是**有意跨进程共享**的（一个 workspace 一条链，多个写者追加），正因为如此，WAL、busy timeout 与打开重试在那里才是承重的——`PRAGMA journal_mode = WAL` 会绕过 busy handler，所以那次切换本身就需要重试。会话库是 **per-instance**：`with_data_dir` 让每个实例拥有自己的 `<data-dir>/sessions.db`。但「per-instance」是默认而**不是保证**——两个走默认路径的 CLI / 服务器进程会落到同一个 `<temp>/riscdom/sessions.db`，而显式共用 `--data-dir` 本就是刻意撞车——在这些情形下，SQLite 的 `busy_timeout` 默认 0 会把第二个写者变成即时的 `SQLITE_BUSY`。而这个失败落在 `SessionStore::open` 里，所以它失败的不是一条命令，而是**整个实例起不来**。busy timeout 解决的正是这件事；WAL 则只会为一种本库不存在的共享模型多加两个副文件（`-wal`、`-shm`）。若将来会话真的变为共享，**要重开的是这一条**——而不是默默把审计库的 WAL 抄过来。
+
+**影响**：`session.rs` 多设一个 pragma、把一个方法包进事务；其余未改，审计库一字未动。`docs/multi-agent-foundation.md` 曾记的那条遗留（「会话 DB 没有 WAL 与 busy timeout」）由此被取代。两个库之间的不对称，从此是一条决策而不是一次疏忽。

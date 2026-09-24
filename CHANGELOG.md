@@ -102,6 +102,17 @@ the Rust sentence too, and §5's spells out what is still banned: **C++ and Pyth
 in v0.1 only C was supported. The sandbox's languages are now C / Zig / Rust. Recorded as decision
 §53.
 
+**The sessions database waits for a lock instead of failing on the spot.** SQLite's default
+`busy_timeout` is zero, so a second process writing `sessions.db` was answered `SQLITE_BUSY`
+immediately — and because that failure lands in `SessionStore::open`, it took a whole instance down
+rather than one command. Two processes can meet on that file (two default-path CLI or server
+processes, or an explicitly shared `--data-dir`), so the connection now waits five seconds, set
+**before** its first write, the shape the audit store uses. WAL is deliberately **not** turned on:
+the audit store is shared across processes on purpose and this one is per instance, so the two
+concurrency models differ by design (decision §54). An append is now **one transaction** as well —
+the message insert and the session's `updated_at_ms` bump used to be two statements, so a failure
+between them left a message that its session's timestamp denied.
+
 ### Added
 
 - **Zig compiles (v0.9 F3a)**: `compile` dispatches on the source extension — `.c` /

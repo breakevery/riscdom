@@ -39,6 +39,8 @@
 
 **宪法与编译器在 Rust 上也不再矛盾。** `PROJECT_CONSTITUTION.md` 在 §3.6（在 `non-negotiable` 列表内）、§4.6、§5 三处禁 Rust，而 §47 当时只把这三处的 Zig 半边标了时效、把 Rust 留作「待 F3b」。现在这三条旁注各自补上 Rust 那句，且 §5 的旁注把仍在禁的写明：**C++、Python 仍在禁令内**——Python 待 Linux 沙箱（v1.x），C++ 仍不在范围。原句与 `non-negotiable` 标题一字未动；§9（v0.1 完成情况）同样未动——v0.1 当时确实只支持 C。沙箱能用的语言现为 C / Zig / Rust。记入决策 §53。
 
+**会话库会等锁，而不是当场失败。** SQLite 的 `busy_timeout` 默认是 0，所以第二个进程写 `sessions.db` 时会**立即**收到 `SQLITE_BUSY`——而这个失败落在 `SessionStore::open` 里，倒下的不是一条命令而是**整个实例**。两个进程确实可能撞上同一个文件（两个走默认路径的 CLI / 服务器进程，或显式共用 `--data-dir`），因此连接现在会等 5 秒，且在它**第一次写之前**就设好，与审计库同一个形状。**故意不开** WAL：审计库本来就是要跨进程共享的，会话库是 per-instance，所以两者的并发模型本就不同（决策 §54）。另外 `append_message` 现在是**一个事务**：消息插入与会话 `updated_at_ms` 的更新原本是两条语句，中途失败会留下一条「与其会话时间戳相矛盾」的消息。
+
 ### 新增
 
 - **Zig 可编译（v0.9 F3a）**：`compile` 按源扩展名分派——`.c` / `.h` / `.S` / `.s` 走 GCC，`.zig` 走 `zig build-exe -target riscv64-freestanding`。Zig 不注入任何东西：源自己写 `_start`（`-bios none` 的客机跳到载入地址，所以启动代码必须排最前），生成的 `link.ld` 原样复用。`ZigConfig` 负责探测（`RISCDOM_ZIG` → 已知路径 → `PATH`），`settings.json` 新增 `zig_path`，由 `AppState::set_zig_path` / `clear_zig_path` 固定与清除。Zig 归档**不**在本批下载：其 macOS/Linux 构建是 `.tar.xz`，现有下载器无法解包（独立批次，与 Rust 共用）。

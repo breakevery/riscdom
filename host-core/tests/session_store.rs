@@ -1,6 +1,6 @@
 //! Stage 17a — the session store.
 
-use host_core::session::{SessionMessage, SessionStore};
+use host_core::session::{SessionError, SessionMessage, SessionStore};
 
 fn unique_dir(tag: &str) -> std::path::PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -133,4 +133,73 @@ fn list_is_most_recently_updated_first() {
         .map(|s| s.id)
         .collect();
     assert_eq!(ids, vec![first, second]);
+}
+
+/// The connection waits for another process's lock instead of failing at once.
+///
+/// SQLite's default is zero, and the sessions DB can be met by two processes
+/// (two default-path CLI/server processes, or a shared `--data-dir`), so the
+/// value is pinned here: five seconds, the same the audit store waits with.
+#[test]
+fn a_file_database_gets_a_busy_timeout() {
+    let path = unique_dir("busy").join("sessions.db");
+    let store = SessionStore::open(&path).expect("open");
+    assert_eq!(store.busy_timeout_ms().expect("busy_timeout"), 5_000);
+    assert_eq!(
+        store.busy_timeout_ms().expect("busy_timeout"),
+        host_core::session::BUSY_TIMEOUT.as_millis() as i64
+    );
+
+    // The timeout is per connection, so a second store opened on the same file
+    // has to set its own — an existing database is not enough.
+    let second = SessionStore::open(&path).expect("reopen");
+    assert_eq!(second.busy_timeout_ms().expect("busy_timeout"), 5_000);
+
+    // The in-memory store goes through the same `init`.
+    let memory = SessionStore::in_memory().expect("memory");
+    assert_eq!(memory.busy_timeout_ms().expect("busy_timeout"), 5_000);
+}
+
+/// A failure **between** the insert and the timestamp bump leaves neither
+/// behind.
+///
+/// The failure is injected where the second statement runs — a trigger that
+/// refuses every `UPDATE` on `sessions` — because that is the only place a
+/// half-done append could hide: without the transaction the insert has already
+/// committed and the message outlives its failed append. This is the test that
+/// fails before `append_message` was wrapped.
+#[test]
+fn a_failed_append_leaves_no_message_behind() {
+    let path = unique_dir("atomic").join("sessions.db");
+    let store = SessionStore::open(&path).expect("open");
+    let id = store.create_session("atomic").expect("create");
+
+    {
+        let blocker = rusqlite::Connection::open(&path).expect("second connection");
+        blocker
+            .execute_batch(
+                "CREATE TRIGGER no_touch BEFORE UPDATE ON sessions \
+                 BEGIN SELECT RAISE(ABORT, 'sessions are frozen'); END;",
+            )
+            .expect("trigger");
+    }
+
+    let error = store
+        .append_message(&id, user(&id, "should not survive"))
+        .expect_err("the append must fail");
+    assert!(matches!(error, SessionError::Sqlite(_)), "{error:?}");
+
+    assert_eq!(store.message_count(&id).expect("count"), 0);
+    let listed = store.list_sessions(10).expect("list");
+    assert_eq!(listed[0].message_count, 0);
+    assert_eq!(
+        listed[0].updated_at_ms, listed[0].created_at_ms,
+        "the timestamp bump must roll back with the insert"
+    );
+
+    // And the store is still usable afterwards: the aborted trigger only ever
+    // refused writes, it did not poison the connection.
+    let other = store.create_session("still works").expect("create");
+    assert_eq!(store.list_sessions(10).expect("list").len(), 2);
+    assert!(!other.is_empty());
 }
