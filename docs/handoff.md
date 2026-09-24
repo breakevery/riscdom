@@ -13,6 +13,21 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The logging test's failure message now says how the child left** (v0.9 logging-diagnosis
+  batch). The batch before cleared the *reader* (`0 line(s) unreadable`, `reader already stopped
+  (EOF)`) and left one fact standing: the **server process itself had exited** without ever writing
+  the `connection from … ended` line. This batch adds the other half to that message — `child:
+  exited with code N` / `killed by signal N` / `still running` — and pins the reporting itself with
+  a unit test (`cmd /c exit 1` / `sh -c 'exit 1'`). **What the reconnaissance ruled out**: no
+  `[profile.*]` section anywhere (so no `panic = "abort"`, which would have made any task panic
+  fatal), no `.cargo/config.toml`, no `RUSTFLAGS`, and the server's only `process::exit` calls are
+  its two start-up failures — both of which `eprintln!` first. **The strongest remaining lead is
+  test-side**: `read_banner` takes the child's stdout by value and drops it the instant it sees the
+  banner line, and the server then writes three more `println!`s (`server/src/main.rs:81-83`) into
+  a pipe whose read end is gone — a race that fits every observed fact (intermittent; the child
+  gone; no `connection from` line; nothing on the child's stderr) and that Windows would win more
+  often than Unix. Which of `exited` / `killed by signal` it actually is, is what the next CI
+  failure will now say. Diagnostics only: **no production code, no timeout, no profile touched.**
 - **Rust compiles too, when the machine has a `rustc` and a sysroot for the target**
   (v0.9 multi-language batch F3b-1). `compile` dispatches on the extension a third time: `.rs`
   goes through `rustc --target riscv64gc-unknown-none-elf --sysroot <dir>` with the generated

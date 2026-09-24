@@ -48,6 +48,7 @@
 
 ### 修复
 
+- **`server/tests/logging.rs` 失败时会说子进程是怎么离开的**（v0.9 logging 诊断批次）：在读取器自身状态旁打印 `child: exited with code N` / `killed by signal N` / `still running`，并用一个单测把报告本身钉住。**只改诊断**——未碰生产代码、未改超时、未动 profile。
 - **`server/tests/logging.rs` 的 stderr 读取循环不再因第一行读不出来就停下**（v0.9 logging 批次）。原循环是 `let Ok(line) = line else { break };`——一行读不出来就结束线程，并把其后所有行一并丢掉，包括 `the_connection_line_appears_at_info` 等的 `connection from … ended`。这正是该测试两次 CI 失败的形态（两次都是 5.09 s、报错逐字相同，而本地绿）。现在坏行**只被计数、读取继续**：`InvalidData`（非 UTF-8）与其它 I/O 错误计入坏行数，`Interrupted` 重试，EOF 才结束。等待失败时的输出也扩展为**读取器自身状态**——已捕获行数、坏行数、仍在读还是已停止——于是下次失败能区分「那行根本没来」与「读取器早就停了」。5 秒超时与轮询未动，生产代码一行未改。
 - **`server` 的 6 处 `clippy::result_large_err`**：`http.rs:379` 与 `routes.rs:489/495/503/513/522` 返回 `Result<_, Response<RespBody>>`，而 hyper 的 `Response` 有 128+ 字节。错误类型改为 `Box<Response<RespBody>>`，所有调用方返回 `*response`——同一条路径上同一个 Response 值。随之一并修的还有 `routes.rs` 测试里 3 处 `bool_assert_comparison` 与 `tests/smoke.rs` 里 1 处 `filter_next`。行为未变。
 - **`scripts/gate.sh`** 选 `-p cli -p server -p host-core -p host-tauri`（仍带 `--no-deps`），控制平面与我们自己的其它 crate 一样被 lint。

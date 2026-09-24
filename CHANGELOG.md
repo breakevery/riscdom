@@ -116,6 +116,10 @@ Downloading `rust-std` is a separate batch.
 
 ### Fixed
 
+- **A failing `server/tests/logging.rs` now reports how the child process left** (v0.9
+  logging-diagnosis batch): `child: exited with code N` / `killed by signal N` / `still running`,
+  printed next to the reader's own state, with a unit test that pins the reporting. Diagnostics
+  only — no production code, no timeout and no profile changed.
 - **The stderr reader in `server/tests/logging.rs` no longer stops at the first line it cannot
   read** (v0.9 logging batch). The drain loop was `let Ok(line) = line else { break };`, so one
   unreadable line ended the thread and threw away everything after it — including the

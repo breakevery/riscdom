@@ -11,7 +11,7 @@
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
-use std::process::{Child, ChildStderr, Command, Stdio};
+use std::process::{Child, ChildStderr, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -207,6 +207,42 @@ fn diagnosis(drained: &Drained) -> String {
     )
 }
 
+/// How a child process left, in words a CI log can be read from.
+///
+/// `exited with code N` and `killed by signal N` are very different findings, and the CI
+/// failure this batch is chasing showed the child **gone** with nothing else to go on — so
+/// the next failure has to say which of the two it was (v0.9 logging batch).
+fn exit_status(child: &mut Child) -> String {
+    match child.try_wait() {
+        Ok(None) => "still running".to_string(),
+        Ok(Some(status)) => describe_status(&status),
+        Err(e) => format!("could not be queried: {e}"),
+    }
+}
+
+fn describe_status(status: &ExitStatus) -> String {
+    if let Some(code) = status.code() {
+        return format!("exited with code {code}");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return format!("killed by signal {signal}");
+        }
+    }
+    "exited without a code".to_string()
+}
+
+/// [`diagnosis`] plus the child's own state.
+///
+/// A failure that only describes the *reader* cannot tell "the server never logged" from
+/// "the server was already gone", which is exactly the distinction the last CI failure
+/// needed.
+fn diagnosis_with_child(drained: &Drained, child: &mut Child) -> String {
+    format!("{}\nchild: {}", diagnosis(drained), exit_status(child))
+}
+
 fn stop(mut child: Child) {
     let _ = child.kill();
     let _ = child.wait();
@@ -216,22 +252,26 @@ fn stop(mut child: Child) {
 fn the_connection_line_is_off_by_default() {
     // The default matters: the CLI embeds this server, and its stderr is the CLI's
     // own error channel (in `--json`, the error object itself).
-    let (child, addr, drained) = start(&[]);
+    let (mut child, addr, drained) = start(&[]);
     close_abruptly(addr);
     let seen = wait_for_line(&drained, "ended", Duration::from_millis(700));
     let text = text_of(&drained);
+    let child_state = exit_status(&mut child);
     stop(child);
-    assert!(!seen, "the default must be silent, got: {text}");
+    assert!(
+        !seen,
+        "the default must be silent (child: {child_state}), got: {text}"
+    );
     assert!(!text.contains("connection from"), "{text}");
 }
 
 #[test]
 fn the_connection_line_appears_at_info() {
-    let (child, addr, drained) = start(&["--log-level", "info"]);
+    let (mut child, addr, drained) = start(&["--log-level", "info"]);
     close_abruptly(addr);
     let seen = wait_for_line(&drained, "ended", Duration::from_secs(5));
     let text = text_of(&drained);
-    let diagnosis = diagnosis(&drained);
+    let diagnosis = diagnosis_with_child(&drained, &mut child);
     stop(child);
     assert!(seen, "info must log the connection: {diagnosis}");
     assert!(text.contains("riscdom-server: connection from"), "{text}");
@@ -243,12 +283,31 @@ fn the_connection_line_appears_at_info() {
 fn error_keeps_the_per_connection_line_quiet() {
     // `error` is for failures, not for the per-connection chatter: an operator who
     // asks for errors does not want one line per closed socket.
-    let (child, addr, drained) = start(&["--log-level", "error"]);
+    let (mut child, addr, drained) = start(&["--log-level", "error"]);
     close_abruptly(addr);
     let seen = wait_for_line(&drained, "ended", Duration::from_millis(700));
     let text = text_of(&drained);
+    let child_state = exit_status(&mut child);
     stop(child);
-    assert!(!seen, "error must not log connections, got: {text}");
+    assert!(
+        !seen,
+        "error must not log connections (child: {child_state}), got: {text}"
+    );
+}
+
+/// The exit-status reporting is itself testable — which matters, because it is only ever
+/// *used* on a machine where something has already gone wrong.
+#[test]
+fn a_child_that_has_left_says_how() {
+    let mut child = if cfg!(windows) {
+        Command::new("cmd").args(["/c", "exit", "1"]).spawn()
+    } else {
+        Command::new("sh").args(["-c", "exit 1"]).spawn()
+    }
+    .expect("spawn a process that leaves at once");
+    let status = child.wait().expect("wait");
+    assert_eq!(status.code(), Some(1));
+    assert_eq!(exit_status(&mut child), "exited with code 1");
 }
 
 /// A stream the reader can finish on its own: the reader half of the CI bug, without a
