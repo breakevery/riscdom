@@ -938,6 +938,12 @@ repository, who it is for, and whether it is living, a snapshot or history.
   `libdbus-1-dev` (and the Linux `bundle` job's dependency list gained it as well). A
   Windows developer machine uses `keyring`'s `windows-native` backend, so the local gate
   could never have caught this.
+- **`cli`'s test binary compiled on Linux again.** Un-skipping `cli` there (the change above)
+  failed at once: `cli/tests/control.rs`'s `write_executor_settings` was called only from a
+  `#[cfg(windows)]` dispatch test but carried no gate of its own, so on Linux it was dead code
+  — and `-D warnings` turns `dead_code` into a build failure. It is `#[cfg(windows)]` now, as
+  is the `std::path::Path` import only it and the fake-executor helper use. No production code
+  changed.
 
 ### Changed
 

@@ -32,7 +32,8 @@ sh scripts/gate.sh    # Unix
 The gate is the **single list of what "green" means**: CI runs the same file
 (`sh scripts/gate.sh` in `.github/workflows/ci.yml`), so a check cannot drift between CI and a
 developer machine. In order: `cargo fmt --all -- --check` → `cargo clippy -D warnings` (the
-workspace crates `audit` / `sandbox` / `agent` / `host-core` / `host-tauri`, and `ui/src-tauri`) → `cargo check` →
+workspace crates `audit` / `sandbox` / `agent` / `cli` / `server` / `host-core` / `host-tauri`, and
+`ui/src-tauri`) → `cargo check` →
 `cargo test` → `cargo check` for `ui/src-tauri` → `npm run build` →
 the ui regression probes (`node ui/scripts/probe-ui-*.mjs`) → the mirror guard
 (`node scripts/check-mirrored-constants.mjs`) → the wix-version guard

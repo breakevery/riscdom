@@ -13,6 +13,13 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **B-1's follow-up: the lint it surfaced is fixed** (v0.9 gate-consistency batch B-1-fix).
+  Un-skipping `cli` on Linux failed there immediately: `cli/tests/control.rs`'s
+  `write_executor_settings` was called only from a `#[cfg(windows)]` dispatch test but carried
+  no gate of its own, so on Linux it was dead code and `-D warnings` made that a build failure
+  — and the `std::path::Path` import, which only it and the fake-executor helper use, was
+  ungated for the same reason. Both are `#[cfg(windows)]` now. No production code changed. CI
+  is green on `main` again.
 - **The gate lints `cli` / `server` / `host-core` on Linux now** (v0.9 gate-consistency batch
   B-1). The non-Windows branch of `scripts/gate.sh` used to skip all four crates together; it now
   runs `cargo clippy -p cli -p server -p host-core --all-targets --no-deps -- -D warnings` on

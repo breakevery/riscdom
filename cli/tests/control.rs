@@ -10,7 +10,9 @@
 //! an AI takes: without `--yes`, refuse.
 
 use riscdom_cli::args::{parse, Parsed};
-use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -635,6 +637,11 @@ fn the_parser_agrees_with_the_binary_about_the_new_commands() {
 // v0.9 interface E0 — the fleet and the dispatch
 // ---------------------------------------------------------------------------
 
+// Windows-only: its single caller is the `#[cfg(windows)]` dispatch test below, whose fake
+// executor is a `.bat`. Without this gate the function is dead code on Linux, and the gate's
+// `-D warnings` turns that into a build failure there (`Path` above is gated for the same
+// reason).
+#[cfg(windows)]
 fn write_executor_settings(data_dir: &Path, settings: serde_json::Value) {
     std::fs::write(
         data_dir.join("settings.json"),

@@ -31,7 +31,8 @@ sh scripts/gate.sh    # Unix
 
 gate 就是**「全绿」的唯一清单**：CI 跑的是同一个文件（`.github/workflows/ci.yml` 里的
 `sh scripts/gate.sh`），所以检查项再也不会在 CI 与本机之间漂移。依次执行：`cargo fmt --all -- --check` →
-`cargo clippy -D warnings`（workspace 的 `audit` / `sandbox` / `agent` / `host-core` / `host-tauri`，以及 `ui/src-tauri`）→
+`cargo clippy -D warnings`（workspace 的 `audit` / `sandbox` / `agent` / `cli` / `server` / `host-core` / `host-tauri`，
+以及 `ui/src-tauri`）→
 `cargo check` → `cargo test` → `ui/src-tauri` 的 `cargo check` → `npm run build` →
 UI 回归探针（`node ui/scripts/probe-ui-*.mjs`）→ 镜像常量守卫
 （`node scripts/check-mirrored-constants.mjs`）→ wix 版本守卫

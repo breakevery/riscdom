@@ -521,6 +521,7 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 - **根 `README` 的目录树**描述的是 `host/` 与四个 crate；工作区现有八个（`cli`、`host-core`、`host-tauri`、`sandbox`、`audit`、`agent`、`worker`、`server`）加上 `docs/`、`examples/`、`scripts/`、`walkthroughs/`。它的测试清单还把 `host-core` 写成「Tauri 后端命令 + 串口增量」——自 v0.9 的 A1 拆分后，Tauri 那一半是 `host-tauri`——且只列了八个 crate 中的四个。
 - **规范文档里的两处陈旧计数**：`control-plane-api.md` 说 §5.2 有 35 个控制端点（实为 36），客户端指南说查询面是 31 个端点（实为 32）——两个语言都改。
 - **自 `00fca17` 起，CI 在 Linux 上连续红了四个提交。** `gate` job 的 `remote executor example` 步骤是 Linux 上第一个编译 `host-core` 的步骤，而 `host-core` 在 Linux 上的 `keyring` 后端会编译 `libdbus-sys`，它需要系统 `dbus-1` 库——而 runner 并不自带。`gate` job 现在会安装 `libdbus-1-dev`（Linux 的 `bundle` job 的依赖列表也加上了它）。Windows 开发机走 `keyring` 的 `windows-native` 后端，所以本地 gate 根本不可能发现这个问题。
+- **`cli` 的测试二进制在 Linux 上又能编译了。** 在 Linux 上解开 `cli`（即上面的改动）当场就红：`cli/tests/control.rs` 的 `write_executor_settings` 只被一个 `#[cfg(windows)]` 派发测试调用，自己却没有 cfg 门，于是在 Linux 上是死代码——而 `-D warnings` 会把 `dead_code` 升级成编译失败。现在它带 `#[cfg(windows)]`，只有它和假执行者 helper 用到的 `std::path::Path` 导入也同样加上。**生产代码零改动。**
 
 ### 变更
 
