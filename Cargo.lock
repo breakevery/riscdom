@@ -1504,6 +1504,7 @@ dependencies = [
  "tar",
  "thiserror 1.0.69",
  "uuid",
+ "xz2",
  "zip",
 ]
 

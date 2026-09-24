@@ -13,6 +13,23 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **A `.tar.xz` archive kind exists, and its extractor is the gzip one with another decoder**
+  (v0.9 multi-language batch F3a-download). `ArchiveKind` gained `TarXz`; `extract_tar_xz` is
+  `extract_tar_gz` line for line with `xz2::read::XzDecoder` where `flate2::read::GzDecoder` was —
+  same Zip-Slip guard (`safe_relative`), same `set_overwrite(true)`, same per-entry cancel — and
+  the dispatch arm carries **no platform gate**: unlike `.tar.gz` (only ever a unix asset here), a
+  `.tar.xz` is the shape of the host's *own* Zig release and of Rust's `rust-std-*.tar.xz`, so a
+  Windows host must read one too. `host-core` gained the direct edge `xz2 = "0.1"`: it and
+  `lzma-sys` were already in `Cargo.lock` through `zip`, so the lock changed by **one line** (the
+  edge) and no version moved; `lzma-sys` compiles its vendored C on MSVC and falls back to it
+  when a unix host has no `liblzma`, so **no platform gains a system-library requirement**.
+  **5 new tests**, all offline: 4 unit (unpack / an escaping entry refused / overwrite / cancel)
+  and 1 end-to-end through the loopback download path. The archive is built **in memory** — the
+  repo's archive-test convention (`host-core/tests/common` builds the zip/gzip fixtures the same
+  way; there is no `tests/fixtures/` and no checked-in binary), so **no `.gitattributes` line was
+  needed**. Not here: nothing downloads a Zig or Rust archive yet — `spec_for_current_platform()`
+  still returns only the xPack spec, and the Zig locator (`find_zig`) belongs to the apply batch
+  (decision §48).
 - **The constitution stops contradicting the compiler: the MVP-era Zig ban is annotated, not
   negotiated** (v0.9 constitution batch). `PROJECT_CONSTITUTION.md` forbade Zig in **three** places —
   §3.6 (inside the `non-negotiable` list), §4.6, §5 — and recorded it once more in §9's v0.1

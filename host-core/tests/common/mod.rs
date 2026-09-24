@@ -176,6 +176,67 @@ pub fn toolchain_archive() -> (Vec<u8>, String) {
     ])
 }
 
+/// Build a `.tar.xz` in memory (v0.9 multi-language batch F3a-download).
+///
+/// No platform branch: unlike the zip/gzip pair above, xz is read on every platform.
+/// The name goes into the header by hand for the same reason as in
+/// [`build_archive_bytes`].
+fn build_tar_xz_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut encoder = xz2::write::XzEncoder::new(Vec::new(), 6);
+    {
+        let mut tar = tar::Builder::new(&mut encoder);
+        for (name, body) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(body.len() as u64);
+            header.set_mode(0o755);
+            let name_bytes = name.as_bytes();
+            assert!(
+                name_bytes.len() <= 100,
+                "fixture name too long for a tar header: {name}"
+            );
+            header.as_old_mut().name[..name_bytes.len()].copy_from_slice(name_bytes);
+            header.set_cksum();
+            tar.append(&header, *body).expect("append");
+        }
+        tar.finish().expect("finish tar");
+    }
+    encoder.finish().expect("finish xz")
+}
+
+/// Archive bytes for a `.tar.xz` carrying the compiler entry (v0.9 F3a-download).
+///
+/// The `.tar.xz` sibling of [`toolchain_archive`]: the same entries, xz instead of
+/// zip/gzip, so the archive kind is the only thing that differs.
+pub fn tar_xz_archive() -> (Vec<u8>, String) {
+    let bytes = build_tar_xz_bytes(&[
+        (COMPILER_ENTRY, b"#!/bin/sh\n# fake compiler\n".as_slice()),
+        (
+            "xpack-riscv-none-elf-gcc-15.2.0-1/README.md",
+            b"xpack fixture\n".as_slice(),
+        ),
+    ]);
+    let hash = sha256_hex(&bytes);
+    (bytes, hash)
+}
+
+/// A download spec that serves `server` as a `.tar.xz` (v0.9 F3a-download).
+pub fn spec_for_tar_xz(
+    server: &MockServer,
+    sha256: String,
+    name: &str,
+) -> host_core::toolchain_download::DownloadSpec {
+    host_core::toolchain_download::DownloadSpec {
+        version: host_core::toolchain_download::XPACK_RISCV_GCC_VERSION.to_string(),
+        url: server.url(name),
+        sha256,
+        archive_kind: ArchiveKind::TarXz,
+        install_subdir: format!(
+            "xpack-riscv-none-elf-gcc-{}",
+            host_core::toolchain_download::XPACK_RISCV_GCC_VERSION
+        ),
+    }
+}
+
 /// Where the QEMU emulator sits inside an extracted archive.
 ///
 /// The name comes from the sandbox (it owns QEMU discovery), so a fixture archive

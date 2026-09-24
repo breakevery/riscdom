@@ -62,6 +62,13 @@ sentences and the `non-negotiable` heading are untouched, because the clauses ba
 MVP"* and MVP ended at v0.8.0. Only Zig moved: C++, Rust and Python stay forbidden. §9 is left
 alone — v0.1 really did support only C. Recorded as decision §47.
 
+**A `.tar.xz` archive kind exists.** `ArchiveKind` gained `TarXz`, and `extract_tar_xz` mirrors
+`extract_tar_gz` with `xz2::read::XzDecoder` — same Zip-Slip guard, same overwrite, same
+per-entry cancel. The arm carries **no platform gate**: a `.tar.xz` is the shape of the host's own
+Zig and Rust downloads, so a Windows host must read one too. `xz2` was already in `Cargo.lock`
+(through `zip`): the lock grew by one line, no version moved, and no platform gained a
+system-library requirement. Nothing downloads an xz archive yet — that is the apply batch.
+
 ### Added
 
 - **Zig compiles (v0.9 F3a)**: `compile` dispatches on the source extension — `.c` /

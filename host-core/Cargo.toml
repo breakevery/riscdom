@@ -30,6 +30,14 @@ uuid = { version = "1", features = ["v7"] }
 zip = "2"
 flate2 = "1"
 tar = "0.4"
+# `.tar.xz` archives (v0.9 multi-language batch F3a-download). Zig's macOS/Linux releases
+# and Rust's `rust-std-*.tar.xz` are xz-compressed, and `zip` already pulls `xz2` and its
+# `lzma-sys` into `Cargo.lock`, so this adds an edge and **no new package**. `xz2` is
+# `flate2`'s sibling by the same author: `xz2::read::XzDecoder` sits where
+# `flate2::read::GzDecoder` does. `lzma-sys` builds its vendored C on MSVC (it disables
+# `pkg-config` there) and falls back to the same vendored build when a unix system has no
+# `liblzma`, so neither platform grows a system-library requirement.
+xz2 = "0.1"
 
 # API-key persistence. The `keyring` crate ships **no** default backend, so a
 # bare `keyring = "3"` compiles to a silent no-op (writes appear to succeed and

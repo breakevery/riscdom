@@ -37,6 +37,12 @@ pub const XPACK_RELEASE_BASE: &str =
 pub enum ArchiveKind {
     Zip,
     TarGz,
+    /// A `.tar.xz` (v0.9 multi-language batch F3a-download).
+    ///
+    /// Zig's macOS/Linux releases and Rust's `rust-std-*.tar.xz` ship as xz-compressed
+    /// tarballs. It is a variant of this enum and not an online shape: [`ArchiveKind`]
+    /// carries no serde, so adding it changes no wire type.
+    TarXz,
 }
 
 /// Everything needed to fetch and install one toolchain build.
@@ -316,6 +322,10 @@ fn extract(
         ArchiveKind::TarGz => Err(ToolchainDownloadError::Archive(
             "tar.gz archives are not supported on this platform".to_string(),
         )),
+        // Unlike `.tar.gz` -- which is only ever a unix *asset* here -- a `.tar.xz` is the
+        // shape of the host's own Zig and Rust downloads on every platform, so this arm
+        // carries no platform gate and a Windows host can read one too.
+        ArchiveKind::TarXz => extract_tar_xz(archive, &staging, cancel),
     };
     if let Err(e) = extracted {
         let _ = fs::remove_dir_all(&staging);
@@ -431,6 +441,43 @@ fn extract_tar_gz(
     Ok(())
 }
 
+/// Unpack a `.tar.xz`.
+///
+/// The mirror of [`extract_tar_gz`] with an xz decoder: same Zip-Slip guard
+/// ([`safe_relative`]), same `set_overwrite(true)`, same per-entry cancellation.
+fn extract_tar_xz(
+    archive: &Path,
+    dest: &Path,
+    cancel: &AtomicBool,
+) -> Result<(), ToolchainDownloadError> {
+    let file = File::open(archive)?;
+    let decoder = xz2::read::XzDecoder::new(file);
+    let mut tar = tar::Archive::new(decoder);
+    tar.set_overwrite(true);
+    let entries = tar
+        .entries()
+        .map_err(|e| ToolchainDownloadError::Archive(e.to_string()))?;
+    for entry in entries {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(ToolchainDownloadError::Cancelled);
+        }
+        let mut entry = entry.map_err(|e| ToolchainDownloadError::Archive(e.to_string()))?;
+        let name = entry
+            .path()
+            .map_err(|e| ToolchainDownloadError::Archive(e.to_string()))?
+            .to_string_lossy()
+            .to_string();
+        let out = safe_relative(&name, dest)?;
+        if let Some(parent) = out.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        entry
+            .unpack(&out)
+            .map_err(|e| ToolchainDownloadError::Archive(e.to_string()))?;
+    }
+    Ok(())
+}
+
 /// Find a RISC-V compiler inside `dir` (bounded recursive scan).
 ///
 /// `pub(crate)` since v0.9 F2a: the sandbox registry scans `<data-dir>/toolchain`
@@ -467,4 +514,86 @@ pub fn is_compiler_name(path: &Path) -> bool {
     };
     let stem = name.strip_suffix(".exe").unwrap_or(name);
     agent::GCC_NAMES.contains(&stem)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a `.tar.xz` in memory (v0.9 multi-language F3a-download).
+    ///
+    /// The name is copied into the header by hand, exactly as `host-core/tests/common`
+    /// does it: `tar`'s own `append_data` refuses `..`, and one fixture here *is* an
+    /// escaping entry — the extractor is what has to refuse it, not the builder.
+    fn tar_xz(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut encoder = xz2::write::XzEncoder::new(Vec::new(), 6);
+        {
+            let mut tar = tar::Builder::new(&mut encoder);
+            for (name, body) in entries {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(body.len() as u64);
+                header.set_mode(0o755);
+                let bytes = name.as_bytes();
+                assert!(bytes.len() <= 100, "fixture name too long: {name}");
+                header.as_old_mut().name[..bytes.len()].copy_from_slice(bytes);
+                header.set_cksum();
+                tar.append(&header, *body).expect("append");
+            }
+            tar.finish().expect("finish tar");
+        }
+        encoder.finish().expect("finish xz")
+    }
+
+    /// Write `bytes` to a fresh scratch directory and return `(archive, dest)`.
+    fn scratch(bytes: &[u8], tag: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("riscdom-tarxz-{}-{tag}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create scratch");
+        let archive = dir.join("fixture.tar.xz");
+        fs::write(&archive, bytes).expect("write archive");
+        let dest = dir.join("out");
+        fs::create_dir_all(&dest).expect("create dest");
+        (archive, dest)
+    }
+
+    #[test]
+    fn a_tar_xz_unpacks_its_entries() {
+        let (archive, dest) = scratch(&tar_xz(&[("pkg/hello.txt", b"hello xz\n")]), "happy");
+        extract_tar_xz(&archive, &dest, &AtomicBool::new(false)).expect("extract");
+        let written = fs::read_to_string(dest.join("pkg").join("hello.txt")).expect("read");
+        assert_eq!(written, "hello xz\n");
+    }
+
+    #[test]
+    fn an_escaping_entry_in_a_tar_xz_is_refused() {
+        let bytes = tar_xz(&[("pkg/ok.txt", b"ok\n"), ("../escaped.txt", b"nope\n")]);
+        let (archive, dest) = scratch(&bytes, "slip");
+        let err = extract_tar_xz(&archive, &dest, &AtomicBool::new(false))
+            .expect_err("an escaping entry must be refused");
+        assert!(
+            matches!(err, ToolchainDownloadError::UnsafeEntry(_)),
+            "{err}"
+        );
+        assert_eq!(err.code(), "unsafe_entry");
+        // Nothing may land beside the destination directory.
+        assert!(!dest.parent().expect("parent").join("escaped.txt").exists());
+    }
+
+    #[test]
+    fn an_existing_file_is_overwritten_by_the_archive() {
+        let (archive, dest) = scratch(&tar_xz(&[("hello.txt", b"new\n")]), "overwrite");
+        let target = dest.join("hello.txt");
+        fs::write(&target, b"old\n").expect("seed");
+        extract_tar_xz(&archive, &dest, &AtomicBool::new(false)).expect("extract");
+        assert_eq!(fs::read_to_string(&target).expect("read"), "new\n");
+    }
+
+    #[test]
+    fn a_cancelled_extract_stops_and_reports() {
+        let (archive, dest) = scratch(&tar_xz(&[("hello.txt", b"hi\n")]), "cancel");
+        let err = extract_tar_xz(&archive, &dest, &AtomicBool::new(true))
+            .expect_err("a cancelled extract must stop");
+        assert!(matches!(err, ToolchainDownloadError::Cancelled), "{err}");
+        assert!(!dest.join("hello.txt").exists());
+    }
 }

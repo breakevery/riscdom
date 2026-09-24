@@ -1022,3 +1022,34 @@ honestly. Nothing in the "non-negotiable" list is weakened, and its heading is u
 `non-negotiable` intact); §9 is unchanged. Supported languages are now C / Zig. The constitution
 itself is a live document that stopped being maintained after its v0.5 roadmap section — a
 separate issue, recorded here and deliberately not fixed by this batch.
+
+## 48. The xz decoder is `xz2`, and the `.tar.xz` arm carries no platform gate
+
+**Date**: 2026-09-24 ｜ **Status**: Decided
+
+**Decision**: `ArchiveKind` gained `TarXz`, unpacked by `extract_tar_xz` — `extract_tar_gz`
+line for line with `xz2::read::XzDecoder` in place of `flate2::read::GzDecoder`, keeping the
+same Zip-Slip guard (`safe_relative`), the same `set_overwrite(true)` and the same per-entry
+cancellation. The decoder is **`xz2`**, not `lzma-rs`, and the dispatch arm has **no `cfg`
+gate**.
+
+**Why `xz2`**: it is `flate2`'s sibling by the same author and its API is the same shape
+(`read::XzDecoder` beside `read::GzDecoder`), so the new function is a copy rather than a new
+design; and it was already in `Cargo.lock` — `zip` pulls `xz2` → `lzma-sys` — so the direct
+edge moved the lock by **one line** and no version. `lzma-sys` compiles its vendored liblzma C
+on MSVC (where it disables `pkg-config` on purpose) and falls back to that same vendored build
+when a unix host has no `liblzma`, so no platform gains a system-library prerequisite.
+`lzma-rs` (pure Rust, also in the lock through `zip`) was the alternative; it would have meant
+writing the "decompress the stream, then hand it to `tar`" bridge ourselves, for no gain —
+`zip` already compiles the C path on every platform we ship.
+
+**Why no `cfg` gate**: `.tar.gz` is gated to non-Windows here because it is only ever a **unix
+asset** of our own downloads. A `.tar.xz` is different: it is the shape of the **host's own**
+Zig release (Windows is the `.zip` one, macOS/Linux are `.tar.xz`) and of Rust's
+`rust-std-*.tar.xz` on every platform. Gating it to non-Windows would only have to be undone by
+the next batch, and a Windows host reading a `.tar.xz` is exactly what those downloads need.
+
+**Impact**: `extract_tar_xz` is available on every platform; `spec_for_current_platform()` is
+**unchanged** (still the single xPack spec), so nothing downloads an xz archive yet — the Zig
+locator and the Zig/Rust specs belong to the apply batch. `ArchiveKind` carries no serde, so no
+wire type moved.

@@ -507,3 +507,15 @@
 **理由**：Zig 自带交叉编译器（无 sysroot、无外部链接器），能为 `riscv64-freestanding` 产出载入地址 `0x80000000` 的裸机 ELF——与 C 路径同形，所以沙箱本身无需改（§46）。MVP 期禁 Zig 是为把 MVP 面收小，不是长期语言政策。起决定作用的是：那些条款禁 Zig 的条件是「**MVP 阶段**」，而 MVP 已于 v0.8.0 结束——条款自带的限定词不再成立。因此解禁 Zig **不是协商一条不可协商的原则**，而是诚实读条款自己的时效条件。「不可协商」列表没有被削弱，其标题也一字未动。
 
 **影响**：§3.6、§4.6、§5 各带一条时效旁注（原句完整、`non-negotiable` 完整）；§9 未改。受支持的语言现为 C / Zig。宪法本身是一份停在 v0.5 roadmap 节之后的活文档——那是独立议题，在这里记录，本批**故意不修**。
+
+## 48. xz 解码器用 `xz2`，且 `.tar.xz` 那条臂不带平台门
+
+**日期**：2026-09-24 ｜ **状态**：已定
+
+**决策**：`ArchiveKind` 新增 `TarXz`，由 `extract_tar_xz` 解包——它逐行照抄 `extract_tar_gz`，只把 `flate2::read::GzDecoder` 换成 `xz2::read::XzDecoder`，保留同一个 Zip-Slip 守卫（`safe_relative`）、同一个 `set_overwrite(true)`、同一套逐条目取消。解码器用 **`xz2`** 而非 `lzma-rs`，且分派臂**不带 `cfg` 门**。
+
+**为何选 `xz2`**：它与 `flate2` 同作者、API 同形（`read::XzDecoder` 就位在 `read::GzDecoder` 旁），所以新函数是**照抄**而不是新设计；且它早已在 `Cargo.lock` 里——`zip` 拉了 `xz2` → `lzma-sys`——因此直接依赖边只让锁**多一行**、无版本变动。`lzma-sys` 在 MSVC 上直接编译其 vendored liblzma C（它故意禁用 `pkg-config`），而在 unix 主机没有 `liblzma` 时也回落到同一份 vendored 构建，所以两个平台都**不新增系统库前提**。备选 `lzma-rs`（纯 Rust，也经 `zip` 在锁内）需要我们自己写「先解压流、再交给 `tar`」的桥，而我们发布的每个平台本来就已编译那条 C 路径，因此没有收益。
+
+**为何不加 `cfg` 门**：`.tar.gz` 在这里被限到非 Windows，是因为它只是我们自制下载里的 **unix 资产**。`.tar.xz` 不同：它是**宿主自己** Zig 发行包的形态（Windows 是 `.zip`，macOS/Linux 是 `.tar.xz`），也是 Rust 的 `rust-std-*.tar.xz` 在所有平台的形态。把它限到非 Windows 只会被下一批撤销，而「Windows 主机也能读 `.tar.xz`」正是那两个下载需要的能力。
+
+**影响**：`extract_tar_xz` 在所有平台可用；`spec_for_current_platform()` **未改**（仍是那一条 xPack 规格），所以目前还没有任何东西会去下载 xz 归档——Zig 定位器与 Zig/Rust 规格属 apply 批。`ArchiveKind` 不参与 serde，无线类型变动。
