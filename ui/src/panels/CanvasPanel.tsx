@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import * as api from "../api";
+import { DesktopOnly } from "../components/DesktopOnly";
 import { t } from "../i18n/index.ts";
 import type { AppStore } from "../state/appStore";
 
@@ -147,9 +148,13 @@ export default function CanvasPanel({ store }: { store: AppStore }) {
         <button className="ghost tiny" onClick={clear}>
           {t("canvas.clear")}
         </button>
-        <button className="ghost tiny" onClick={() => void exportLog()}>
-          {t("canvas.export")}
-        </button>
+        {/* Exporting serial output is a control; the terminal itself is a view
+            (v0.9 D2b-4a). */}
+        <DesktopOnly>
+          <button className="ghost tiny" onClick={() => void exportLog()}>
+            {t("canvas.export")}
+          </button>
+        </DesktopOnly>
       </header>
       {note ? <div className="muted small canvas-note">{note}</div> : null}
       <div className="canvas-wrap">

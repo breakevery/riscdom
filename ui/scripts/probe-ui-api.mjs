@@ -320,7 +320,11 @@ http.setToken("");
 // ----- controls reject, subscriptions do not --------------------------------
 
 const rejected = [];
-for (const name of CONTROLS) {
+// Two of the controls are implemented over HTTP on purpose (v0.9 D2b-4a, decision §62):
+// theme and language are display preferences, not node configuration. The rest are
+// desktop-only and must say so instead of pretending.
+const WEB_IMPLEMENTED = ["setTheme", "setLanguage"];
+for (const name of CONTROLS.filter((entry) => !WEB_IMPLEMENTED.includes(entry))) {
   const outcome = await http[name](..."xxxxx")
     .then(() => "resolved")
     .catch((e) => (typeof e === "string" ? e : `a ${typeof e}`));
@@ -333,8 +337,31 @@ for (const name of CONTROLS) {
 check(
   "every control rejects with a sentence (and never resolves)",
   rejected.length === 0,
-  rejected.join("; ") || `${CONTROLS.length} controls`,
+  rejected.join("; ") || `${CONTROLS.length - WEB_IMPLEMENTED.length} controls`,
 );
+
+// ----- the two controls the browser does implement ----------------------------
+
+for (const [name, path_, key] of [
+  ["setTheme", "/v0/settings/theme", "theme"],
+  ["setLanguage", "/v0/settings/language", "language"],
+]) {
+  seen.length = 0;
+  reply = { status: 204, body: {} };
+  const settled = await http[name]("value")
+    .then(() => "resolved")
+    .catch((e) => `rejected: ${String(e)}`);
+  const sent = seen[0];
+  const body = sent === undefined ? null : JSON.parse(sent.init.body);
+  check(
+    `${name} writes a display preference over HTTP`,
+    settled === "resolved" &&
+      sent?.init.method === "POST" &&
+      sent?.url === path_ &&
+      body?.[key] === "value",
+    `${settled}; ${sent?.init.method} ${sent?.url} ${sent?.init.body}`,
+  );
+}
 
 const subscriptionProblems = [];
 for (const name of EVENTS) {

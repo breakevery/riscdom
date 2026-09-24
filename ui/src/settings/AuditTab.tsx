@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { message } from "@tauri-apps/plugin-dialog";
 import type { AppStore } from "../state/appStore";
+import { DesktopOnly, WebOnly } from "../components/DesktopOnly";
 import { t } from "../i18n/index.ts";
 import {
   comparePanelVisible,
@@ -50,6 +51,12 @@ export default function AuditTab({ store }: { store: AppStore }) {
 
   return (
     <>
+      {/* The browser is a read-only board (v0.9 D2b-4a): the controls below are the
+          desktop's, and this line says so once instead of per button. */}
+      <WebOnly>
+        <div className="muted small">{t("web.readonly_note")}</div>
+      </WebOnly>
+
       <div className="status-line">
         <span className={`dot ${chain?.status === "Intact" ? "ok" : chain ? "bad" : "off"}`} />
         {store.auditStatus
@@ -74,14 +81,16 @@ export default function AuditTab({ store }: { store: AppStore }) {
           <span className="muted small">{failures.join(" · ")}</span>
         </div>
       ) : null}
-      <label className="check-row">
-        <input
-          type="checkbox"
-          checked={alertOn}
-          onChange={(e) => void store.setAuditAlert(e.target.checked)}
-        />
-        <span>{t("audit.alert.toggle")}</span>
-      </label>
+      <DesktopOnly>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={alertOn}
+            onChange={(e) => void store.setAuditAlert(e.target.checked)}
+          />
+          <span>{t("audit.alert.toggle")}</span>
+        </label>
+      </DesktopOnly>
 
       {/* v0.5 batch 11: the filter follows the input instead of applying on blur —
           waiting for focus to leave hid the effect of what had just been typed. */}
@@ -149,14 +158,16 @@ export default function AuditTab({ store }: { store: AppStore }) {
                 <span className="muted small">{r.snapshotLabel}</span>
               ) : null}
               <span className="spacer" />
-              {r.exportable ? (
-                <button
-                  className="ghost tiny"
-                  onClick={() => void store.exportRunAudit(r.runId)}
-                >
-                  {t("audit.export")}
-                </button>
-              ) : null}
+              <DesktopOnly>
+                {r.exportable ? (
+                  <button
+                    className="ghost tiny"
+                    onClick={() => void store.exportRunAudit(r.runId)}
+                  >
+                    {t("audit.export")}
+                  </button>
+                ) : null}
+              </DesktopOnly>
             </li>
           ))}
         </ul>

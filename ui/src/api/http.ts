@@ -394,10 +394,15 @@ function desktopOnly(command: string): Promise<never> {
   );
 }
 
-export const setTheme = (_theme: string): Promise<void> => desktopOnly("set_theme");
+// The two controls the Web client does implement (v0.9 D2b-4a, decision §62): theme and
+// language are **display preferences**, not node configuration, and writing them is the
+// whole point of the appearance page. Without these, the browser applied the choice
+// locally and then reported the host's refusal — a switch that worked and looked broken.
+export const setTheme = (theme: string): Promise<void> =>
+  request<void>("POST", "/v0/settings/theme", undefined, { theme });
 
-export const setLanguage = (_language: string): Promise<void> =>
-  desktopOnly("set_language");
+export const setLanguage = (language: string): Promise<void> =>
+  request<void>("POST", "/v0/settings/language", undefined, { language });
 
 export const setAuditAlert = (_enabled: boolean): Promise<void> =>
   desktopOnly("set_audit_alert");

@@ -1431,3 +1431,26 @@ error (pages keep showing what they last read) and the re-dial backs off instead
 gap *cannot* restore is written down where it is handled: streamed chat text and serial bytes only ever
 arrived as events, and no endpoint replays them. `api/index.ts`'s `Omit` list and `probe-ui-api.mjs`
 both name the Web client's own exports (`onGap` joins them here), so the two lists cannot drift.
+
+## 62. A read-only board may still write display preferences
+
+**Date**: 2026-09-25 ｜ **Status**: Decided; landed with the v0.9 D2b-4a batch
+
+**Decision**: the Web client's "look, do not touch" rule has exactly **two** exceptions — theme
+and language. They are implemented over HTTP like everything else the browser uses
+(`POST /v0/settings/theme` and `/v0/settings/language` in `api/http.ts`), and the appearance
+screen is deliberately **not** wrapped in `DesktopOnly` while every other control in the client is.
+
+**Why**: those two are **display preferences**, not node configuration: they change how the person
+looking at the board sees it, and they change nothing about the machine, the sandbox or the audit
+chain. The alternative was not "a nicer read-only" — it was the behaviour that existed: the choice
+applied locally and the host call failed, so the user saw an error message about a switch that had,
+in fact, already worked. That is the only failure worse than a missing feature: a working control
+that reports it is broken. Of the 26 control endpoints, these two are the only ones whose subject is
+the client itself.
+
+**Impact**: `AppearanceTab` stays unwrapped (the probe asserts it has no `DesktopOnly`), and the two
+functions in `api/http.ts` are real calls rather than `desktopOnly` refusals — which also means
+`probe-ui-api.mjs` now expects them to resolve while the other twenty-four refuse. If a genuinely
+read-only token ever exists (per-capability tokens are v1.0 work), it must carry `settings.write`
+for the board to keep working, and this entry is where that trade-off gets revisited.

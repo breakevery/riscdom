@@ -1,4 +1,5 @@
 import type { AppStore } from "../state/appStore";
+import { DesktopOnly, WebOnly } from "../components/DesktopOnly";
 import {
   preflightHeadline,
   progressLine,
@@ -64,6 +65,12 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
 
   return (
     <>
+      {/* The browser is a read-only board (v0.9 D2b-4a): the status blocks below stay,
+          the controls around them are the desktop's. */}
+      <WebOnly>
+        <div className="muted small">{t("web.readonly_note")}</div>
+      </WebOnly>
+
       {store.toolchain && !store.toolchain.found ? (
         <div className="banner warn">{t("toolchain.missing_gcc")}</div>
       ) : null}
@@ -80,30 +87,32 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
         <button className="ghost tiny" onClick={() => void store.refreshToolchain()}>
           {t("toolchain.reprobe")}
         </button>
-        <button
-          className="ghost tiny"
-          onClick={() => void store.pickToolchainPath()}
-          title={t("toolchain.browse_title")}
-        >
-          {t("toolchain.browse")}
-        </button>
-        <button
-          className="ghost tiny"
-          onClick={() => {
-            const p = window.prompt(
-              t("toolchain.prompt_gcc"),
-              store.toolchain?.path ?? "",
-            );
-            if (p) void store.setToolchain(p.trim());
-          }}
-        >
-          {t("toolchain.manual")}
-        </button>
-        {store.toolchain?.path ? (
-          <button className="ghost tiny" onClick={() => void store.clearToolchain()}>
-            {t("toolchain.clear_manual")}
+        <DesktopOnly>
+          <button
+            className="ghost tiny"
+            onClick={() => void store.pickToolchainPath()}
+            title={t("toolchain.browse_title")}
+          >
+            {t("toolchain.browse")}
           </button>
-        ) : null}
+          <button
+            className="ghost tiny"
+            onClick={() => {
+              const p = window.prompt(
+                t("toolchain.prompt_gcc"),
+                store.toolchain?.path ?? "",
+              );
+              if (p) void store.setToolchain(p.trim());
+            }}
+          >
+            {t("toolchain.manual")}
+          </button>
+          {store.toolchain?.path ? (
+            <button className="ghost tiny" onClick={() => void store.clearToolchain()}>
+              {t("toolchain.clear_manual")}
+            </button>
+          ) : null}
+        </DesktopOnly>
       </div>
 
       <div className="muted small">{store.toolchain?.path ?? t("toolchain.no_path")}</div>
@@ -131,30 +140,32 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
         <button className="ghost tiny" onClick={() => void store.refreshQemu()}>
           {t("toolchain.reprobe")}
         </button>
-        <button
-          className="ghost tiny"
-          onClick={() => void store.pickQemuPath()}
-          title={t("toolchain.browse_title")}
-        >
-          {t("toolchain.browse")}
-        </button>
-        <button
-          className="ghost tiny"
-          onClick={() => {
-            const p = window.prompt(
-              t("toolchain.prompt_qemu"),
-              store.qemu?.path ?? "",
-            );
-            if (p) void store.setQemu(p.trim());
-          }}
-        >
-          {t("toolchain.manual")}
-        </button>
-        {store.qemu?.path ? (
-          <button className="ghost tiny" onClick={() => void store.clearQemu()}>
-            {t("toolchain.clear_manual")}
+        <DesktopOnly>
+          <button
+            className="ghost tiny"
+            onClick={() => void store.pickQemuPath()}
+            title={t("toolchain.browse_title")}
+          >
+            {t("toolchain.browse")}
           </button>
-        ) : null}
+          <button
+            className="ghost tiny"
+            onClick={() => {
+              const p = window.prompt(
+                t("toolchain.prompt_qemu"),
+                store.qemu?.path ?? "",
+              );
+              if (p) void store.setQemu(p.trim());
+            }}
+          >
+            {t("toolchain.manual")}
+          </button>
+          {store.qemu?.path ? (
+            <button className="ghost tiny" onClick={() => void store.clearQemu()}>
+              {t("toolchain.clear_manual")}
+            </button>
+          ) : null}
+        </DesktopOnly>
       </div>
       <div className="muted small">{store.qemu?.path ?? t("toolchain.no_path")}</div>
       <details>
@@ -163,16 +174,18 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
       </details>
 
       <h3>{t("toolchain.download.heading")}</h3>
-      <div className="row">
-        <button disabled={busy} onClick={startDownload}>
-          {busy ? t("toolchain.download.busy") : t("toolchain.download.button")}
-        </button>
-        {busy ? (
-          <button className="ghost" onClick={() => void store.cancelToolchainDownload()}>
-            {t("toolchain.download.cancel")}
+      <DesktopOnly>
+        <div className="row">
+          <button disabled={busy} onClick={startDownload}>
+            {busy ? t("toolchain.download.busy") : t("toolchain.download.button")}
           </button>
-        ) : null}
-      </div>
+          {busy ? (
+            <button className="ghost" onClick={() => void store.cancelToolchainDownload()}>
+              {t("toolchain.download.cancel")}
+            </button>
+          ) : null}
+        </div>
+      </DesktopOnly>
 
       {busy ? (
         <>
@@ -216,9 +229,11 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
           className={`dot ${store.preflight?.ok ? "ok" : store.preflight?.checked ? "bad" : "off"}`}
         />
         <span className="small">{preflightHeadline(store.preflight)}</span>
-        <button className="ghost tiny" onClick={() => void store.runPreflight()}>
-          {t("toolchain.preflight.rerun")}
-        </button>
+        <DesktopOnly>
+          <button className="ghost tiny" onClick={() => void store.runPreflight()}>
+            {t("toolchain.preflight.rerun")}
+          </button>
+        </DesktopOnly>
       </div>
       {store.preflightStep ? (
         <div className="muted small">
@@ -241,13 +256,15 @@ export default function ToolchainTab({ store }: { store: AppStore }) {
       {store.preflight?.suggestion ? (
         <div className="banner warn">{store.preflight.suggestion}</div>
       ) : null}
-      {shouldOfferOverride(store.preflight) ? (
-        <div className="row">
-          <button className="ghost" onClick={() => void store.acknowledgePreflight()}>
-            {t("toolchain.preflight.override")}
-          </button>
-        </div>
-      ) : null}
+      <DesktopOnly>
+        {shouldOfferOverride(store.preflight) ? (
+          <div className="row">
+            <button className="ghost" onClick={() => void store.acknowledgePreflight()}>
+              {t("toolchain.preflight.override")}
+            </button>
+          </div>
+        ) : null}
+      </DesktopOnly>
     </>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as api from "../api";
 import { isNearBottom as metricsNearBottom, onRunFinished } from "../lib/scrollRule";
 import { relTime, type AppStore } from "../state/appStore";
+import { DesktopOnly } from "../components/DesktopOnly";
 import { t } from "../i18n/index.ts";
 
 export default function ChatPanel({ store }: { store: AppStore }) {
@@ -252,22 +253,25 @@ export default function ChatPanel({ store }: { store: AppStore }) {
         ) : null}
       </div>
 
-      <div className="chat-input">
-        <textarea
-          value={input}
-          placeholder={t("chat.input_placeholder")}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void submit();
-            }
-          }}
-        />
-        <button disabled={!canSend} onClick={() => void submit()}>
-          {store.busy ? t("chat.running") : t("chat.send")}
-        </button>
-      </div>
+      {/* The browser gets the transcript, not the input (v0.9 D2b-4a): a run is a control. */}
+      <DesktopOnly>
+        <div className="chat-input">
+          <textarea
+            value={input}
+            placeholder={t("chat.input_placeholder")}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void submit();
+              }
+            }}
+          />
+          <button disabled={!canSend} onClick={() => void submit()}>
+            {store.busy ? t("chat.running") : t("chat.send")}
+          </button>
+        </div>
+      </DesktopOnly>
     </section>
   );
 }

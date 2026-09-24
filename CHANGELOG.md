@@ -213,6 +213,16 @@ the gate stays outside the store and that every key these screens use exists in 
   `*response` — the same response value on the same path. Three `bool_assert_comparison`
   assertions in `routes.rs`'s tests and one `filter_next` in `tests/smoke.rs` are fixed with
   them. No behaviour changed.
+- **The browser is a read-only board** (v0.9 D2b-4a): every control in the settings tabs,
+  the chat input and the serial-export button is wrapped in a new `DesktopOnly` component
+  (twelve wraps across six files), so the desktop renders exactly as before while the Web
+  client shows the same screens without the controls that belong to it. The model form is
+  not offered there at all, and each screen says why. **Two controls are implemented over
+  HTTP on purpose**: theme and language are display preferences rather than node
+  configuration, and the behaviour they replace — the choice applying locally and the host
+  call failing into an error message — was simply broken (decision §62).
+  `probe-ui-web-readonly.mjs` counts the wraps per screen, so a forgotten one fails the
+  gate instead of shipping a button that refuses.
 - **`scripts/gate.sh`** selects `-p cli -p server -p host-core -p host-tauri` (still
   `--no-deps`), so the control plane is linted like everything else we own.
 - **A tool probe now retries an `exec` the kernel refused because the file was busy** (v0.9):

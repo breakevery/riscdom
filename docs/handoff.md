@@ -13,6 +13,22 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The browser is a read-only board** (v0.9 D2b-4a). One mechanism does it: a new
+  `ui/src/components/DesktopOnly.tsx` (`DesktopOnly` / `WebOnly`, both asking
+  `isTauriRuntime()` at render time, so no `readOnly` prop is threaded anywhere).
+  **Twelve wraps across six files** hide the controls the desktop owns — `ToolchainTab` 5
+  (covering its ten), `AuditTab` 2 (the alert toggle and a run's export), `SnapshotTab` 2
+  (save; restore + delete), `SettingsTabs` 1 (the whole model form, which the Web client is
+  not offered at all), `ChatPanel` 1 (the input — the transcript stays), `CanvasPanel` 1 (the
+  serial export; the terminal is a view, and its `getSerialBuffer` seed was already there).
+  The three settings tabs carry `web.readonly_note`. Appearance is the one exception:
+  **theme and language are implemented over HTTP** (`POST /v0/settings/theme|language`),
+  because they are display preferences, and the old behaviour — applied locally, then an
+  error from the host — was broken (decision §62). **+2 i18n keys** (217 → **219**) and
+  **+1 probe** (`probe-ui-web-readonly.mjs`, which counts the wraps per screen so a
+  forgotten one fails the gate; 12 ui probes now). `probe-ui-api.mjs` learned that those two
+  controls resolve instead of refusing.
+
 - **The Web client is live** (v0.9 D2b-3): the browser reads `GET /v0/events` with `fetch` and a
   `ReadableStream` — `EventSource` cannot carry the `Authorization` header — decoding frames with the
   pure module `ui/src/lib/sse.ts` (`parseSseLine` + `SseReader`, which keeps a half-arrived frame and

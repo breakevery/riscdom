@@ -291,6 +291,12 @@ const EN = {
   "status.refresh": "Refresh",
   "status.loading": "Reading…",
   "status.unreachable": "Could not read the node's status",
+
+  // The browser is a read-only board (v0.9 D2b-4a).
+  "web.readonly_note":
+    "Read-only here: this board shows the node, and changes are made in the desktop app.",
+  "web.appearance_note":
+    "Theme and language are the two things this board can change — they are display preferences, not node settings.",
 } as const;
 
 /** A key of the registry. */
@@ -552,6 +558,11 @@ const ZH: Record<StringKey, string> = {
   "status.refresh": "刷新",
   "status.loading": "读取中……",
   "status.unreachable": "读不到节点状态",
+
+  // 浏览器端是只读看板（v0.9 D2b-4a）。
+  "web.readonly_note": "此处只读：本界面用于查看节点，修改请在桌面端进行。",
+  "web.appearance_note":
+    "主题与语言是本界面唯一能改的两项——它们属显示偏好，不是节点设置。",
 };
 
 /** The registry itself: language -> key -> template. */

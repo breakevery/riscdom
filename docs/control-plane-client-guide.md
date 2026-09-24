@@ -810,3 +810,10 @@ Two things are worth knowing before writing another client against this API:
 The server can serve the built front end itself (`riscdom-server --web-root <dir>`, decision §55), so
 one URL answers both the pages and the API: same origin, no CORS layer, and the token the page asks
 for is the same token the API wants.
+
+**What the board can and cannot do.** It is **read-only**: the settings tabs, the chat input and
+the serial export are desktop-only controls, and the model form is not offered at all. Two things it
+*can* write — theme and language — because they are display preferences rather than node
+configuration (decision §62). A client that wants a genuinely read-only credential will need
+per-capability tokens (v1.0): today's single token holds all 26, and `GET /v0/executors` alone asks
+for `agent.run`.

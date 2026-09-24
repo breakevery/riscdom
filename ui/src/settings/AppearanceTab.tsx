@@ -1,4 +1,5 @@
 import type { AppStore } from "../state/appStore";
+import { WebOnly } from "../components/DesktopOnly";
 import { THEMES, themeLabel, themeSummary } from "../lib/theme";
 import { LANGUAGE_CHOICES, languageChoiceKey, t } from "../i18n/index.ts";
 
@@ -6,6 +7,12 @@ import { LANGUAGE_CHOICES, languageChoiceKey, t } from "../i18n/index.ts";
 export default function AppearanceTab({ store }: { store: AppStore }) {
   return (
     <>
+      {/* The one thing the browser *can* change (v0.9 D2b-4a, decision §62): theme and
+          language are display preferences, and both are implemented over HTTP. */}
+      <WebOnly>
+        <div className="muted small">{t("web.appearance_note")}</div>
+      </WebOnly>
+
       <h3>{t("appearance.theme")}</h3>
       <div className="theme-choices">
         {THEMES.map((candidate) => (

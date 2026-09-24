@@ -1,5 +1,7 @@
 import { useState } from "react";
 import type { AppStore } from "../state/appStore";
+import { isTauriRuntime } from "../api";
+import { DesktopOnly } from "../components/DesktopOnly";
 import { t } from "../i18n/index.ts";
 import type { StringKey } from "../i18n/index.ts";
 import AppearanceTab from "./AppearanceTab";
@@ -25,13 +27,18 @@ const TABS: { id: TabId; labelKey: StringKey }[] = [
  * `display: none`) so switching tabs never loses half-filled forms.
  */
 export default function SettingsTabs({ store }: { store: AppStore }) {
-  const [tab, setTab] = useState<TabId>("model");
+  // The browser does not get the model form (v0.9 D2b-4a): every submit on that screen
+  // is a control, and its read-only half is not worth a second implementation. The
+  // desktop shows all six tabs, exactly as before.
+  const desktop = isTauriRuntime();
+  const tabs = desktop ? TABS : TABS.filter((entry) => entry.id !== "model");
+  const [tab, setTab] = useState<TabId>(desktop ? "model" : "toolchain");
   const show = (id: TabId) => ({ display: tab === id ? undefined : "none" });
 
   return (
     <>
       <nav className="settings-tabs">
-        {TABS.map((entry) => (
+        {tabs.map((entry) => (
           <button
             key={entry.id}
             className={`tab-btn${tab === entry.id ? " active" : ""}`}
@@ -42,9 +49,11 @@ export default function SettingsTabs({ store }: { store: AppStore }) {
         ))}
       </nav>
 
-      <div className="settings-body" style={show("model")}>
-        <ModelTab store={store} />
-      </div>
+      <DesktopOnly>
+        <div className="settings-body" style={show("model")}>
+          <ModelTab store={store} />
+        </div>
+      </DesktopOnly>
       <div className="settings-body" style={show("toolchain")}>
         <ToolchainTab store={store} />
       </div>
