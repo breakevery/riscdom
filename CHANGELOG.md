@@ -116,6 +116,12 @@ Downloading `rust-std` is a separate batch.
 
 ### Fixed
 
+- **`server/tests/logging.rs` reads the server's stdout to the end** (v0.9 logging root-cause
+  batch): `read_banner` dropped the child's stdout as soon as it had the banner, and the server's
+  three following `println!`s then hit a closed pipe — on Unix that is SIGPIPE, which kills the
+  process before it can write the line the test waits for. The reader is handed back and drained
+  to EOF through the same `drain_reader` stderr already used, and the failure message reports the
+  child's exit status and the stdout line count.
 - **A failing `server/tests/logging.rs` now reports how the child process left** (v0.9
   logging-diagnosis batch): `child: exited with code N` / `killed by signal N` / `still running`,
   printed next to the reader's own state, with a unit test that pins the reporting. Diagnostics

@@ -1123,3 +1123,27 @@ by removing a race.
 that dies on bad input is a reader whose silence means nothing. No production code changed; the
 three existing tests keep their timeouts, and two new unit tests read a `Cursor` (no child
 process) to pin both halves: every line of a normal stream, and everything after a non-UTF-8 line.
+
+## 51. Every pipe a child is given is read to EOF, or the child can be killed by writing
+
+**Date**: 2026-09-24 ｜ **Status**: Decided
+
+**Decision**: a pipe this repository hands a child (`Stdio::piped()`) is read **to EOF**, not just
+until the reader has what it came for. `server/tests/logging.rs`'s `read_banner` returns its
+reader so the caller can drain the rest, and the child's stdout and stderr go through the same
+`drain_reader`.
+
+**Why**: the test used to read the banner line and drop the child's stdout. The server writes
+three more lines (`server/src/main.rs:81-83`) immediately afterwards, and a write to a pipe whose
+read end is gone is EPIPE — which **on Unix raises SIGPIPE, whose default action terminates the
+process**, silently: no panic message, no chance to log anything, stderr simply at EOF. Two CI
+runs showed exactly that shape (a healthy stderr reader reporting `0 line(s) unreadable`, the
+reader at EOF, and a server that had vanished before writing its `connection from … ended` line).
+Windows has no SIGPIPE — a closed pipe is only an error there — which is why the same commit was
+green locally and red on Linux. This is the third "local green, CI red" root cause this series
+has recorded, after a missing system package (E4) and a missing environment capability (B-3b).
+
+**Impact**: `Stdio::piped()` implies "drain it", here and anywhere else this repository drives a
+child through pipes; the failure message reports the child's exit status and the stdout line
+count, so a recurrence is diagnosed from one line of CI output instead of three batches. No
+production code changed — the server's own `println!`s are correct; the reader was not.

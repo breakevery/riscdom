@@ -11,7 +11,7 @@
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
-use std::process::{Child, ChildStderr, Command, ExitStatus, Stdio};
+use std::process::{Child, ChildStderr, ChildStdout, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -62,8 +62,14 @@ impl Drained {
 }
 
 /// Start `riscdom-server` on an ephemeral port and read its banner back, so the
-/// port it picked is known. stderr is drained from the start into a buffer.
-fn start(extra: &[&str]) -> (Child, SocketAddr, Drained) {
+/// port it picked is known.
+///
+/// Returns `(child, addr, stderr, stdout)`: **both** pipes are drained from the start —
+/// stderr into a buffer the tests watch, stdout to EOF. The stdout half is what the CI
+/// failure was about: the server writes three more lines after the banner, and a reader
+/// that walks away turns those writes into EPIPE — which on Unix is SIGPIPE, and SIGPIPE
+/// kills the process before it can log the line these tests wait for (v0.9 logging batch).
+fn start(extra: &[&str]) -> (Child, SocketAddr, Drained, Drained) {
     let workspace = unique_dir("ws");
     let data_dir = unique_dir("data");
     let mut child = Command::new(env!("CARGO_BIN_EXE_riscdom-server"))
@@ -82,8 +88,10 @@ fn start(extra: &[&str]) -> (Child, SocketAddr, Drained) {
 
     let stderr = child.stderr.take().expect("stderr is piped");
     let collected = drain(stderr);
-    let addr = read_banner(child.stdout.take().expect("stdout is piped"));
-    (child, addr, collected)
+    let stdout = BufReader::new(child.stdout.take().expect("stdout is piped"));
+    let (addr, stdout) = read_banner(stdout);
+    let printed = drain_reader(stdout);
+    (child, addr, collected, printed)
 }
 
 /// Read stderr line by line into a shared buffer, so a test can watch it grow.
@@ -145,15 +153,23 @@ fn drain_reader(mut reader: impl BufRead + Send + 'static) -> Drained {
     }
 }
 
-/// The address from `riscdom-server … listening on http://<addr>`.
-fn read_banner(stdout: impl std::io::Read) -> SocketAddr {
-    for line in BufReader::new(stdout).lines() {
-        let line = line.expect("the banner line");
+/// The address from `riscdom-server … listening on http://<addr>`, **plus the reader**.
+///
+/// Handing the reader back is the fix: the server prints three more lines after the banner
+/// (`server/src/main.rs:81-83`), and a reader that goes away turns those writes into EPIPE —
+/// which on Unix is SIGPIPE, which kills the process before it can log the
+/// `connection from … ended` line these tests wait for. The caller drains what is left
+/// (v0.9 logging batch).
+fn read_banner(mut stdout: BufReader<ChildStdout>) -> (SocketAddr, BufReader<ChildStdout>) {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let read = stdout.read_line(&mut line).expect("the banner line");
+        assert!(read > 0, "the server never printed its banner");
         if let Some(rest) = line.split("listening on http://").nth(1) {
-            return rest.trim().parse().expect("the bound address");
+            return (rest.trim().parse().expect("the bound address"), stdout);
         }
     }
-    panic!("the server never printed its banner");
 }
 
 /// Open a connection, start a request and vanish: the server reads an incomplete
@@ -239,8 +255,18 @@ fn describe_status(status: &ExitStatus) -> String {
 /// A failure that only describes the *reader* cannot tell "the server never logged" from
 /// "the server was already gone", which is exactly the distinction the last CI failure
 /// needed.
-fn diagnosis_with_child(drained: &Drained, child: &mut Child) -> String {
-    format!("{}\nchild: {}", diagnosis(drained), exit_status(child))
+fn diagnosis_with_child(drained: &Drained, child: &mut Child, stdout: &Drained) -> String {
+    format!(
+        "{}\nchild: {}\nserver stdout: {} line(s), reader {}",
+        diagnosis(drained),
+        exit_status(child),
+        stdout.text().lines().count(),
+        if stdout.alive() {
+            "still reading"
+        } else {
+            "already stopped (EOF)"
+        }
+    )
 }
 
 fn stop(mut child: Child) {
@@ -252,7 +278,7 @@ fn stop(mut child: Child) {
 fn the_connection_line_is_off_by_default() {
     // The default matters: the CLI embeds this server, and its stderr is the CLI's
     // own error channel (in `--json`, the error object itself).
-    let (mut child, addr, drained) = start(&[]);
+    let (mut child, addr, drained, _stdout) = start(&[]);
     close_abruptly(addr);
     let seen = wait_for_line(&drained, "ended", Duration::from_millis(700));
     let text = text_of(&drained);
@@ -267,11 +293,11 @@ fn the_connection_line_is_off_by_default() {
 
 #[test]
 fn the_connection_line_appears_at_info() {
-    let (mut child, addr, drained) = start(&["--log-level", "info"]);
+    let (mut child, addr, drained, stdout) = start(&["--log-level", "info"]);
     close_abruptly(addr);
     let seen = wait_for_line(&drained, "ended", Duration::from_secs(5));
     let text = text_of(&drained);
-    let diagnosis = diagnosis_with_child(&drained, &mut child);
+    let diagnosis = diagnosis_with_child(&drained, &mut child, &stdout);
     stop(child);
     assert!(seen, "info must log the connection: {diagnosis}");
     assert!(text.contains("riscdom-server: connection from"), "{text}");
@@ -283,7 +309,7 @@ fn the_connection_line_appears_at_info() {
 fn error_keeps_the_per_connection_line_quiet() {
     // `error` is for failures, not for the per-connection chatter: an operator who
     // asks for errors does not want one line per closed socket.
-    let (mut child, addr, drained) = start(&["--log-level", "error"]);
+    let (mut child, addr, drained, _stdout) = start(&["--log-level", "error"]);
     close_abruptly(addr);
     let seen = wait_for_line(&drained, "ended", Duration::from_millis(700));
     let text = text_of(&drained);
@@ -292,6 +318,49 @@ fn error_keeps_the_per_connection_line_quiet() {
     assert!(
         !seen,
         "error must not log connections (child: {child_state}), got: {text}"
+    );
+}
+
+/// The other half of the CI bug: a child whose stdout pipe is **kept** being read is not
+/// killed by its own later writes.
+///
+/// Reading only the first line and walking away is what turned the server's three closing
+/// `println!`s into a fatal write on Unix — the shape this test pins, and the reason a
+/// successful child is what it asserts (a SIGPIPE death is not `success()`).
+#[test]
+fn a_pipe_that_is_read_to_the_end_does_not_kill_its_writer() {
+    let mut child = if cfg!(windows) {
+        Command::new("cmd")
+            .args([
+                "/c",
+                "(echo first & echo second & echo third & echo fourth)",
+            ])
+            .stdout(Stdio::piped())
+            .spawn()
+    } else {
+        Command::new("sh")
+            .args(["-c", "echo first; echo second; echo third; echo fourth"])
+            .stdout(Stdio::piped())
+            .spawn()
+    }
+    .expect("spawn a process that writes more than one line");
+
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdout is piped"));
+    let mut first = String::new();
+    stdout.read_line(&mut first).expect("the first line");
+    assert!(first.contains("first"), "{first:?}");
+
+    // Keep reading, exactly as `start` now does after the banner.
+    let drained = drain_reader(stdout);
+    assert!(
+        wait_for_line(&drained, "fourth", Duration::from_secs(5)),
+        "{}",
+        diagnosis(&drained)
+    );
+    let status = child.wait().expect("wait");
+    assert!(
+        status.success(),
+        "the writer must survive its own writes: {status:?} (a signal is not success)"
     );
 }
 

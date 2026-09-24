@@ -13,6 +13,19 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The logging test's stdout pipe is read to the end now, and that is what the CI failures were
+  about** (v0.9 logging root-cause batch). `read_banner` used to take the child's stdout by value
+  and drop it the moment it saw the banner line; the server then writes **three more lines**
+  (`server/src/main.rs:81-83`) into a pipe whose read end was gone — EPIPE, and on Unix SIGPIPE,
+  which terminates the process **silently** (no panic message, stderr at EOF) before it can log the
+  `connection from … ended` line the test waits for. That is exactly the shape the two earlier
+  batches measured: `0 line(s) unreadable`, `reader already stopped (EOF)`, and a child that had
+  simply vanished. `read_banner` now **returns its reader**, `start()` drains stdout to EOF with
+  the same `drain_reader` that already served stderr — the two pipes are symmetrical now — and the
+  failure message gained `server stdout: N line(s), reader …` beside the child's exit status. A new
+  test pins the shape without a server: a child that writes four lines is read to the end and must
+  still report `success()` (a SIGPIPE death is not success). Windows stayed green throughout, since
+  it has no SIGPIPE. **No production code changed** — the server's own `println!`s are correct.
 - **The logging test's failure message now says how the child left** (v0.9 logging-diagnosis
   batch). The batch before cleared the *reader* (`0 line(s) unreadable`, `reader already stopped
   (EOF)`) and left one fact standing: the **server process itself had exited** without ever writing
