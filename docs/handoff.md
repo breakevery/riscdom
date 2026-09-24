@@ -29,10 +29,10 @@ current request authorising it (§2).
   version beside it. **The version is a hard gate**: a sysroot is only usable by the release that
   produced it, so `begin_toolchain_download` — the single method every edge goes through — refuses
   a Rust download when the machine's `rustc -vV` reports a release other than the pinned `1.98.1`,
-  *before* any bytes move. **7 new tests** (parse `rust`; the one-asset spec; both `find_rust_std`
-  depths; the Rust end-to-end through a loopback server; adoption through `download_toolchain_now`
-  asserting the C and Zig pins stay null; the version refusal; and a fixture builder that emits the
-  GNU long-name entries the real archive has). Decision §52.
+  *before* any bytes move. **5 new tests** (the one-asset spec; both `find_rust_std` depths; the Rust
+  end-to-end through a loopback server; adoption through `download_toolchain_now` asserting the C
+  and Zig pins stay null; and the version refusal), plus the labels test extended to `rust` and a
+  fixture builder that emits the GNU long-name entries the real archive has. Decision §52.
 - **The logging test's stdout pipe is read to the end now, and that is what the CI failures were
   about** (v0.9 logging root-cause batch). `read_banner` used to take the child's stdout by value
   and drop it the moment it saw the banner line; the server then writes **three more lines**
