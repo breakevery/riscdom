@@ -82,7 +82,7 @@ const QEMU_ENV_VARS: [&str; 2] = ["RISCDOM_QEMU", "QEMU_SYSTEM_RISCV64"];
 /// The official QEMU download page, with no platform anchor (macOS / Linux / other).
 pub const QEMU_DOWNLOAD_URL: &str = "https://www.qemu.org/download/";
 
-/// The Windows-anchored download page 鈥?the route for a Windows machine without `winget`.
+/// The Windows-anchored download page — the route for a Windows machine without `winget`.
 pub const QEMU_DOWNLOAD_URL_WINDOWS: &str = "https://www.qemu.org/download/#windows";
 
 /// Suggested Windows install command (the route when `winget` is present).
@@ -95,7 +95,7 @@ pub const QEMU_BREW_HINT: &str = "brew install qemu";
 pub const QEMU_LINUX_PACKAGES: &str = "qemu-system-misc (Debian/Ubuntu) or qemu (Arch/Fedora)";
 
 /// How to install QEMU on `os` (`"windows"` / `"macos"` / `"linux"`), as one
-/// actionable line. `winget` picks the Windows branch 鈥?the command when it is
+/// actionable line. `winget` picks the Windows branch — the command when it is
 /// present, the download page otherwise (which still names the command, because a
 /// caller that cannot detect `winget` must not hide it).
 ///

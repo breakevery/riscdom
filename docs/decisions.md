@@ -1350,3 +1350,56 @@ would address durability, which is a different question), and a blanket retry (a
 or a missing library would be retried five times for nothing). `#[cfg(unix)]` tests pin the
 error-kind mapping and reproduce the refusal in the process itself; on Windows there is no such
 error to reproduce.
+
+## 59. PowerShell never reads or writes source files
+
+**Date**: 2026-09-25 ｜ **Status**: Decided
+
+**Decision**: no source file (`.rs` / `.ts` / `.tsx` / `.mjs` / `.js` / `.py` / `.sh` / `.ps1` /
+`.md` / `.css` / `.json`) is read or written **with PowerShell**. Files go through the `edit` and
+`write` tools, as UTF-8 without a BOM. PowerShell is for *commands* (`git`, `gh`, `cargo`, `npm`,
+`node`, `python`).
+
+**One exception**: a **byte-level** replacement of an *invisible* character (a BOM, a private-use
+codepoint) may use Python's explicit byte mode (`open(rb)` / `open(wb)`) — with a hex dump before,
+a hex dump after, and a `git diff` review to prove nothing else moved. `edit` cannot express such a
+character at all: a BOM at the start of an `oldText` is normalised away before the match is even
+attempted, which is how this exception came to exist.
+
+**Why**: Windows PowerShell 5.1 reads a BOM-less UTF-8 file as the ANSI code page (GBK here) and
+writes the text back as UTF-8, which is lossy in three ways at once: `E2 80 xx` (an em dash, an
+ellipsis) becomes `U+9225` plus a lost byte, `C2 A7` (`§`) becomes `U+6402`, and
+`Set-Content -Encoding utf8` *adds* a BOM that was never there. It happened twice in this
+repository — v0.7 (`sandbox/`, 4 spots) and v0.9's D2b-1 batch (`ui/src/api/`, 18 spots plus 3 BOMs)
+— and **no check saw either**, because every damaged character sat inside a comment: the compiler,
+the bundler, the probes, the string registry and the bilingual scan all passed. The rule that
+already existed for Rust sources existed for exactly this reason; it was simply written one language
+too narrowly.
+
+**Impact**: this entry **extends** the earlier "do not read or write Rust sources with PowerShell"
+beyond Rust, so the wording in the batch prompts is now the general one.
+`scripts/scan-encoding.py --check` runs in `scripts/gate.sh`, so a third occurrence cannot land
+(and the two that did are cleaned up: 24 spots across five files, no behaviour changed). The
+invisible-character exception is recorded here rather than improvised next time, and it is bounded:
+bytes in, bytes out, hex dumps on both sides, `git diff` as the proof.
+
+## 60. The gate only fails on classes that are certain
+
+**Date**: 2026-09-25 ｜ **Status**: Decided
+
+**Decision**: a static check in the gate fails on the classes of finding that **cannot be a false
+positive** — for the encoding scan, mojibake (class E) and a BOM (class F). The ambiguous classes
+keep reporting and never block: three or more `?` in a row, a string literal that is nothing but
+`?`, an ASCII `?` beside CJK text.
+
+**Why**: `scripts/scan-encoding.py`'s class C cannot be decided — "a literal that is only `?`" is
+indistinguishable from a ternary's tokens or a legitimate `"?"` — and it measured 13 hits on this
+repository, every one a false positive (v0.5 batch 12). The script was therefore *deliberately*
+kept out of the gate, with that reason written in its own docstring. That reasoning holds; what
+changed is that the script can now be asked for the certain classes only. A guard that cries wolf
+erodes the gate — the gate is the one list of what "green" means (handoff §4) — so `--check` is
+narrow on purpose, and a finding it does raise is worth acting on immediately.
+
+**Impact**: `--check` exits `1` on E or F and `0` otherwise; every other mode still exits `0` and
+still prints everything. On the day it was added it reported `A 0, B 4, C 16, D 0, E 0, F 0` — the
+four and the sixteen are the ambiguous classes, kept visible on purpose and harmless by design.

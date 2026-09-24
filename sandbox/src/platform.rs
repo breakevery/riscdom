@@ -11,7 +11,7 @@
 //!
 //! Testing (v0.7 batch A): the Unix arm's *rendering* is a pure function
 //! ([`unix_qmp_arg`]) and is unit-tested on every platform, Windows included. What
-//! is **not** exercised here is a real Unix socket end to end 鈥?that needs macOS or
+//! is **not** exercised here is a real Unix socket end to end — that needs macOS or
 //! Linux and a QEMU build, and is listed as an untested path in `docs/handoff.md`.
 //! The TCP path, meanwhile, is what the suite drives on Windows.
 
@@ -81,7 +81,7 @@ impl QmpEndpoint {
 
 /// The `-qmp` value for a Unix socket (`unix:<path>,server=on,wait=off`).
 ///
-/// Pure, so it is unit-tested on every platform 鈥?including Windows, which cannot
+/// Pure, so it is unit-tested on every platform — including Windows, which cannot
 /// bind the socket but can still check the argument QEMU would be handed.
 /// `wait=off` for the same reason as the TCP arm above.
 pub fn unix_qmp_arg(path: &Path) -> String {

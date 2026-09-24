@@ -217,6 +217,13 @@ the gate stays outside the store and that every key these screens use exists in 
   descriptor only at `exec`), so a sibling thread's spawn can hold the write reference for
   microseconds after this process closed its own. Every other failure is still returned at once,
   and a busy refusal that outlives the budget is reported, not swallowed.
+- **Every source file is free of the Windows code-page accident, and the gate now looks for it**
+  (v0.9 encoding clean-up): **24 spots in five files** — 18 mojibake residues (`U+9225`), three
+  `U+6402` (`§`) and three BOMs — every one of them inside a comment, which is why no check had seen
+  them in either of the two batches that produced them (v0.7 and this line's D2b-1).
+  `scripts/scan-encoding.py` gained a BOM class, the `§` residue, three more extensions and a
+  `--check` mode that fails **only** on the classes that cannot be a false positive; the gate runs
+  it (and says so loudly when there is no Python). No behaviour changed.
 
 ### Changed
 

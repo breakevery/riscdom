@@ -13,6 +13,20 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The source files are free of the Windows code-page accident, and the gate now looks for it**
+  (v0.9 encoding clean-up). Windows PowerShell 5.1 reads a BOM-less UTF-8 file as the ANSI code page
+  and writes the text back as UTF-8: `E2 80 xx` (an em dash, an ellipsis) becomes `U+9225` plus a
+  lost byte, `C2 A7` (`§`) becomes `U+6402`, and `Set-Content -Encoding utf8` adds a BOM — none of
+  which any check could see, because every damaged character sat inside a comment. It had happened
+  **twice**: v0.7 in `sandbox/` (4 spots) and v0.9's D2b-1 in `ui/src/api/` (18 spots plus 3 BOMs).
+  All **24 spots in five files** are fixed with **zero behaviour change**;
+  `scripts/scan-encoding.py` grew a BOM class and the `§` residue, now scans `.py`/`.sh`/`.ps1`, and
+  skips its own pattern table; and **`--check` runs in the gate** — failing on the two classes that
+  cannot be a false positive (mojibake, BOM) while the ambiguous ones keep reporting (decisions
+  §59, §60). Four of the spots were **invisible characters** (3 BOMs, 1 private-use codepoint) and
+  needed a byte-level fix: `edit` normalises such a character out of the match, which is why the
+  exception is written down with its constraints (hex dumps both sides, `git diff` as the proof).
+
 - **The tool probes retry an `exec` the kernel refused as "text file busy"** (v0.9 ETXTBSY fix — the
   fourth "local green, CI red" mechanism this ledger records). `state.rs`'s four runnability probes
   (`zig_runs`, `rustc_release`, `rust_runs`, `toolchain_runs`) now run through

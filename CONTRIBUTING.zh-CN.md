@@ -17,6 +17,8 @@
 
 精确路径与平台限制见 [ENVIRONMENT.md](ENVIRONMENT.md)。
 
+**绝不用 PowerShell 读写源文件。** 用编辑器 / agent 的 `edit` / `write` 途径，存为 UTF-8、**无 BOM**：Windows PowerShell 5.1 会把无 BOM 的 UTF-8 文件按 ANSI 代码页解码再重编码，于是 `E2 80 xx`（破折号、省略号）变成 `U+9225` 加一个丢掉的字节，`C2 A7`（`§`）变成 `U+6402`，还凭空添一个 BOM。PowerShell 只用于*命令调用*（`git`、`gh`、`cargo`、`npm`、`node`、`python`）。gate 的编码扫描就是查这类损坏；见 [docs/decisions.zh-CN.md](docs/decisions.zh-CN.md) §59。
+
 ## 本地检查（gate）
 
 每次提交前先跑 gate：
@@ -35,7 +37,8 @@ gate 就是**「全绿」的唯一清单**：CI 跑的是同一个文件（`.git
 `worker`，以及 `ui/src-tauri`）→
 `cargo check` → `cargo test` → `ui/src-tauri` 的 `cargo check` → `npm run build` →
 UI 回归探针（`node ui/scripts/probe-ui-*.mjs`）→ 镜像常量守卫
-（`node scripts/check-mirrored-constants.mjs`）→ wix 版本守卫
+（`node scripts/check-mirrored-constants.mjs`）→ 编码扫描
+（`python scripts/scan-encoding.py --check`——查 mojibake 与 BOM；无 Python 时会大声跳过）→ wix 版本守卫
 （`node scripts/check-wix-version.mjs`）→ UI 字符串注册表守卫
 （`node scripts/check-ui-strings.mjs`）→ 双语文档链接检查（`scripts/check-bilingual.ps1` /
 `.sh`）。

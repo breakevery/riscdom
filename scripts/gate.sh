@@ -22,7 +22,8 @@
 #     key or the OS keyring (the `--skip` flags below) -- `--skip` matches the *test name*,
 #     which for an integration test is the function name, not the file name.
 #   - Two of `agent`'s unit tests compile C for real and print a skip when no GCC is there.
-#   - without python3/python: the reference supervisor's self-test is skipped.
+#   - without python3/python: the reference supervisor's self-test, and the
+#     encoding scan, are skipped.
 #
 # `--no-fail-fast`: one failing test binary must not hide the rest of the workspace.
 #
@@ -114,6 +115,14 @@ node ui/scripts/probe-ui-login.mjs || fail "ui probe (login gate)"
 
 echo "==> mirrored constants (host-core/src + host-tauri/src)"
 node scripts/check-mirrored-constants.mjs || fail "mirrored constants"
+
+echo "==> encoding scan (mojibake + BOM)"
+scan_python="$(have_python)"
+if [ -n "$scan_python" ]; then
+  "$scan_python" scripts/scan-encoding.py --check || fail "encoding scan"
+else
+  skip "the encoding scan (no python3/python on PATH)"
+fi
 
 echo "==> tool schema documents (executor + control plane)"
 node scripts/check-tool-schema.mjs || fail "tool schema"

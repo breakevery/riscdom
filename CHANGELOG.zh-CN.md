@@ -66,6 +66,7 @@
 - **`server` 的 6 处 `clippy::result_large_err`**：`http.rs:379` 与 `routes.rs:489/495/503/513/522` 返回 `Result<_, Response<RespBody>>`，而 hyper 的 `Response` 有 128+ 字节。错误类型改为 `Box<Response<RespBody>>`，所有调用方返回 `*response`——同一条路径上同一个 Response 值。随之一并修的还有 `routes.rs` 测试里 3 处 `bool_assert_comparison` 与 `tests/smoke.rs` 里 1 处 `filter_next`。行为未变。
 - **`scripts/gate.sh`** 选 `-p cli -p server -p host-core -p host-tauri`（仍带 `--no-deps`），控制平面与我们自己的其它 crate 一样被 lint。
 - **工具探针现在会重试「内核因文件忙而拒绝的 `exec`」**（v0.9）：`state.rs` 的四个「这个产物能不能跑」探针（`zig_runs`、`rustc_release`、`rust_runs`、`toolchain_runs`）都经 `exec_with_busy_retry` 跑命令，而该助手**只**重试 `ErrorKind::ExecutableFileBusy`——最多 5 次、每次相隔 10 毫秒。`ETXTBSY` 的含义是：内核不会 `exec` 一个正被**某个**进程以写方式打开的文件；在 Unix 上这包括「已 fork 但尚未 exec」的进程（`CLOEXEC` 只在 exec 那一刻关闭继承来的描述符），因此兄弟线程的一次 spawn 可能在本进程已关掉自己的写句柄之后**再持有几百微秒**。其它任何失败仍然立即返回，而超出预算的 busy 拒绝会被报出，不会吞掉。
+- **所有源文件已清空 Windows 代码页事故的残留，而且 gate 现在会查它**（v0.9 编码清账）：五个文件、**24 处**——18 处 mojibake 残码（`U+9225`）、3 处 `U+6402`（`§`）、3 个 BOM——每一处都坐在注释里，这正是产生它们的两个批次（v0.7 与本次线的 D2b-1）里没有任何检查看到的原因。`scripts/scan-encoding.py` 新增 BOM 类、`§` 残码、三种扩展名，以及一个**只对不可能误报的类**失败的 `--check` 模式；gate 会跑它（没有 Python 时会大声说明）。行为未变。
 
 ### 变更
 

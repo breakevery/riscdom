@@ -17,6 +17,13 @@ be verifiable and rollback-able — contributions follow the same discipline.
 
 Exact paths and platform limits: [ENVIRONMENT.md](ENVIRONMENT.md).
 
+**Never read or write a source file with PowerShell.** Use your editor's or agent's `edit` /
+`write` path, as UTF-8 without a BOM: Windows PowerShell 5.1 decodes a BOM-less UTF-8 file as the
+ANSI code page and re-encodes it, which turns `E2 80 xx` (an em dash, an ellipsis) into `U+9225`
+plus a lost byte, `C2 A7` (`§`) into `U+6402`, and adds a BOM that was never there. PowerShell is
+for *commands* (`git`, `gh`, `cargo`, `npm`, `node`, `python`). The gate's encoding scan looks for
+that damage; see [docs/decisions.md](docs/decisions.md) §59.
+
 ## Local checks (the gate)
 
 Run the gate before every commit:
@@ -36,7 +43,9 @@ workspace crates `audit` / `sandbox` / `agent` / `cli` / `server` / `host-core` 
 `worker`, and `ui/src-tauri`) → `cargo check` →
 `cargo test` → `cargo check` for `ui/src-tauri` → `npm run build` →
 the ui regression probes (`node ui/scripts/probe-ui-*.mjs`) → the mirror guard
-(`node scripts/check-mirrored-constants.mjs`) → the wix-version guard
+(`node scripts/check-mirrored-constants.mjs`) → the encoding scan
+(`python scripts/scan-encoding.py --check` — mojibake and BOM; skipped, loudly, without Python) →
+the wix-version guard
 (`node scripts/check-wix-version.mjs`) → the ui string registry guard
 (`node scripts/check-ui-strings.mjs`) → the bilingual-link check
 (`scripts/check-bilingual.ps1` / `.sh`).

@@ -1,22 +1,22 @@
-﻿/**
+/**
  * The one API surface the UI imports (v0.9 D2b-1).
  *
  * Two implementations, one interface:
  *
- * - `api/tauri.ts` 鈥?the desktop shell, over the Tauri IPC (`invoke` / `listen`);
- * - `api/http.ts` 鈥?the browser, over the control plane's HTTP endpoints.
+ * - `api/tauri.ts` — the desktop shell, over the Tauri IPC (`invoke` / `listen`);
+ * - `api/http.ts` — the browser, over the control plane's HTTP endpoints.
  *
  * Which one is live is decided **at runtime, once**, from the presence of Tauri's
  * own global: Tauri 2 injects `window.__TAURI_INTERNALS__` before any application
  * code runs, and `@tauri-apps/api` calls `invoke` through exactly that object
  * (`@tauri-apps/api/core.js`). A browser has no such global, so nothing needs
- * configuring and **one built `dist/` serves both front ends** 鈥?the desktop shell
+ * configuring and **one built `dist/` serves both front ends** — the desktop shell
  * loads it from disk, and the server serves the same files with `--web-root`.
  *
  * The list below is the interface, spelled out one name at a time. It is longer
  * than `export *` would be and buys the thing that matters: `impl` is typed as one
- * implementation, so a name that exists in one and not the other 鈥?or a signature
- * that drifts 鈥?fails to compile here instead of at a call site in a panel.
+ * implementation, so a name that exists in one and not the other — or a signature
+ * that drifts — fails to compile here instead of at a call site in a panel.
  */
 
 import * as http from "./http.ts";
@@ -49,7 +49,7 @@ export function isTauriRuntime(): boolean {
  * One implementation's shape minus the Web client's own three helpers
  * (`setApiBase` / `setToken` / `currentToken`), which the desktop has no use for:
  * assigning the Tauri module to this type is what makes a name that only exists in
- * one of the two 鈥?or a signature that drifted 鈥?a compile error right here.
+ * one of the two — or a signature that drifted — a compile error right here.
  */
 type SharedApi = Omit<
   typeof http,
@@ -70,7 +70,7 @@ const impl: SharedApi = isTauriRuntime() ? tauri : http;
 /**
  * Token plumbing, and it is the Web client's alone.
  *
- * On the desktop these do nothing that matters 鈥?the shell's `invoke` is
+ * On the desktop these do nothing that matters — the shell's `invoke` is
  * authenticated by being in the same process.
  *
  * They are named **outside** the shared list below rather than added to it: that

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """One-off diagnostic: look for the 0x3F class of accidents in the sources.
 
-WINDOWS ENCODING ACCIDENTS, AND WHY THIS IS *NOT* IN THE GATE
--------------------------------------------------------------
+WINDOWS ENCODING ACCIDENTS, AND WHY ONLY THE CERTAIN CLASSES FAIL THE GATE
+-------------------------------------------------------------------------
 
 On Windows a non-ASCII character can be eaten before it ever reaches a file or a
 commit message: the console's code page replaces it with `?` (0x3F). CONTRIBUTING.md
@@ -11,10 +11,20 @@ records the measured case (a commit subject of Chinese text stored as
 row rendered `?? write_source ?` because the emoji in those JSX lines had been
 written as literal `?` characters (fixed in v0.5 batch 11).
 
-This script looks for that class of damage across the tree, so a future session can
+A second accident is silently *worse*, because nothing about it looks wrong in an
+editor: **Windows PowerShell 5.1 reads a BOM-less UTF-8 file as GBK and writes the
+text back as UTF-8**, which turns `E2 80 xx` (an em dash, an ellipsis) into `U+9225`
+plus a lost byte, turns `C2 A7` (`§`) into `U+6402`, and — via
+`Set-Content -Encoding utf8` — adds a BOM. It happened twice here (v0.7 in
+`sandbox/`, D2b-1 in `ui/src/api/`) and no check saw it, because every damaged
+character sat inside a comment.
+
+This script looks for both classes of damage across the tree, so a future session can
 answer "did an encoding accident land here?" in one command.
 
-**It is deliberately NOT wired into `scripts/gate.sh`.** Two reasons:
+**`--check` runs in `scripts/gate.sh`; the other modes do not.** The gate fails only
+on the classes that can be *certain* — E (UTF-8 read as GBK) and F (a BOM) — because
+those two are never intentional. The rest stay diagnostic:
 
 1. **C is not reliably decidable.** "A string literal that is nothing but `?`" cannot
    be told apart from legitimate code: a ternary `cond ? "a" : "b"` produces `" ? "`
@@ -23,24 +33,25 @@ answer "did an encoding accident land here?" in one command.
    every one a false positive.
 2. **A guard that cries wolf erodes the gate.** The gate is the one list of what
    "green" means (see docs/handoff.md §4). Everything in it must be trustworthy; a
-   check that fails on healthy code teaches people to ignore failures. Classes A, B,
-   D and E could be guarded some day (A, D and E found nothing here; B only matches
-   documentation *about* the accident); C would have to be sharpened first.
+   check that fails on healthy code teaches people to ignore failures. So B, C and D
+   keep reporting and never block (decision §60), and `--check`'s scope is the two
+   classes that cannot be a false positive.
 
-So this stays a hand-run diagnostic. It only ever reports — there is no write mode at
-all, which is the "dry run" people ask about.
+There is no write mode at all: the script only ever reports.
 
 USAGE
 -----
 
     python3 scripts/scan-encoding.py                    # scan the repository, report
+    python3 scripts/scan-encoding.py --check            # the gate's mode: fail on E or F
     python3 scripts/scan-encoding.py --summary          # counts per class only
     python3 scripts/scan-encoding.py --class A --class E  # only these classes
     python3 scripts/scan-encoding.py --root .           # scan somewhere else
     python3 scripts/scan-encoding.py --ext .rs .ts      # override the extension set
 
-Exit status is 0 whether or not anything was found: this is a diagnostic, not a
-check. (Nothing here is allowed to make a build fail — see above.)
+Exit status: `0` in every diagnostic mode, whatever was found; with `--check`, `1`
+when class E or class F has a hit. (Nothing else here is allowed to make a build
+fail — see above.)
 """
 
 from __future__ import annotations
@@ -53,8 +64,10 @@ import sys
 
 # Where the accident can hide: source and documentation, in the languages this
 # repository uses. Data files (locks) are included because a generator writing them
-# is the same pipeline that writes everything else.
-DEFAULT_EXT = (".rs", ".ts", ".tsx", ".css", ".json", ".md")
+# is the same pipeline that writes everything else. `.mjs` / `.js` are not listed yet:
+# `ui/scripts/*.mjs` is the one place they matter, and it is probes (which the
+# repository writes by hand).
+DEFAULT_EXT = (".rs", ".ts", ".tsx", ".css", ".json", ".md", ".py", ".sh", ".ps1")
 
 # Directories that are generated, vendored, or scratch. `gen/` is Tauri's generated
 # schema output; `.cowork-temp/` is the session scratch directory.
@@ -66,7 +79,15 @@ LONE_QMARK = re.compile(r"""(["'])(\s*\?+\s*)\1""")
 # its width).
 CJK_QMARK = re.compile(r"[\u4e00-\u9fff]\s?\?(?![\w/&])|\?(?=\s?[\u4e00-\u9fff])")
 # Class E: UTF-8 bytes decoded as GBK/CP936 leave these lead sequences behind.
+# The list is the v0.5 accident's, and it is left exactly as it was measured: the
+# section sign's residue is appended from an escape below rather than typed in here,
+# so this file never has to be edited *inside* its own pattern.
 MOJIBAKE = re.compile(r"(鈥|锛|鐨|璁|鏂|绋|鏄|涓|鍜|鍏|鏈|瀹|鍐|鎴|鍔|鏃|鐢|鐩|姝|閿|鍚|瑕|鍙)")
+# `C2 A7` (`§`) read as GBK is `U+6402`; it is not in the list above because that list
+# came from a different accident's samples (v0.9, decision §59).
+MOJIBAKE_EXTRA = re.compile(r"[\u6402]")
+# What class E actually tests: the measured list, plus the shapes added since.
+MOJIBAKE_ALL = re.compile(MOJIBAKE.pattern + "|" + MOJIBAKE_EXTRA.pattern)
 # Class B: three or more '?' in a row — several characters eaten at once.
 TRIPLE = re.compile(r"\?\?\?")
 
@@ -76,6 +97,7 @@ CLASSES = {
     "C": "a string literal that is only '?'s (a symbol was replaced)",
     "D": "an ASCII '?' next to CJK text (a fullwidth '？' lost its width)",
     "E": "UTF-8 read as GBK (text double-encoded somewhere)",
+    "F": "the file starts with a BOM (a byte-order mark written by a tool)",
 }
 
 VERDICT_HINT = {
@@ -84,7 +106,11 @@ VERDICT_HINT = {
     "C": "usually legitimate — ternaries and '?' literals look identical to damage",
     "D": "almost always real: this repository writes '？' in Chinese prose",
     "E": "almost always real: mojibake is never intentional",
+    "F": "always real: nothing in this repository wants a BOM",
 }
+
+# The classes `--check` fails on, and the only two that cannot be a false positive.
+CERTAIN = ("E", "F")
 
 
 def scan_file(path: str, classes: set[str], hits: list[tuple]) -> None:
@@ -106,16 +132,25 @@ def scan_file(path: str, classes: set[str], hits: list[tuple]) -> None:
                 )
         if "D" in classes and CJK_QMARK.search(line):
             hits.append((path, number, line, "D", "ASCII '?' next to CJK text"))
-        if "E" in classes and MOJIBAKE.search(line):
+        if "E" in classes and MOJIBAKE_ALL.search(line):
             hits.append((path, number, line, "E", "UTF-8-as-GBK mojibake"))
+    # A BOM is a property of the file, not of a line: it is the first character.
+    if "F" in classes and text.startswith("\ufeff"):
+        hits.append((path, 1, text.split("\n")[0], "F", "file starts with a BOM (U+FEFF)"))
 
 
 def walk(root: str, ext: tuple[str, ...]):
+    here = os.path.abspath(__file__)
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for name in filenames:
             if name.endswith(ext):
-                yield os.path.join(dirpath, name)
+                full = os.path.join(dirpath, name)
+                # This script's own mojibake list *quotes* the accident on purpose, so
+                # class E would hit it forever. A scanner skips its own pattern table.
+                if os.path.abspath(full) == here:
+                    continue
+                yield full
 
 
 def main() -> int:
@@ -129,6 +164,8 @@ def main() -> int:
     parser.add_argument("--class", dest="classes", action="append", choices=sorted(CLASSES),
                         help="only this class (repeatable; default: all)")
     parser.add_argument("--summary", action="store_true", help="counts only, no context")
+    parser.add_argument("--check", action="store_true",
+                        help="fail (exit 1) when class E or class F has a hit; the gate's mode")
     args = parser.parse_args()
 
     classes = set(args.classes) if args.classes else set(CLASSES)
@@ -149,7 +186,7 @@ def main() -> int:
             count = sum(1 for h in hits if h[3] == cls)
             print(f"  {cls}: {count}")
         print(f"  total: {len(hits)}")
-        return 0
+        return check_verdict(hits, shown) if args.check else 0
 
     for cls in shown:
         group = [h for h in hits if h[3] == cls]
@@ -161,7 +198,19 @@ def main() -> int:
             print(f"  {shown_path}:{number}: {why}")
             print(f"      {line.strip()[:160]}")
     print(f"\ntotal: {len(hits)} hit(s)")
-    print("(diagnostic only — nothing was modified, and nothing here is a gate check)")
+    print("(diagnostic only — nothing was modified)")
+    return check_verdict(hits, shown) if args.check else 0
+
+
+def check_verdict(hits: list[tuple], shown: list[str]) -> int:
+    """`--check`'s answer: the certain classes decide, the rest only report."""
+    certain = [cls for cls in CERTAIN if cls in shown]
+    failed = [h for h in hits if h[3] in certain]
+    label = ", ".join(certain) if certain else "(none of the certain classes were scanned)"
+    if failed:
+        print(f"check: {len(failed)} hit(s) in a class that cannot be a false positive ({label})")
+        return 1
+    print(f"check: OK ({label})")
     return 0
 
 

@@ -1,4 +1,4 @@
-﻿// All Tauri `invoke` calls live here, so every backend call is reviewable in
+// All Tauri `invoke` calls live here, so every backend call is reviewable in
 // one place. Never pass secrets anywhere except `setLlmConfig`.
 
 import { invoke } from "@tauri-apps/api/core";

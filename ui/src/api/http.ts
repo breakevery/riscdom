@@ -1,19 +1,19 @@
-﻿/**
+/**
  * The Web client's half of the API surface (v0.9 D2b-1).
  *
  * Same names, same signatures and same shapes as `api/tauri.ts`, but the calls go
- * over the control plane's HTTP endpoints instead of the Tauri IPC 鈥?which is what
+ * over the control plane's HTTP endpoints instead of the Tauri IPC — which is what
  * lets one React application serve both the desktop shell and the browser
  * (`api/index.ts` picks one of the two at runtime).
  *
  * Three rules this file keeps, all of them so the two front ends cannot drift:
  *
  * - **the shapes are the same**, which is why they live in `./types` rather than
- *   here: `docs/control-plane-api.md` 搂5's view types are the host's, and both
+ *   here: `docs/control-plane-api.md` §5's view types are the host's, and both
  *   transports answer with them;
  * - **a rejection is a string**, exactly as the Tauri commands' `Result<_, String>`
  *   arrives (`String(e)` in the store, so the sentence a user sees is the host's);
- * - **a handful of endpoints wrap one value** (`{"theme": 鈥`), and those eight
+ * - **a handful of endpoints wrap one value** (`{"theme": …`), and those eight
  *   are unwrapped here, in one place, instead of in every panel.
  *
  * Read-only endpoints are implemented; the controls and the event subscriptions
@@ -163,7 +163,7 @@ export function currentToken(): string {
 type QueryValue = string | number | undefined;
 type Query = Record<string, QueryValue>;
 
-/** `?a=1&b=two` 鈥?encoded, and undefined or empty values left out entirely. */
+/** `?a=1&b=two` — encoded, and undefined or empty values left out entirely. */
 function queryString(query?: Query): string {
   if (query === undefined) return "";
   const parts: string[] = [];
@@ -177,7 +177,7 @@ function queryString(query?: Query): string {
 /**
  * The sentence for a refused request.
  *
- * The host's error model (`docs/control-plane-api.md` 搂4) is `{code, message,
+ * The host's error model (`docs/control-plane-api.md` §4) is `{code, message,
  * retryable, cause}`; the UI shows one line, so this is that line. Anything that
  * is not the model (a proxy's HTML page, say) falls back to the status line rather
  * than inventing a code.
@@ -244,7 +244,7 @@ export async function verifyToken(candidate: string): Promise<TokenCheck> {
  * One request, answered as JSON (or nothing at all for a `204`).
  *
  * Rejects with a **string**, because that is what the desktop's `invoke` rejects
- * with 鈥?the store renders `String(e)`, so both front ends show the host's own
+ * with — the store renders `String(e)`, so both front ends show the host's own
  * sentence and neither shows a stack trace.
  */
 async function request<T>(
@@ -379,7 +379,7 @@ export const getSerialBuffer = async (): Promise<string> =>
  * The controls the Web client does **not** have yet.
  *
  * v0.9's browser client is the read-only "look at it from a phone" surface
- * (`docs/decisions.md` 搂9) and its controls arrive with D4, so these reject rather
+ * (`docs/decisions.md` §9) and its controls arrive with D4, so these reject rather
  * than pretend. They reject with a sentence, never synchronously, so a caller's
  * `catch` sees them exactly like a host refusal.
  */
@@ -470,8 +470,8 @@ export const clearAllSessions = (): Promise<void> => desktopOnly("clear_all_sess
 /**
  * Subscriptions are the one stubbed group that must **not** reject: they are
  * registered from React effects, so a rejection would be an unhandled error on
- * every mount. The Web client's stream arrives with D2b-3 鈥?one `fetch` stream
- * feeding exactly this subscription shape 鈥?and until then this returns a no-op
+ * every mount. The Web client's stream arrives with D2b-3 — one `fetch` stream
+ * feeding exactly this subscription shape — and until then this returns a no-op
  * unsubscribe, so a panel that only *subscribes* keeps working while the page
  * shows nothing live.
  *
