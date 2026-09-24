@@ -125,6 +125,19 @@ described a cookie-session endpoint that has never existed — the stream is aut
 `Authorization` header, so a browser reads it with `fetch` + `ReadableStream` (the doc now shows
 that code instead of `EventSource` with a cookie).
 
+**One built front end now serves both the desktop shell and the browser.** `ui/src/api/` grew a
+second implementation of its own surface: `tauri.ts` keeps the shell's `invoke` / `listen`, `http.ts`
+calls the control plane's HTTP endpoints, and `index.ts` picks between them **once at runtime** from
+Tauri 2's own global — so the build is unchanged and one `dist/` serves the shell and the server's
+`--web-root` alike. The **shapes** moved to `api/types.ts` (they are the host's, not a transport's)
+and the envelope rule to `api/envelope.ts` (one copy, one rule). All four consumers now import
+`../api`, and the two implementations are held to each other by the type checker *and* by a new
+probe. The 26 read-only endpoints are implemented — including the eight that answer with a one-field
+wrapper — while the 26 controls reject with a sentence ("desktop control … arrive with D4") and the
+four subscriptions return a no-op unsubscribe rather than rejecting. A refusal is a string on both
+paths, so an error message reads the same in the shell and in the browser. Login, the new pages and
+the live stream are the next D2b batches.
+
 ### Added
 
 - **Zig compiles (v0.9 F3a)**: `compile` dispatches on the source extension — `.c` /

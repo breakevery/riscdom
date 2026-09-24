@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import * as api from "../api/tauri";
+import * as api from "../api";
 import type { AppStore } from "../state/appStore";
 import { t } from "../i18n/index.ts";
 import type { StringKey } from "../i18n/index.ts";

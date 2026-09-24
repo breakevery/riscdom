@@ -1248,3 +1248,34 @@ file that is found must canonicalize inside the resolved root, because a symlink
 point out of it; a client-supplied name is never percent-decoded, so an encoded `..` is a file that
 does not exist rather than a traversal. Without `--web-root`, `/` answers a 404 whose message names
 the flag. D2b builds the page this serves.
+
+## 56. One built front end, two transports, chosen at runtime
+
+**Date**: 2026-09-24 ｜ **Status**: Decided; landed with the v0.9 D2b-1 batch
+
+**Decision**: the UI's API surface has **two implementations of one interface** —
+`ui/src/api/tauri.ts` (the desktop shell's `invoke` / `listen`) and `ui/src/api/http.ts` (the
+control plane's endpoints) — and `ui/src/api/index.ts` chooses between them **once, at runtime**,
+from the presence of Tauri 2's own global (`window.__TAURI_INTERNALS__`, the object
+`@tauri-apps/api/core.js` itself calls `invoke` through). The build is unchanged: one `npm run build`,
+one `ui/dist`, which the desktop shell loads as `frontendDist` and the server serves with
+`--web-root`. The shared shapes live in `api/types.ts` and the one rule both transports need in
+`api/envelope.ts`, so neither transport owns either.
+
+**Why**: the alternative — resolving the implementation at **build time** (a Vite alias, or a second
+entry with its own `outDir`) — produces two artifacts and immediately raises the question this
+project does not want to answer: which one does `--web-root` point at, and which one did `tauri build`
+just bundle? A stale or crossed artifact is a class of bug with no visible symptom until a user
+reports it. A runtime check costs one `if` and makes "the same UI" literal. The global is chosen
+deliberately over a build flag or an env var: it is Tauri's own marker, so it cannot be forgotten in
+a config file, and a browser (including Node in a probe) simply lacks it.
+
+**Impact**: the browser bundle carries the Tauri branch and vice versa — **+7,041 bytes (+1.1%)** in the
+built `dist/` today, which is the price of one artifact and accepted. `api/index.ts` spells the
+surface out one name at a time instead of `export *`, and annotates the chosen implementation as the
+other's shape minus the Web-only helpers, so a name or a signature that exists in only one
+implementation is a **compile error**; `ui/scripts/probe-ui-api.mjs` asserts the same names on both
+source texts and exercises the HTTP implementation against a stand-in `fetch`. A refusal is a
+**string** on both paths, because the desktop's commands are `Result<_, String>` and the store renders
+`String(e)`. Anything that later needs a genuinely different bundle (a mobile shell, a different
+protocol) reopens this entry rather than forking the build.

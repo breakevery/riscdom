@@ -1,0 +1,216 @@
+/**
+ * Every shape the backend hands the UI (v0.9 D2b-1).
+ *
+ * These used to live in `api/tauri.ts`, which made the *shapes* a property of one
+ * transport. They are the control plane's shapes: the desktop's Tauri commands
+ * and the Web client's HTTP endpoints both answer with them, so they live here
+ * and both implementations import them
+ * (`docs/control-plane-api.md` §5 names the matching view types on the host
+ * side).
+ */
+
+export interface ChainStatus {
+  status: "Intact" | "Broken";
+  length?: number;
+  at_id?: number;
+  reason?: string;
+}
+
+export interface AuditStatus {
+  count: number;
+  chain: ChainStatus;
+  /** Whether the audit-failure alert is on (v0.8). */
+  alert_on_failure: boolean;
+  /** Audit writes that failed and have not been shown yet (v0.8). */
+  failures: string[];
+}
+
+export interface LlmStatus {
+  configured: boolean;
+  provider_id: string;
+  base_url: string;
+  model: string;
+  persisted: boolean;
+}
+
+/** A selectable LLM provider preset (pure data from the host). */
+export interface ProviderPreset {
+  id: string;
+  display_name: string;
+  base_url: string;
+  default_model: string;
+  requires_key: boolean;
+  is_local: boolean;
+}
+
+export interface AuditEvent {
+  id: number;
+  timestamp_ms: number;
+  actor: string;
+  action: string;
+  detail: unknown;
+  prev_hash: string;
+  hash: string;
+  // v0.8: which agent caused the event; null on rows written before it.
+  agent_id?: string | null;
+}
+
+export interface AgentOutcomeView {
+  kind: "final" | "max_iterations" | "failed";
+  content?: string | null;
+  reason?: string | null;
+  iterations: number;
+}
+
+/** One run from the host's derived index (read-only, v0.4 1d). */
+export interface RunView {
+  run_id: string;
+  status: string;
+  /** Full configuration digest (64 hex characters). */
+  fingerprint: string;
+  /** First 16 hex characters, for display. */
+  fingerprint_short: string;
+  parent_run_id: string | null;
+  session_id: string | null;
+  /** The snapshot this run was restored from, or null (v0.5 batch 3). */
+  resumed_from_snapshot: string | null;
+  started_at_ms: number;
+  ended_at_ms: number | null;
+}
+
+/** Environment preflight (v0.4 batch 3). */
+export interface PreflightRow {
+  step: string;
+  /** `ok` / `failed` / `not_run`. */
+  state: string;
+  detail: string | null;
+}
+
+export interface PreflightView {
+  ran: boolean;
+  fingerprint: string;
+  checked: boolean;
+  ok: boolean;
+  rows: PreflightRow[];
+  failed_step: string | null;
+  detail: string | null;
+  suggestion: string | null;
+  checked_at_ms: number | null;
+  overridden: boolean;
+}
+
+/** Whether the LLM is ready, and why not. */
+export interface LlmReadiness {
+  ready: boolean;
+  reason: string | null;
+  suggestion: string | null;
+}
+
+/** A locally-detected OpenAI-compatible provider. */
+export interface LocalProviderInfo {
+  id: string;
+  display_name: string;
+  base_url: string;
+  models: string[];
+}
+
+export interface LocalProbeResult {
+  found: boolean;
+  providers: LocalProviderInfo[];
+  probed: string[];
+}
+
+/**
+ * One top-level field of two runs' fingerprints (v0.6 batch 1). `a` / `b` are the
+ * documents' values as the host read them off the chain — whole nested objects,
+ * not their keys. They are structured JSON, so the UI renders them, never
+ * re-parses a string the host formatted for it.
+ */
+export interface FingerprintFieldDiff {
+  field: string;
+  a: unknown;
+  b: unknown;
+  is_different: boolean;
+}
+
+/** A snapshot on disk. */
+export interface SnapshotMeta {
+  name: string;
+  size_bytes: number;
+  created_at_ms: number;
+  /** "tcp-relay" (real) or "reboot-fallback". */
+  mode: string;
+}
+
+/** VM status for the top-bar badge (v0.3 #4c). */
+export interface VmStatus {
+  running: boolean;
+  since_ms: number | null;
+}
+
+/** One-click toolchain download (mirrors the host `DownloadEvent`).
+ *
+ * The tag is `state` since v0.9: the same flattened shape the envelope's payload
+ * carries, so the event and the polling status agree.
+ */
+export type ToolchainDownloadEvent =
+  | { state: "started"; total_bytes: number | null }
+  | { state: "progress"; downloaded: number; total: number | null }
+  | { state: "verifying" }
+  | { state: "extracting" }
+  | { state: "done"; install_path: string }
+  | { state: "failed"; reason: string }
+  | { state: "cancelled" };
+
+export interface ToolchainDownloadStatus {
+  in_progress: boolean;
+  last_event: ToolchainDownloadEvent | null;
+}
+
+/** QEMU status (v0.3 5b-2): same shape as the toolchain view. */
+export interface QemuView {
+  found: boolean;
+  path: string | null;
+  /** "EnvVar" | "KnownPath" | "Path" | "Manual" */
+  source: string;
+  /** Full search record (where we looked and what happened). */
+  diagnostics: string;
+}
+
+/** RISC-V GCC toolchain status. */
+export interface ToolchainView {
+  found: boolean;
+  path: string | null;
+  /** "EnvVar" | "KnownPath" | "Path" | "Manual" */
+  source: string;
+  /** Full search record (where we looked and what happened). */
+  diagnostics: string;
+}
+
+/** A persisted session summary. */
+export interface SessionMeta {
+  id: string;
+  title: string;
+  created_at_ms: number;
+  updated_at_ms: number;
+  message_count: number;
+}
+
+/** One persisted message. */
+export interface SessionMessage {
+  id: number;
+  session_id: string;
+  role: string;
+  content: string;
+  tool_call_json: string | null;
+  tool_call_id: string | null;
+  created_at_ms: number;
+}
+
+export interface SessionDetail {
+  meta: SessionMeta;
+  messages: SessionMessage[];
+}
+
+/** The host event envelope — re-exported so `api.HostEnvelope` keeps working. */
+export type { HostEnvelope } from "./envelope";

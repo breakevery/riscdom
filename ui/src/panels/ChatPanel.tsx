@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import * as api from "../api/tauri";
+import * as api from "../api";
 import { isNearBottom as metricsNearBottom, onRunFinished } from "../lib/scrollRule";
 import { relTime, type AppStore } from "../state/appStore";
 import { t } from "../i18n/index.ts";

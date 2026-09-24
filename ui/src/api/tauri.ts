@@ -1,61 +1,59 @@
-// All Tauri `invoke` calls live here, so every backend call is reviewable in
+﻿// All Tauri `invoke` calls live here, so every backend call is reviewable in
 // one place. Never pass secrets anywhere except `setLlmConfig`.
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { unwrapHostPayload } from "./envelope.ts";
+import type {
+  AgentOutcomeView,
+  AuditEvent,
+  AuditStatus,
+  FingerprintFieldDiff,
+  LlmReadiness,
+  LlmStatus,
+  LocalProbeResult,
+  ProviderPreset,
+  PreflightView,
+  QemuView,
+  RunView,
+  SessionDetail,
+  SessionMeta,
+  SnapshotMeta,
+  ToolchainDownloadEvent,
+  ToolchainDownloadStatus,
+  ToolchainView,
+  VmStatus,
+} from "./types.ts";
 
-export interface ChainStatus {
-  status: "Intact" | "Broken";
-  length?: number;
-  at_id?: number;
-  reason?: string;
-}
-
-export interface AuditStatus {
-  count: number;
-  chain: ChainStatus;
-  /** Whether the audit-failure alert is on (v0.8). */
-  alert_on_failure: boolean;
-  /** Audit writes that failed and have not been shown yet (v0.8). */
-  failures: string[];
-}
-
-export interface LlmStatus {
-  configured: boolean;
-  provider_id: string;
-  base_url: string;
-  model: string;
-  persisted: boolean;
-}
-
-/** A selectable LLM provider preset (pure data from the host). */
-export interface ProviderPreset {
-  id: string;
-  display_name: string;
-  base_url: string;
-  default_model: string;
-  requires_key: boolean;
-  is_local: boolean;
-}
-
-export interface AuditEvent {
-  id: number;
-  timestamp_ms: number;
-  actor: string;
-  action: string;
-  detail: unknown;
-  prev_hash: string;
-  hash: string;
-  // v0.8: which agent caused the event; null on rows written before it.
-  agent_id?: string | null;
-}
-
-export interface AgentOutcomeView {
-  kind: "final" | "max_iterations" | "failed";
-  content?: string | null;
-  reason?: string | null;
-  iterations: number;
-}
+// The shapes moved to `./types` in v0.9 D2b-1, so the Web implementation can name
+// them without importing a Tauri module. They are re-exported here because this is
+// the module the panels and the store have always read them from.
+export type {
+  AgentOutcomeView,
+  AuditEvent,
+  AuditStatus,
+  ChainStatus,
+  FingerprintFieldDiff,
+  HostEnvelope,
+  LlmReadiness,
+  LlmStatus,
+  LocalProbeResult,
+  LocalProviderInfo,
+  PreflightRow,
+  PreflightView,
+  ProviderPreset,
+  QemuView,
+  RunView,
+  SessionDetail,
+  SessionMessage,
+  SessionMeta,
+  SnapshotMeta,
+  ToolchainDownloadEvent,
+  ToolchainDownloadStatus,
+  ToolchainView,
+  VmStatus,
+} from "./types.ts";
+export { unwrapHostPayload } from "./envelope.ts";
 
 export const getAuditStatus = () => invoke<AuditStatus>("get_audit_status");
 
@@ -69,22 +67,6 @@ export const listAuditEvents = (
     actor: actor ?? null,
     actionPrefix: actionPrefix ?? null,
   });
-
-/** One run from the host's derived index (read-only, v0.4 1d). */
-export interface RunView {
-  run_id: string;
-  status: string;
-  /** Full configuration digest (64 hex characters). */
-  fingerprint: string;
-  /** First 16 hex characters, for display. */
-  fingerprint_short: string;
-  parent_run_id: string | null;
-  session_id: string | null;
-  /** The snapshot this run was restored from, or null (v0.5 batch 3). */
-  resumed_from_snapshot: string | null;
-  started_at_ms: number;
-  ended_at_ms: number | null;
-}
 
 export const listRuns = (limit = 20) =>
   invoke<RunView[]>("list_runs", { limit });
@@ -105,27 +87,6 @@ export const setLanguage = (language: string) => invoke<void>("set_language", { 
 /** Turn the audit-failure alert (banner + popup) on or off (v0.8). */
 export const setAuditAlert = (enabled: boolean) =>
   invoke<void>("set_audit_alert", { enabled });
-
-/** Environment preflight (v0.4 batch 3). */
-export interface PreflightRow {
-  step: string;
-  /** `ok` / `failed` / `not_run`. */
-  state: string;
-  detail: string | null;
-}
-
-export interface PreflightView {
-  ran: boolean;
-  fingerprint: string;
-  checked: boolean;
-  ok: boolean;
-  rows: PreflightRow[];
-  failed_step: string | null;
-  detail: string | null;
-  suggestion: string | null;
-  checked_at_ms: number | null;
-  overridden: boolean;
-}
 
 export const preflightStatus = () =>
   invoke<PreflightView>("preflight_status");
@@ -150,27 +111,6 @@ export const hasStoredKey = (providerId: string) =>
 /** Load a stored key from the OS keyring into host memory. */
 export const loadStoredKey = (providerId: string) =>
   invoke<void>("load_stored_key", { providerId });
-
-/** Whether the LLM is ready, and why not. */
-export interface LlmReadiness {
-  ready: boolean;
-  reason: string | null;
-  suggestion: string | null;
-}
-
-/** A locally-detected OpenAI-compatible provider. */
-export interface LocalProviderInfo {
-  id: string;
-  display_name: string;
-  base_url: string;
-  models: string[];
-}
-
-export interface LocalProbeResult {
-  found: boolean;
-  providers: LocalProviderInfo[];
-  probed: string[];
-}
 
 export const getLlmReadiness = () =>
   invoke<LlmReadiness>("get_llm_readiness");
@@ -217,34 +157,12 @@ export const exportRunAudit = (runId: string, path: string) =>
   invoke<number>("export_run_audit", { runId, path });
 
 /**
- * One top-level field of two runs' fingerprints (v0.6 batch 1). `a` / `b` are the
- * documents' values as the host read them off the chain — whole nested objects,
- * not their keys. They are structured JSON, so the UI renders them, never
- * re-parses a string the host formatted for it.
- */
-export interface FingerprintFieldDiff {
-  field: string;
-  a: unknown;
-  b: unknown;
-  is_different: boolean;
-}
-
-/**
  * Field-by-field diff of two runs' fingerprints (v0.6 batch 1). The rows arrive
  * in the fingerprint's declaration order and cover every field the two documents
  * carry; the UI renders that order as it is and never re-sorts it.
  */
 export const compareRunFingerprints = (runA: string, runB: string) =>
   invoke<FingerprintFieldDiff[]>("compare_run_fingerprints", { runA, runB });
-
-/** A snapshot on disk. */
-export interface SnapshotMeta {
-  name: string;
-  size_bytes: number;
-  created_at_ms: number;
-  /** "tcp-relay" (real) or "reboot-fallback". */
-  mode: string;
-}
 
 export const listSnapshots = () => invoke<SnapshotMeta[]>("list_snapshots");
 
@@ -262,32 +180,7 @@ export const resumeFromSnapshotReal = (name: string) =>
 /** Is the host currently holding a (cross-run) VM? */
 export const vmIsRunning = () => invoke<boolean>("vm_is_running");
 
-/** VM status for the top-bar badge (v0.3 #4c). */
-export interface VmStatus {
-  running: boolean;
-  since_ms: number | null;
-}
-
 export const vmStatus = () => invoke<VmStatus>("vm_status");
-
-/** One-click toolchain download (mirrors the host `DownloadEvent`).
- *
- * The tag is `state` since v0.9: the same flattened shape the envelope's payload
- * carries, so the event and the polling status agree.
- */
-export type ToolchainDownloadEvent =
-  | { state: "started"; total_bytes: number | null }
-  | { state: "progress"; downloaded: number; total: number | null }
-  | { state: "verifying" }
-  | { state: "extracting" }
-  | { state: "done"; install_path: string }
-  | { state: "failed"; reason: string }
-  | { state: "cancelled" };
-
-export interface ToolchainDownloadStatus {
-  in_progress: boolean;
-  last_event: ToolchainDownloadEvent | null;
-}
 
 /** Start downloading and installing the RISC-V toolchain. */
 export const startToolchainDownload = () => invoke<void>("start_toolchain_download");
@@ -304,16 +197,6 @@ export const onToolchainDownload = (
   onEvent: (event: ToolchainDownloadEvent) => void,
 ) => onHostEvent("toolchain:download", (p) => onEvent(p as ToolchainDownloadEvent));
 
-/** QEMU status (v0.3 5b-2): same shape as the toolchain view. */
-export interface QemuView {
-  found: boolean;
-  path: string | null;
-  /** "EnvVar" | "KnownPath" | "Path" | "Manual" */
-  source: string;
-  /** Full search record (where we looked and what happened). */
-  diagnostics: string;
-}
-
 /** Where QEMU is (and the full search record). */
 export const probeQemu = () => invoke<QemuView>("probe_qemu");
 
@@ -327,47 +210,12 @@ export const setQemuPath = (path: string) =>
 /** Forget the manual QEMU path and go back to auto-discovery. */
 export const clearQemuPath = () => invoke<void>("clear_qemu_path");
 
-/** RISC-V GCC toolchain status. */
-export interface ToolchainView {
-  found: boolean;
-  path: string | null;
-  /** "EnvVar" | "KnownPath" | "Path" | "Manual" */
-  source: string;
-  /** Full search record (where we looked and what happened). */
-  diagnostics: string;
-}
-
 export const probeToolchain = () => invoke<ToolchainView>("probe_toolchain");
 
 export const setToolchainPath = (path: string) =>
   invoke<void>("set_toolchain_path", { path });
 
 export const clearToolchainPath = () => invoke<void>("clear_toolchain_path");
-
-/** A persisted session summary. */
-export interface SessionMeta {
-  id: string;
-  title: string;
-  created_at_ms: number;
-  updated_at_ms: number;
-  message_count: number;
-}
-
-/** One persisted message. */
-export interface SessionMessage {
-  id: number;
-  session_id: string;
-  role: string;
-  content: string;
-  tool_call_json: string | null;
-  tool_call_id: string | null;
-  created_at_ms: number;
-}
-
-export interface SessionDetail {
-  meta: SessionMeta;
-  messages: SessionMessage[];
-}
 
 export const listSessions = (limit: number) =>
   invoke<SessionMeta[]>("list_sessions", { limit });
@@ -398,36 +246,6 @@ export const onAgentStreamDelta = (cb: (text: string) => void) =>
 /** The LLM stream finished (`agent:stream:done`). */
 export const onAgentStreamDone = (cb: () => void) =>
   onHostEvent("agent:stream:done", () => cb());
-
-/**
- * The envelope every host event travels in (v0.9).
- *
- * `version` first, then `kind` / `event` / `agent_id` / `task_id` / `ts`, and the
- * panel's payload nested inside.
- */
-export interface HostEnvelope {
-  version: number;
-  kind: string;
-  event: string | null;
-  agent_id: string;
-  task_id: string | null;
-  ts: number;
-  payload: unknown;
-}
-
-/**
- * Unwrap a host event, so a panel callback keeps reading the payload it always
- * read. One boundary, one unwrap: the panels never see the envelope.
- */
-export const unwrapHostPayload = (value: unknown): unknown => {
-  if (value && typeof value === "object") {
-    const candidate = value as Partial<HostEnvelope>;
-    if (typeof candidate.version === "number" && "payload" in candidate) {
-      return candidate.payload;
-    }
-  }
-  return value;
-};
 
 /** Subscribe to a host event. Returns an unlisten function. */
 export const onHostEvent = (

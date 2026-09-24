@@ -13,6 +13,26 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **One built UI now serves both the desktop shell and the browser** (v0.9 D2b-1 — the
+  management-program line's adapter). `ui/src/api/` has two implementations of one surface:
+  `tauri.ts` (the shell's `invoke` / `listen`) and `http.ts` (the control plane's endpoints), with
+  the **shapes** moved to `api/types.ts` so neither transport owns them and the envelope rule in
+  `api/envelope.ts` so only one copy of it exists. `api/index.ts` picks between them **once at
+  runtime**, by Tauri 2's own global (`window.__TAURI_INTERNALS__`, the object
+  `@tauri-apps/api/core.js` calls `invoke` through), so `npm run build` is unchanged and one `dist/`
+  serves the desktop shell (`frontendDist`) and `--web-root` alike (decisions §56). All four
+  consumers (`appStore`, `ChatPanel`, `CanvasPanel`, `ModelTab` — note it was **four**, not one) now
+  import `../api`; the type annotation `impl: Omit<typeof http, …>` makes a name or signature that
+  exists in only one implementation a **compile error**, and the new probe checks the same thing on
+  the source text. **The 26 read-only endpoints are implemented** (the eight one-field wrappers
+  unwrapped in one place); the **26 controls reject with a sentence** ("desktop control … controls
+  arrive with D4") instead of pretending, and the four subscriptions return a no-op unsubscribe
+  rather than rejecting, because they are registered from React effects. A refusal arrives as a
+  **string**, exactly like the desktop's `Result<_, String>`, so `String(e)` in the store shows the
+  host's own sentence on both. **+1 probe** (`probe-ui-api.mjs`, 9 ui probes now, in `gate.sh`);
+  bundle grew **623,347 → 630,388 bytes (+7,041, +1.1%)** because the single artifact now carries the
+  Web client too. Login, the new pages and the stream are D2b-2 / D2b-3 / D2b-4.
+
 - **The control plane can serve the Web UI itself** (v0.9 D2a — the server half of the
   management-program line). `riscdom-server --web-root <dir>` serves the built frontend's
   `index.html` at `/` and its hashed files under `/assets/*`, **before** the route table and

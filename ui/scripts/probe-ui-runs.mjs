@@ -24,6 +24,9 @@ const MODULE = path.join(REPO, "ui", "src", "lib", "runView.ts");
 const I18N = path.join(REPO, "ui", "src", "i18n", "index.ts");
 const TAB = path.join(REPO, "ui", "src", "settings", "AuditTab.tsx");
 const API = path.join(REPO, "ui", "src", "api", "tauri.ts");
+// The shapes moved out of the Tauri module in v0.9 D2b-1; the field assertion
+// below reads them where they live now.
+const API_TYPES = path.join(REPO, "ui", "src", "api", "types.ts");
 const SHELL = path.join(REPO, "ui", "src-tauri", "src", "lib.rs");
 const STORE = path.join(REPO, "ui", "src", "state", "appStore.ts");
 const HOST_CMDS = path.join(REPO, "host-tauri", "src", "commands.rs");
@@ -324,7 +327,7 @@ check(
 );
 check(
   "the RunView shape carries the source snapshot",
-  /resumed_from_snapshot:\s*string\s*\|\s*null/.test(api),
+  /resumed_from_snapshot:\s*string\s*\|\s*null/.test(readFileSync(API_TYPES, "utf8")),
 );
 
 // The audit-failure alert (v0.8): the tab renders the banner and the toggle, the

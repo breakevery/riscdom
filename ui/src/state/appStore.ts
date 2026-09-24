@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useSyncExternalStore, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import * as api from "../api/tauri";
+import * as api from "../api";
 import { executableFilters, pickedPath } from "../lib/pathPick";
 import { defaultExportPath, MAX_COMPARED_RUNS, toggleRunSelection as nextRunSelection } from "../lib/runView";
 import { applyTheme, nextTheme, parseTheme, systemPrefersDark } from "../lib/theme";

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import * as api from "../api/tauri";
+import * as api from "../api";
 import { t } from "../i18n/index.ts";
 import type { AppStore } from "../state/appStore";
 
