@@ -23,6 +23,12 @@
 #    Windows, which is the platform the MVP targets.
 # 3. **`--ignored` tests never run in CI.** They need a real QEMU guest or a real
 #    API key by design (e.g. `e2e_ui`, `real_api`), and are run by hand.
+# 4. **Linux installs `libdbus-1-dev` before the gate runs.** `host-core` depends on
+#    `keyring`, whose Linux backend (`dbus-secret-service` -> `dbus` -> `libdbus-sys`)
+#    needs the system `dbus-1` library via pkg-config. The gate's `worker` example
+#    step is the first Linux step that compiles `host-core`, so the library has to be
+#    there. A Windows developer machine uses `keyring`'s `windows-native` backend and
+#    never needs it, so this is a CI-only install (both `gate` and the Linux `bundle`).
 #
 # The `web` job that used to build the frontend is gone: the gate builds it
 # (`npm run build`), so a separate job would be exactly the duplicated command
@@ -81,6 +87,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `host-core` reaches `keyring` on Linux; its `dbus-secret-service` backend
+      # builds `libdbus-sys`, which probes for the system `dbus-1` library with
+      # pkg-config. The gate's `remote executor example` step compiles `worker` ->
+      # `host-core`, which is the first Linux gate step to do so (the `host-core`
+      # lint/check steps are skipped on non-Windows). Without this the step fails
+      # inside `libdbus-sys`'s build script.
+      - name: install system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
+
       # The gate needs: rustfmt + clippy, and Node >= 22.6 for the UI probes and
       # the mirror guard (they import the `.ts` modules with type stripping).
       - uses: dtolnay/rust-toolchain@stable
@@ -132,7 +151,9 @@ jobs:
       - uses: actions/checkout@v4
 
       # Tauri's Linux build needs WebKitGTK and its neighbours; macOS needs nothing
-      # beyond the runner's Xcode command line tools.
+      # beyond the runner's Xcode command line tools. `libdbus-1-dev` is here for the
+      # same reason as in the `gate` job: `host-core`'s `keyring` backend on Linux
+      # builds `libdbus-sys`, and Tauri's own `tao` also links `dbus`.
       - name: install linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -145,6 +166,7 @@ jobs:
             librsvg2-dev \
             libsoup-3.0-dev \
             libssl-dev \
+            libdbus-1-dev \
             libxdo-dev \
             build-essential \
             pkg-config \

@@ -918,6 +918,13 @@ repository, who it is for, and whether it is living, a snapshot or history.
 - **Two stale counts in the normative documents**: `control-plane-api.md` said §5.2 holds
   35 controls (it holds 36) and the client guide said the query surface is 31 endpoints (it
   is 32) — both in both languages.
+- **CI was red on Linux from `00fca17` on, for four commits.** The `gate` job's
+  `remote executor example` step is the first Linux step that compiles `host-core`, and
+  `host-core`'s `keyring` backend on Linux builds `libdbus-sys`, which needs the system
+  `dbus-1` library — which the runner does not ship. The `gate` job now installs
+  `libdbus-1-dev` (and the Linux `bundle` job's dependency list gained it as well). A
+  Windows developer machine uses `keyring`'s `windows-native` backend, so the local gate
+  could never have caught this.
 
 ### Changed
 

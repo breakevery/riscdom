@@ -13,6 +13,14 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The Linux CI red is fixed in configuration** (v0.9 CI fix). The `gate` job went red on Linux
+  from `00fca17` on — four consecutive commits — because its `remote executor example` step is the
+  first Linux gate step that compiles `host-core`, and `host-core`'s `keyring` backend on Linux
+  builds `libdbus-sys`, which needs the system `dbus-1` library via pkg-config. The `gate` job now
+  installs `libdbus-1-dev`, and the Linux `bundle` job's dependency list gained it too. The local
+  (Windows) gate uses `keyring`'s `windows-native` backend and never needs it, which is how four
+  pushes went out under a red CI. **Process lesson**: a green local gate is not a green CI; run
+  `gh run list --limit 3` after every push.
 - **The documentation has an entrance** (v0.9 documentation batch). [`docs/README.md`](README.md)
   is the map: every Markdown file in the repository, grouped by the five audiences
   [decisions](decisions.md) §21 names (start here · kernel developers · distribution
