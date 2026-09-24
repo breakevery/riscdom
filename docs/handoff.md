@@ -13,6 +13,22 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The stderr reader behind `server/tests/logging.rs` no longer stops at the first line it
+  cannot read, and a failing wait now says why** (v0.9 logging batch). `the_connection_line_
+  appears_at_info` failed **twice** on Linux CI (both attempts 5.09 s, the same message: only the
+  `--no-auth` WARNING in the captured stderr), and the test binary's reader was the reason it
+  *could* lose a line: `for line in reader.lines() { let Ok(line) = line else { break }; … }` —
+  one unreadable line ended the thread and threw away everything after it, including the
+  `connection from … ended` line the test waits for. The loop now counts a bad line and keeps
+  reading (`InvalidData` / any other I/O error counted, `Interrupted` retried, EOF ends it), and
+  `wait_for_line`'s failure message prints the reader's state — lines captured, unreadable lines,
+  still reading or stopped — so the next red run answers "the line never came" versus "the reader
+  had already stopped". **What is still open:** whether this *is* the CI root cause. Our change
+  cannot have caused the failure (the only `server` change in `789f196` was the
+  `Action::ToolchainDownloadStart` arm, `+11/-1`, and the health path does not move), yet the same
+  test was green on the two Linux runs before it. The 5 s timeout and the 25 ms poll are
+  **unchanged on purpose** — the two flake precedents in this repository (the relay's port lease,
+  `audit::concurrency`) were fixed by removing a race, not by waiting longer. Decision §50.
 - **The Zig compiler is one click away, and a download now says which language it means**
   (v0.9 multi-language batch F3a-download-apply). `DownloadSpec` gained `toolchain: Toolchain`
   (`C` / `Zig`, serde, absent means C), and with it the two things the module could not guess:

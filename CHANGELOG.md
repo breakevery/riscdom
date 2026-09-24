@@ -108,6 +108,16 @@ Zig's checksums are pinned in the source like xPack's.
 
 ### Fixed
 
+- **The stderr reader in `server/tests/logging.rs` no longer stops at the first line it cannot
+  read** (v0.9 logging batch). The drain loop was `let Ok(line) = line else { break };`, so one
+  unreadable line ended the thread and threw away everything after it — including the
+  `connection from … ended` line `the_connection_line_appears_at_info` waits for, which is the
+  shape of that test's two CI failures (5.09 s and the same message both times, while it passed
+  locally). A bad line is now **counted and the reading continues**: `InvalidData` (not UTF-8)
+  and any other I/O error are counted, `Interrupted` is retried, and EOF still ends the reader.
+  A failing wait now prints the reader's own state — lines captured, unreadable lines, still
+  reading or stopped — so the next failure answers "the line never came" versus "the reader had
+  already stopped". The 5 s timeout and the poll are unchanged and no production code moved.
 - **Six `clippy::result_large_err` sites in `server`**: `http.rs:379` and
   `routes.rs:489/495/503/513/522` returned `Result<_, Response<RespBody>>`, and hyper's
   `Response` is 128+ bytes. The error is now `Box<Response<RespBody>>` and every caller returns

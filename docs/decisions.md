@@ -1093,3 +1093,33 @@ through them); the C arm of `product_locator` names the same function the code c
 the C path does not move. `ToolchainDownloadStatus` carries the running toolchain. Zig's five
 assets cover the same `(os, arch)` set xPack does; Zig also publishes `aarch64-windows`, which is
 **not** in this batch's five — one arm and one checksum away when someone wants it.
+
+## 50. A reader of another process's output must not stop at the first line it cannot read
+
+**Date**: 2026-09-24 ｜ **Status**: Decided
+
+**Decision**: the loop that drains a child process's stderr **counts** a line it cannot read and
+**keeps reading**. `InvalidData` (the bytes are not UTF-8) and any other I/O error increment a
+`bad_lines` counter; `Interrupted` is retried rather than counted; `Ok(0)` (EOF, the child
+exited) still ends the thread. The thread's liveness is published next to the buffer, and a test
+that times out prints all three: lines captured, unreadable lines, reader alive or stopped.
+
+**Why**: the old loop — `for line in reader.lines() { let Ok(line) = line else { break }; … }` —
+turned **one** unreadable line into the permanent, silent loss of every line after it. That is
+the worst failure shape available: the reader looks healthy, the buffer simply stops growing, and
+the test that times out cannot tell "the line never came" from "the reader had already stopped".
+`server/tests/logging.rs`'s `the_connection_line_appears_at_info` failed on Linux CI in exactly
+that shape (twice, 5.09 s each, with only the startup warning in the captured stderr).
+
+**What this decision does not claim**: that it was the CI root cause. The evidence says the
+failure cannot be ours (the only `server` edit in the commit before it was the download arm's
+parameter read) and that the same test passed on the two Linux runs before it; whether the reader
+had stopped there is what the new diagnosis is for. The 5 s timeout and the 25 ms poll are
+deliberately unchanged: lengthening a timeout hides this class of bug rather than finding it, and
+both previous flakes in this repository (the relay's port lease, `audit::concurrency`) were fixed
+by removing a race.
+
+**Impact**: the rule generalises to every helper that reads another process's output — a reader
+that dies on bad input is a reader whose silence means nothing. No production code changed; the
+three existing tests keep their timeouts, and two new unit tests read a `Cursor` (no child
+process) to pin both halves: every line of a normal stream, and everything after a non-UTF-8 line.

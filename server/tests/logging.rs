@@ -8,10 +8,11 @@
 //! that has to happen is a connection that ends badly, which is what the
 //! `connection … ended` line reports.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, ChildStderr, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -28,9 +29,41 @@ fn unique_dir(tag: &str) -> PathBuf {
     dir
 }
 
+/// What the drain thread has seen so far.
+///
+/// The buffer alone was not enough to explain a failure: when the CI run went red, the
+/// message said the line never arrived, and nothing said whether the reader was still
+/// reading, had stopped, or had quietly thrown something away. These three fields answer
+/// that.
+struct Drained {
+    /// Every line the reader accepted, in order.
+    text: Arc<Mutex<String>>,
+    /// Lines the reader could not accept: not UTF-8, or a read that failed.
+    bad_lines: Arc<AtomicUsize>,
+    /// `true` while the draining thread is still reading (it goes `false` at EOF).
+    alive: Arc<AtomicBool>,
+}
+
+impl Drained {
+    fn text(&self) -> String {
+        self.text
+            .lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_default()
+    }
+
+    fn bad_lines(&self) -> usize {
+        self.bad_lines.load(Ordering::Relaxed)
+    }
+
+    fn alive(&self) -> bool {
+        self.alive.load(Ordering::Relaxed)
+    }
+}
+
 /// Start `riscdom-server` on an ephemeral port and read its banner back, so the
 /// port it picked is known. stderr is drained from the start into a buffer.
-fn start(extra: &[&str]) -> (Child, SocketAddr, Arc<Mutex<String>>) {
+fn start(extra: &[&str]) -> (Child, SocketAddr, Drained) {
     let workspace = unique_dir("ws");
     let data_dir = unique_dir("data");
     let mut child = Command::new(env!("CARGO_BIN_EXE_riscdom-server"))
@@ -54,19 +87,62 @@ fn start(extra: &[&str]) -> (Child, SocketAddr, Arc<Mutex<String>>) {
 }
 
 /// Read stderr line by line into a shared buffer, so a test can watch it grow.
-fn drain(pipe: ChildStderr) -> Arc<Mutex<String>> {
-    let buffer = Arc::new(Mutex::new(String::new()));
-    let sink = Arc::clone(&buffer);
+fn drain(pipe: ChildStderr) -> Drained {
+    drain_reader(BufReader::new(pipe))
+}
+
+/// The same, for any reader: what makes the loop testable without a child process.
+///
+/// **One bad line must not end the reading.** This loop used to be
+/// `for line in reader.lines() { let Ok(line) = line else { break }; … }`, so the first
+/// line the reader could not accept ended the thread and threw away everything after it
+/// — including the `connection from … ended` line these tests wait for (v0.9 logging
+/// batch). Now a bad line is counted and the reading continues.
+fn drain_reader(mut reader: impl BufRead + Send + 'static) -> Drained {
+    let text = Arc::new(Mutex::new(String::new()));
+    let bad_lines = Arc::new(AtomicUsize::new(0));
+    let alive = Arc::new(AtomicBool::new(true));
+
+    let sink = Arc::clone(&text);
+    let bad = Arc::clone(&bad_lines);
+    let running = Arc::clone(&alive);
     std::thread::spawn(move || {
-        for line in BufReader::new(pipe).lines() {
-            let Ok(line) = line else { break };
-            if let Ok(mut guard) = sink.lock() {
-                guard.push_str(&line);
-                guard.push('\n');
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                // EOF: the server exited, so there is nothing left to read.
+                Ok(0) => break,
+                Ok(_) => {
+                    if let Ok(mut guard) = sink.lock() {
+                        guard.push_str(&line);
+                        if !line.ends_with('\n') {
+                            guard.push('\n');
+                        }
+                    }
+                }
+                // Not UTF-8. `read_line` has already consumed those bytes, so continuing
+                // makes progress: the next call reads the following line.
+                Err(e) if e.kind() == ErrorKind::InvalidData => {
+                    bad.fetch_add(1, Ordering::Relaxed);
+                }
+                // A signal interrupted the read: retry rather than count it.
+                Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                // Anything else is counted and the reading carries on. A closed pipe
+                // arrives as `Ok(0)`, so this is not how the server's exit is seen.
+                Err(_) => {
+                    bad.fetch_add(1, Ordering::Relaxed);
+                }
             }
         }
+        running.store(false, Ordering::Relaxed);
     });
-    buffer
+
+    Drained {
+        text,
+        bad_lines,
+        alive,
+    }
 }
 
 /// The address from `riscdom-server … listening on http://<addr>`.
@@ -93,21 +169,42 @@ fn close_abruptly(addr: SocketAddr) {
 }
 
 /// Wait for `needle` to appear in the drained stderr.
-fn wait_for_line(buffer: &Arc<Mutex<String>>, needle: &str, timeout: Duration) -> bool {
+///
+/// The timeout is unchanged and the poll stays: this batch fixed the reader and the
+/// diagnosis, not the waiting (v0.9 logging batch).
+fn wait_for_line(drained: &Drained, needle: &str, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if let Ok(guard) = buffer.lock() {
-            if guard.contains(needle) {
-                return true;
-            }
+        if drained.text().contains(needle) {
+            return true;
         }
         std::thread::sleep(Duration::from_millis(25));
     }
     false
 }
 
-fn text_of(buffer: &Arc<Mutex<String>>) -> String {
-    buffer.lock().map(|guard| guard.clone()).unwrap_or_default()
+fn text_of(drained: &Drained) -> String {
+    drained.text()
+}
+
+/// What a failing test should say: everything the reader saw, and what it made of it.
+///
+/// Written for the next CI failure rather than for a passing run: the reader's own state
+/// (`alive` / `bad_lines`) is what distinguishes "the line never arrived" from "the reader
+/// had stopped before it did".
+fn diagnosis(drained: &Drained) -> String {
+    let text = drained.text();
+    format!(
+        "{} line(s) captured, {} line(s) unreadable, reader {}:\n--- captured stderr ---\n{}---",
+        text.lines().count(),
+        drained.bad_lines(),
+        if drained.alive() {
+            "still reading"
+        } else {
+            "already stopped (EOF)"
+        },
+        text
+    )
 }
 
 fn stop(mut child: Child) {
@@ -119,10 +216,10 @@ fn stop(mut child: Child) {
 fn the_connection_line_is_off_by_default() {
     // The default matters: the CLI embeds this server, and its stderr is the CLI's
     // own error channel (in `--json`, the error object itself).
-    let (child, addr, stderr) = start(&[]);
+    let (child, addr, drained) = start(&[]);
     close_abruptly(addr);
-    let seen = wait_for_line(&stderr, "ended", Duration::from_millis(700));
-    let text = text_of(&stderr);
+    let seen = wait_for_line(&drained, "ended", Duration::from_millis(700));
+    let text = text_of(&drained);
     stop(child);
     assert!(!seen, "the default must be silent, got: {text}");
     assert!(!text.contains("connection from"), "{text}");
@@ -130,12 +227,13 @@ fn the_connection_line_is_off_by_default() {
 
 #[test]
 fn the_connection_line_appears_at_info() {
-    let (child, addr, stderr) = start(&["--log-level", "info"]);
+    let (child, addr, drained) = start(&["--log-level", "info"]);
     close_abruptly(addr);
-    let seen = wait_for_line(&stderr, "ended", Duration::from_secs(5));
-    let text = text_of(&stderr);
+    let seen = wait_for_line(&drained, "ended", Duration::from_secs(5));
+    let text = text_of(&drained);
+    let diagnosis = diagnosis(&drained);
     stop(child);
-    assert!(seen, "info must log the connection, got: {text}");
+    assert!(seen, "info must log the connection: {diagnosis}");
     assert!(text.contains("riscdom-server: connection from"), "{text}");
     // The peer and the error only: never a credential.
     assert!(!text.contains("Authorization"), "{text}");
@@ -145,12 +243,49 @@ fn the_connection_line_appears_at_info() {
 fn error_keeps_the_per_connection_line_quiet() {
     // `error` is for failures, not for the per-connection chatter: an operator who
     // asks for errors does not want one line per closed socket.
-    let (child, addr, stderr) = start(&["--log-level", "error"]);
+    let (child, addr, drained) = start(&["--log-level", "error"]);
     close_abruptly(addr);
-    let seen = wait_for_line(&stderr, "ended", Duration::from_millis(700));
-    let text = text_of(&stderr);
+    let seen = wait_for_line(&drained, "ended", Duration::from_millis(700));
+    let text = text_of(&drained);
     stop(child);
     assert!(!seen, "error must not log connections, got: {text}");
+}
+
+/// A stream the reader can finish on its own: the reader half of the CI bug, without a
+/// child process.
+#[test]
+fn the_reader_catches_every_line_of_a_normal_stream() {
+    let drained = drain_reader(std::io::Cursor::new(b"first\nsecond\nthird\n".to_vec()));
+    wait_for_line(&drained, "third", Duration::from_secs(2));
+    assert_eq!(drained.text(), "first\nsecond\nthird\n");
+    assert_eq!(drained.bad_lines(), 0);
+    assert!(!drained.alive(), "the reader stops at EOF");
+}
+
+/// The bug this batch fixes: a line that is not text used to end the reading, so every
+/// later line was lost. It must cost exactly one counted line and nothing else.
+#[test]
+fn the_reader_keeps_going_after_a_line_that_is_not_text() {
+    let mut bytes = b"first\n".to_vec();
+    bytes.extend_from_slice(&[0xff, 0xfe, b'\n']);
+    bytes.extend_from_slice(b"the line the test is waiting for\n");
+    let drained = drain_reader(std::io::Cursor::new(bytes));
+
+    assert!(
+        wait_for_line(
+            &drained,
+            "the line the test is waiting for",
+            Duration::from_secs(2)
+        ),
+        "{}",
+        diagnosis(&drained)
+    );
+    assert!(drained.text().contains("first"), "{}", diagnosis(&drained));
+    assert_eq!(drained.bad_lines(), 1, "{}", diagnosis(&drained));
+    assert!(
+        !drained.alive(),
+        "the reader stops at EOF, not on the bad line"
+    );
 }
 
 #[test]
