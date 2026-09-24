@@ -1313,3 +1313,40 @@ answering" stay distinguishable to the person who has to fix one of them. The st
 shell's third view and is offered only where it can work (`isTauriRuntime()`), since `/v0/status` is
 a control-plane endpoint the desktop never calls. A future page that the desktop cannot serve belongs
 in the same declared list, with the same probe assertion — not in the shared one.
+
+## 58. A busy executable is a moment, not a defect — and only that error is retried
+
+**Date**: 2026-09-24 ｜ **Status**: Decided; landed with the v0.9 ETXTBSY fix
+
+**Decision**: the four "is this product runnable" probes in `state.rs` — `zig_runs`,
+`rustc_release`, `rust_runs`, `toolchain_runs` — run their command through one helper,
+`exec_with_busy_retry`, which retries **only** `std::io::ErrorKind::ExecutableFileBusy`, at most
+`EXEC_MAX_ATTEMPTS` (5) times, `EXEC_RETRY_DELAY` (10 ms) apart. Every other error is returned on
+the first attempt, and a busy refusal that outlives the budget is returned too. The match is on
+`kind()`, **never** on `raw_os_error() == 26`.
+
+**Why**: the fourth "local green, CI red" mechanism this ledger records (after a missing system
+package, a missing environment capability, and a child killed by `SIGPIPE`), and the first one whose
+cause is **not in our own handle lifetimes**. `ETXTBSY` is the kernel refusing `execve` because
+**some** process has the file open for writing — and on Unix that includes a process that has
+**forked but not exec'd yet**: `CLOEXEC` closes an inherited descriptor only at `exec`, so in a
+multi-threaded process a sibling thread's `spawn` can hold the write reference for microseconds
+after this process has closed its own. A test binary is exactly such a process, which is why
+`a_mock_zig_download_installs_and_adopts_the_compiler` failed once and passed the run before on
+identical code: the extraction writes the fixture binary, adopts it, and execs it — and if a sibling
+test happened to fork inside that window, the exec was refused. `kind()` rather than the raw errno
+because 26 is `ETXTBSY` on Unix and an unrelated Windows code (measured: `from_raw_os_error(26)` is
+`Uncategorized` on Windows), and a raw-number match would be a second, wrong source of truth. The
+retry is bounded at fifty milliseconds because the window it waits out is microseconds wide; the
+budget exists to make a *transient* failure survive, not to make a *permanent* one look healthy —
+which is also why nothing else is retried.
+
+**Impact**: the fix is in **production**, not in the test: it is the same robustness a user needs
+when an indexer or an antivirus holds a freshly downloaded binary open for a moment, and it keeps
+the probes' promise (a failure still names the tool and the error). Two things were considered and
+rejected: an explicit `drop`/`sync_all` in the extractor (there is no handle of ours left to close
+at that point — the write reference belongs to *another* process, so it cannot help; and a `sync_all`
+would address durability, which is a different question), and a blanket retry (a wrong architecture
+or a missing library would be retried five times for nothing). `#[cfg(unix)]` tests pin the
+error-kind mapping and reproduce the refusal in the process itself; on Windows there is no such
+error to reproduce.

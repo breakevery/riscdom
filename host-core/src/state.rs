@@ -152,11 +152,75 @@ pub struct ToolchainView {
     pub diagnostics: String,
 }
 
+/// How many times a tool probe re-runs a command the kernel refused to `exec` (v0.9).
+///
+/// The same five attempts the audit store's write path allows, for the same reason:
+/// a refusal that survives the whole budget is reported, never swallowed.
+const EXEC_MAX_ATTEMPTS: u32 = 5;
+
+/// The pause between those attempts.
+///
+/// Fixed at ten milliseconds rather than the audit path's doubling schedule: the
+/// condition being waited out (`ETXTBSY`) is a fork-that-has-not-exec'd-yet window,
+/// which is microseconds long, so the whole budget is fifty milliseconds — short
+/// enough that a genuinely unusable binary is still reported promptly.
+const EXEC_RETRY_DELAY: Duration = Duration::from_millis(10);
+
+/// Run a tool probe, retrying the one refusal that says nothing about the tool.
+///
+/// `ETXTBSY` (`ErrorKind::ExecutableFileBusy`) means "the kernel will not `exec` this
+/// file *right now* because some process has it open for writing". On Unix that
+/// includes a **process that has forked but not yet exec'd**: `CLOEXEC` closes an
+/// inherited descriptor only *at* `exec`, so when this host runs inside a process
+/// with other threads (a test binary, and any future multi-threaded host), a sibling
+/// thread's `spawn` can hold the write reference for microseconds after this very
+/// process has closed its own. The file is fine; the moment is not.
+///
+/// Only that one error is retried, and only because it is provably transient: every
+/// other failure (a missing file, a wrong architecture, a permission that will not
+/// change) is returned at once, and a busy refusal that outlives the budget is
+/// returned too. Matching on `kind()` rather than `raw_os_error() == 26` is what keeps
+/// this honest across platforms: 26 is `ETXTBSY` on Unix and an unrelated Windows error
+/// code elsewhere, and only the former maps to this kind.
+fn exec_with_busy_retry(
+    command: &mut std::process::Command,
+) -> std::io::Result<std::process::Output> {
+    let mut attempts = 0;
+    exec_retrying(command, &mut attempts, EXEC_MAX_ATTEMPTS, EXEC_RETRY_DELAY)
+}
+
+/// [`exec_with_busy_retry`]'s loop, with its budget, its pause and its attempt count
+/// handed in.
+///
+/// Split out so a test can read the count: "a missing file is not retried" is only
+/// checkable if the number of attempts is observable, and waiting out the real budget
+/// to prove a *different* behaviour is what the split avoids.
+fn exec_retrying(
+    command: &mut std::process::Command,
+    attempts: &mut u32,
+    max_attempts: u32,
+    delay: Duration,
+) -> std::io::Result<std::process::Output> {
+    loop {
+        *attempts += 1;
+        match command.output() {
+            Ok(output) => return Ok(output),
+            Err(e)
+                if e.kind() == std::io::ErrorKind::ExecutableFileBusy
+                    && *attempts < max_attempts =>
+            {
+                std::thread::sleep(delay);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
 /// Run `<path> version`; returns its first output line, or the raw error text.
 ///
 /// Zig spells this as a subcommand (`zig version`), not as a `--version` flag.
 fn zig_runs(path: &Path) -> Result<String, String> {
-    match std::process::Command::new(path).arg("version").output() {
+    match exec_with_busy_retry(std::process::Command::new(path).arg("version")) {
         Ok(out) if out.status.success() => {
             let text = String::from_utf8_lossy(&out.stdout);
             let first = text.lines().next().unwrap_or_default().trim().to_string();
@@ -176,7 +240,7 @@ fn zig_runs(path: &Path) -> Result<String, String> {
 /// `--version` is for humans; `-vV` is the machine-readable form, and its `release` field is what
 /// a `rust-std` sysroot has to match (v0.9 F3b-2).
 fn rustc_release(path: &Path) -> Result<String, String> {
-    match std::process::Command::new(path).arg("-vV").output() {
+    match exec_with_busy_retry(std::process::Command::new(path).arg("-vV")) {
         Ok(out) if out.status.success() => {
             let text = String::from_utf8_lossy(&out.stdout);
             text.lines()
@@ -215,7 +279,7 @@ fn rust_release_matches(release: Option<&str>, pinned: &str) -> Result<(), Strin
 /// The version matters more here than anywhere else: a Rust sysroot is only usable by the
 /// `rustc` release that produced it, so the host reports both together (v0.9 F3b-1).
 fn rust_runs(path: &Path) -> Result<String, String> {
-    match std::process::Command::new(path).arg("--version").output() {
+    match exec_with_busy_retry(std::process::Command::new(path).arg("--version")) {
         Ok(out) if out.status.success() => {
             let text = String::from_utf8_lossy(&out.stdout);
             let first = text.lines().next().unwrap_or_default().trim().to_string();
@@ -233,7 +297,7 @@ fn rust_runs(path: &Path) -> Result<String, String> {
 /// Run `<path> --version`; returns its first output line, or the raw error text
 /// (callers add their own, single, `not runnable:` prefix).
 fn toolchain_runs(path: &Path) -> Result<String, String> {
-    match std::process::Command::new(path).arg("--version").output() {
+    match exec_with_busy_retry(std::process::Command::new(path).arg("--version")) {
         Ok(out) if out.status.success() => {
             let text = String::from_utf8_lossy(&out.stdout);
             let first = text.lines().next().unwrap_or_default().trim().to_string();
@@ -4771,5 +4835,91 @@ mod tests {
         assert_eq!(state.active_sandbox().as_deref(), Some("blink"));
         state.mark_active_sandbox(None);
         assert_eq!(state.active_sandbox(), None);
+    }
+
+    /// A refusal that has nothing to do with `exec` is not retried (v0.9).
+    ///
+    /// The attempt count is what makes this checkable: a path that does not exist fails
+    /// on the first attempt, and the helper has to return there rather than spend the
+    /// budget.
+    #[test]
+    fn a_probe_that_cannot_start_is_not_retried() {
+        let mut command = std::process::Command::new("definitely-not-here-riscdom");
+        let mut attempts = 0;
+        let result = exec_retrying(
+            &mut command,
+            &mut attempts,
+            EXEC_MAX_ATTEMPTS,
+            EXEC_RETRY_DELAY,
+        );
+        assert_eq!(attempts, 1, "a missing file must not be retried");
+        assert_eq!(
+            result.expect_err("cannot start").kind(),
+            std::io::ErrorKind::NotFound
+        );
+    }
+
+    /// The retry matches the error the kernel really returns for a busy executable.
+    ///
+    /// Unix only, and deliberately so: `ETXTBSY` is errno 26 there, while 26 on Windows is
+    /// an unrelated code — which is exactly why the helper matches on `kind()` and not on
+    /// `raw_os_error()`.
+    #[cfg(unix)]
+    #[test]
+    fn an_executable_busy_errno_is_the_kind_the_retry_matches() {
+        assert_eq!(
+            std::io::Error::from_raw_os_error(26).kind(),
+            std::io::ErrorKind::ExecutableFileBusy
+        );
+    }
+
+    /// An `exec` the kernel refuses because the file is being written is retried, and it
+    /// succeeds once the writer lets go.
+    ///
+    /// The refusal is produced for real: this test holds a **write** handle on the script
+    /// while the first attempt is made and releases it from another thread. The kernel's
+    /// rule is about **any** process and this process is one; the window a test binary can
+    /// also hit — a sibling thread that forked a child which has not exec'd yet — is the
+    /// same rule with a shorter lever.
+    #[cfg(unix)]
+    #[test]
+    fn an_exec_that_is_busy_is_retried_until_it_succeeds() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("riscdom-busy-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("busy-probe.sh");
+        std::fs::write(&script, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // Held open for writing, and let go after about two attempts' worth of time.
+        let held = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&script)
+            .unwrap();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(15));
+            drop(held);
+        });
+
+        let mut attempts = 0;
+        let result = exec_retrying(
+            &mut std::process::Command::new(&script),
+            &mut attempts,
+            EXEC_MAX_ATTEMPTS,
+            EXEC_RETRY_DELAY,
+        );
+        release.join().unwrap();
+
+        assert!(
+            result.is_ok(),
+            "the budget must outlast the writer: {:?}",
+            result.err()
+        );
+        assert!(attempts > 1, "the first attempt must have been refused");
     }
 }

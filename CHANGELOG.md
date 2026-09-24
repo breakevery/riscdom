@@ -208,6 +208,15 @@ the gate stays outside the store and that every key these screens use exists in 
   them. No behaviour changed.
 - **`scripts/gate.sh`** selects `-p cli -p server -p host-core -p host-tauri` (still
   `--no-deps`), so the control plane is linted like everything else we own.
+- **A tool probe now retries an `exec` the kernel refused because the file was busy** (v0.9):
+  `state.rs`'s four "is this product runnable" probes (`zig_runs`, `rustc_release`, `rust_runs`,
+  `toolchain_runs`) run their command through `exec_with_busy_retry`, which retries **only**
+  `ErrorKind::ExecutableFileBusy` — at most 5 attempts, ten milliseconds apart. `ETXTBSY` means
+  the kernel will not `exec` a file that *some* process has open for writing, and on Unix that
+  includes a process that has forked but not yet exec'd (`CLOEXEC` closes the inherited
+  descriptor only at `exec`), so a sibling thread's spawn can hold the write reference for
+  microseconds after this process closed its own. Every other failure is still returned at once,
+  and a busy refusal that outlives the budget is reported, not swallowed.
 
 ### Changed
 

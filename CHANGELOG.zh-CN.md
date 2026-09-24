@@ -65,6 +65,7 @@
 - **`server/tests/logging.rs` 的 stderr 读取循环不再因第一行读不出来就停下**（v0.9 logging 批次）。原循环是 `let Ok(line) = line else { break };`——一行读不出来就结束线程，并把其后所有行一并丢掉，包括 `the_connection_line_appears_at_info` 等的 `connection from … ended`。这正是该测试两次 CI 失败的形态（两次都是 5.09 s、报错逐字相同，而本地绿）。现在坏行**只被计数、读取继续**：`InvalidData`（非 UTF-8）与其它 I/O 错误计入坏行数，`Interrupted` 重试，EOF 才结束。等待失败时的输出也扩展为**读取器自身状态**——已捕获行数、坏行数、仍在读还是已停止——于是下次失败能区分「那行根本没来」与「读取器早就停了」。5 秒超时与轮询未动，生产代码一行未改。
 - **`server` 的 6 处 `clippy::result_large_err`**：`http.rs:379` 与 `routes.rs:489/495/503/513/522` 返回 `Result<_, Response<RespBody>>`，而 hyper 的 `Response` 有 128+ 字节。错误类型改为 `Box<Response<RespBody>>`，所有调用方返回 `*response`——同一条路径上同一个 Response 值。随之一并修的还有 `routes.rs` 测试里 3 处 `bool_assert_comparison` 与 `tests/smoke.rs` 里 1 处 `filter_next`。行为未变。
 - **`scripts/gate.sh`** 选 `-p cli -p server -p host-core -p host-tauri`（仍带 `--no-deps`），控制平面与我们自己的其它 crate 一样被 lint。
+- **工具探针现在会重试「内核因文件忙而拒绝的 `exec`」**（v0.9）：`state.rs` 的四个「这个产物能不能跑」探针（`zig_runs`、`rustc_release`、`rust_runs`、`toolchain_runs`）都经 `exec_with_busy_retry` 跑命令，而该助手**只**重试 `ErrorKind::ExecutableFileBusy`——最多 5 次、每次相隔 10 毫秒。`ETXTBSY` 的含义是：内核不会 `exec` 一个正被**某个**进程以写方式打开的文件；在 Unix 上这包括「已 fork 但尚未 exec」的进程（`CLOEXEC` 只在 exec 那一刻关闭继承来的描述符），因此兄弟线程的一次 spawn 可能在本进程已关掉自己的写句柄之后**再持有几百微秒**。其它任何失败仍然立即返回，而超出预算的 busy 拒绝会被报出，不会吞掉。
 
 ### 变更
 

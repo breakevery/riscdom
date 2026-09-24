@@ -13,6 +13,21 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The tool probes retry an `exec` the kernel refused as "text file busy"** (v0.9 ETXTBSY fix — the
+  fourth "local green, CI red" mechanism this ledger records). `state.rs`'s four runnability probes
+  (`zig_runs`, `rustc_release`, `rust_runs`, `toolchain_runs`) now run through
+  `exec_with_busy_retry`, which retries **only** `ErrorKind::ExecutableFileBusy` — at most 5
+  attempts, ten milliseconds apart — and returns every other error at once. The refusal is not
+  about the tool: `ETXTBSY` is the kernel's "**some** process has this file open for writing", and
+  on Unix that includes a process that has **forked but not yet exec'd** (`CLOEXEC` closes the
+  inherited descriptor only *at* `exec`), so a sibling thread's spawn can hold the write reference
+  for microseconds after this process dropped its own — which is why the D2b-2 run went red on
+  `a_mock_zig_download_installs_and_adopts_the_compiler` while the same code was green the run
+  before. The match is on `kind()`, **never** `raw_os_error() == 26`: 26 is `ETXTBSY` on Unix and an
+  unrelated Windows code (decision §58). **+3 tests** — one cross-platform (a missing file is not
+  retried) and two unix-only (errno 26 *is* that kind; an `exec` that really is busy is retried
+  until it succeeds). Windows: 681 → **682**; on unix the other two are not `cfg`'d out.
+
 - **The Web client can be opened, signed into, and read** (v0.9 D2b-2). `App.tsx` is now a **gate,
   not a route**: with no token it renders `<Login>` and nothing else, and the shell — where
   `useAppStore()` lives — mounts only once there is one, which is also what keeps a screenful of
