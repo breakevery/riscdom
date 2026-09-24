@@ -483,3 +483,17 @@
 **理由**：§44 的第一次仿真只把 `RISCDOM_*` 指向不存在的文件——那能打断 `discover()`，却打断不了 `from_env()`，它的回退是裸名，而开发机的 `PATH` 上正好有工具链。于是有 4 个测试从未被标记，而那批加标记的提交恰恰在本地看着绿的 target 上 CI 变红。这个洞是**系统性**的，不是偶然：以后每新增一条 discovery 路径都会把它重新打开。
 
 **影响**：将来新增工具链 / 沙箱 / 网络探测，必须逐条路径覆盖，`.cowork-temp/run-noguest.ps1` 随之扩。这也是本系列记下的第二类「本地 gate 绿、CI 红」根因：第一类是缺系统包（E4 的 `libdbus-1-dev`），这一类是环境**能力**。
+
+## 46. 第二种语言按源扩展名选，不靠 toolchain map
+
+**日期**：2026-09-24 ｜ **状态**：已定
+
+**决策**：v0.9 F3a 给沙箱加上第二种语言 Zig，而语言由**源文件扩展名**决定——`.c` / `.h` / `.S` / `.s` 走 GCC，`.zig` 走 `zig build-exe -target riscv64-freestanding`。`compile_freestanding` 保持原签名，Zig 编译器作为第二个值藏在 `CompilerConfig` 里（`CompilerConfig.zig: ZigConfig`），所以 `toolchain_path` 与 `zig_path` 是**两个独立的单值**，不是 map。生成的 `link.ld` 原样复用（它不指定任何编译器），Zig 也不注入任何东西：源自己写 `_start`，因为 `-bios none` 的客机跳到载入地址而不是 ELF 入口点，启动代码必须排最前——这正是 `.text.start` 段的用途。
+
+**理由**：架构 §9 早就为「将来有多种语言」预留了 `toolchain` 变 map，但本批**故意不**迈这一步：变 map 会把 fingerprint schema 从 v1 推到 v2，那是另一个关于历史与 diff 的决策。两个并列的单值今天零成本，将来也仍是加法——map 里的 `{c: …}` 项就是改名后的 `toolchain_path`。
+
+**为什么用扩展名而不是参数**：模型先写文件、再把文件名给它，扩展名本来就在请求里；另加一个「语言」参数只会多一个必须与源保持同步的东西。这也让 C 路径一字未动——旧代码没有一条分支挪位。
+
+**拆出去的（F3a-download）**：下载 Zig 归档**不**在本批。Zig 的 macOS/Linux 构建是 `.tar.xz`，而 `toolchain_download::ArchiveKind` 只认 `Zip` 与 `TarGz`，要解包就得新增一种归档类型加一个 xz 解码器；产物定位器也带 GCC 形状（`find_compiler` 匹配 `agent::GCC_NAMES`，而 Zig 装的是 `zig` / `zig.exe`）。任一条都超出现有下载器的「填一条规格」形制，所以它是独立批次——而且正是 Rust 也需要的那一批，因此排在 F3b 之前。
+
+**影响**：`write_source` 放行 `.zig`（`Policy.allowed_extensions`），`settings.json` 新增 `zig_path`，工具 schema 文档与 `agent/README.md` 都点名两种语言。Rust（F3b）复用同一分派点；Python 不属 v0.9（它需要 Linux 沙箱，属 v1.x）。

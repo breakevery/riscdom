@@ -961,3 +961,40 @@ systematic rather than accidental: any discovery path added later reopens it.
 `.cowork-temp/run-noguest.ps1` grows with each one. It is also the second root cause this series
 has recorded for "the local gate is green and CI is red": the first was a missing system package
 (E4's `libdbus-1-dev`), this one is an environment **capability**.
+
+## 46. The second language is chosen by the source extension, not by a toolchain map
+
+**Date**: 2026-09-24 ｜ **Status**: Decided
+
+**Decision**: v0.9 F3a gives the sandbox a second language, Zig, and the language is picked by
+the **source file extension** — `.c` / `.h` / `.S` / `.s` go to GCC, `.zig` goes to
+`zig build-exe -target riscv64-freestanding`. `compile_freestanding` keeps its signature, and
+the Zig compiler rides inside `CompilerConfig` as a second value (`CompilerConfig.zig:
+ZigConfig`), so `toolchain_path` and `zig_path` are **two independent single values**, not a
+map. The generated `link.ld` is shared verbatim (it names no compiler), and nothing is injected
+for Zig: the source writes its own `_start`, because the `-bios none` guest jumps to the load
+address rather than to the ELF entry point, so the startup code has to be first — which is what
+the `.text.start` section is for.
+
+**Why**: §9 of the architecture already reserved `toolchain` becoming a map for the day several
+languages exist, and this batch deliberately did **not** take that step: a map moves the
+fingerprint schema v1 → v2, which is a separate decision about history and diffs. Two sibling
+single values cost nothing today and stay additive later — the map's `{c: …}` entry is exactly
+`toolchain_path` under another name.
+
+**Why the extension rather than a parameter**: the model writes a file and then names the file,
+so the extension is already in the request; a separate "language" argument would be a second
+thing to keep in sync with the source. It also leaves the C path untouched — no branch of the
+old code moved.
+
+**Separated out (F3a-download)**: downloading a Zig archive is **not** in this batch. Zig's
+macOS/Linux builds are `.tar.xz`, and `toolchain_download::ArchiveKind` knows only `Zip` and
+`TarGz`, so unpacking one needs a new archive kind plus an xz decoder; the product locator is
+GCC-shaped as well (`find_compiler` matches `agent::GCC_NAMES`, while Zig ships `zig` /
+`zig.exe`). Either is more than the "fill in a spec" the downloader is built for, so it is its
+own batch — and it is the same batch Rust needs, which is why it comes before F3b.
+
+**Impact**: `write_source` admits `.zig` (`Policy.allowed_extensions`), `settings.json` gained
+`zig_path`, and both the tool-schema document and `agent/README.md` name the two languages.
+Rust (F3b) reuses the same dispatch point; Python stays out of v0.9 (it needs a Linux sandbox,
+which is v1.x).

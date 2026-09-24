@@ -147,6 +147,25 @@ pub struct ToolchainView {
     pub diagnostics: String,
 }
 
+/// Run `<path> version`; returns its first output line, or the raw error text.
+///
+/// Zig spells this as a subcommand (`zig version`), not as a `--version` flag.
+fn zig_runs(path: &Path) -> Result<String, String> {
+    match std::process::Command::new(path).arg("version").output() {
+        Ok(out) if out.status.success() => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let first = text.lines().next().unwrap_or_default().trim().to_string();
+            Ok(if first.is_empty() {
+                "ok".to_string()
+            } else {
+                first
+            })
+        }
+        Ok(out) => Err(format!("`version` exited with {}", out.status)),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Run `<path> --version`; returns its first output line, or the raw error text
 /// (callers add their own, single, `not runnable:` prefix).
 fn toolchain_runs(path: &Path) -> Result<String, String> {
@@ -444,6 +463,10 @@ pub struct AppState {
     pub vm_slot: Arc<Mutex<Option<RiscVVirtualMachine>>>,
     /// User-chosen RISC-V GCC (`set_toolchain_path`); `None` means auto-discovery.
     pub toolchain_path: Mutex<Option<PathBuf>>,
+    /// User-chosen Zig executable (`set_zig_path`, v0.9 F3a); `None` means
+    /// auto-discovery. Parallel to [`Self::toolchain_path`] rather than a map: the
+    /// language follows the source extension, so one sandbox pins **two** compilers.
+    pub zig_path: Mutex<Option<PathBuf>>,
     /// User-chosen QEMU (`set_qemu_path`); `None` means auto-discovery.
     pub qemu_path: Mutex<Option<PathBuf>>,
     /// In-flight toolchain download (v0.3 #3b). `Arc` so the worker thread can
@@ -875,6 +898,7 @@ impl AppState {
             agent_id: agent::next_agent_id(),
             vm_slot: Arc::new(Mutex::new(None)),
             toolchain_path: Mutex::new(None),
+            zig_path: Mutex::new(None),
             qemu_path: Mutex::new(None),
             toolchain_download: Arc::new(Mutex::new(None)),
             qemu_download: Arc::new(Mutex::new(None)),
@@ -1510,9 +1534,23 @@ impl AppState {
 
     /// Effective compiler config: an explicit user path wins over discovery.
     fn toolchain_config(&self) -> agent::CompilerConfig {
-        match self.toolchain_path.lock().ok().and_then(|g| g.clone()) {
+        let mut cfg = match self.toolchain_path.lock().ok().and_then(|g| g.clone()) {
             Some(path) => agent::CompilerConfig::manual(path),
             None => agent::CompilerConfig::from_env(),
+        };
+        // v0.9 F3a: the second language is pinned in the same struct, so a `.zig`
+        // compile sees the user's choice without a second plumbing path to the model.
+        if let Some(zig) = self.zig_path.lock().ok().and_then(|g| g.clone()) {
+            cfg.zig = agent::ZigConfig::manual(zig);
+        }
+        cfg
+    }
+
+    /// Effective Zig config: an explicit user path wins over discovery (v0.9 F3a).
+    pub fn zig_config(&self) -> agent::ZigConfig {
+        match self.zig_path.lock().ok().and_then(|g| g.clone()) {
+            Some(path) => agent::ZigConfig::manual(path),
+            None => agent::ZigConfig::from_env(),
         }
     }
 
@@ -1576,6 +1614,45 @@ impl AppState {
         }
         self.save_settings();
         self.emit_host("host.toolchain.clear", serde_json::json!({}));
+        Ok(())
+    }
+
+    /// Store a user-chosen Zig executable after checking that it really runs (v0.9 F3a).
+    ///
+    /// The preflight cache is deliberately **not** invalidated: it describes the C guest
+    /// build and the emulator, which a Zig path cannot change.
+    pub fn set_zig_path(&self, path: &str) -> Result<(), HostError> {
+        let p = PathBuf::from(path.trim());
+        if !p.is_file() {
+            return Err(HostError::Other(format!("not a file: {}", p.display())));
+        }
+        let version = zig_runs(&p).map_err(|e| HostError::Other(format!("not runnable: {e}")))?;
+        *self
+            .zig_path
+            .lock()
+            .map_err(|_| HostError::Other("zig lock poisoned".into()))? = Some(p.clone());
+        if let Ok(mut g) = self.settings.lock() {
+            g.zig_path = Some(p.display().to_string());
+        }
+        self.save_settings();
+        self.emit_host(
+            "host.zig.set",
+            serde_json::json!({ "path": p.display().to_string(), "version": version }),
+        );
+        Ok(())
+    }
+
+    /// Drop the manual Zig executable and fall back to auto-discovery (v0.9 F3a).
+    pub fn clear_zig_path(&self) -> Result<(), HostError> {
+        *self
+            .zig_path
+            .lock()
+            .map_err(|_| HostError::Other("zig lock poisoned".into()))? = None;
+        if let Ok(mut g) = self.settings.lock() {
+            g.zig_path = None;
+        }
+        self.save_settings();
+        self.emit_host("host.zig.clear", serde_json::json!({}));
         Ok(())
     }
 
@@ -2248,6 +2325,9 @@ impl AppState {
         }
         if let Ok(mut g) = self.toolchain_path.lock() {
             *g = loaded.toolchain_path.map(PathBuf::from);
+        }
+        if let Ok(mut g) = self.zig_path.lock() {
+            *g = loaded.zig_path.map(PathBuf::from);
         }
         if let Ok(mut g) = self.qemu_path.lock() {
             *g = loaded.qemu_path.map(PathBuf::from);

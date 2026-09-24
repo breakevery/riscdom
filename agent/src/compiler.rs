@@ -12,6 +12,14 @@
 //!
 //! The cross compiler is resolved by [`CompilerConfig::discover`] (stage 24a):
 //! `RISCDOM_RISCV_GCC` → `RISCV_GCC` → well-known install locations → `PATH`.
+//!
+//! **Zig (v0.9 F3a).** A second language shares this wrapper: a `.zig` source is
+//! compiled by `zig build-exe -target riscv64-freestanding` instead of GCC
+//! ([`ZigConfig`]). Zig brings its own cross linker, so the freestanding target needs
+//! no external toolchain and no sysroot. The generated `link.ld` is reused verbatim —
+//! it is language-agnostic (`OUTPUT_ARCH`, `ENTRY(_start)`, `_stack_top`). Nothing is
+//! injected for Zig: the model writes its own `_start`, because the `-bios none` guest
+//! jumps to the load address rather than to the ELF entry point.
 
 use crate::error::AgentError;
 use std::path::{Path, PathBuf};
@@ -78,6 +86,11 @@ pub struct CompilerConfig {
     pub mabi: String,
     /// Load address the image is linked at.
     pub link_addr: String,
+    /// Zig (v0.9 F3a): what a `.zig` source is compiled by, while [`Self::gcc`]
+    /// compiles a `.c` source. The host replaces the discovered value when
+    /// `settings.zig_path` is set, and both paths coexist — one sandbox can build
+    /// either language.
+    pub zig: ZigConfig,
 }
 
 /// Executable names we accept, in preference order (xPack ships the `riscv-none-elf-` prefix).
@@ -94,6 +107,27 @@ const GCC_ENV_VARS: [&str; 2] = ["RISCDOM_RISCV_GCC", "RISCV_GCC"];
 pub const TOOLCHAIN_URL: &str =
     "https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases";
 
+/// Executable names we accept for Zig, in preference order (v0.9 F3a).
+///
+/// A single name: a Zig release ships one `zig` executable per platform
+/// (`zig.exe` on Windows), and there is no vendor prefix to allow for.
+pub const ZIG_NAMES: [&str; 1] = ["zig"];
+
+/// Environment variable consulted for the Zig executable, in priority order.
+///
+/// `RISCDOM_ZIG` only: a bare `ZIG` is a common enough name that reading it would
+/// adopt an unrelated value on a machine that happens to export one.
+const ZIG_ENV_VARS: [&str; 1] = ["RISCDOM_ZIG"];
+
+/// Where to tell users to get Zig.
+pub const ZIG_URL: &str = "https://ziglang.org/download/";
+
+/// The Zig target triple a `.zig` source is built for (v0.9 F3a).
+const ZIG_TARGET: &str = "riscv64-freestanding";
+
+/// The Zig optimisation mode a `.zig` source is built with (v0.9 F3a).
+const ZIG_OPTIMIZE: &str = "ReleaseSmall";
+
 impl CompilerConfig {
     /// Build from the environment, discovering the toolchain when possible.
     ///
@@ -109,6 +143,7 @@ impl CompilerConfig {
             march: "rv64gc".into(),
             mabi: "lp64d".into(),
             link_addr: "0x80000000".into(),
+            zig: ZigConfig::from_env(),
         }
     }
 
@@ -135,6 +170,7 @@ impl CompilerConfig {
             march: "rv64gc".into(),
             mabi: "lp64d".into(),
             link_addr: "0x80000000".into(),
+            zig: ZigConfig::from_env(),
         }
     }
 
@@ -156,6 +192,202 @@ impl CompilerConfig {
         }
         out
     }
+}
+
+/// Zig compiler configuration (v0.9 F3a: the second language).
+///
+/// A separate type rather than a second `CompilerConfig`: the two languages share only
+/// the discovery *shape* (`env var → known locations → PATH`), and Zig's knobs
+/// (`-target` / `-O`) are not GCC's (`-march` / `-mabi`). It rides inside
+/// [`CompilerConfig`] so that `compile_freestanding` keeps its signature while a host
+/// can still pin both executables (one sandbox, either language).
+#[derive(Debug, Clone)]
+pub struct ZigConfig {
+    /// The `zig` executable (`RISCDOM_ZIG` or a discovered path).
+    pub zig: PathBuf,
+    /// How [`Self::zig`] was resolved.
+    pub source: ToolchainSource,
+    /// `-target` value ([`ZIG_TARGET`]).
+    pub target: String,
+    /// `-O` value ([`ZIG_OPTIMIZE`]).
+    pub optimize: String,
+}
+
+impl ZigConfig {
+    /// Build from the environment, discovering Zig when possible.
+    ///
+    /// Never fails: when nothing is found the config carries a bare executable name so
+    /// the eventual compile reports the full diagnostics — the same forgiving shape as
+    /// [`CompilerConfig::from_env`].
+    pub fn from_env() -> Self {
+        let (found, _log) = search_zig();
+        let (zig, source) =
+            found.unwrap_or((PathBuf::from(exe_name(ZIG_NAMES[0])), ToolchainSource::Path));
+        Self {
+            zig,
+            source,
+            target: ZIG_TARGET.into(),
+            optimize: ZIG_OPTIMIZE.into(),
+        }
+    }
+
+    /// Locate the Zig executable.
+    ///
+    /// Priority: `RISCDOM_ZIG` → well-known install locations → `PATH`. An environment
+    /// variable that is set but does not point at an existing file is an explicit error
+    /// (never silently ignored), exactly like the GCC search.
+    pub fn discover() -> Result<PathBuf, ToolchainError> {
+        let (found, log) = search_zig();
+        match found {
+            Some((path, _)) => Ok(path),
+            None => Err(ToolchainError::NotFound(zig_not_found_message(&log))),
+        }
+    }
+
+    /// Build explicitly from a user-chosen path (`Manual` source).
+    ///
+    /// Used by the host when the user points the app at Zig by hand
+    /// (`settings.zig_path`).
+    pub fn manual(zig: PathBuf) -> Self {
+        Self {
+            zig,
+            source: ToolchainSource::Manual,
+            target: ZIG_TARGET.into(),
+            optimize: ZIG_OPTIMIZE.into(),
+        }
+    }
+
+    /// Human-readable record of the Zig search.
+    pub fn diagnostics() -> String {
+        let (found, log) = search_zig();
+        let mut out = String::from("Zig search:\n");
+        for line in &log {
+            out.push_str("  - ");
+            out.push_str(line);
+            out.push('\n');
+        }
+        match found {
+            Some((path, source)) => out.push_str(&format!(
+                "  => found: {} (source: {source})\n",
+                path.display()
+            )),
+            None => out.push_str("  => not found\n"),
+        }
+        out
+    }
+}
+
+/// Well-known Zig install locations (Windows first, Unix covered too).
+fn zig_known_candidates() -> Vec<Candidate> {
+    let mut out = Vec::new();
+
+    if cfg!(windows) {
+        for p in [
+            r"C:\Program Files\zig\zig.exe",
+            r"C:\Program Files (x86)\zig\zig.exe",
+            r"C:\zig\zig.exe",
+            r"C:\ProgramData\chocolatey\bin\zig.exe",
+        ] {
+            out.push(Candidate {
+                label: p.to_string(),
+                path: Some(PathBuf::from(p)),
+            });
+        }
+        if let Ok(home) = std::env::var("USERPROFILE") {
+            out.push(Candidate {
+                label: r"%USERPROFILE%\scoop\apps\zig\current\zig.exe".into(),
+                path: Some(
+                    PathBuf::from(home)
+                        .join("scoop")
+                        .join("apps")
+                        .join("zig")
+                        .join("current")
+                        .join("zig.exe"),
+                ),
+            });
+        }
+        // Developer machines keep toolchains under <drive>:\tools\<name>\bin.
+        for base in [r"C:\tools", r"D:\tools"] {
+            let label = format!(r"{base}\**\bin\{}", exe_name(ZIG_NAMES[0]));
+            let hit = scan_for_bin_named(Path::new(base), 3, &ZIG_NAMES);
+            out.push(Candidate { label, path: hit });
+        }
+    } else {
+        if let Ok(home) = std::env::var("HOME") {
+            out.push(Candidate {
+                label: "~/.local/bin/zig".into(),
+                path: Some(PathBuf::from(home).join(".local").join("bin").join("zig")),
+            });
+        }
+        for p in ["/usr/local/bin/zig", "/usr/bin/zig", "/opt/zig/zig"] {
+            out.push(Candidate {
+                label: p.to_string(),
+                path: Some(PathBuf::from(p)),
+            });
+        }
+    }
+
+    out
+}
+
+/// The Zig search, returning the hit (if any) plus a human-readable log.
+fn search_zig() -> (Option<(PathBuf, ToolchainSource)>, Vec<String>) {
+    let mut log = Vec::new();
+
+    for var in ZIG_ENV_VARS {
+        match std::env::var(var) {
+            Ok(v) if !v.trim().is_empty() => {
+                let path = PathBuf::from(v.trim());
+                if path.is_file() {
+                    log.push(format!("{var} = {} (found)", path.display()));
+                    return (Some((path, ToolchainSource::EnvVar)), log);
+                }
+                log.push(format!(
+                    "{var} = {} (set, but that file does not exist)",
+                    path.display()
+                ));
+                return (None, log);
+            }
+            _ => log.push(format!("{var} (not set)")),
+        }
+    }
+
+    for candidate in zig_known_candidates() {
+        match candidate.path {
+            Some(path) if path.is_file() => {
+                log.push(format!("{} (found)", candidate.label));
+                return (Some((path, ToolchainSource::KnownPath)), log);
+            }
+            _ => log.push(format!("{} (not found)", candidate.label)),
+        }
+    }
+
+    for name in ZIG_NAMES {
+        match find_on_path(name) {
+            Some(path) => {
+                log.push(format!("PATH {name} -> {} (found)", path.display()));
+                return (Some((path, ToolchainSource::Path)), log);
+            }
+            None => log.push(format!("PATH {name} (not found)")),
+        }
+    }
+
+    (None, log)
+}
+
+/// Actionable multi-line message shown when no Zig executable was found.
+fn zig_not_found_message(log: &[String]) -> String {
+    let mut msg = String::from("Zig not found.\nSearched:\n");
+    for line in log {
+        msg.push_str("  - ");
+        msg.push_str(line);
+        msg.push('\n');
+    }
+    msg.push_str(&format!(
+        "Install Zig from {ZIG_URL}\n\
+         or set RISCDOM_ZIG to the full path of the zig executable and restart RiscDom."
+    ));
+    msg
 }
 
 /// Result of a compile attempt.
@@ -297,13 +529,21 @@ fn list_dirs(base: &str) -> Vec<PathBuf> {
 
 /// Bounded recursive scan for `<dir>/bin/<gcc>` under `root`.
 fn scan_for_bin_gcc(root: &Path, max_depth: usize) -> Option<PathBuf> {
+    scan_for_bin_named(root, max_depth, &GCC_NAMES)
+}
+
+/// Bounded recursive scan for `<dir>/bin/<name>` under `root`, for any of `names`.
+///
+/// Shared by the GCC and the Zig search (v0.9 F3a): a developer toolchain directory is
+/// walked the same way either time, and only the executable names differ.
+fn scan_for_bin_named(root: &Path, max_depth: usize, names: &[&str]) -> Option<PathBuf> {
     let mut stack = vec![(root.to_path_buf(), 0usize)];
     while let Some((dir, depth)) = stack.pop() {
         if depth > max_depth {
             continue;
         }
         for entry in list_dirs(&dir.to_string_lossy()) {
-            for name in GCC_NAMES {
+            for name in names {
                 let candidate = entry.join("bin").join(exe_name(name));
                 if candidate.is_file() {
                     return Some(candidate);
@@ -395,12 +635,27 @@ fn not_found_message(log: &[String]) -> String {
     msg
 }
 
+/// Is `src` a Zig source? The language follows the extension (v0.9 F3a).
+fn is_zig_source(src: &Path) -> bool {
+    src.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("zig"))
+        .unwrap_or(false)
+}
+
 /// Compile `src` into a freestanding ELF at `out`.
+///
+/// The language follows the source extension (v0.9 F3a): `.c` / `.h` / `.S` / `.s` go
+/// through GCC exactly as before, `.zig` through [`run_zig`]. The C path is untouched.
 pub fn compile_freestanding(
     cfg: &CompilerConfig,
     src: &Path,
     out: &Path,
 ) -> Result<CompileOutput, AgentError> {
+    if is_zig_source(src) {
+        return compile_zig(cfg, src, out);
+    }
+
     let (crt0, link_ld) = write_build_files(&cfg.link_addr)?;
     let build_dir = crt0.parent().map(Path::to_path_buf);
 
@@ -414,6 +669,68 @@ pub fn compile_freestanding(
         let _ = std::fs::remove_dir_all(dir);
     }
     compiled
+}
+
+/// Compile a `.zig` source into a freestanding ELF at `out` (v0.9 F3a).
+///
+/// Only the generated `link.ld` is injected — nothing else. The model's Zig source
+/// provides `_start` itself, because the `-bios none` guest jumps to the load address
+/// rather than to the ELF entry point, so the startup code has to be the first thing
+/// there; `link.ld` places `.text.start` first for exactly that reason.
+fn compile_zig(cfg: &CompilerConfig, src: &Path, out: &Path) -> Result<CompileOutput, AgentError> {
+    let dir = build_scratch_dir()?;
+    let link_ld = match write_link_ld(&dir, &cfg.link_addr) {
+        Ok(path) => path,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(e);
+        }
+    };
+    let compiled = run_zig(&cfg.zig, &link_ld, &cfg.link_addr, src, out);
+    let _ = std::fs::remove_dir_all(&dir);
+    compiled
+}
+
+/// Invoke `zig build-exe` once (v0.9 F3a).
+///
+/// Zig brings its own cross linker, so the freestanding target needs no external
+/// toolchain and no sysroot; `--script` is the generated `link.ld`, which keeps the load
+/// address (`--image-base`) and the section order in one place shared with the C path.
+fn run_zig(
+    cfg: &ZigConfig,
+    link_ld: &Path,
+    link_addr: &str,
+    src: &Path,
+    out: &Path,
+) -> Result<CompileOutput, AgentError> {
+    let output = Command::new(&cfg.zig)
+        .arg("build-exe")
+        .arg(src)
+        .arg(format!("-target={}", cfg.target))
+        .arg("-O")
+        .arg(&cfg.optimize)
+        .arg("-fno-stack-check")
+        .arg("-T")
+        .arg(link_ld)
+        .arg("--image-base")
+        .arg(link_addr)
+        .arg(format!("-femit-bin={}", out.display()))
+        .output()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                // Turn "program not found" into an actionable report.
+                let (_found, log) = search_zig();
+                AgentError::Tool(zig_not_found_message(&log))
+            } else {
+                AgentError::Tool(format!("failed to run {}: {e}", cfg.zig.display()))
+            }
+        })?;
+
+    Ok(CompileOutput {
+        ok: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
 }
 
 /// Build scratch prefix: `riscdom-build-` (see [`crate::tempdirs`] for the rules).
@@ -468,6 +785,31 @@ fn run_gcc(
 /// half-written file (v0.4 batch 3-followup). The directory is scratch —
 /// `compile_freestanding` removes it when the build finishes.
 fn write_build_files(link_addr: &str) -> Result<(PathBuf, PathBuf), AgentError> {
+    let dir = build_scratch_dir()?;
+    let crt0 = dir.join("crt0.S");
+    let link_ld = dir.join("link.ld");
+
+    let written = (|| -> Result<(), AgentError> {
+        std::fs::write(&crt0, CRT0)?;
+        std::fs::write(&link_ld, link_ld_contents(link_addr)?)?;
+        Ok(())
+    })();
+    if let Err(e) = written {
+        // Never leave a half-written build directory behind.
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(e);
+    }
+    Ok((crt0, link_ld))
+}
+
+/// A fresh per-build scratch directory.
+///
+/// Every compile gets its own directory: builds are no longer single-threaded (a run may
+/// compile while the environment preflight compiles, and tests run in parallel), and
+/// sharing one path left the loser of that race compiling against a half-written file
+/// (v0.4 batch 3-followup). The directory is scratch — the caller removes it when the
+/// build finishes.
+fn build_scratch_dir() -> Result<PathBuf, AgentError> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static SEQ: AtomicUsize = AtomicUsize::new(0);
 
@@ -478,27 +820,26 @@ fn write_build_files(link_addr: &str) -> Result<(PathBuf, PathBuf), AgentError> 
         SEQ.fetch_add(1, Ordering::Relaxed)
     ));
     std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
 
-    let crt0 = dir.join("crt0.S");
-    let link_ld = dir.join("link.ld");
-
+/// The linker script with the load / stack addresses substituted.
+fn link_ld_contents(link_addr: &str) -> Result<String, AgentError> {
     let addr = parse_addr(link_addr)?;
     let stack = addr + 0x0800_0000; // 128 MiB above the load address
+    Ok(LINK_LD
+        .replace("LINK_ADDR", &format!("0x{addr:08x}"))
+        .replace("STACK_ADDR", &format!("0x{stack:08x}")))
+}
 
-    let written = std::fs::write(&crt0, CRT0).and_then(|()| {
-        std::fs::write(
-            &link_ld,
-            LINK_LD
-                .replace("LINK_ADDR", &format!("0x{addr:08x}"))
-                .replace("STACK_ADDR", &format!("0x{stack:08x}")),
-        )
-    });
-    if let Err(e) = written {
-        // Never leave a half-written build directory behind.
-        let _ = std::fs::remove_dir_all(&dir);
-        return Err(e.into());
-    }
-    Ok((crt0, link_ld))
+/// Write the generated linker script into `dir` and return its path.
+///
+/// Shared by both languages (v0.9 F3a): the script names neither compiler, so Zig reuses
+/// it verbatim (`OUTPUT_ARCH`, `ENTRY(_start)`, `.text.start` first, `_stack_top`).
+fn write_link_ld(dir: &Path, link_addr: &str) -> Result<PathBuf, AgentError> {
+    let path = dir.join("link.ld");
+    std::fs::write(&path, link_ld_contents(link_addr)?)?;
+    Ok(path)
 }
 
 fn parse_addr(s: &str) -> Result<u64, AgentError> {
@@ -574,5 +915,52 @@ mod tests {
         assert!(text.contains("RISCDOM_RISCV_GCC"), "{text}");
         assert!(text.contains("RISCV_GCC"), "{text}");
         assert!(text.contains("=> "), "{text}");
+    }
+
+    /// The language is chosen by extension, not by a flag (v0.9 F3a).
+    #[test]
+    fn the_language_follows_the_extension() {
+        assert!(is_zig_source(Path::new("hello.zig")));
+        assert!(is_zig_source(Path::new("HELLO.ZIG")));
+        assert!(!is_zig_source(Path::new("hello.c")));
+        assert!(!is_zig_source(Path::new("hello")));
+    }
+
+    /// `true` when a real Zig can be found.
+    ///
+    /// The test below compiles Zig for real, so it needs the compiler — not just this
+    /// wrapper. A machine without one (see `ENVIRONMENT.md`) prints a skip instead of
+    /// failing: the gate prints every skip, and the machine that has Zig runs it for real,
+    /// so nothing is skipped silently — the same shape as the two C tests above.
+    fn have_zig() -> bool {
+        ZigConfig::discover().is_ok()
+    }
+
+    #[test]
+    fn diagnostics_lists_the_zig_search() {
+        let text = ZigConfig::diagnostics();
+        assert!(text.contains("Zig search:"), "{text}");
+        assert!(text.contains("RISCDOM_ZIG"), "{text}");
+        assert!(text.contains("=> "), "{text}");
+    }
+
+    #[test]
+    fn compiles_hello_zig_fixture() {
+        if !have_zig() {
+            eprintln!("skip: compiles_hello_zig_fixture -- no Zig found (ENVIRONMENT.md)");
+            return;
+        }
+        let cfg = CompilerConfig::from_env();
+        let out = std::env::temp_dir().join(format!(
+            "riscdom-build-test-hello-zig-{}.elf",
+            std::process::id()
+        ));
+        let result = compile_freestanding(&cfg, &fixture("hello.zig"), &out).expect("run zig");
+        assert!(
+            result.ok,
+            "compile failed:\nstdout={}\nstderr={}",
+            result.stdout, result.stderr
+        );
+        assert!(out.exists());
     }
 }

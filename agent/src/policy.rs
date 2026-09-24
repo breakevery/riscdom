@@ -12,7 +12,7 @@ use std::path::{Component, Path, PathBuf};
 pub struct WorkspacePolicy {
     /// Workspace root (normalised, absolute).
     pub root: PathBuf,
-    /// Allowed write extensions, e.g. `[".c", ".h", ".S", ".s"]`.
+    /// Allowed write extensions, e.g. `[".c", ".h", ".S", ".s", ".zig"]`.
     pub allowed_extensions: Vec<String>,
 }
 
@@ -21,7 +21,16 @@ impl WorkspacePolicy {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self {
             root: normalize(&root.into()),
-            allowed_extensions: vec![".c".into(), ".h".into(), ".S".into(), ".s".into()],
+            // `.zig` joins the list in v0.9 F3a: the second language is chosen by
+            // extension (`.zig` → Zig, everything else → GCC), so the write allow-list
+            // has to admit it too.
+            allowed_extensions: vec![
+                ".c".into(),
+                ".h".into(),
+                ".S".into(),
+                ".s".into(),
+                ".zig".into(),
+            ],
         }
     }
 
@@ -134,6 +143,16 @@ mod tests {
         let (p, _) = policy();
         let err = p.check_write(Path::new("../etc/passwd")).unwrap_err();
         assert!(matches!(err, AgentError::PolicyDenied(_)), "{err:?}");
+    }
+
+    #[test]
+    fn allows_zig_inside_root() {
+        let (p, root) = policy();
+        let ok = p
+            .check_write(Path::new("hello.zig"))
+            .expect("allow hello.zig");
+        assert_eq!(ok, normalize(&root.join("hello.zig")));
+        assert!(p.check_write(Path::new("sub/start.ZIG")).is_ok());
     }
 
     #[test]

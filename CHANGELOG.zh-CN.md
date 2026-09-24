@@ -25,8 +25,11 @@
 
 **有 CLI 了，而且是控制平面客户端。** `riscdom` 在 shell 里驱动控制平面——与桌面应用同一套 HTTP 接口——本地模式把控制平面起在自己的进程里。
 
+**Zig 是沙箱能编的第二种语言。** `.zig` 源经 `zig build-exe -target riscv64-freestanding` 编成同一个载入地址上的同一个裸机 ELF；Zig 自带交叉链接器，裸机目标无需外部工具链、无需 sysroot。语言按源扩展名分派，所以 `compile_freestanding` **签名字形不变**、C 路径一字未动，生成的链接脚本原样复用。**不**包含下载 Zig 归档：其 macOS/Linux 构建是 `.tar.xz`，现有下载器无法解包——那是独立批次，并同时服务 Rust。
+
 ### 新增
 
+- **Zig 可编译（v0.9 F3a）**：`compile` 按源扩展名分派——`.c` / `.h` / `.S` / `.s` 走 GCC，`.zig` 走 `zig build-exe -target riscv64-freestanding`。Zig 不注入任何东西：源自己写 `_start`（`-bios none` 的客机跳到载入地址，所以启动代码必须排最前），生成的 `link.ld` 原样复用。`ZigConfig` 负责探测（`RISCDOM_ZIG` → 已知路径 → `PATH`），`settings.json` 新增 `zig_path`，由 `AppState::set_zig_path` / `clear_zig_path` 固定与清除。Zig 归档**不**在本批下载：其 macOS/Linux 构建是 `.tar.xz`，现有下载器无法解包（独立批次，与 Rust 共用）。
 - **`cli`，新的 workspace crate，含 `riscdom` 二进制**：八个只读子命令（`health`、`status`、`agents`、`runs list` / `runs get <id>`、`audit status`、`audit events`、`snapshots list`），每条都是对控制平面的 HTTP 调用。
 - **两种模式、一条代码路径**：`--remote host:port` 连已在运行的 `riscdom-server`；不加则在**本进程内**把控制平面起在 `127.0.0.1:0` 并对其说 HTTP。CLI 从不直接调 `AppState`。
 - **`--json`** 原样透传控制平面的应答（失败时把错误体打到 stderr）；人类模式打印表格与 `key value` 行。

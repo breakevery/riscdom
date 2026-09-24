@@ -13,6 +13,24 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **Zig is the sandbox's second language, and the language is chosen by the source extension**
+  (v0.9 multi-language batch F3a). `compile` sends `.c` / `.h` / `.S` / `.s` to GCC (unchanged)
+  and `.zig` to `zig build-exe -target riscv64-freestanding -O ReleaseSmall -fno-stack-check -T
+  <link.ld> --image-base 0x80000000 -femit-bin=<out>`. Zig brings its own cross linker, so the
+  freestanding target needs no external toolchain and no sysroot, and the generated `link.ld` is
+  reused verbatim. Nothing is injected for Zig: the source writes its own `_start`, because the
+  `-bios none` guest jumps to the load address rather than to the ELF entry point, so the startup
+  code has to be first (`.text.start` is why one script serves both languages).
+  `compile_freestanding` keeps its signature, `CompilerConfig` carries a second value (`zig:
+  ZigConfig`), and `settings.json` gained `zig_path` (`AppState::set_zig_path` / `clear_zig_path`;
+  the preflight cache is deliberately not invalidated). `Policy.allowed_extensions` admits `.zig`,
+  and the tool-schema document, its human table and `agent/README.md` name both languages.
+  **No Zig on this machine**, so the compile test prints `skip: compiles_hello_zig_fixture -- no
+  Zig found`, and the Zig→guest boot test carries a marker *and* guards itself — the gate's
+  `--include-ignored` runs on machines that have QEMU and a GCC but not necessarily Zig.
+  Downloading a Zig archive is **not** in this batch (its macOS/Linux builds are `.tar.xz` and the
+  downloader knows only `Zip` / `TarGz`), so it is its own batch, F3a-download, shared with Rust
+  (decision §46). Estimated size is unknown until that batch: no Zig binary was downloaded here.
 - **The last four env-dependent tests are named too, and two fixtures stopped being Windows-only**
   (v0.9 gate-consistency batch B-3b-fix). The B-3b simulation had a hole: it pointed the `RISCDOM_*`
   variables at non-existent files, which stops `discover()` but not `CompilerConfig::from_env()`,

@@ -30,7 +30,7 @@ pub mod tools;
 pub use agent::{AgentLoop, AgentOutcome};
 pub use compiler::{
     compile_freestanding, CompileOutput, CompilerConfig, ToolchainError, ToolchainSource,
-    CRT0_INJECTED, GCC_NAMES, TOOLCHAIN_URL,
+    ZigConfig, CRT0_INJECTED, GCC_NAMES, TOOLCHAIN_URL, ZIG_NAMES, ZIG_URL,
 };
 pub use config::AgentConfig;
 pub use dispatch::{

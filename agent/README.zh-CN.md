@@ -3,7 +3,7 @@
 # agent
 
 智芯城（RiscDom）的 **AI 代理运行时**：用自然语言驱动 LLM 在 RISC-V 虚拟沙箱里
-写 C / 汇编、编译、运行、读串口并循环迭代。
+写 C / 汇编 / Zig（v0.9 F3a）、编译、运行、读串口并循环迭代。
 
 依赖方向：`agent → sandbox`，`agent → audit`。
 
@@ -126,7 +126,7 @@ cargo run -p agent --example audit_demo
 
 1. 任何含 `..` 的路径直接拒绝（防穿越）。
 2. 解析为绝对路径后必须位于工作区根内，否则拒绝。
-3. 写操作额外要求扩展名在白名单内（`.c/.h/.S/.s`）。
+3. 写操作额外要求扩展名在白名单内（`.c/.h/.S/.s/.zig`）。
 4. 每次拒绝都写 `agent.policy.deny` 审计事件。
 
 工具执行前必经策略检查；agent 从不直接调用 QEMU，一律通过 `sandbox` crate。

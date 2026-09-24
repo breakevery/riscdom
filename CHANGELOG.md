@@ -46,8 +46,26 @@ history is untouched.
 shell — the same HTTP interface the desktop app uses — with the local mode starting the control
 plane inside its own process.
 
+**Zig is the second language the sandbox can build.** A `.zig` source is compiled through
+`zig build-exe -target riscv64-freestanding` into the same bare-metal ELF at the same load
+address; Zig brings its own cross linker, so the freestanding target needs no external
+toolchain and no sysroot. The language follows the source extension, so
+`compile_freestanding` keeps its signature and the C path is untouched, and the generated
+linker script is shared verbatim. Downloading Zig's own archive is **not** part of this:
+its macOS/Linux builds are `.tar.xz`, which the existing downloader cannot unpack — that
+is a separate batch, and it serves Rust as well.
+
 ### Added
 
+- **Zig compiles (v0.9 F3a)**: `compile` dispatches on the source extension — `.c` /
+  `.h` / `.S` / `.s` through GCC, `.zig` through `zig build-exe -target
+  riscv64-freestanding`. Nothing is injected for Zig: the source writes its own `_start`
+  (the `-bios none` guest jumps to the load address, so the startup code must be first),
+  and the generated `link.ld` is reused as it stands. `ZigConfig` discovers the compiler
+  (`RISCDOM_ZIG` → well-known locations → `PATH`) and `settings.json` gained `zig_path`,
+  pinned by `AppState::set_zig_path` / `clear_zig_path`. The Zig archive is **not**
+  downloaded here: its macOS/Linux builds are `.tar.xz`, which the current downloader
+  cannot unpack (a separate batch, shared with Rust).
 - **`cli`, a new workspace crate with the `riscdom` binary**: eight read-only commands
   (`health`, `status`, `agents`, `runs list` / `runs get <id>`, `audit status`,
   `audit events`, `snapshots list`), each one HTTP against the control plane.

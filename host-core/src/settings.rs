@@ -18,6 +18,15 @@ pub struct LocalSettings {
     /// Manual RISC-V GCC path; `None` means auto-discovery.
     #[serde(default)]
     pub toolchain_path: Option<String>,
+    /// Manual Zig executable path (v0.9 F3a); `None` means auto-discovery.
+    ///
+    /// A second, independent single value rather than a map: the language is chosen by
+    /// the source extension, so `toolchain_path` and `zig_path` name **two** compilers
+    /// for the same sandbox instead of two entries for one. Additive, exactly like
+    /// `sandboxes`: a file written before this field existed loads with `None`, and
+    /// `SETTINGS_VERSION` does not move.
+    #[serde(default)]
+    pub zig_path: Option<String>,
     /// Manual QEMU executable path; `None` means auto-discovery (v0.3 5b-1a).
     #[serde(default)]
     pub qemu_path: Option<String>,
@@ -97,6 +106,7 @@ impl Default for LocalSettings {
         Self {
             version: SETTINGS_VERSION,
             toolchain_path: None,
+            zig_path: None,
             qemu_path: None,
             preflight: None,
             theme: None,
@@ -120,6 +130,7 @@ impl LocalSettings {
             Ok(mut settings) => {
                 settings.version = SETTINGS_VERSION;
                 settings.toolchain_path = settings.toolchain_path.filter(|p| !p.trim().is_empty());
+                settings.zig_path = settings.zig_path.filter(|p| !p.trim().is_empty());
                 settings.qemu_path = settings.qemu_path.filter(|p| !p.trim().is_empty());
                 // An executor needs both halves of a command line to be routable:
                 // a label with nothing to run is not an executor, and keeping it

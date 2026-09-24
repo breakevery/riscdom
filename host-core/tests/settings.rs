@@ -24,6 +24,7 @@ fn a_missing_file_loads_defaults() {
     assert_eq!(settings, LocalSettings::default());
     assert_eq!(settings.version, SETTINGS_VERSION);
     assert_eq!(settings.toolchain_path, None);
+    assert_eq!(settings.zig_path, None);
 }
 
 #[test]
@@ -35,6 +36,7 @@ fn save_then_load_round_trips() {
         toolchain_path: Some(
             r"C:\tools\riscv64-unknown-elf\bin\riscv64-unknown-elf-gcc.exe".into(),
         ),
+        zig_path: Some(r"C:\tools\zig\zig.exe".into()),
         preflight: None,
         theme: None,
         language: None,
@@ -138,6 +140,44 @@ fn a_manual_toolchain_survives_a_restart() {
     restarted.clear_toolchain_path().expect("clear");
     let after_clear = AppState::in_memory(&workspace).expect("state");
     assert_ne!(after_clear.probe_toolchain().source, "Manual");
+}
+
+/// v0.9 F3a: the Zig pin is a second single value, persisted and restored exactly like
+/// the GCC one, and it is independent of it (either can be manual on its own).
+///
+/// A machine without Zig prints a skip rather than failing — the gate runs every ignored
+/// test with `--include-ignored`, so this one guards itself instead of carrying a marker
+/// that only holds on a machine that has Zig.
+#[test]
+fn a_manual_zig_path_survives_a_restart() {
+    let Some(zig) = agent::ZigConfig::discover().ok() else {
+        eprintln!("skip: a_manual_zig_path_survives_a_restart -- no Zig found (ENVIRONMENT.md)");
+        return;
+    };
+    let shown = zig.display().to_string();
+
+    let workspace = unique_dir("restart-zig");
+    {
+        let state = AppState::in_memory(&workspace).expect("state");
+        state.set_zig_path(&shown).expect("set");
+        assert_eq!(state.zig_config().source, agent::ToolchainSource::Manual);
+    }
+
+    // "restart": the manual path must come back from disk.
+    let restarted = AppState::in_memory(&workspace).expect("state");
+    assert_eq!(restarted.zig_config().zig, zig);
+    assert_eq!(
+        restarted.zig_config().source,
+        agent::ToolchainSource::Manual
+    );
+
+    // Clearing persists as well.
+    restarted.clear_zig_path().expect("clear");
+    let after_clear = AppState::in_memory(&workspace).expect("state");
+    assert_ne!(
+        after_clear.zig_config().source,
+        agent::ToolchainSource::Manual
+    );
 }
 
 #[test]

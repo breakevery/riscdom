@@ -36,6 +36,18 @@ fn start_vm_mentions_the_already_running_case() {
     assert!(text.contains("does not start a second one"), "{text}");
 }
 
+/// v0.9 F3a: the two language-facing tools name Zig, and the compile description carries
+/// the one convention a `.zig` source has to follow (`_start`, because the guest jumps to
+/// the load address).
+#[test]
+fn the_language_tools_name_zig() {
+    let write = description("write_source");
+    assert!(write.contains(".zig"), "{write}");
+    let compile = description("compile");
+    assert!(compile.contains(".zig"), "{compile}");
+    assert!(compile.contains("_start"), "{compile}");
+}
+
 #[test]
 fn read_serial_and_the_other_tools_are_unchanged() {
     assert_eq!(
@@ -44,8 +56,8 @@ fn read_serial_and_the_other_tools_are_unchanged() {
     );
     assert_eq!(
         description("write_source"),
-        "Write a C or RISC-V assembly source file into the workspace. Only .c/.h/.S/.s are \
-         allowed. Paths are relative to the workspace."
+        "Write a C, RISC-V assembly or Zig source file into the workspace. Only .c/.h/.S/.s/\
+         .zig are allowed. Paths are relative to the workspace."
     );
     assert_eq!(
         description("list_workspace"),
