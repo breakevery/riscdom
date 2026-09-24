@@ -13,6 +13,22 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The Web board's node page has three tabs** (v0.9 D2b-4b — the D2b line's last batch).
+  `StatusPanel` is now a container (three tabs held as local `useState`, rendered with the same
+  `.settings-tabs` / `.tab-btn` row the settings page uses, so no new CSS) over
+  `panels/node/NodeStatus.tsx` (the old page, moved), `NodeExecutors.tsx` and `NodeSandboxes.tsx`;
+  **`AppShell`'s view union is unchanged** (`main | settings | status`) — decision §63. Four new
+  reads make the two new tabs possible, and they are **shared names**, not Web-only ones:
+  `listExecutors` / `listSandboxes` / `currentSandbox` / `sandboxCandidates` exist as Tauri
+  commands (`list_executors`, `list_sandboxes`, `current_sandbox`, `sandbox_candidates`) and as
+  HTTP endpoints (`GET /v0/executors`, `/v0/sandboxes`, `/v0/sandboxes/current`,
+  `/v0/sandboxes/candidates`) — so `api/index.ts`'s `Omit` list did not move and the probe's name
+  checks still hold. `SandboxView` / `ExecutorView` / `CandidateView` joined `api/types.ts`.
+  **+19 i18n keys** (219 → **238**) and **+1 probe** (`probe-ui-node-panel.mjs`, which also reads
+  `sandbox_def.rs` to check that every Rust field of the browser's `SandboxView` is really there;
+  13 ui probes now). `refreshAll` deliberately **does not** include the node inventory: a gap in the
+  event stream does not change what is installed.
+
 - **The browser is a read-only board** (v0.9 D2b-4a). One mechanism does it: a new
   `ui/src/components/DesktopOnly.tsx` (`DesktopOnly` / `WebOnly`, both asking
   `isTauriRuntime()` at render time, so no `readOnly` prop is threaded anywhere).

@@ -1454,3 +1454,28 @@ functions in `api/http.ts` are real calls rather than `desktopOnly` refusals —
 `probe-ui-api.mjs` now expects them to resolve while the other twenty-four refuse. If a genuinely
 read-only token ever exists (per-capability tokens are v1.0 work), it must carry `settings.write`
 for the board to keep working, and this entry is where that trade-off gets revisited.
+
+## 63. The Web board reuses the node as tabs, not as more views
+
+**Date**: 2026-09-25 ｜ **Status**: Decided; landed with the v0.9 D2b-4b batch
+
+**Decision**: the browser does not grow a view per subject. Its node page becomes one page with
+three tabs — **Status / Executors / Sandboxes** — held as local `useState` inside `StatusPanel`,
+which is now a container over `panels/node/`. `AppShell`'s view union stays three (`main` /
+`settings` / `status`).
+
+**Why**: three reasons, and each is a different kind of cost avoided. (a) On a phone a tab row is
+one gesture and a second layer of navigation is two; the node's status, its fleet and its sandboxes
+are three faces of *one* subject, and asking someone to leave the page to see the second face is
+navigation for the sake of a file layout. (b) A view is **global** state, held by the shell on
+behalf of every panel; a tab is **local** state, invisible to everything else. Putting these three
+behind tabs keeps the shell's state from growing every time a new kind of node information appears.
+(c) The row itself is the settings page's own `.settings-tabs` / `.tab-btn` pair, so "add a tab"
+costs no new styling — whereas "add a view" means a header button, a branch in the shell's render,
+and a decision about what the Escape key should do.
+
+**Impact**: future node-dimension information (another resource kind, a queue) extends the tab row
+rather than the view union, and `probe-ui-node-panel.mjs` asserts both halves of that promise: three
+tabs in the page, and the shell's union unchanged. The four reads the new tabs need are **shared**
+names in the adapter — the desktop had the commands all along — so no name is declared Web-only for
+this, and the probe's list checks did not move.

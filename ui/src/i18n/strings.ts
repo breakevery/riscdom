@@ -297,6 +297,30 @@ const EN = {
     "Read-only here: this board shows the node, and changes are made in the desktop app.",
   "web.appearance_note":
     "Theme and language are the two things this board can change — they are display preferences, not node settings.",
+
+  // The node page's three tabs (v0.9 D2b-4b).
+  "node.tab.status": "Status",
+  "node.tab.executors": "Executors",
+  "node.tab.sandboxes": "Sandboxes",
+  "node.executors.count": "{count} executor(s) in this node's fleet",
+  "node.executors.empty":
+    "This node names no executor: its fleet is the `executors` block of settings.json.",
+  "node.executors.note":
+    "The node itself is not in this list; running on this node is the desktop's `run`.",
+  "node.sandboxes.count": "{count} sandbox definition(s)",
+  "node.sandboxes.empty": "No sandbox definition yet — they are written in the desktop app.",
+  "node.sandboxes.current": "current",
+  "node.sandboxes.default": "default",
+  "node.sandboxes.source_manual": "manual",
+  "node.sandboxes.source_discovered": "discovered",
+  "node.sandboxes.runnable": "runnable",
+  "node.sandboxes.not_runnable": "not runnable",
+  "node.sandboxes.shadowed": "shadowed by a hand-written definition",
+  "node.sandboxes.details": "Definition",
+  "node.sandboxes.note":
+    "Switching the node to another definition is a desktop control.",
+  "node.candidates.heading": "Installed here ({count})",
+  "node.candidates.empty": "The scan found nothing installed under the data directory.",
 } as const;
 
 /** A key of the registry. */
@@ -563,6 +587,27 @@ const ZH: Record<StringKey, string> = {
   "web.readonly_note": "此处只读：本界面用于查看节点，修改请在桌面端进行。",
   "web.appearance_note":
     "主题与语言是本界面唯一能改的两项——它们属显示偏好，不是节点设置。",
+
+  // 节点页的三个子 tab（v0.9 D2b-4b）。
+  "node.tab.status": "状态",
+  "node.tab.executors": "执行者",
+  "node.tab.sandboxes": "沙箱",
+  "node.executors.count": "本节点名册中有 {count} 个执行者",
+  "node.executors.empty": "本节点未命名任何执行者：名册来自 settings.json 的 `executors`。",
+  "node.executors.note": "本节点自己不在该列表中；要在本节点上跑，请用桌面端的 `run`。",
+  "node.sandboxes.count": "{count} 个沙箱定义",
+  "node.sandboxes.empty": "还没有沙箱定义——它们在桌面端编写。",
+  "node.sandboxes.current": "当前",
+  "node.sandboxes.default": "默认",
+  "node.sandboxes.source_manual": "手写",
+  "node.sandboxes.source_discovered": "扫描所得",
+  "node.sandboxes.runnable": "可运行",
+  "node.sandboxes.not_runnable": "不可运行",
+  "node.sandboxes.shadowed": "被同名手写定义遮盖",
+  "node.sandboxes.details": "定义",
+  "node.sandboxes.note": "把节点切到另一个定义属桌面端控制操作。",
+  "node.candidates.heading": "本机已装（{count}）",
+  "node.candidates.empty": "扫描未在数据目录下发现任何已安装资源。",
 };
 
 /** The registry itself: language -> key -> template. */

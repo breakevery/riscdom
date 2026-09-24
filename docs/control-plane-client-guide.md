@@ -817,3 +817,9 @@ the serial export are desktop-only controls, and the model form is not offered a
 configuration (decision §62). A client that wants a genuinely read-only credential will need
 per-capability tokens (v1.0): today's single token holds all 26, and `GET /v0/executors` alone asks
 for `agent.run`.
+
+The node page is the board's home: **three tabs** — Status (`/v0/health` and `/v0/status`),
+Executors (`GET /v0/executors`, whose capability is `agent.run`) and Sandboxes (`GET /v0/sandboxes`,
+plus `/v0/sandboxes/current` and `/v0/sandboxes/candidates`) — and they are tabs rather than views on
+purpose (decision §63). Everything the board shows is read-only; the list of things it can change is
+in §11 above.

@@ -213,6 +213,12 @@ the gate stays outside the store and that every key these screens use exists in 
   `*response` — the same response value on the same path. Three `bool_assert_comparison`
   assertions in `routes.rs`'s tests and one `filter_next` in `tests/smoke.rs` are fixed with
   them. No behaviour changed.
+- **The node page has three tabs, and the browser can read the node's fleet and sandboxes**
+  (v0.9 D2b-4b): `StatusPanel` became a container over
+  `panels/node/{NodeStatus,NodeExecutors,NodeSandboxes}.tsx`, with the settings page's own tab row
+  and no new `AppShell` view. Four reads joined the API as **shared** names — `listExecutors`,
+  `listSandboxes`, `currentSandbox`, `sandboxCandidates` — each already a Tauri command, so both
+  transports carry them and the adapter's Web-only list did not move.
 - **The browser is a read-only board** (v0.9 D2b-4a): every control in the settings tabs,
   the chat input and the serial-export button is wrapped in a new `DesktopOnly` component
   (twelve wraps across six files), so the desktop renders exactly as before while the Web

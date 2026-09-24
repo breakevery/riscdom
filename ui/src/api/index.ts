@@ -146,6 +146,19 @@ export const readWorkspaceFile = impl.readWorkspaceFile;
 
 export const getSerialBuffer = impl.getSerialBuffer;
 
+// ----- The node's own inventory (shared names, v0.9 D2b-4b) -------------------
+// These four are the desktop's commands too (`list_executors`, `list_sandboxes`,
+// `current_sandbox`, `sandbox_candidates`), so they are *not* Web-only: both
+// implementations carry them and the shared list above stays the check that they agree.
+
+export const listExecutors = impl.listExecutors;
+
+export const listSandboxes = impl.listSandboxes;
+
+export const currentSandbox = impl.currentSandbox;
+
+export const sandboxCandidates = impl.sandboxCandidates;
+
 // ----- Controls (implemented on the desktop; the Web client says so) ---------
 
 export const setTheme = impl.setTheme;

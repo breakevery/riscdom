@@ -28,6 +28,9 @@ const LOGIN = path.join(SRC, "Login.tsx");
 const APP = path.join(SRC, "App.tsx");
 const SHELL = path.join(SRC, "layout", "AppShell.tsx");
 const STATUS_PANEL = path.join(SRC, "panels", "StatusPanel.tsx");
+// The node page's status tab owns the wording since v0.9 D2b-4b (the page became a
+// container with three sub-panels).
+const NODE_STATUS = path.join(SRC, "panels", "node", "NodeStatus.tsx");
 const STATUS_RULE = path.join(SRC, "lib", "statusView.ts");
 const STRINGS = path.join(SRC, "i18n", "strings.ts");
 
@@ -105,7 +108,8 @@ check(
 );
 check(
   "the status panel decides nothing about wording itself",
-  /from "\.\.\/lib\/statusView"/.test(panel),
+  /from "\.\.\/\.\.\/lib\/statusView"/.test(readFileSync(NODE_STATUS, "utf8")),
+  "the wording lives in panels/node/NodeStatus.tsx (v0.9 D2b-4b)",
 );
 
 const shellHasView =

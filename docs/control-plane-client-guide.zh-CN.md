@@ -639,3 +639,5 @@ Web 客户端是本 API 的第四个消费者，与 CLI（§7）、AI 监工（�
 服务端可以自己提供构建好的前端（`riscdom-server --web-root <dir>`，决策 §55），于是一个 URL 同时答页面与 API：同源、无需 CORS 层，而页面要你输入的 token 就是 API 要的那个 token。
 
 **看板能做什么、不能做什么。** 它是**只读**的：设置页各 tab、聊天输入框与串口导出都是桌面专属控件，模型表单则根本不提供。它能*写*的只有两项——主题与语言——因为它们是显示偏好而不是节点配置（决策 §62）。想要一份真正只读凭证的客户端，需要按能力细分的 token（v1.0）：今天的单 token 持有全部 26 项，而单是 `GET /v0/executors` 就要求 `agent.run`。
+
+节点页是看板的主页：**三个 tab**——Status（`/v0/health` 与 `/v0/status`）、Executors（`GET /v0/executors`，其 capability 是 `agent.run`）与 Sandboxes（`GET /v0/sandboxes`，另加 `/v0/sandboxes/current`、`/v0/sandboxes/candidates`）——它们是 tab 而不是 view，这是刻意的（决策 §63）。看板展示的一切都是只读的；它能改动的东西列在上面 §11 里。

@@ -29,10 +29,14 @@ import type {
   LlmReadiness,
   LlmStatus,
   LocalProbeResult,
+  CandidateView,
+  CurrentSandboxResponse,
+  ExecutorListResponse,
   PreflightView,
   ProviderPreset,
   QemuView,
   RunView,
+  SandboxListResponse,
   SessionDetail,
   SessionMeta,
   SnapshotMeta,
@@ -49,7 +53,11 @@ export type {
   AgentOutcomeView,
   AuditEvent,
   AuditStatus,
+  CandidateView,
   ChainStatus,
+  CurrentSandboxResponse,
+  ExecutorListResponse,
+  ExecutorView,
   FingerprintFieldDiff,
   HealthView,
   HostEnvelope,
@@ -62,6 +70,8 @@ export type {
   ProviderPreset,
   QemuView,
   RunView,
+  SandboxListResponse,
+  SandboxView,
   SessionDetail,
   SessionMessage,
   SessionMeta,
@@ -297,6 +307,18 @@ export const getHealth = () => get<HealthView>("/v0/health");
 
 /** What this node is doing. Web-only, like [`getHealth`]. */
 export const getStatus = () => get<StatusView>("/v0/status");
+
+/** This node's fleet: the labels a task's `target` may name (v0.9 D2b-4b). */
+export const listExecutors = () => get<ExecutorListResponse>("/v0/executors");
+
+/** Every sandbox definition, plus the one a run would use and the fallback. */
+export const listSandboxes = () => get<SandboxListResponse>("/v0/sandboxes");
+
+/** The definition a run would use, and the fallback's name. */
+export const currentSandbox = () => get<CurrentSandboxResponse>("/v0/sandboxes/current");
+
+/** The raw scan: what is installed on this machine, and whether each runs. */
+export const sandboxCandidates = () => get<CandidateView[]>("/v0/sandboxes/candidates");
 
 export const getAuditStatus = () => get<AuditStatus>("/v0/audit/status");
 

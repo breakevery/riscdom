@@ -139,6 +139,15 @@ export interface AppStore {
   /** Why the last status read failed, in the client's own words (null when fine). */
   statusError: string | null;
   refreshStatus: () => Promise<void>;
+  /** The fleet this node dispatches to (`/v0/executors`, v0.9 D2b-4b). */
+  executors: api.ExecutorView[];
+  /** Every sandbox definition, and which one a run would use. */
+  sandboxes: api.SandboxListResponse | null;
+  /** What the scan found installed on this machine. */
+  candidates: api.CandidateView[];
+  refreshExecutors: () => Promise<void>;
+  refreshSandboxes: () => Promise<void>;
+  refreshCandidates: () => Promise<void>;
   // RISC-V toolchain (stage 24b)
   toolchain: api.ToolchainView | null;
   toolchainMissing: boolean;
@@ -266,6 +275,9 @@ export function useAppStore(): AppStore {
   const [status, setStatus] = useState<api.StatusView | null>(null);
   const [health, setHealth] = useState<api.HealthView | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [executors, setExecutors] = useState<api.ExecutorView[]>([]);
+  const [sandboxes, setSandboxes] = useState<api.SandboxListResponse | null>(null);
+  const [candidates, setCandidates] = useState<api.CandidateView[]>([]);
   const [qemu, setQemu] = useState<api.QemuView | null>(null);
   const [toolchainDownload, setToolchainDownload] = useState<{
     in_progress: boolean;
@@ -712,6 +724,33 @@ export function useAppStore(): AppStore {
     }
   }, []);
 
+  // The node's own inventory (v0.9 D2b-4b). Read on demand by the node page's own tabs,
+  // and deliberately **not** part of `refreshAll`: losing event frames does not change
+  // what is installed on this machine, so a gap has no reason to re-read it.
+  const refreshExecutors = useCallback(async () => {
+    try {
+      setExecutors((await api.listExecutors()).executors);
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
+  const refreshSandboxes = useCallback(async () => {
+    try {
+      setSandboxes(await api.listSandboxes());
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
+  const refreshCandidates = useCallback(async () => {
+    try {
+      setCandidates(await api.sandboxCandidates());
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
   // Re-read everything a `gap` frame could have made stale (v0.9 D2b-3).
   //
   // A gap is the server saying "what you missed is gone" — it happens when this
@@ -1047,6 +1086,12 @@ export function useAppStore(): AppStore {
     health,
     statusError,
     refreshStatus,
+    executors,
+    sandboxes,
+    candidates,
+    refreshExecutors,
+    refreshSandboxes,
+    refreshCandidates,
     lastError,
   };
 }

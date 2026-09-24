@@ -119,6 +119,10 @@ const READS = [
   "getWorkspaceFiles",
   "readWorkspaceFile",
   "getSerialBuffer",
+  "listExecutors",
+  "listSandboxes",
+  "currentSandbox",
+  "sandboxCandidates",
 ];
 const CONTROLS = [
   "setTheme",
@@ -156,8 +160,8 @@ const EVENTS = [
 ];
 
 check(
-  "the read-only surface is the 26 the UI needs",
-  READS.every((name) => httpNames.includes(name)) && READS.length === 26,
+  "the read-only surface is the 30 the UI needs",
+  READS.every((name) => httpNames.includes(name)) && READS.length === 30,
   `${READS.length} names`,
 );
 check(
@@ -243,6 +247,14 @@ const READ_CALLS = [
     "/v0/workspace/file?path=src%2Fmain.c",
   ],
   ["getSerialBuffer", () => http.getSerialBuffer(), "/v0/serial"],
+  ["listExecutors", () => http.listExecutors(), "/v0/executors"],
+  ["listSandboxes", () => http.listSandboxes(), "/v0/sandboxes"],
+  ["currentSandbox", () => http.currentSandbox(), "/v0/sandboxes/current"],
+  [
+    "sandboxCandidates",
+    () => http.sandboxCandidates(),
+    "/v0/sandboxes/candidates",
+  ],
 ];
 
 check(

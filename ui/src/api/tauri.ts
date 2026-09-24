@@ -8,6 +8,9 @@ import type {
   AgentOutcomeView,
   AuditEvent,
   AuditStatus,
+  CandidateView,
+  CurrentSandboxResponse,
+  ExecutorListResponse,
   FingerprintFieldDiff,
   LlmReadiness,
   LlmStatus,
@@ -16,6 +19,7 @@ import type {
   PreflightView,
   QemuView,
   RunView,
+  SandboxListResponse,
   SessionDetail,
   SessionMeta,
   SnapshotMeta,
@@ -32,7 +36,11 @@ export type {
   AgentOutcomeView,
   AuditEvent,
   AuditStatus,
+  CandidateView,
   ChainStatus,
+  CurrentSandboxResponse,
+  ExecutorListResponse,
+  ExecutorView,
   FingerprintFieldDiff,
   HostEnvelope,
   LlmReadiness,
@@ -44,6 +52,8 @@ export type {
   ProviderPreset,
   QemuView,
   RunView,
+  SandboxListResponse,
+  SandboxView,
   SessionDetail,
   SessionMessage,
   SessionMeta,
@@ -54,6 +64,18 @@ export type {
   VmStatus,
 } from "./types.ts";
 export { unwrapHostPayload } from "./envelope.ts";
+
+/** This node's fleet: the labels a task's `target` may name (v0.9 D2b-4b). */
+export const listExecutors = () => invoke<ExecutorListResponse>("list_executors");
+
+/** Every sandbox definition, plus the one a run would use and the fallback. */
+export const listSandboxes = () => invoke<SandboxListResponse>("list_sandboxes");
+
+/** The definition a run would use, and the fallback's name. */
+export const currentSandbox = () => invoke<CurrentSandboxResponse>("current_sandbox");
+
+/** The raw scan: what is installed on this machine, and whether each runs. */
+export const sandboxCandidates = () => invoke<CandidateView[]>("sandbox_candidates");
 
 export const getAuditStatus = () => invoke<AuditStatus>("get_audit_status");
 

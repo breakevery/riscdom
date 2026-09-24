@@ -72,6 +72,7 @@
 
 ### 变更
 
+- **节点页有三个子 tab，而且浏览器能读本节点的执行者名册与沙箱**（v0.9 D2b-4b）：`StatusPanel` 变成容器，下面是 `panels/node/{NodeStatus,NodeExecutors,NodeSandboxes}.tsx`，用的是设置页自己那一行 tab，而 `AppShell` 没有新增 view。四个读接口以**共有名字**加入 API——`listExecutors`、`listSandboxes`、`currentSandbox`、`sandboxCandidates`——它们每一个都已经是 Tauri 命令，所以两种传输都携带它们，适配层的 Web 独有名单也没动。
 - **浏览器端是只读看板**（v0.9 D2b-4a）：设置页各 tab、聊天输入框与串口导出按钮的每一个控制，都包在新的 `DesktopOnly` 组件里（六个文件、共 12 处包裹），因此桌面端渲染与以前完全一致，而 Web 端看到的是同一批界面、少了那些属于桌面的控件。模型表单在那里根本不提供，且每个界面都会说明原因。**有两个控制刻意实现了 HTTP**：主题与语言是**显示偏好**而不是节点配置，而它们所替代的行为——本地已生效、宿主调用失败并报错——本就是坏的（决策 §62）。`probe-ui-web-readonly.mjs` 逐屏数包裹点，所以漏包一个会让 gate 变红，而不是上线一个点了就报错的按钮。
 - **`scripts/gate.sh`** 用 `--no-deps` lint `-p cli -p host-core -p host-tauri`：新 crate 被覆盖，同时不把（从未被 lint 过的）`server` crate 自身的问题拖进门禁。
 

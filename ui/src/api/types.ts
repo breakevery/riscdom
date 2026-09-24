@@ -243,3 +243,63 @@ export interface StatusView {
   agents: number;
   agent_id: string;
 }
+
+/**
+ * One executor this node can dispatch to (`/v0/executors`, v0.9 D2b-4b).
+ *
+ * The list is the fleet from `settings.json` — the labels a task's `target` may name.
+ */
+export interface ExecutorView {
+  agent_id: string;
+}
+
+/** The fleet, as served. */
+export interface ExecutorListResponse {
+  executors: ExecutorView[];
+}
+
+/**
+ * One sandbox definition, as served — the fields of `host-core`'s `SandboxView`
+ * (`sandbox_def.rs`), whose serialised names are the ones below.
+ */
+export interface SandboxView {
+  name: string;
+  display_name: string | null;
+  memory_mb: number | null;
+  qemu_exe: string | null;
+  toolchain_path: string | null;
+  kernel: string | null;
+  notes: string | null;
+  /** `"manual"` (hand-written) or `"discovered"` (a scan found it). */
+  source: string;
+  /** Could this definition run **right now**? */
+  runnable: boolean;
+  /** Does a hand-written definition use this name? The scanned entry stays, marked. */
+  shadowed: boolean;
+}
+
+/** `/v0/sandboxes`: every definition, plus which one a run would use. */
+export interface SandboxListResponse {
+  sandboxes: SandboxView[];
+  current: string | null;
+  default: string;
+}
+
+/** `/v0/sandboxes/current`. */
+export interface CurrentSandboxResponse {
+  current: string | null;
+  default: string;
+}
+
+/** One installed resource the scan found (`/v0/sandboxes/candidates`). */
+export interface CandidateView {
+  /** `"toolchain"` or `"qemu"`. */
+  kind: string;
+  /** The version directory it was found under. */
+  version: string;
+  path: string;
+  /** `"installed"` (under the data directory) or `"system"`. */
+  origin: string;
+  /** Does it run (`--version` exits 0)? */
+  runnable: boolean;
+}
