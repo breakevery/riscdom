@@ -937,3 +937,27 @@ them portable).
 runs 588 tests where it ran 10; with them `--include-ignored` runs 643. A test that quietly needs a
 tool now fails on the runner instead of being skipped — the three markers exist so the
 prerequisite is **named** rather than inferred.
+
+## 45. Simulating a missing prerequisite must cover every discovery path
+
+**Date**: 2026-09-24 ｜ **Status**: Decided
+
+**Decision**: Deciding whether a test needs an environment prerequisite (a QEMU guest, a RISC-V
+GCC, the network, the OS keyring) by *simulating its absence* has to cover **every** discovery
+path the code under test can take, not only the explicit one. For the toolchain that means four:
+`CompilerConfig::discover()` (an explicit probe that fails with `Err`), `CompilerConfig::from_env()`
+(which **falls back to a bare executable name**, and a bare name is resolved against `PATH`), the
+environment variables (`RISCDOM_*` / `QEMU_SYSTEM_*`) and `PATH` itself. The simulation therefore
+points the variables at a path that does not exist **and** removes the known toolchain / QEMU
+directories from `PATH` (`.cowork-temp/run-noguest.ps1`).
+
+**Why**: The first simulation for §44 only pointed the `RISCDOM_*` variables at non-existent files,
+which stops `discover()` — but not `from_env()`, whose fallback is a bare name and whose `PATH` on
+a developer machine really holds the toolchain. Four tests were therefore never marked, and the
+batch that added the markers went red in CI on targets that had looked green locally. The hole is
+systematic rather than accidental: any discovery path added later reopens it.
+
+**Impact**: A future toolchain, sandbox or network probe has to be covered path by path, and
+`.cowork-temp/run-noguest.ps1` grows with each one. It is also the second root cause this series
+has recorded for "the local gate is green and CI is red": the first was a missing system package
+(E4's `libdbus-1-dev`), this one is an environment **capability**.
