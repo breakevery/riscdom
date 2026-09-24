@@ -31,6 +31,7 @@ fn build_dirs_for_this_process() -> Vec<PathBuf> {
 }
 
 #[test]
+#[ignore = "requires a discoverable RISC-V GCC; run with --include-ignored"]
 fn a_build_leaves_no_scratch_directory_behind() {
     let dir = std::env::temp_dir().join(format!("riscdom-cleanup-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("workspace dir");

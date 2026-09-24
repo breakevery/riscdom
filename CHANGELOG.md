@@ -984,14 +984,20 @@ repository, who it is for, and whether it is living, a snapshot or history.
   a machine with the toolchain still compiles for real. Both `cargo test` invocations also run
   with `--no-fail-fast`, so one failing test binary no longer hides the rest of the workspace.
 - **The gate's test split is by capability now, not by platform.** A test that needs a QEMU guest
-  or a RISC-V GCC carries `#[ignore = "<what it needs>; run with --include-ignored"]`, and 50 do
-  (37 need a guest and a compiler, 8 a discoverable QEMU, 5 a discoverable compiler). A machine
-  without them runs `cargo test --workspace --no-fail-fast` — **588** tests, where the
-  non-Windows branch ran 10 before this series — and one with them runs `--include-ignored`
-  (**643**) with three `--skip` flags for the tests that need an API key or write a real
-  OS-keyring entry. Worth knowing before reusing those flags: `--skip` matches the **test
-  function name**, so a file name never matches and a short substring can take portable tests
-  with it.
+  or a RISC-V GCC carries `#[ignore = "<what it needs>; run with --include-ignored"]`, and 54 do
+  (37 need a guest and a compiler, 8 a discoverable QEMU, 9 a discoverable compiler). A machine
+  without them runs `cargo test --workspace --no-fail-fast` — **584** tests, where the non-Windows
+  branch ran 10 before this series — and one with them runs `--include-ignored` (**643**) with
+  three `--skip` flags for the tests that need an API key or write a real OS-keyring entry. Worth
+  knowing before reusing those flags: `--skip` matches the **test function name**, so a file name
+  never matches and a short substring can take portable tests with it.
+- **Two test fixtures stopped being Windows-only.** `host-core/tests/common/mod.rs`'s tar builder
+  called `tar::append_data` with a `../` entry, which that crate refuses at *write* time — so on
+  Linux the fixture panicked before the test reached the installer it is about; the name is
+  written into the header by hand now, and the escaping entry reaches the code under test. And
+  `qemu_archive()`'s emulator body was a `#!` script: with mode 0755 a Unix host *runs* it, so the
+  "emulator that cannot run" was adopted and the test failed there (on Windows a text `.exe` never
+  runs, which is why it passed). It is plain non-program bytes now.
 
 ## [0.8.0] - 2026-09-22
 

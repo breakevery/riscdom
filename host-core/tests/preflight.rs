@@ -112,6 +112,7 @@ fn a_toolchain_that_cannot_compile_fails_at_the_compile_step() {
 }
 
 #[test]
+#[ignore = "requires a discoverable RISC-V GCC; run with --include-ignored"]
 fn a_qemu_that_cannot_boot_fails_at_the_boot_step() {
     let dir = unique_dir("badqemu");
     let fake = fake_binary(&dir, "not-qemu.exe");

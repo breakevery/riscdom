@@ -13,6 +13,18 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The last four env-dependent tests are named too, and two fixtures stopped being Windows-only**
+  (v0.9 gate-consistency batch B-3b-fix). The B-3b simulation had a hole: it pointed the `RISCDOM_*`
+  variables at non-existent files, which stops `discover()` but not `CompilerConfig::from_env()`,
+  whose fallback is a **bare executable name resolved against `PATH`** — and this machine has the
+  toolchain there. Filtering `PATH` as well found **4** more (three that compile C, one preflight
+  step), so the markers now number **54** (37 + 8 + 9). Two of the seven red targets were not
+  missing prerequisites but **fixtures that only worked on Windows**: the tar branch of
+  `build_archive` panicked on a `../` entry because `tar`'s own `append_data` refuses `..` (the name
+  is written into the header by hand now, so the *installer* refuses the entry — which is what the
+  test is about), and `qemu_archive()`'s body was a `#!` script that a 0755 file happily *runs* on
+  Unix, so "an emulator that cannot run" was adopted there. Windows: **643 passed / 0 ignored**;
+  a gate without the tools: **584 passed / 62 ignored**.
 - **A test that needs a guest says so, and the gate splits by capability** (v0.9 gate-consistency
   batch B-3b). The 50 tests that need a QEMU guest or a RISC-V GCC now carry an `#[ignore]` whose
   reason names the prerequisite (37 `requires a QEMU guest and a RISC-V GCC`, 8 `requires a

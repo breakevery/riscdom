@@ -75,8 +75,18 @@ fn build_archive_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {
             let mut header = tar::Header::new_gnu();
             header.set_size(body.len() as u64);
             header.set_mode(0o755);
+            // The name goes into the header by hand: `append_data` runs the tar crate's own path
+            // check, which refuses `..` -- and one of these fixtures *is* an escaping entry. The
+            // installer is what has to refuse it, not the fixture builder (`set_path` used to
+            // panic here, so the test never reached the code it is about).
+            let name_bytes = name.as_bytes();
+            assert!(
+                name_bytes.len() <= 100,
+                "fixture name too long for a tar header: {name}"
+            );
+            header.as_old_mut().name[..name_bytes.len()].copy_from_slice(name_bytes);
             header.set_cksum();
-            tar.append_data(&mut header, name, *body).expect("append");
+            tar.append(&header, *body).expect("append");
         }
         tar.finish().expect("finish tar");
     }
@@ -201,11 +211,15 @@ pub fn qemu_spec_for(
     }
 }
 
-/// Archive bytes for a valid, installable QEMU fixture.
+/// Archive bytes for a valid, installable QEMU fixture whose emulator does **not** run.
+///
+/// The adoption step is what refuses it (`set_qemu_path` runs `<path> --version`). The body is
+/// deliberately not a `#!` script: with mode 0755 that *would* run on Unix, so the fixture would
+/// stop testing what it is for (it passed on Windows only because a text `.exe` never runs).
 pub fn qemu_archive() -> (Vec<u8>, String) {
     let entry = qemu_entry();
     build_archive(&[
-        (entry.as_str(), b"#!/bin/sh\n# fake qemu\n".as_slice()),
+        (entry.as_str(), b"not a program\n".as_slice()),
         ("qemu/README.txt", b"qemu fixture\n".as_slice()),
     ])
 }

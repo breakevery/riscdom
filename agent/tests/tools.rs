@@ -96,6 +96,7 @@ fn write_source_writes_file_and_audits_three_events() {
 }
 
 #[test]
+#[ignore = "requires a discoverable RISC-V GCC; run with --include-ignored"]
 fn compile_fixture_succeeds() {
     let root = unique_dir("compile");
     let policy = WorkspacePolicy::new(root.clone());

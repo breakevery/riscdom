@@ -23,6 +23,7 @@ fn unique_dir(tag: &str) -> PathBuf {
 }
 
 #[test]
+#[ignore = "requires a discoverable RISC-V GCC; run with --include-ignored"]
 fn many_builds_at_once_do_not_collide() {
     let dir = unique_dir("builds");
     let cfg = CompilerConfig::from_env();
