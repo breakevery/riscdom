@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 const CHATTER_C: &str = include_str!("fixtures/chatter.c");
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_guest_that_never_goes_quiet_returns_its_output() {
     let root = unique_dir("read-serial-continuous");
     let policy = WorkspacePolicy::new(root.clone());

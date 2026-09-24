@@ -89,6 +89,7 @@ fn state_with(tag: &str, script: Vec<ChatResponse>) -> AppState {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn vm_stays_alive_across_runs_and_can_be_stopped() {
     let state = state_with("lifecycle", boot_script());
     let sink = Arc::new(RecordingEventSink::new());

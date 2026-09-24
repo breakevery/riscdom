@@ -16,9 +16,12 @@
 # `examples/python`'s self-test, which prints a skip when no interpreter is there.
 #
 # Platform differences are printed, never skipped silently:
-#   - without QEMU + a RISC-V GCC: the guest-booting tests are skipped and every crate's
-#     unit tests run instead (`cargo test --workspace --lib`). Two of `agent`'s unit tests
-#     compile C for real and print a skip when no GCC is there.
+#   - without QEMU + a RISC-V GCC: the tests that need them are `#[ignore]`d, so a plain
+#     `cargo test --workspace --no-fail-fast` runs the portable set. A machine that has the
+#     tools runs everything with `--include-ignored`, minus the three tests that need an API
+#     key or the OS keyring (the `--skip` flags below) -- `--skip` matches the *test name*,
+#     which for an integration test is the function name, not the file name.
+#   - Two of `agent`'s unit tests compile C for real and print a skip when no GCC is there.
 #   - without python3/python: the reference supervisor's self-test is skipped.
 #
 # `--no-fail-fast`: one failing test binary must not hide the rest of the workspace.
@@ -86,12 +89,12 @@ echo "==> cargo check (ui/src-tauri)"
 cargo check --manifest-path ui/src-tauri/Cargo.toml || fail "cargo check ui/src-tauri"
 
 if have_guest_tools; then
-  echo "==> cargo test --no-fail-fast"
-  cargo test --no-fail-fast || fail "cargo test"
+  echo "==> cargo test (--include-ignored, minus the ones that need a key or the OS keyring)"
+  cargo test --no-fail-fast -- --include-ignored --skip real_deepseek_writes_and_runs_hello_world --skip real_api_streams_content_deltas --skip os_keyring_persists_to_credential_manager || fail "cargo test"
 else
-  skip "the guest-booting tests (no qemu-system-riscv64 + RISC-V GCC on PATH)"
-  echo "==> cargo test --workspace --lib --no-fail-fast"
-  cargo test --workspace --lib --no-fail-fast || fail "cargo test --workspace --lib"
+  skip "the QEMU- and GCC-dependent tests (no qemu-system-riscv64 + RISC-V GCC on PATH)"
+  echo "==> cargo test --workspace --no-fail-fast"
+  cargo test --workspace --no-fail-fast || fail "cargo test --workspace"
 fi
 
 echo "==> npm run build (ui)"

@@ -463,3 +463,13 @@
 **理由**：两件工具并不干同一件事，而更强的那件已经在位。CLA 是**权利授予**（再许可、专利）——正是它让一个 open-core 项目能把派生作品以商业专有许可分发，所以在这里是必需的。DCO 是**来源声明**（`Signed-off-by`），是两者中更弱的那个。§20 自己的措辞就带着矛盾——「DCO（CLA 已有）」。接 DCO 也不是免费的：它是每个 PR 上又多一条规则，并会把一个 `Signed-off-by` 校验塞进 CI。
 
 **影响**：`.github/` 不接 DCO 校验。同批新增的 issue 表单与 PR 模板要的是 CLA 与 gate，而不是 sign-off。若日后想在 CLA 之上再加 DCO，那是本账本里的**新条目**加一步新 CI——而不是重写 §20。
+
+## 44. 需要 guest 或工具链的测试，在它的 `#[ignore]` 标记里明说
+
+**日期**：2026-09-24 ｜ **状态**：已定
+
+**决策**：环境前提在 CI runner 上不满足的测试，带 `#[ignore = "<它需要什么>; run with --include-ignored"]`，三选一：`requires a QEMU guest and a RISC-V GCC`（会编译 guest 并启动它）、`requires a discoverable QEMU`（只构建 VM 句柄或探测 discovery，不起 guest）或 `requires a discoverable RISC-V GCC`。gate 因此按**能力**分叉而不是按平台：没有工具时跑 `cargo test --workspace --no-fail-fast`（标记把这些测试挡在外面），有工具时跑 `cargo test --no-fail-fast -- --include-ignored`，再加每个需要 `DEEPSEEK_API_KEY` 或会真写 OS 钥匙串的测试一个 `--skip`。不需要这些的测试保持无标记，处处都跑。
+
+**理由**：过去按平台分叉——非 Windows 跑 `cargo test -p audit -p sandbox --lib`，638 个里的 10 个——于是它以下的一切在非 Windows 上**静默**失去覆盖，而这件事直到某个 Linux 步骤终于编译 `host-core` 并变红才被发现（E4）。前提是**能力**，不是操作系统。标记的 reason 字段是需求唯一能待的地方，因为 Rust 没有测试标签——而 `--skip` 过滤的是**测试名**，集成测试里就是函数名：文件名永远匹配不上，而短子串会连带带走可移植测试（`--skip keyring` 会带走三个，其中两个是可移植的）。
+
+**影响**：50 个测试带标记（37 + 8 + 5），`tests/` 的 ignore 从 8 变成 58，`scripts/gate.sh` 再无按平台分叉的测试分支。没有工具时 `cargo test --workspace` 跑 588 个（过去是 10）；有工具时 `--include-ignored` 跑 643 个。一个默默需要工具的测试现在会在 runner 上失败而不是被跳过——三种标记存在的意义就是让前提被**点名**，而不是靠猜。

@@ -91,6 +91,7 @@ fn loop_with_slot(
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn vm_survives_the_run_in_the_external_slot() {
     let slot: Arc<Mutex<Option<RiscVVirtualMachine>>> = Arc::new(Mutex::new(None));
     let mut agent = loop_with_slot(boot_script(), Arc::clone(&slot));
@@ -105,6 +106,7 @@ fn vm_survives_the_run_in_the_external_slot() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_second_run_reuses_the_running_vm_and_stop_clears_the_slot() {
     let slot: Arc<Mutex<Option<RiscVVirtualMachine>>> = Arc::new(Mutex::new(None));
 

@@ -40,9 +40,9 @@ UI 回归探针（`node ui/scripts/probe-ui-*.mjs`）→ 镜像常量守卫
 （`node scripts/check-ui-strings.mjs`）→ 双语文档链接检查（`scripts/check-bilingual.ps1` /
 `.sh`）。
 
-平台差异一律**打印出来，绝不静默跳过**：PATH 上没有 QEMU + RISC-V GCC 时，跳过需要起 guest 的测试，
-改为跑**每个** crate 的单元测试（`cargo test --workspace --lib`）；其中 `agent` 的两个单元测试真的会编 C，
-没有 RISC-V GCC 时会打印跳过。`cargo test` 一律带 `--no-fail-fast`，一个测试二进制失败不会遮掉其余。
+平台差异一律**打印出来，绝不静默跳过**：需要 QEMU guest 或 RISC-V GCC 的测试都带 `#[ignore = "<它需要什么>; run with --include-ignored"]`，所以普通的 `cargo test --workspace --no-fail-fast` 在任何机器上跑的都是可移植那套。有工具的机器上，用
+`cargo test --no-fail-fast -- --include-ignored --skip real_deepseek_writes_and_runs_hello_world --skip real_api_streams_content_deltas --skip os_keyring_persists_to_credential_manager`
+跑全部——三个 `--skip` 就是那些需要 `DEEPSEEK_API_KEY` 或会真写 OS 钥匙串的测试；`--skip` 匹配的是**测试名**（集成测试里就是函数名，**不是**文件名）。`agent` 的两个单元测试真的会编 C，没有 GCC 时会打印跳过。`--no-fail-fast` 保证一个测试二进制失败不会遮掉 workspace 其余部分。
 
 另有更轻量的预检：`scripts/preflight.ps1`（Windows）/ `scripts/preflight.sh`（Unix）。
 

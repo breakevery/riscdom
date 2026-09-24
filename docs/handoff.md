@@ -13,6 +13,17 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **A test that needs a guest says so, and the gate splits by capability** (v0.9 gate-consistency
+  batch B-3b). The 50 tests that need a QEMU guest or a RISC-V GCC now carry an `#[ignore]` whose
+  reason names the prerequisite (37 `requires a QEMU guest and a RISC-V GCC`, 8 `requires a
+  discoverable QEMU`, 5 `requires a discoverable RISC-V GCC`), so a machine without them runs
+  `cargo test --workspace --no-fail-fast` — **588** tests, where this series started at 10. A
+  machine that has them runs `cargo test --no-fail-fast -- --include-ignored` plus three `--skip`
+  flags for the tests that need a `DEEPSEEK_API_KEY` or write a real OS-keyring entry (**643**
+  passed, 0 ignored). `--skip` matches the test **function** name — the file names the flags first
+  carried (`real_api`, `stream_real`, `keyring_os`) matched nothing, which is how that mistake was
+  caught. `scripts/gate.sh` has no per-platform test branch left, and §43's entry is the ledger's
+  record of the convention (decision §44).
 - **The two unit tests that compile C say so when there is no toolchain** (v0.9 gate-consistency
   batch B-3a-fix). B-3a went red on Linux at once: `agent/src/compiler.rs`'s
   `compiles_hello_fixture` and `reports_compile_failure_without_panicking` call

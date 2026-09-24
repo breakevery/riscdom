@@ -983,6 +983,15 @@ repository, who it is for, and whether it is living, a snapshot or history.
   `CompilerConfig::discover()` first and print `skip: <test> -- no RISC-V GCC found` instead;
   a machine with the toolchain still compiles for real. Both `cargo test` invocations also run
   with `--no-fail-fast`, so one failing test binary no longer hides the rest of the workspace.
+- **The gate's test split is by capability now, not by platform.** A test that needs a QEMU guest
+  or a RISC-V GCC carries `#[ignore = "<what it needs>; run with --include-ignored"]`, and 50 do
+  (37 need a guest and a compiler, 8 a discoverable QEMU, 5 a discoverable compiler). A machine
+  without them runs `cargo test --workspace --no-fail-fast` — **588** tests, where the
+  non-Windows branch ran 10 before this series — and one with them runs `--include-ignored`
+  (**643**) with three `--skip` flags for the tests that need an API key or write a real
+  OS-keyring entry. Worth knowing before reusing those flags: `--skip` matches the **test
+  function name**, so a file name never matches and a short substring can take portable tests
+  with it.
 
 ## [0.8.0] - 2026-09-22
 

@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn stage3b_snapshot_save_and_load() {
     let elf = build_guest_elf();
 

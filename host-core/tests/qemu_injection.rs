@@ -106,6 +106,7 @@ fn vm_started(state: &AppState) -> bool {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_manual_qemu_path_reaches_the_agent_loop() {
     // Control: no manual path → the sandbox discovers QEMU → the guest boots.
     let (control, sink) = state_running(unique_dir("control"));

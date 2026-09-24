@@ -41,11 +41,15 @@ the ui regression probes (`node ui/scripts/probe-ui-*.mjs`) → the mirror guard
 (`node scripts/check-ui-strings.mjs`) → the bilingual-link check
 (`scripts/check-bilingual.ps1` / `.sh`).
 
-Platform differences are **printed, never skipped silently**: without QEMU + a RISC-V GCC the
-guest-booting tests are skipped in favour of every crate's unit tests
-(`cargo test --workspace --lib`), and the two unit tests that compile C for real say so when
-no RISC-V GCC is there. `cargo test` runs with `--no-fail-fast`, so one failing test binary
-cannot hide the rest of the workspace.
+Platform differences are **printed, never skipped silently**: a test that needs a QEMU guest or a
+RISC-V GCC carries `#[ignore = "<what it needs>; run with --include-ignored"]`, so a plain
+`cargo test --workspace --no-fail-fast` runs the portable set everywhere. On a machine that has
+the tools, run all of it with
+`cargo test --no-fail-fast -- --include-ignored --skip real_deepseek_writes_and_runs_hello_world --skip real_api_streams_content_deltas --skip os_keyring_persists_to_credential_manager`
+— the three `--skip`s are the tests that need a `DEEPSEEK_API_KEY` or write a real OS-keyring
+entry, and `--skip` matches the **test name** (for an integration test, the function name, not
+the file name). Two of `agent`'s unit tests compile C for real and print a skip when no GCC is
+there. `--no-fail-fast` keeps one failing test binary from hiding the rest of the workspace.
 
 There is also a lighter preflight: `scripts/preflight.ps1` (Windows) /
 `scripts/preflight.sh` (Unix).

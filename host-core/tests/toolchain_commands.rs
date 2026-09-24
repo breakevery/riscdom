@@ -39,6 +39,7 @@ fn final_response(text: &str) -> ChatResponse {
 }
 
 #[test]
+#[ignore = "requires a discoverable RISC-V GCC; run with --include-ignored"]
 fn probe_reports_a_discovered_toolchain() {
     let state = state("probe");
     let view = state.probe_toolchain();
@@ -87,6 +88,7 @@ fn a_non_runnable_file_is_rejected() {
 }
 
 #[test]
+#[ignore = "requires a discoverable RISC-V GCC; run with --include-ignored"]
 fn a_path_as_the_file_picker_returns_it_is_accepted() {
     // A native picker hands back a plain path string; on some platforms that is
     // forward-slash form even on Windows. The command must take it as it comes
@@ -104,6 +106,7 @@ fn a_path_as_the_file_picker_returns_it_is_accepted() {
 }
 
 #[test]
+#[ignore = "requires a discoverable RISC-V GCC; run with --include-ignored"]
 fn manual_path_wins_and_clearing_restores_discovery() {
     let state = state("manual");
     let discovered = state.probe_toolchain().path.expect("discovered path");
@@ -297,6 +300,7 @@ fn download_actions(state: &AppState, prefix: &str) -> Vec<String> {
 }
 
 #[test]
+#[ignore = "requires a discoverable QEMU; run with --include-ignored"]
 fn run_agent_refuses_without_a_toolchain() {
     let state = state("missingrun");
     // Test seam: force a broken manual toolchain, then try to run.

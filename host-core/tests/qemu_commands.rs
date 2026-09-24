@@ -21,6 +21,7 @@ fn state_with(dir: &PathBuf) -> AppState {
 }
 
 #[test]
+#[ignore = "requires a discoverable QEMU; run with --include-ignored"]
 fn probe_reports_a_discovered_qemu() {
     let state = state_with(&unique_dir("probe"));
     let view = state.probe_qemu();
@@ -58,6 +59,7 @@ fn a_missing_path_is_rejected() {
 }
 
 #[test]
+#[ignore = "requires a discoverable QEMU; run with --include-ignored"]
 fn a_manual_path_is_stored_and_survives_a_restart() {
     // The same workspace means the same settings file, so a second `AppState`
     // simulates an application restart.
@@ -101,6 +103,7 @@ fn a_manual_path_is_stored_and_survives_a_restart() {
 }
 
 #[test]
+#[ignore = "requires a discoverable QEMU; run with --include-ignored"]
 fn settings_without_the_new_field_still_load() {
     // Backwards compatibility: an older settings.json has no `qemu_path`.
     let workspace = unique_dir("legacy");

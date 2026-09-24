@@ -66,6 +66,7 @@ fn final_response(text: &str) -> ChatResponse {
 }
 
 #[test]
+#[ignore = "requires a discoverable QEMU; run with --include-ignored"]
 fn the_agents_ask_lands_in_the_queue_and_on_the_stream() {
     let state = AppState::in_memory(unique_dir("ask")).expect("state");
     let script = vec![
@@ -121,6 +122,7 @@ fn the_agents_ask_lands_in_the_queue_and_on_the_stream() {
 }
 
 #[test]
+#[ignore = "requires a discoverable QEMU; run with --include-ignored"]
 fn the_agents_status_tool_reports_what_runs_and_what_waits() {
     let state = AppState::in_memory(unique_dir("status")).expect("state");
     // Seed the queue the way the HTTP surface would, then let the model read it.

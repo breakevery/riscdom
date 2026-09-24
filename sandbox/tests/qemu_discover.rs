@@ -9,6 +9,7 @@ use sandbox::qemu_discover::{
 };
 
 #[test]
+#[ignore = "requires a discoverable QEMU; run with --include-ignored"]
 fn discovery_order_and_actionable_errors() {
     // 1. This machine has QEMU (the other sandbox tests boot it).
     let location = discover().expect("QEMU must be discoverable here");

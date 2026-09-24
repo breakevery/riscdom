@@ -44,6 +44,7 @@ fn fake_binary(dir: &Path, name: &str) -> PathBuf {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_working_environment_passes_every_step() {
     let state = state("ok");
     let sink = Arc::new(RecordingEventSink::new());
@@ -136,6 +137,7 @@ fn a_qemu_that_cannot_boot_fails_at_the_boot_step() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_cached_result_is_reused_and_a_new_configuration_reruns() {
     let state = state("cache");
     let first = state.ensure_preflight(true, None).expect("first");

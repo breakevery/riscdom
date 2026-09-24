@@ -41,6 +41,7 @@ fn final_response(text: &str) -> ChatResponse {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_task_dispatched_locally_comes_back_as_an_outcome_that_names_the_agent() {
     let state = Arc::new(AppState::in_memory(unique_dir("ok")).expect("state"));
     *state.llm_override.lock().unwrap() = Some(Arc::new(MockLlm::new(vec![final_response("hi")])));

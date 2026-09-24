@@ -106,6 +106,7 @@ fn without_a_vm_the_status_is_not_running() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn booting_a_vm_sets_running_and_since_ms_then_stopping_clears_it() {
     let state = state_with("run", boot_script());
     let sink = Arc::new(RecordingEventSink::new());
@@ -164,6 +165,7 @@ fn booting_a_vm_sets_running_and_since_ms_then_stopping_clears_it() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn the_status_follows_a_run_that_stops_the_vm_explicitly() {
     // The user asked for it: the script ends with stop_vm.
     let script = {

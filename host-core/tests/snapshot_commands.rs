@@ -107,6 +107,7 @@ fn saving_without_a_vm_is_an_explicit_error() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn save_then_resume_round_trip() {
     let state = booted_state("roundtrip");
 
@@ -133,6 +134,7 @@ fn save_then_resume_round_trip() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn invalid_and_traversal_names_are_rejected() {
     let state = booted_state("byname");
     for bad in ["", "../escape", "a/b", "x.mig"] {

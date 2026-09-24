@@ -6,6 +6,7 @@
 use agent::compiler::{CompilerConfig, ToolchainSource};
 
 #[test]
+#[ignore = "requires a discoverable RISC-V GCC; run with --include-ignored"]
 fn discovery_precedence_and_actionable_errors() {
     // 1. This machine must have a discoverable toolchain (the other agent tests
     //    already require a working compiler).

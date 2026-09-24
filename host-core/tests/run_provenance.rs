@@ -120,6 +120,7 @@ fn chain_status(state: &AppState) -> ChainStatus {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_successful_run_writes_a_matching_start_and_end_pair() {
     let (state, sink) = state_with("ok", boot_script());
     state
@@ -161,6 +162,7 @@ fn a_successful_run_writes_a_matching_start_and_end_pair() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_failing_run_is_closed_as_failed() {
     let (state, sink) = state_with("failed", vec![]);
     *state.llm_override.lock().unwrap() = Some(Arc::new(FailingLlm));
@@ -266,6 +268,7 @@ fn an_unfinished_run_keeps_a_null_end_seq() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_snapshot_restore_opens_a_new_run_linked_to_its_producer() {
     let (state, sink) = state_with("restore", boot_script());
     state
@@ -387,6 +390,7 @@ fn the_fingerprint_reads_the_machine_cpu_and_crt0_from_their_owners() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn the_run_id_never_reaches_the_agent() {
     let (state, sink) = state_with("noid", boot_script());
     state

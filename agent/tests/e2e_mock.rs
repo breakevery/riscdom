@@ -12,6 +12,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn e2e_mock_full_cycle() {
     let root = unique_dir("e2e");
     let policy = WorkspacePolicy::new(root.clone());

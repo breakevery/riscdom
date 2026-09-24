@@ -102,6 +102,7 @@ fn booted_state(tag: &str) -> AppState {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_manual_qemu_path_is_used_by_a_snapshot_restore() {
     let state = booted_state("manual-qemu");
     let bytes = state.save_snapshot_real("s-manual").expect("save");

@@ -99,6 +99,7 @@ fn corrupt_json_loads_defaults_without_panicking() {
 }
 
 #[test]
+#[ignore = "requires a discoverable RISC-V GCC; run with --include-ignored"]
 fn a_manual_toolchain_survives_a_restart() {
     // The same workspace means the same settings file, so a second `AppState`
     // simulates an application restart.

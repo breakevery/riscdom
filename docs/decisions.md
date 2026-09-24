@@ -908,3 +908,32 @@ another rule on every pull request, and it would put a `Signed-off-by` check int
 **Impact**: `.github/` carries no DCO check. The issue forms and the pull-request template added
 in the same batch ask for the CLA and for the gate, not for a sign-off. If a DCO is ever wanted
 on top of the CLA, it is a new entry here and a new CI step — not a rewrite of §20.
+
+## 44. A test that needs a guest or a toolchain says so in its `#[ignore]` marker
+
+**Date**: 2026-09-24 ｜ **Status**: Decided
+
+**Decision**: A test whose environment prerequisite the CI runner does not have carries
+`#[ignore = "<what it needs>; run with --include-ignored"]`, one of three markers: `requires a QEMU
+guest and a RISC-V GCC` (it compiles a guest and boots it), `requires a discoverable QEMU` (it
+builds a VM handle or probes discovery without booting) or `requires a discoverable RISC-V GCC`.
+The gate then splits by **capability**, not by platform: without the tools it runs
+`cargo test --workspace --no-fail-fast` (the markers keep the dependent tests out), with them
+`cargo test --no-fail-fast -- --include-ignored` plus a `--skip` flag for each test that needs a
+`DEEPSEEK_API_KEY` or writes a real OS-keyring entry. A test that needs none of that stays
+unmarked and runs everywhere.
+
+**Why**: The split used to be by platform — non-Windows ran
+`cargo test -p audit -p sandbox --lib`, 10 tests of 638 — so everything below it silently lost its
+coverage off Windows, and the loss was only noticed when a Linux step finally compiled `host-core`
+and went red (E4). The prerequisite is a capability, not an OS. The marker's reason field is the
+only place a requirement can live, because Rust has no test tags — and `--skip` filters on the
+**test name**, which for an integration test is the function name: a file name never matches, and
+a short substring can take portable tests with it (`--skip keyring` would have taken three, two of
+them portable).
+
+**Impact**: 50 tests carry a marker (37 + 8 + 5), the `tests/` ignores went from 8 to 58, and
+`scripts/gate.sh` has no per-platform test branch left. Without the tools `cargo test --workspace`
+runs 588 tests where it ran 10; with them `--include-ignored` runs 643. A test that quietly needs a
+tool now fails on the runner instead of being skipped — the three markers exist so the
+prerequisite is **named** rather than inferred.

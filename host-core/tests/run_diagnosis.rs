@@ -87,6 +87,7 @@ fn state_with(tag: &str, script: Vec<ChatResponse>) -> (AppState, Arc<RecordingE
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn the_report_names_the_failing_tool_step() {
     // A policy-denied write is a real end-to-end failure that needs no QEMU.
     let (state, sink) = state_with(
@@ -133,6 +134,7 @@ fn the_report_names_the_failing_tool_step() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_failed_run_reports_reason_and_empty_serial() {
     let (state, sink) = state_with("diag-failed", vec![]);
     *state.llm_override.lock().unwrap() = Some(Arc::new(FailingLlm));

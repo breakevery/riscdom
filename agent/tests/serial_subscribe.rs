@@ -112,6 +112,7 @@ fn collect_until(rx: &Receiver<Vec<u8>>, needle: &[u8], timeout: Duration) -> Ve
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn subscriber_receives_live_serial_output() {
     let mut agent = agent_loop("sub-one");
     let rx = agent.subscribe_serial();
@@ -128,6 +129,7 @@ fn subscriber_receives_live_serial_output() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn multiple_subscribers_receive_the_same_data() {
     let mut agent = agent_loop("sub-two");
     let rx1 = agent.subscribe_serial();
@@ -144,6 +146,7 @@ fn multiple_subscribers_receive_the_same_data() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn dropping_a_receiver_does_not_break_the_loop() {
     let mut agent = agent_loop("sub-drop");
     let rx = agent.subscribe_serial();

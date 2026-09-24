@@ -50,6 +50,7 @@ fn config(elf: PathBuf, snapshot_dir: PathBuf, tag: &str) -> VMConfig {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn real_snapshot_round_trip_via_tcp_relay() {
     let elf = build_guest("hello_phases.c");
     let dir = unique_dir("roundtrip");
@@ -127,6 +128,7 @@ fn real_snapshot_round_trip_via_tcp_relay() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn resuming_a_missing_snapshot_fails_clearly() {
     let elf = build_guest("hello_phases.c");
     let dir = unique_dir("missing");

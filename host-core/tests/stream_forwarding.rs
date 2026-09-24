@@ -40,6 +40,7 @@ fn final_response(text: &str) -> ChatResponse {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn stream_deltas_are_forwarded_then_done_then_final() {
     let state = AppState::in_memory(unique_dir("fwd")).expect("state");
     *state.llm_override.lock().unwrap() = Some(Arc::new(MockLlm::new(vec![final_response(TEXT)])));

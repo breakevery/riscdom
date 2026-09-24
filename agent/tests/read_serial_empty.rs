@@ -15,6 +15,7 @@ use sandbox::vm::{RiscVVirtualMachine, VMConfig};
 use std::sync::Arc;
 
 #[test]
+#[ignore = "requires a discoverable QEMU; run with --include-ignored"]
 fn an_empty_buffer_returns_a_notice_not_an_empty_string() {
     let root = unique_dir("read-serial-empty");
     let policy = WorkspacePolicy::new(root.clone());

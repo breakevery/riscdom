@@ -72,6 +72,7 @@ fn run(state: &AppState, input: &str) {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_run_creates_a_session_and_persists_the_turn() {
     let state = state_with("create", vec![text_response("hi there")]);
 
@@ -90,6 +91,7 @@ fn a_run_creates_a_session_and_persists_the_turn() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_second_run_appends_to_the_same_session() {
     let state = state_with(
         "append",
@@ -111,6 +113,7 @@ fn a_second_run_appends_to_the_same_session() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn tool_calls_and_results_are_persisted_as_history() {
     // tool_call → (tool result) → final answer.
     let state = state_with(
@@ -167,6 +170,7 @@ impl LlmClient for RecordingLlm {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn history_is_injected_back_into_the_loop_without_the_system_prompt() {
     let state = AppState::in_memory(unique_dir("history")).expect("state");
     let llm = Arc::new(RecordingLlm::new(vec![
@@ -207,6 +211,7 @@ fn history_is_injected_back_into_the_loop_without_the_system_prompt() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn rename_and_delete_sessions() {
     let state = state_with("rename", vec![text_response("ok")]);
     run(&state, "original title");
@@ -229,6 +234,7 @@ fn rename_and_delete_sessions() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn clear_all_sessions_removes_everything() {
     let state = state_with("clear", vec![text_response("ok")]);
     run(&state, "one");

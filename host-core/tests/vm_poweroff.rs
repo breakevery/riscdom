@@ -89,6 +89,7 @@ fn poweroff_script() -> Vec<ChatResponse> {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn a_guest_that_powered_off_is_not_reported_as_running() {
     let state = AppState::in_memory(unique_dir("halt")).expect("state");
     *state.llm_override.lock().unwrap() = Some(Arc::new(MockLlm::new(poweroff_script())));

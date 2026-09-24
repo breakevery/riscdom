@@ -35,6 +35,7 @@ fn config(elf: PathBuf, observer: Option<SerialObserver>) -> VMConfig {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn observer_receives_the_same_bytes_as_the_buffer() {
     let elf = build_guest("hello_split.c");
     let (audit, _shared) = sink();
@@ -80,6 +81,7 @@ fn observer_receives_the_same_bytes_as_the_buffer() {
 }
 
 #[test]
+#[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn panicking_observer_does_not_kill_the_vm() {
     let elf = build_guest("hello_split.c");
     let (audit, shared) = sink();
