@@ -171,6 +171,26 @@ fn zig_runs(path: &Path) -> Result<String, String> {
     }
 }
 
+/// Run `<path> --version` for `rustc`; returns its first output line, or the raw error text.
+///
+/// The version matters more here than anywhere else: a Rust sysroot is only usable by the
+/// `rustc` release that produced it, so the host reports both together (v0.9 F3b-1).
+fn rust_runs(path: &Path) -> Result<String, String> {
+    match std::process::Command::new(path).arg("--version").output() {
+        Ok(out) if out.status.success() => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let first = text.lines().next().unwrap_or_default().trim().to_string();
+            Ok(if first.is_empty() {
+                "ok".to_string()
+            } else {
+                first
+            })
+        }
+        Ok(out) => Err(format!("`--version` exited with {}", out.status)),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Run `<path> --version`; returns its first output line, or the raw error text
 /// (callers add their own, single, `not runnable:` prefix).
 fn toolchain_runs(path: &Path) -> Result<String, String> {
@@ -472,6 +492,10 @@ pub struct AppState {
     /// auto-discovery. Parallel to [`Self::toolchain_path`] rather than a map: the
     /// language follows the source extension, so one sandbox pins **two** compilers.
     pub zig_path: Mutex<Option<PathBuf>>,
+    /// User-chosen Rust sysroot (`set_rust_sysroot`, v0.9 F3b-1); `None` means the
+    /// environment. The third single value — and the only one that names a *directory*, since
+    /// what Rust needs from us is the target's `core`, not an executable.
+    pub rust_sysroot: Mutex<Option<PathBuf>>,
     /// User-chosen QEMU (`set_qemu_path`); `None` means auto-discovery.
     pub qemu_path: Mutex<Option<PathBuf>>,
     /// In-flight toolchain download (v0.3 #3b). `Arc` so the worker thread can
@@ -904,6 +928,7 @@ impl AppState {
             vm_slot: Arc::new(Mutex::new(None)),
             toolchain_path: Mutex::new(None),
             zig_path: Mutex::new(None),
+            rust_sysroot: Mutex::new(None),
             qemu_path: Mutex::new(None),
             toolchain_download: Arc::new(Mutex::new(None)),
             qemu_download: Arc::new(Mutex::new(None)),
@@ -1556,6 +1581,18 @@ impl AppState {
         if let Some(zig) = self.zig_path.lock().ok().and_then(|g| g.clone()) {
             cfg.zig = agent::ZigConfig::manual(zig);
         }
+        // v0.9 F3b-1: same for Rust's sysroot (the Rust compiler itself is the machine's).
+        cfg.rust = self.rust_config();
+        cfg
+    }
+
+    /// Effective Rust config: an explicit user sysroot wins over the environment
+    /// (v0.9 F3b-1).
+    pub fn rust_config(&self) -> agent::RustConfig {
+        let mut cfg = agent::RustConfig::from_env();
+        if let Some(sysroot) = self.rust_sysroot.lock().ok().and_then(|g| g.clone()) {
+            cfg.sysroot = Some(sysroot);
+        }
         cfg
     }
 
@@ -1652,6 +1689,61 @@ impl AppState {
             "host.zig.set",
             serde_json::json!({ "path": p.display().to_string(), "version": version }),
         );
+        Ok(())
+    }
+
+    /// Store a user-chosen Rust sysroot (v0.9 F3b-1).
+    ///
+    /// A sysroot has no `--version` to run, so the check is about **shape**: the target's
+    /// library directory has to be inside it. Refusing here turns "the compile fails later
+    /// with a rustc message" into "this directory is not a sysroot". The `rustc` version is
+    /// reported next to it because the two must match.
+    pub fn set_rust_sysroot(&self, path: &str) -> Result<(), HostError> {
+        let p = PathBuf::from(path.trim());
+        if !p.is_dir() {
+            return Err(HostError::Other(format!(
+                "not a directory: {}",
+                p.display()
+            )));
+        }
+        let target = agent::RustConfig::from_env().target;
+        let libs = p.join("lib").join("rustlib").join(&target).join("lib");
+        if !libs.is_dir() {
+            return Err(HostError::Other(format!(
+                "no Rust libraries for {target} under {}: expected {}",
+                p.display(),
+                libs.display()
+            )));
+        }
+        *self
+            .rust_sysroot
+            .lock()
+            .map_err(|_| HostError::Other("rust lock poisoned".into()))? = Some(p.clone());
+        if let Ok(mut g) = self.settings.lock() {
+            g.rust_sysroot = Some(p.display().to_string());
+        }
+        self.save_settings();
+        let version = agent::RustConfig::discover()
+            .ok()
+            .and_then(|rustc| rust_runs(&rustc).ok());
+        self.emit_host(
+            "host.rust.set",
+            serde_json::json!({ "path": p.display().to_string(), "version": version }),
+        );
+        Ok(())
+    }
+
+    /// Drop the manual Rust sysroot and fall back to the environment (v0.9 F3b-1).
+    pub fn clear_rust_sysroot(&self) -> Result<(), HostError> {
+        *self
+            .rust_sysroot
+            .lock()
+            .map_err(|_| HostError::Other("rust lock poisoned".into()))? = None;
+        if let Ok(mut g) = self.settings.lock() {
+            g.rust_sysroot = None;
+        }
+        self.save_settings();
+        self.emit_host("host.rust.clear", serde_json::json!({}));
         Ok(())
     }
 
@@ -2341,6 +2433,9 @@ impl AppState {
         }
         if let Ok(mut g) = self.zig_path.lock() {
             *g = loaded.zig_path.map(PathBuf::from);
+        }
+        if let Ok(mut g) = self.rust_sysroot.lock() {
+            *g = loaded.rust_sysroot.map(PathBuf::from);
         }
         if let Ok(mut g) = self.qemu_path.lock() {
             *g = loaded.qemu_path.map(PathBuf::from);

@@ -39,7 +39,7 @@ The array below is the exact value of `tools_json()`, in the order the kernel se
     "type": "function",
     "function": {
       "name": "write_source",
-      "description": "Write a C, RISC-V assembly or Zig source file into the workspace. Only .c/.h/.S/.s/.zig are allowed. Paths are relative to the workspace.",
+      "description": "Write a C, RISC-V assembly, Zig or Rust source file into the workspace. Only .c/.h/.S/.s/.zig/.rs are allowed. Paths are relative to the workspace.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -54,7 +54,7 @@ The array below is the exact value of `tools_json()`, in the order the kernel se
     "type": "function",
     "function": {
       "name": "compile",
-      "description": "Compile a workspace source file into a bare-metal RISC-V ELF at load address 0x80000000. Define `int main(void)` in C; a `.zig` source defines `export fn _start()`.",
+      "description": "Compile a workspace source file into a bare-metal RISC-V ELF at load address 0x80000000. Define `int main(void)` in C; a `.zig` source defines `export fn _start()`; a `.rs` source defines `_start` under `#[no_mangle]`.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -132,8 +132,8 @@ The array below is the exact value of `tools_json()`, in the order the kernel se
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `write_source` | `path`, `content` | Writes a source file. Only `.c` / `.h` / `.S` / `.s` / `.zig`, and only inside the workspace. |
-| `compile` | `source_path`, `output_elf` | Compiles one source file to a bare-metal RISC-V ELF at `0x80000000`. The language follows the extension: `.c` / `.h` / `.S` / `.s` → GCC, `.zig` → Zig. |
+| `write_source` | `path`, `content` | Writes a source file. Only `.c` / `.h` / `.S` / `.s` / `.zig` / `.rs`, and only inside the workspace. |
+| `compile` | `source_path`, `output_elf` | Compiles one source file to a bare-metal RISC-V ELF at `0x80000000`. The language follows the extension: `.c` / `.h` / `.S` / `.s` → GCC, `.zig` → Zig, `.rs` → Rust (needs a `rustc` and a `rust_sysroot`). |
 | `start_vm` | `elf_path` | Starts QEMU with that ELF. A second start is refused, not queued. |
 | `read_serial` | — | Everything the guest has printed to the UART so far. |
 | `stop_vm` | — | Stops the VM. The description tells the model **not** to do this at the end of a task: the VM outlives a run. |

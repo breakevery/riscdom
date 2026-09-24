@@ -152,8 +152,9 @@ pub fn tool_specs() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
             name: "write_source".into(),
-            description: "Write a C, RISC-V assembly or Zig source file into the workspace. \
-                          Only .c/.h/.S/.s/.zig are allowed. Paths are relative to the workspace."
+            description: "Write a C, RISC-V assembly, Zig or Rust source file into the \
+                          workspace. Only .c/.h/.S/.s/.zig/.rs are allowed. Paths are relative \
+                          to the workspace."
                 .into(),
             parameters: obj(
                 serde_json::json!({
@@ -167,7 +168,8 @@ pub fn tool_specs() -> Vec<ToolSpec> {
             name: "compile".into(),
             description: "Compile a workspace source file into a bare-metal RISC-V ELF at \
                           load address 0x80000000. Define `int main(void)` in C; a `.zig` \
-                          source defines `export fn _start()`."
+                          source defines `export fn _start()`; a `.rs` source defines \
+                          `_start` under `#[no_mangle]`."
                 .into(),
             parameters: obj(
                 serde_json::json!({

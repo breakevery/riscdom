@@ -27,6 +27,14 @@ pub struct LocalSettings {
     /// `SETTINGS_VERSION` does not move.
     #[serde(default)]
     pub zig_path: Option<String>,
+    /// Manual Rust sysroot (v0.9 F3b-1); `None` means the environment (`RISCDOM_RUST_SYSROOT`).
+    ///
+    /// The third single value beside `toolchain_path` and `zig_path`. It names a
+    /// **directory**, not an executable: the `rust-std-<target>/` tree that carries `core`.
+    /// Additive like the others: an older file loads with `None` and `SETTINGS_VERSION` does
+    /// not move.
+    #[serde(default)]
+    pub rust_sysroot: Option<String>,
     /// Manual QEMU executable path; `None` means auto-discovery (v0.3 5b-1a).
     #[serde(default)]
     pub qemu_path: Option<String>,
@@ -107,6 +115,7 @@ impl Default for LocalSettings {
             version: SETTINGS_VERSION,
             toolchain_path: None,
             zig_path: None,
+            rust_sysroot: None,
             qemu_path: None,
             preflight: None,
             theme: None,
@@ -131,6 +140,7 @@ impl LocalSettings {
                 settings.version = SETTINGS_VERSION;
                 settings.toolchain_path = settings.toolchain_path.filter(|p| !p.trim().is_empty());
                 settings.zig_path = settings.zig_path.filter(|p| !p.trim().is_empty());
+                settings.rust_sysroot = settings.rust_sysroot.filter(|p| !p.trim().is_empty());
                 settings.qemu_path = settings.qemu_path.filter(|p| !p.trim().is_empty());
                 // An executor needs both halves of a command line to be routable:
                 // a label with nothing to run is not an executor, and keeping it

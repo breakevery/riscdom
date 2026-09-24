@@ -3,8 +3,8 @@
 # agent
 
 The RiscDom **AI agent runtime**: natural language drives an LLM to write C, RISC-V
-assembly or Zig (v0.9 F3a), compile, run, read the serial console and iterate inside a
-RISC-V virtual sandbox.
+assembly, Zig or Rust (v0.9 F3a / F3b-1), compile, run, read the serial console and iterate
+inside a RISC-V virtual sandbox.
 
 Dependency direction: `agent → sandbox`, `agent → audit`.
 
@@ -144,7 +144,7 @@ truncated arguments. It is an **audit** row, not an SSE event: it belongs on the
 
 1. Any path containing `..` is rejected outright (traversal guard).
 2. Resolved to an absolute path it must stay inside the workspace root, otherwise rejected.
-3. Writes additionally require an allowlisted extension (`.c/.h/.S/.s/.zig`).
+3. Writes additionally require an allowlisted extension (`.c/.h/.S/.s/.zig/.rs`).
 4. Every rejection writes an `agent.policy.deny` audit event.
 
 Tools always pass the policy check before executing; the agent never calls QEMU directly, only

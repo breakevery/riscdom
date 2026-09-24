@@ -77,6 +77,14 @@ the C compiler, `set_zig_path` for Zig. The language travels as a label every ed
 still means C — and an optional argument on the Tauri command), and the status reports it back.
 Zig's checksums are pinned in the source like xPack's.
 
+**Rust compiles too, when the machine has a `rustc` and a sysroot for the target.** `compile`
+dispatches on the extension a third time: `.rs` goes through `rustc --target
+riscv64gc-unknown-none-elf --sysroot <dir>` with the same generated `link.ld` the C and Zig
+paths use, the configured RISC-V GCC as its linker, and `panic=abort`. `rustc` comes from the
+machine (like QEMU) and the sysroot is a setting — a `rust-std-<target>/` directory, since what
+Rust needs from us is the target's `core`. A missing half is refused by name, never silently.
+Downloading `rust-std` is a separate batch.
+
 ### Added
 
 - **Zig compiles (v0.9 F3a)**: `compile` dispatches on the source extension — `.c` /

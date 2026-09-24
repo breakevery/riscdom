@@ -25,7 +25,7 @@
     "type": "function",
     "function": {
       "name": "write_source",
-      "description": "Write a C, RISC-V assembly or Zig source file into the workspace. Only .c/.h/.S/.s/.zig are allowed. Paths are relative to the workspace.",
+      "description": "Write a C, RISC-V assembly, Zig or Rust source file into the workspace. Only .c/.h/.S/.s/.zig/.rs are allowed. Paths are relative to the workspace.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -40,7 +40,7 @@
     "type": "function",
     "function": {
       "name": "compile",
-      "description": "Compile a workspace source file into a bare-metal RISC-V ELF at load address 0x80000000. Define `int main(void)` in C; a `.zig` source defines `export fn _start()`.",
+      "description": "Compile a workspace source file into a bare-metal RISC-V ELF at load address 0x80000000. Define `int main(void)` in C; a `.zig` source defines `export fn _start()`; a `.rs` source defines `_start` under `#[no_mangle]`.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -118,8 +118,8 @@
 
 | 工具 | 参数 | 它做什么 |
 |---|---|---|
-| `write_source` | `path`、`content` | 写一个源文件。只允许 `.c` / `.h` / `.S` / `.s` / `.zig`，且只在 workspace 内。 |
-| `compile` | `source_path`、`output_elf` | 把一个源文件编到 `0x80000000` 的裸机 RISC-V ELF。语言按扩展名分派：`.c` / `.h` / `.S` / `.s` → GCC，`.zig` → Zig。 |
+| `write_source` | `path`、`content` | 写一个源文件。只允许 `.c` / `.h` / `.S` / `.s` / `.zig` / `.rs`，且只在 workspace 内。 |
+| `compile` | `source_path`、`output_elf` | 把一个源文件编到 `0x80000000` 的裸机 RISC-V ELF。语言按扩展名分派：`.c` / `.h` / `.S` / `.s` → GCC，`.zig` → Zig，`.rs` → Rust（需要 `rustc` 与 `rust_sysroot`）。 |
 | `start_vm` | `elf_path` | 用那个 ELF 启 QEMU。第二次启动会被拒绝，不排队。 |
 | `read_serial` | —— | 客户机到目前为止写到 UART 的一切。 |
 | `stop_vm` | —— | 停 VM。描述明确告诉模型**不要**在任务结束时做这件事：VM 比一次运行活得久。 |

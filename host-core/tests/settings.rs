@@ -25,6 +25,7 @@ fn a_missing_file_loads_defaults() {
     assert_eq!(settings.version, SETTINGS_VERSION);
     assert_eq!(settings.toolchain_path, None);
     assert_eq!(settings.zig_path, None);
+    assert_eq!(settings.rust_sysroot, None);
 }
 
 #[test]
@@ -37,6 +38,7 @@ fn save_then_load_round_trips() {
             r"C:\tools\riscv64-unknown-elf\bin\riscv64-unknown-elf-gcc.exe".into(),
         ),
         zig_path: Some(r"C:\tools\zig\zig.exe".into()),
+        rust_sysroot: Some(r"C:\tools\rust-std-riscv64gc-unknown-none-elf".into()),
         preflight: None,
         theme: None,
         language: None,
@@ -148,6 +150,42 @@ fn a_manual_toolchain_survives_a_restart() {
 /// A machine without Zig prints a skip rather than failing — the gate runs every ignored
 /// test with `--include-ignored`, so this one guards itself instead of carrying a marker
 /// that only holds on a machine that has Zig.
+/// v0.9 F3b-1: the Rust sysroot is a **directory**, and the host refuses one that does not
+/// carry the target's libraries — which turns "the compile fails later with a rustc message"
+/// into "this directory is not a sysroot".
+#[test]
+fn a_rust_sysroot_must_carry_the_targets_libraries() {
+    let workspace = unique_dir("rust-sysroot");
+    let target = agent::RustConfig::from_env().target;
+
+    let good = workspace.join("rust-std-riscv");
+    std::fs::create_dir_all(good.join("lib").join("rustlib").join(&target).join("lib"))
+        .expect("mkdir");
+    let hollow = workspace.join("not-a-sysroot");
+    std::fs::create_dir_all(&hollow).expect("mkdir");
+
+    {
+        let state = AppState::in_memory(&workspace).expect("state");
+        let err = state
+            .set_rust_sysroot(&hollow.display().to_string())
+            .expect_err("a directory without the target's libraries is not a sysroot");
+        println!("{err}");
+
+        state
+            .set_rust_sysroot(&good.display().to_string())
+            .expect("a sysroot-shaped directory is accepted");
+        assert_eq!(state.rust_config().sysroot, Some(good.clone()));
+    }
+
+    // "Restart": the choice comes back from settings.json.
+    let restarted = AppState::in_memory(&workspace).expect("state");
+    assert_eq!(restarted.rust_config().sysroot, Some(good.clone()));
+
+    restarted.clear_rust_sysroot().expect("clear");
+    let cleared = AppState::in_memory(&workspace).expect("state");
+    assert_eq!(cleared.rust_config().sysroot, None);
+}
+
 #[test]
 fn a_manual_zig_path_survives_a_restart() {
     let Some(zig) = agent::ZigConfig::discover().ok() else {

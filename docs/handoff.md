@@ -13,6 +13,28 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **Rust compiles too, when the machine has a `rustc` and a sysroot for the target**
+  (v0.9 multi-language batch F3b-1). `compile` dispatches on the extension a third time: `.rs`
+  goes through `rustc --target riscv64gc-unknown-none-elf --sysroot <dir>` with the generated
+  `link.ld` (shared with C and Zig), the **configured** RISC-V GCC as the linker
+  (`-Clinker=…` — deliberately not the `riscv64-unknown-elf-gcc` the draft command hard-coded,
+  because an xPack install is `riscv-none-elf-gcc`), plus `-Cpanic=abort`,
+  `-Crelocation-model=static`, `-Ccode-model=medany` and `-Clink-arg=-{march,mabi,nostartfiles,T}`.
+  `RustConfig` is the third language config and the first whose **two halves can both be
+  absent**: `rustc` is discovered (`RISCDOM_RUSTC` → `PATH`, like Zig) and the sysroot comes
+  from `settings.rust_sysroot` (or `RISCDOM_RUST_SYSROOT`) — a **directory**, not an
+  executable, because what Rust needs from us is the target's `core`. A missing half is an
+  explicit refusal that names it (`RustConfig::require`), never a silent failure.
+  `RUSTUP_TOOLCHAIN` is cleared **for the child only**, so a `rust-toolchain.toml` cannot switch
+  the compiler out from under the sysroot, and parallel builds are unaffected. The host refuses
+  a sysroot that does not carry `lib/rustlib/<target>/lib` (`set_rust_sysroot`) and reports the
+  `rustc` version beside it, because the two must match. **6 new tests** (4 unit in
+  `compiler.rs` — the exact `rustc` argv, the extension arm, both missing-half refusals, the
+  Rust search log; `policy::allows_rust_inside_root`; and a host-side test that a sysroot must
+  carry the target's libraries). The real compile test prints
+  `skip: compiles_hello_rs_fixture -- no rustc + target sysroot` here: **this machine has no
+  target `std`** (`rustup target list --installed` is the host triple only). `rust-std` is still
+  not downloadable (F3b-2), and §5's ban on Rust is still un-annotated (F3b-3).
 - **The stderr reader behind `server/tests/logging.rs` no longer stops at the first line it
   cannot read, and a failing wait now says why** (v0.9 logging batch). `the_connection_line_
   appears_at_info` failed **twice** on Linux CI (both attempts 5.09 s, the same message: only the

@@ -12,7 +12,7 @@ use std::path::{Component, Path, PathBuf};
 pub struct WorkspacePolicy {
     /// Workspace root (normalised, absolute).
     pub root: PathBuf,
-    /// Allowed write extensions, e.g. `[".c", ".h", ".S", ".s", ".zig"]`.
+    /// Allowed write extensions, e.g. `[".c", ".h", ".S", ".s", ".zig", ".rs"]`.
     pub allowed_extensions: Vec<String>,
 }
 
@@ -21,15 +21,16 @@ impl WorkspacePolicy {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self {
             root: normalize(&root.into()),
-            // `.zig` joins the list in v0.9 F3a: the second language is chosen by
-            // extension (`.zig` → Zig, everything else → GCC), so the write allow-list
-            // has to admit it too.
+            // `.zig` joins the list in v0.9 F3a and `.rs` in v0.9 F3b-1: a language is
+            // chosen by extension (`.zig` → Zig, `.rs` → Rust, everything else → GCC), so
+            // the write allow-list has to admit them too.
             allowed_extensions: vec![
                 ".c".into(),
                 ".h".into(),
                 ".S".into(),
                 ".s".into(),
                 ".zig".into(),
+                ".rs".into(),
             ],
         }
     }
@@ -153,6 +154,16 @@ mod tests {
             .expect("allow hello.zig");
         assert_eq!(ok, normalize(&root.join("hello.zig")));
         assert!(p.check_write(Path::new("sub/start.ZIG")).is_ok());
+    }
+
+    #[test]
+    fn allows_rust_inside_root() {
+        let (p, root) = policy();
+        let ok = p
+            .check_write(Path::new("hello.rs"))
+            .expect("allow hello.rs");
+        assert_eq!(ok, normalize(&root.join("hello.rs")));
+        assert!(p.check_write(Path::new("sub/lib.RS")).is_ok());
     }
 
     #[test]
