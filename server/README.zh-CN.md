@@ -28,6 +28,7 @@ riscdom-server --bind 127.0.0.1:7821 --workspace ./my-workspace
 | `--bind <addr>` | `127.0.0.1:7821`，或 `$RISCDOM_BIND` | 监听地址。 |
 | `--workspace <dir>` | 当前目录 | 本宿主拥有的 workspace。其审计链位于 `<workspace>/.riscdom/audit.db`。 |
 | `--data-dir <dir>` | 本平台的宿主数据目录 | settings 与 sessions 所在处（v0.8 的注入式 data dir）。 |
+| `--web-root <dir>` | 无 | 从这里提供**构建好的 Web UI**（v0.9 D2a）：`/` 回 `index.html`，`/assets/*` 回它的文件，与 API 同源。请求时读盘，因此不内嵌任何东西。不给此参数时，只提供 API，与之前完全一致。 |
 | `--heartbeat-ms <n>` | `15000` | SSE 心跳周期；`0` 关闭。 |
 | `--auth` | 开 | 要求 `<data-dir>/token` 里的 bearer token（默认）。 |
 | `--no-auth` | | 取消该要求并打印警告：仅用于本地调试。 |
@@ -38,6 +39,8 @@ riscdom-server --bind 127.0.0.1:7821 --workspace ./my-workspace
 启动横幅、用法文本与致命错误**不在** `--log-level` 之后：它们是本二进制自己的控制台输出，且内嵌场景根本不会跑到这个 `main`。
 
 默认只绑回环是刻意的：本构建提供**明文 HTTP**，未明确指定时不会监听公网接口。
+
+带 `--web-root` 时，服务端还会从该目录应答 `/` 与 `/assets/*`（即 `ui/` 里 `npm run build` 的产物）——这正是让管理界面能在局域网内用手机浏览器打开的东西。三件事是刻意的：页面**不需要 token**（文档、样式表与脚本不带任何秘密；`/v0/` 下的一切仍然要），**没有 SPA fallback**（未知路径就是 API 的 404），且资源是每次请求读盘，所以前端重建不需要重编 Rust。路径穿越会被拒：名字里带 `..` 的永远不会是一个文件，而真正找到的文件必须解析在 web root 之内。
 
 ## 端点
 

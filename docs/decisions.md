@@ -1218,3 +1218,33 @@ not to quietly copy the audit store's WAL in.
 and the audit store is untouched. The leftover `docs/multi-agent-foundation.md` recorded ("the
 sessions DB has no WAL or busy timeout") is superseded. The asymmetry between the two stores is now a
 decision rather than an omission.
+
+## 55. The Web UI is served outside the route table, and without a capability
+
+**Date**: 2026-09-24 ｜ **Status**: Decided; landed with the v0.9 D2a batch
+
+**Decision**: when `riscdom-server` is given `--web-root <dir>` it serves that directory's
+`index.html` at `/` and its files under `/assets/*`, **before** the route table is consulted and
+**without** an `Authn` check. Only `GET` is served this way, only those two shapes are in the
+namespace, there is **no SPA fallback**, and **no route is added to `ROUTES`** for any of it. The
+directory is read at request time; nothing is embedded in the binary. Everything behind `/v0/*` is
+unchanged and still capability-checked.
+
+**Why**: three reasons, each of which would have been a defect in a different design. (a) The route
+table **is** the API: `Capability::ALL` is a vocabulary, every route declares one, and two tests hold
+the table against the documents in both languages. A static file has no capability to declare, so
+putting it there would have forced either a fake capability or a second notion of "route". (b) The
+assets carry no secret — a document, a stylesheet and a script that only call the API. Requiring a
+token for them buys nothing (an unauthenticated request still learns nothing about the host) and
+costs the one thing that matters: the page that asks for the token. (c) The alternative — a second
+static server, or CORS — puts the UI on a different origin than the API, which turns a same-origin
+`fetch` into a preflighted cross-origin one and makes the token a cross-site credential.
+
+**Impact**: `.js` / `.css` / image types are mapped explicitly (`content_type_for`), and hashed
+assets are `immutable` while `index.html` is `no-cache`, because an `index.html` naming assets a
+later build deleted is the one stale file that breaks the app. Traversal is refused twice: the name
+may contain no `..`, root or prefix component (the `workspace_io::safe_relative` rule), **and** the
+file that is found must canonicalize inside the resolved root, because a symlink inside the root can
+point out of it; a client-supplied name is never percent-decoded, so an encoded `..` is a file that
+does not exist rather than a traversal. Without `--web-root`, `/` answers a 404 whose message names
+the flag. D2b builds the page this serves.

@@ -41,6 +41,8 @@
 
 **会话库会等锁，而不是当场失败。** SQLite 的 `busy_timeout` 默认是 0，所以第二个进程写 `sessions.db` 时会**立即**收到 `SQLITE_BUSY`——而这个失败落在 `SessionStore::open` 里，倒下的不是一条命令而是**整个实例**。两个进程确实可能撞上同一个文件（两个走默认路径的 CLI / 服务器进程，或显式共用 `--data-dir`），因此连接现在会等 5 秒，且在它**第一次写之前**就设好，与审计库同一个形状。**故意不开** WAL：审计库本来就是要跨进程共享的，会话库是 per-instance，所以两者的并发模型本就不同（决策 §54）。另外 `append_message` 现在是**一个事务**：消息插入与会话 `updated_at_ms` 的更新原本是两条语句，中途失败会留下一条「与其会话时间戳相矛盾」的消息。
 
+**控制平面可以自己提供 Web UI 了。** `riscdom-server --web-root <dir>` 把构建好的前端挂在 `/` 与 `/assets/*`：与 API 同源（所以浏览器的 `fetch` 不需要 CORS 层），位置在路由表之前、且不做 capability 检查——资源不带秘密，而 `/v0/*` 下的一切仍然要认证。命名空间就是这两种形状、仅限 `GET`、没有 SPA fallback，也没有往被文档锁死的表里加任何路由；hash 资源缓存 `immutable`，`index.html` 是 `no-cache`，而名字从不做百分号解码（编码过的 `..` 是「不存在的文件」，不是穿越）。不给 `--web-root` 时，服务端与从前完全一样，而 `/` 会说清为何没有界面。同批修正：`docs/control-plane-events.md` 曾描述一个从不存在的 cookie 会话端点——这条流是用 `Authorization` 头认证的，所以浏览器用 `fetch` + `ReadableStream` 去读（文档现在给的正是这段代码，而不是带 cookie 的 `EventSource`）。
+
 ### 新增
 
 - **Zig 可编译（v0.9 F3a）**：`compile` 按源扩展名分派——`.c` / `.h` / `.S` / `.s` 走 GCC，`.zig` 走 `zig build-exe -target riscv64-freestanding`。Zig 不注入任何东西：源自己写 `_start`（`-bios none` 的客机跳到载入地址，所以启动代码必须排最前），生成的 `link.ld` 原样复用。`ZigConfig` 负责探测（`RISCDOM_ZIG` → 已知路径 → `PATH`），`settings.json` 新增 `zig_path`，由 `AppState::set_zig_path` / `clear_zig_path` 固定与清除。Zig 归档**不**在本批下载：其 macOS/Linux 构建是 `.tar.xz`，现有下载器无法解包（独立批次，与 Rust 共用）。

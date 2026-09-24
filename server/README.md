@@ -38,6 +38,7 @@ riscdom-server --bind 127.0.0.1:7821 --workspace ./my-workspace
 | `--bind <addr>` | `127.0.0.1:7821`, or `$RISCDOM_BIND` | Address to listen on. |
 | `--workspace <dir>` | the current directory | The workspace this host owns. Its audit chain lives at `<workspace>/.riscdom/audit.db`. |
 | `--data-dir <dir>` | this platform's host data dir | Where settings and sessions live (the v0.8 injected-data-dir path). |
+| `--web-root <dir>` | none | Serve the **built Web UI** from here (v0.9 D2a): `index.html` at `/` and its files under `/assets/*`, same origin as the API. Read at request time, so nothing is embedded. Without it the API is served exactly as before. |
 | `--heartbeat-ms <n>` | `15000` | SSE heartbeat period; `0` disables it. |
 | `--auth` | on | Require the bearer token in `<data-dir>/token` (the default). |
 | `--no-auth` | | Drop the requirement and print a warning: for local debugging. |
@@ -51,6 +52,14 @@ they are this binary's own console output, and an embedded server never runs thi
 
 The loopback default is deliberate: this build serves **plaintext HTTP**, so it does not
 listen on a public interface unless you tell it to.
+
+With `--web-root` the server also answers `/` and `/assets/*` from that directory (the output of
+`npm run build` in `ui/`), which is what makes the management interface reachable from a phone
+browser on the LAN. Three things about it are deliberate: the page is served **without a token**
+(a document, a stylesheet and a script carry no secret; everything under `/v0/` still needs one),
+there is **no SPA fallback** (an unknown path is the API's 404), and the assets are read from disk
+per request, so a rebuilt frontend needs no Rust rebuild. Traversal is refused: a name with `..`
+in it is never a file, and the file that is found must resolve inside the web root.
 
 ## Endpoints
 

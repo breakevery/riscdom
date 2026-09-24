@@ -13,6 +13,25 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The control plane can serve the Web UI itself** (v0.9 D2a — the server half of the
+  management-program line). `riscdom-server --web-root <dir>` serves the built frontend's
+  `index.html` at `/` and its hashed files under `/assets/*`, **before** the route table and
+  **without** an authentication check: a document, a stylesheet and a script carry no secret,
+  while everything behind `/v0/*` still goes through `Authn`. The namespace is those two shapes,
+  `GET` only, with **no SPA fallback**, and **no route is added to `ROUTES`** — the doc-locked
+  tables in `docs/control-plane-api.md` are untouched and their two tests still pass. The
+  directory is read at request time (nothing is embedded, so a rebuilt frontend needs no Rust
+  rebuild), `.js` / `.css` / images are mapped explicitly, hashed assets are `immutable` while
+  `index.html` is `no-cache`, and traversal is refused twice — no `..`, root or prefix component
+  (the `workspace_io::safe_relative` rule), and the file that is found must canonicalize inside
+  the resolved root — with a client-supplied name never percent-decoded. Without `--web-root`,
+  `/` answers a 404 whose message names the flag. **+6 tests** (`server/tests/web_ui.rs`: the
+  entry document; a hashed asset's type and cache headers; three traversal shapes; a missing
+  asset; the unconfigured namespace; and "the Web UI needs no token while the API still does").
+  Decision §55. Also corrected: `docs/control-plane-events.md` had described a cookie-session
+  endpoint that never existed — a browser reads the stream with `fetch` + `ReadableStream`, and
+  the doc now shows that instead. The page itself is D2b.
+
 - **The sessions DB waits for a lock, and an append is one transaction** (v0.9 sessions batch — the
   A3 leftover). `SessionStore::init` now sets a five-second `busy_timeout` **before** its first
   write, the shape the audit store uses: SQLite's default of zero answered the second writer with

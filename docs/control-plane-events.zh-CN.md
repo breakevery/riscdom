@@ -22,7 +22,7 @@
 
 ```
 
-- **认证。** 用 API 文档里的 `Authorization: Bearer <token>` 头。浏览器的 `EventSource` 无法设置头，因此浏览器客户端要么先开会话（一个 `POST` 设 cookie，再用 `withCredentials` 的 `new EventSource(...)`），要么在查询串里放一个短时 token。两者都作为客户端集成选项记录在案；查询串 token 不推荐（会落进访问日志），且必须是客户端的显式选择，绝不作为默认。
+- **认证。** 用 API 文档里的 `Authorization: Bearer <token>` 头。浏览器的 `EventSource` 无法设置头，而本服务端**两条**浏览器替代路径**都没实现**：既没有 cookie 会话端点，也没有查询串 token。今天可行的形状是用 `fetch` 带上该头，再配一个 `ReadableStream` 读取器——帧就是 `id:` / `data:` 行，边到边解——这正是从 `--web-root` 提供、与 API 同源的管理界面在做的事（v0.9 D2a）。cookie 会话与短时查询串 token 属于**客户端集成选项、尚未实现**；查询串 token 本就不推荐（会落进访问日志）。
 - **重连。** 断流后用同一组 `(事件过滤)` 加客户端见过的最后一个 id 重连，id 走 `Last-Event-ID` 头（浏览器自动发送；其它客户端须自己发）。
 - **`id:` 是重放游标。** 服务端发 `id: <ts>-<seq>`，`ts` 为事件时间戳（epoch 毫秒），`seq` 为**服务端全局**单调帧计数器——必须是全局的，重连后才能用它定位。它对客户端不透明：存下来、回传、不要解析。
 - **重放是尽力而为且有界的。** 服务端保留一个有界的近期帧环形缓冲。客户端的 `Last-Event-ID` 若新于缓冲最旧项，服务端补放缺口；若更旧，则无法补齐，此时用 `gap` 帧（§2）如实相告，而不是假装历史完整。
@@ -250,11 +250,30 @@ data: {"version":1,"kind":"gap","event":null,"agent_id":"server","task_id":null,
 用浏览器消费该流：
 
 ```js
-const src = new EventSource("/v0/events"); // 已建立会话 cookie
-src.onmessage = (e) => {
-  const env = JSON.parse(e.data);
-  if (env.kind === "event" && env.event === "vm:state") {
-    renderVmBadge(env.payload.running, env.payload.since_ms);
+// `EventSource` 发不出 `Authorization` 头，所以用 `fetch` 读流。
+// 帧就是 `id:` / `data:` 行，之间用空行分隔。
+const response = await fetch("/v0/events", {
+  headers: { Authorization: `Bearer ${token}` },
+});
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+let pending = "";
+for (;;) {
+  const { value, done } = await reader.read();
+  if (done) break;
+  pending += decoder.decode(value, { stream: true });
+  const frames = pending.split("\n\n");
+  pending = frames.pop() ?? ""; // 最后一个可能只到了一半
+  for (const frame of frames) {
+    const data = frame
+      .split("\n")
+      .find((line) => line.startsWith("data: "))
+      ?.slice(6);
+    if (!data) continue; // 注释帧（心跳）
+    const env = JSON.parse(data);
+    if (env.kind === "event" && env.event === "vm:state") {
+      renderVmBadge(env.payload.running, env.payload.since_ms);
+    }
   }
-};
+}
 ```

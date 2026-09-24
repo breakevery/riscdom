@@ -113,6 +113,18 @@ concurrency models differ by design (decision §54). An append is now **one tran
 the message insert and the session's `updated_at_ms` bump used to be two statements, so a failure
 between them left a message that its session's timestamp denied.
 
+**The control plane can serve the Web UI.** `riscdom-server --web-root <dir>` serves the built
+frontend at `/` and `/assets/*`: same origin as the API (so the browser's `fetch` needs no CORS
+layer), before the route table and without a capability check — the assets carry no secret, while
+everything behind `/v0/*` still authenticates. The namespace is exactly those two shapes, `GET`
+only, with no SPA fallback and no route added to the doc-locked tables; hashed assets are cached
+`immutable`, `index.html` is `no-cache`, and a name is never percent-decoded (an encoded `..` is a
+file that does not exist, not a traversal). Without `--web-root` the server is exactly what it was,
+and `/` says why it has no UI. Corrected in the same wave: `docs/control-plane-events.md` had
+described a cookie-session endpoint that has never existed — the stream is authenticated with the
+`Authorization` header, so a browser reads it with `fetch` + `ReadableStream` (the doc now shows
+that code instead of `EventSource` with a cookie).
+
 ### Added
 
 - **Zig compiles (v0.9 F3a)**: `compile` dispatches on the source extension — `.c` /

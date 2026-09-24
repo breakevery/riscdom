@@ -44,11 +44,14 @@ as the host emits them.
 ```
 
 - **Authentication.** The `Authorization: Bearer <token>` header, as in the API
-  document. A browser's `EventSource` cannot set headers, so a browser client either
-  opens a session first (a `POST` that sets a cookie, then `new EventSource(...)` with
-  `withCredentials`) or passes a short-lived token in the query string. Both are
-  documented as client-integration options; the query-string token is discouraged (it
-  lands in access logs) and is the client's explicit choice, never the default.
+  document. A browser's `EventSource` cannot set headers, and this server implements
+  **neither** of the two workarounds a browser would otherwise need: there is no
+  cookie-session endpoint and no query-string token. The shape that works today is
+  `fetch` with the header plus a `ReadableStream` reader — the frames are `id:` / `data:`
+  lines, parsed as they arrive — which is exactly what the management UI served from
+  `--web-root` does (v0.9 D2a), same origin as the API. A cookie session and a
+  short-lived query token remain **client-integration options that are not implemented**;
+  the query-string token is discouraged anyway, since it lands in access logs.
 - **Reconnect.** A dropped stream is resumed by reconnecting with the same `(event
   filters)` and the last id the client saw, sent as the `Last-Event-ID` header (browsers
   do this automatically; other clients must do it themselves).
@@ -313,11 +316,30 @@ data: {"version":1,"kind":"gap","event":null,"agent_id":"server","task_id":null,
 A client consuming the stream with a browser:
 
 ```js
-const src = new EventSource("/v0/events"); // with an established session cookie
-src.onmessage = (e) => {
-  const env = JSON.parse(e.data);
-  if (env.kind === "event" && env.event === "vm:state") {
-    renderVmBadge(env.payload.running, env.payload.since_ms);
+// `EventSource` cannot send the `Authorization` header, so the stream is read with
+// `fetch`. The frames are `id:` / `data:` lines, separated by a blank line.
+const response = await fetch("/v0/events", {
+  headers: { Authorization: `Bearer ${token}` },
+});
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+let pending = "";
+for (;;) {
+  const { value, done } = await reader.read();
+  if (done) break;
+  pending += decoder.decode(value, { stream: true });
+  const frames = pending.split("\n\n");
+  pending = frames.pop() ?? ""; // the last one may be half-arrived
+  for (const frame of frames) {
+    const data = frame
+      .split("\n")
+      .find((line) => line.startsWith("data: "))
+      ?.slice(6);
+    if (!data) continue; // a comment frame (the heartbeat)
+    const env = JSON.parse(data);
+    if (env.kind === "event" && env.event === "vm:state") {
+      renderVmBadge(env.payload.running, env.payload.since_ms);
+    }
   }
-};
+}
 ```

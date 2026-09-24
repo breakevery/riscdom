@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! riscdom-server [--bind <addr>] [--workspace <dir>] [--data-dir <dir>]
-//!                [--heartbeat-ms <n>] [--auth | --no-auth]
+//!                [--web-root <dir>] [--heartbeat-ms <n>] [--auth | --no-auth]
 //! ```
 //!
 //! Exit codes: `0` after a clean stop, `1` when the workspace, the token or the
@@ -70,6 +70,10 @@ async fn run(cli: Cli, app: Arc<AppState>) {
         .with_heartbeat(cli.heartbeat)
         .with_authn(authn)
         .with_log_level(cli.log_level);
+    let config = match &cli.web_root {
+        Some(root) => config.with_web_root(root.clone()),
+        None => config,
+    };
     let server = Server::new(app, config);
     match server.start().await {
         Ok(running) => {
@@ -80,6 +84,13 @@ async fn run(cli: Cli, app: Arc<AppState>) {
             );
             println!("  GET  /v0/health   /v0/status   /v0/events (SSE)");
             println!("  POST /v0/…  the control endpoints of docs/control-plane-api.md");
+            match &cli.web_root {
+                Some(root) => println!(
+                    "  GET  /   the Web UI built from {} (unauthenticated; the API above is not)",
+                    root.display()
+                ),
+                None => println!("  no Web UI (pass --web-root <dir> to serve one)"),
+            }
             println!("  stop the server with Ctrl+C");
             std::future::pending::<()>().await;
         }

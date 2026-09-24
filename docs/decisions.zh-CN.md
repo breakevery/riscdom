@@ -583,3 +583,13 @@
 **理由**：两个库的并发模型**本就不同**。`audit.db` 是**有意跨进程共享**的（一个 workspace 一条链，多个写者追加），正因为如此，WAL、busy timeout 与打开重试在那里才是承重的——`PRAGMA journal_mode = WAL` 会绕过 busy handler，所以那次切换本身就需要重试。会话库是 **per-instance**：`with_data_dir` 让每个实例拥有自己的 `<data-dir>/sessions.db`。但「per-instance」是默认而**不是保证**——两个走默认路径的 CLI / 服务器进程会落到同一个 `<temp>/riscdom/sessions.db`，而显式共用 `--data-dir` 本就是刻意撞车——在这些情形下，SQLite 的 `busy_timeout` 默认 0 会把第二个写者变成即时的 `SQLITE_BUSY`。而这个失败落在 `SessionStore::open` 里，所以它失败的不是一条命令，而是**整个实例起不来**。busy timeout 解决的正是这件事；WAL 则只会为一种本库不存在的共享模型多加两个副文件（`-wal`、`-shm`）。若将来会话真的变为共享，**要重开的是这一条**——而不是默默把审计库的 WAL 抄过来。
 
 **影响**：`session.rs` 多设一个 pragma、把一个方法包进事务；其余未改，审计库一字未动。`docs/multi-agent-foundation.md` 曾记的那条遗留（「会话 DB 没有 WAL 与 busy timeout」）由此被取代。两个库之间的不对称，从此是一条决策而不是一次疏忽。
+
+## 55. Web UI 在路由表之外提供，且不需要 capability
+
+**日期**：2026-09-24 ｜ **状态**：已定；随 v0.9 D2a 批落地
+
+**决策**：当 `riscdom-server` 拿到 `--web-root <dir>` 时，它把该目录的 `index.html` 挂在 `/`、把它的文件挂在 `/assets/*`，位置在查路由表**之前**、且**不**做 `Authn` 检查。只有 `GET` 走这条路，命名空间只有这两种形状，**没有 SPA fallback**，也**没有为此向 `ROUTES` 加任何路由**。目录是请求时读盘；二进制内不内嵌任何东西。`/v0/*` 下的一切不变，仍要 capability 检查。
+
+**理由**：三条理由，每一条在别的设计里都会变成缺陷。（a）路由表**就是** API：`Capability::ALL` 是一套词汇，每条路由都要声明一个，而且有两个测试拿它与两个语言的文档对锁。静态文件没有 capability 可声明，硬放进去就只能伪造一个 capability，或引入第二种「路由」概念。（b）资源不带秘密——文档、样式表与只调 API 的脚本。为它们要求 token 一无所获（未认证的请求仍然学不到宿主的任何信息），却会赔掉最关键的那件事：那个要求输入 token 的页面本身。（c）备选方案——再起一个静态服务器，或上 CORS——会把 UI 放到与 API 不同的源上，于是同源 `fetch` 变成要预检的跨源请求，token 也成了跨站凭证。
+
+**影响**：`.js` / `.css` / 图片类型显式映射（`content_type_for`）；hash 资源标 `immutable`，而 `index.html` 标 `no-cache`——因为一个指向已被后续构建删掉的资源的 `index.html`，正是唯一会让应用崩掉的那个陈旧文件。穿越被拦两道：名字不得含 `..`/根/前缀组件（`workspace_io::safe_relative` 的规矩），**且**真正找到的文件必须解析在解析后的 root 之内，因为 root 里的符号链接可以指向外面；客户端给的名字从不做百分号解码，所以编码过的 `..` 是「不存在的文件」而不是穿越。不给 `--web-root` 时，`/` 回一个 404，消息里点名该旗标。D2b 负责做它所提供的那个页面。

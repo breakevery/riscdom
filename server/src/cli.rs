@@ -9,7 +9,7 @@ use crate::log::LogLevel;
 /// What `--help` prints.
 pub const USAGE: &str = "\
 usage: riscdom-server [--bind <addr>] [--workspace <dir>] [--data-dir <dir>]
-                      [--heartbeat-ms <n>] [--auth | --no-auth]
+                      [--web-root <dir>] [--heartbeat-ms <n>] [--auth | --no-auth]
                       [--log-level <off|error|info>]
 
   --bind          address to listen on (default 127.0.0.1:7821, or $RISCDOM_BIND)
@@ -17,6 +17,8 @@ usage: riscdom-server [--bind <addr>] [--workspace <dir>] [--data-dir <dir>]
                   its audit chain lives at <workspace>/.riscdom/audit.db
   --data-dir      where settings, sessions and the token live
                   (default: this platform's host data dir)
+  --web-root      directory of the built Web UI to serve at / and /assets/*
+                  (default: none; the API is served either way)
   --heartbeat-ms  SSE heartbeat period, 0 disables it (default 15000)
   --auth          require the bearer token in <data-dir>/token (the default)
   --no-auth       do not require a token; prints a warning, for local debugging
@@ -39,6 +41,8 @@ pub struct Cli {
     pub bind: SocketAddr,
     pub workspace: PathBuf,
     pub data_dir: Option<PathBuf>,
+    /// The built Web UI to serve, when the operator has one (v0.9 D2a).
+    pub web_root: Option<PathBuf>,
     pub heartbeat: Option<Duration>,
     pub auth: AuthMode,
     /// How much the library logs. `Off` unless `--log-level` says otherwise.
@@ -64,6 +68,7 @@ impl Cli {
             std::env::var("RISCDOM_BIND").unwrap_or_else(|_| DEFAULT_BIND.to_string());
         let mut workspace: Option<PathBuf> = None;
         let mut data_dir: Option<PathBuf> = None;
+        let mut web_root: Option<PathBuf> = None;
         let mut heartbeat_ms = DEFAULT_HEARTBEAT_MS;
         let mut auth = AuthMode::Token;
         let mut log_level = LogLevel::Off;
@@ -74,6 +79,7 @@ impl Cli {
                 "--bind" => bind_raw = next_value(&mut args, &flag)?,
                 "--workspace" => workspace = Some(PathBuf::from(next_value(&mut args, &flag)?)),
                 "--data-dir" => data_dir = Some(PathBuf::from(next_value(&mut args, &flag)?)),
+                "--web-root" => web_root = Some(PathBuf::from(next_value(&mut args, &flag)?)),
                 "--heartbeat-ms" => {
                     let raw = next_value(&mut args, &flag)?;
                     heartbeat_ms = raw
@@ -99,6 +105,7 @@ impl Cli {
             bind,
             workspace: workspace.unwrap_or_else(|| PathBuf::from(".")),
             data_dir,
+            web_root,
             heartbeat,
             auth,
             log_level,
@@ -133,14 +140,20 @@ mod tests {
             "/tmp/ws",
             "--data-dir",
             "/tmp/data",
+            "--web-root",
+            "/tmp/ui-dist",
             "--heartbeat-ms",
             "0",
         ]);
         assert_eq!(cli.bind.port(), 9999);
         assert_eq!(cli.workspace, PathBuf::from("/tmp/ws"));
         assert_eq!(cli.data_dir, Some(PathBuf::from("/tmp/data")));
+        assert_eq!(cli.web_root, Some(PathBuf::from("/tmp/ui-dist")));
         assert_eq!(cli.heartbeat, None);
         assert_eq!(parse(&[]).heartbeat, Some(Duration::from_millis(15_000)));
+
+        // No Web UI unless one is named: the API is served either way.
+        assert_eq!(parse(&[]).web_root, None);
     }
 
     #[test]
@@ -160,6 +173,7 @@ mod tests {
             vec!["--bind", "not-an-address"],
             vec!["--log-level"],
             vec!["--log-level", "verbose"],
+            vec!["--web-root"],
         ] {
             assert!(
                 Cli::parse(args.iter().map(|a| a.to_string()).collect()).is_err(),

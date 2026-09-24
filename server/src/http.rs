@@ -21,6 +21,7 @@ use hyper::{Request, Response, StatusCode};
 use std::collections::VecDeque;
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -101,6 +102,7 @@ impl Server {
             started: self.started,
             connections: Arc::new(AtomicUsize::new(0)),
             log_level: self.cfg.log_level,
+            web_root: self.cfg.web_root.clone(),
         });
         let task = tokio::spawn(accept_loop(listener, shared));
         Ok(Running { local_addr, task })
@@ -134,6 +136,8 @@ struct Shared {
     connections: Arc<AtomicUsize>,
     /// How much the library logs (off unless the operator asked).
     log_level: LogLevel,
+    /// The built Web UI this process serves, when it was given one (v0.9 D2a).
+    web_root: Option<PathBuf>,
 }
 
 impl Shared {
@@ -144,6 +148,119 @@ impl Shared {
 
     fn uptime_ms(&self) -> u64 {
         self.started.elapsed().as_millis() as u64
+    }
+
+    /// The built Web UI, when `--web-root` names one (v0.9 D2a).
+    ///
+    /// In the namespace: `/` (the entry document) and `/assets/*` (its hashed
+    /// files), for `GET` only. The frontend's own routes are not this server's
+    /// business, so there is deliberately **no SPA fallback** — a path outside the
+    /// namespace falls through to the route table and gets the same answer it got
+    /// before, and the table grows no route for any of this.
+    ///
+    /// Nothing here is authenticated: an HTML document, a stylesheet and a script
+    /// carry no secret. Everything behind `/v0/*` still passes through `Authn`.
+    ///
+    /// `None` means "not this namespace — keep routing".
+    fn web_ui(&self, path: &str) -> Option<Response<RespBody>> {
+        if path == "/" {
+            return Some(self.web_asset(path, "index.html"));
+        }
+        if let Some(rest) = path.strip_prefix("/assets/") {
+            if rest.is_empty() {
+                return Some(error_response(
+                    404,
+                    "not_found",
+                    "/assets/ names no file",
+                    Some("path"),
+                ));
+            }
+            return Some(self.web_asset(path, &format!("assets/{rest}")));
+        }
+        None
+    }
+
+    /// One file under the Web UI root, or the 404 that says why not.
+    fn web_asset(&self, requested: &str, relative: &str) -> Response<RespBody> {
+        let Some(root) = self.web_root.as_deref() else {
+            return error_response(
+                404,
+                "not_found",
+                &format!(
+                    "{requested} belongs to the Web UI, and this server serves none: restart it \
+                     with --web-root <dir> pointing at the built frontend"
+                ),
+                Some("path"),
+            );
+        };
+
+        // The name the client sent is never percent-decoded, so an encoded `..` is
+        // a name that does not exist rather than a traversal; a literal `..`, a root
+        // or a prefix component is refused the way `workspace_io::safe_relative`
+        // refuses it. This check is about the *name*.
+        let nested = Path::new(relative);
+        if nested.components().any(|c| {
+            matches!(
+                c,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        }) {
+            return error_response(
+                404,
+                "not_found",
+                &format!("{requested} is not a path inside the Web UI"),
+                Some("path"),
+            );
+        }
+
+        // …and the file that was actually found is checked too: a symbolic link
+        // inside the root can point outside it, and reading would follow it. The
+        // root is resolved per request because the root itself may be a link.
+        let Ok(canonical_root) = std::fs::canonicalize(root) else {
+            return self.no_such_asset(requested);
+        };
+        let Ok(canonical) = std::fs::canonicalize(root.join(nested)) else {
+            return self.no_such_asset(requested);
+        };
+        if !canonical.starts_with(&canonical_root) {
+            return error_response(
+                404,
+                "not_found",
+                &format!("{requested} resolves outside the Web UI directory"),
+                Some("path"),
+            );
+        }
+        let Ok(bytes) = std::fs::read(&canonical) else {
+            return self.no_such_asset(requested);
+        };
+
+        let mut response = binary_response(
+            StatusCode::OK,
+            content_type_for(&canonical),
+            Bytes::from(bytes),
+        );
+        // A hashed asset names its own content, so it can be cached forever; the
+        // entry document must not be, or a browser keeps an `index.html` that asks
+        // for assets a later build deleted.
+        let cache = if relative == "index.html" {
+            "no-cache"
+        } else {
+            "public, max-age=31536000, immutable"
+        };
+        if let Ok(value) = HeaderValue::from_str(cache) {
+            response.headers_mut().insert(CACHE_CONTROL, value);
+        }
+        response
+    }
+
+    /// The one 404 for "the Web UI is configured and this file is not in it".
+    fn no_such_asset(&self, requested: &str) -> Response<RespBody> {
+        error_response(
+            404,
+            "not_found",
+            &format!("{requested} is not a file in the Web UI directory"),
+            Some("path"),
+        )
     }
 
     fn health(&self) -> Response<RespBody> {
@@ -314,6 +431,16 @@ async fn handle(
         .get("last-event-id")
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
+
+    // The built Web UI comes **before** the route table and before `Authn` (v0.9
+    // D2a): the assets carry no secret, and everything behind `/v0/*` still
+    // authenticates below. `None` means "not this namespace", so routing continues
+    // exactly as it did.
+    if method == "GET" {
+        if let Some(response) = shared.web_ui(&path) {
+            return response;
+        }
+    }
 
     let resolution = routes::resolve(&method, &path);
     let capability = match &resolution {
@@ -490,6 +617,33 @@ async fn read_binary_body(
             ),
             Some("body"),
         ))),
+    }
+}
+
+/// The `Content-Type` for a file the Web UI serves (v0.9 D2a).
+///
+/// A short explicit map rather than a MIME crate: the built frontend's file set is
+/// known (`index.html` plus the hashed `.js` / `.css`), the extra entries cover what
+/// a Vite/Tauri build may drop beside them, and the charset matters on the text
+/// types. An unknown extension is `application/octet-stream`, which makes a browser
+/// download the file instead of guessing at it.
+fn content_type_for(path: &Path) -> &'static str {
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match extension.as_str() {
+        "html" => "text/html; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "json" | "map" => "application/json; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "ico" => "image/x-icon",
+        "woff2" => "font/woff2",
+        "txt" => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
     }
 }
 
