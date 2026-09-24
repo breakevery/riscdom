@@ -20,13 +20,21 @@ use host_core::UnpackReport;
 use std::sync::Arc;
 use tauri::{Manager, State};
 
-/// Start the one-click RISC-V GCC download.
+/// Start a one-click toolchain download.
+///
+/// `toolchain` is the language label the HTTP body and the CLI also use (`"c"` / `"zig"`); it
+/// is a string here rather than the enum so the frontend cannot send a shape the other two
+/// edges would refuse, and so `None` keeps meaning what it always did: the C toolchain.
 #[tauri::command]
 pub async fn start_toolchain_download(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
+    toolchain: Option<String>,
 ) -> Result<(), String> {
-    let spec = crate::toolchain_download::spec_for_current_platform().map_err(|e| e.to_string())?;
+    let spec = crate::toolchain_download::spec_for_toolchain(
+        crate::toolchain_download::Toolchain::parse(toolchain.as_deref())?,
+    )
+    .map_err(|e| e.to_string())?;
     let cancel = state
         .begin_toolchain_download(&spec)
         .map_err(|e| e.user_message())?;

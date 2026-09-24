@@ -98,7 +98,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | `sessions_rename` | POST | `/v0/sessions/rename` | `session.write` | `session_id` (str), `title` (str) |
 | `sessions_delete` | POST | `/v0/sessions/delete` | `session.write` | `session_id` (str) |
 | `sessions_clear` | POST | `/v0/sessions/clear` | `session.write` | — |
-| `toolchain_download_post` | POST | `/v0/toolchain/download` | `toolchain.install` | — |
+| `toolchain_download_post` | POST | `/v0/toolchain/download` | `toolchain.install` | — (body: `toolchain` = `c` or `zig`; default `c`) |
 | `toolchain_download_cancel` | POST | `/v0/toolchain/download/cancel` | `toolchain.install` | — |
 | `qemu_download_post` | POST | `/v0/qemu/download` | `qemu.configure` | — (refuses with install guidance today) |
 | `qemu_download_cancel` | POST | `/v0/qemu/download/cancel` | `qemu.configure` | — |
@@ -205,7 +205,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 {"type":"function","function":{"name":"sessions_rename","description":"Retitle a session.","parameters":{"type":"object","properties":{"session_id":{"type":"string"},"title":{"type":"string"}},"required":["session_id","title"]}}}
 {"type":"function","function":{"name":"sessions_delete","description":"Delete a session.","parameters":{"type":"object","properties":{"session_id":{"type":"string"}},"required":["session_id"]}}}
 {"type":"function","function":{"name":"sessions_clear","description":"Delete every session.","parameters":{"type":"object","properties":{},"required":[]}}}
-{"type":"function","function":{"name":"toolchain_download_post","description":"Download the pinned RISC-V toolchain.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"toolchain_download_post","description":"Download a pinned toolchain: C (the RISC-V GCC) or Zig.","parameters":{"type":"object","properties":{"toolchain":{"type":"string","description":"c or zig; defaults to c"}},"required":[]}}}
 {"type":"function","function":{"name":"toolchain_download_cancel","description":"Cancel a running toolchain download.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"qemu_download_post","description":"Start a QEMU download. Today it refuses with install guidance on every platform.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"qemu_download_cancel","description":"Cancel a running QEMU download.","parameters":{"type":"object","properties":{},"required":[]}}}

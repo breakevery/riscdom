@@ -83,6 +83,9 @@ pub struct VmStatusView {
 pub struct ToolchainDownloadState {
     pub cancel: Arc<AtomicBool>,
     pub started_at: std::time::Instant,
+    /// Which toolchain is being installed (v0.9 F3a-download-apply). One slot serves both,
+    /// so this is what lets the status say which one is running.
+    pub toolchain: crate::toolchain_download::Toolchain,
 }
 
 /// In-flight sandbox switch (v0.9 sandbox F2b).
@@ -102,6 +105,8 @@ pub struct SandboxSwitchState {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ToolchainDownloadStatus {
     pub in_progress: bool,
+    /// Which toolchain is downloading; `None` while idle (v0.9 F3a-download-apply).
+    pub toolchain: Option<crate::toolchain_download::Toolchain>,
     pub last_event: Option<DownloadEvent>,
 }
 
@@ -1252,11 +1257,12 @@ impl AppState {
         *slot = Some(ToolchainDownloadState {
             cancel: Arc::clone(&cancel),
             started_at: std::time::Instant::now(),
+            toolchain: spec.toolchain,
         });
         drop(slot);
         self.emit_host(
             "host.toolchain.download.start",
-            serde_json::json!({ "version": spec.version }),
+            serde_json::json!({ "version": spec.version, "toolchain": spec.toolchain.label() }),
         );
         Ok(cancel)
     }
@@ -1278,18 +1284,19 @@ impl AppState {
 
     /// Current download status (also valid when idle: the last event is kept).
     pub fn toolchain_download_status(&self) -> ToolchainDownloadStatus {
-        let in_progress = self
+        let running = self
             .toolchain_download
             .lock()
-            .map(|slot| slot.is_some())
-            .unwrap_or(false);
+            .ok()
+            .and_then(|slot| slot.as_ref().map(|state| state.toolchain));
         let last_event = self
             .toolchain_download_last
             .lock()
             .ok()
             .and_then(|event| event.clone());
         ToolchainDownloadStatus {
-            in_progress,
+            in_progress: running.is_some(),
+            toolchain: running,
             last_event,
         }
     }
@@ -1330,7 +1337,13 @@ impl AppState {
         match result {
             Ok(compiler) => {
                 let path = compiler.display().to_string();
-                let adopted = self.set_toolchain_path(&path);
+                // Which "adopt" call this is follows the spec (v0.9 F3a-download-apply): the C
+                // toolchain replaces `toolchain_path`, Zig replaces `zig_path`. Both are the
+                // single-value shape F3a established, so neither can disturb the other.
+                let adopted = match spec.toolchain {
+                    crate::toolchain_download::Toolchain::C => self.set_toolchain_path(&path),
+                    crate::toolchain_download::Toolchain::Zig => self.set_zig_path(&path),
+                };
                 self.finish_toolchain_download();
                 match adopted {
                     Ok(()) => {

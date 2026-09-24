@@ -1358,7 +1358,17 @@ pub(crate) fn dispatch(
                     Some("download"),
                 );
             }
-            let spec = match host_core::toolchain_download::spec_for_current_platform() {
+            // Which toolchain, from the body (`{"toolchain": "zig"}`) or nothing at all --
+            // the absent case keeps meaning the C toolchain, which is what the endpoint did
+            // before it had a body (v0.9 F3a-download-apply).
+            let kind =
+                match host_core::toolchain_download::Toolchain::parse(params.get("toolchain")) {
+                    Ok(kind) => kind,
+                    Err(message) => {
+                        return error_response(400, "bad_request", &message, Some("toolchain"))
+                    }
+                };
+            let spec = match host_core::toolchain_download::spec_for_toolchain(kind) {
                 Ok(spec) => spec,
                 Err(e) => return host_error(HostError::Other(e.to_string())),
             };

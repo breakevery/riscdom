@@ -61,7 +61,7 @@ pub fn human(command: &Command, reply: &Reply) -> String {
         Command::ExportAuditJsonl { .. }
         | Command::ExportRunAudit { .. }
         | Command::ExportSerialLog { .. } => export_written(command, value),
-        Command::ToolchainDownload | Command::ToolchainCancel | Command::PreflightRun => {
+        Command::ToolchainDownload { .. } | Command::ToolchainCancel | Command::PreflightRun => {
             acknowledged(command, value)
         }
         Command::QemuDownload | Command::QemuCancel => acknowledged(command, value),
@@ -106,7 +106,7 @@ fn export_written(command: &Command, value: &Value) -> String {
 /// The `202` acknowledgement: work has started, and this is not its result.
 fn acknowledged(command: &Command, value: &Value) -> String {
     let what = match command {
-        Command::ToolchainDownload | Command::ToolchainCancel => "download",
+        Command::ToolchainDownload { .. } | Command::ToolchainCancel => "download",
         Command::QemuDownload | Command::QemuCancel => "qemu download",
         Command::PreflightRun => "preflight",
         _ => "request",
@@ -933,7 +933,7 @@ mod tests {
         // so rather than inventing an outcome.
         assert_eq!(
             human(
-                &Command::ToolchainDownload,
+                &Command::ToolchainDownload { toolchain: None },
                 &reply(r#"{"state":"started"}"#)
             ),
             "download started"

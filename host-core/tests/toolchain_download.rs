@@ -5,7 +5,7 @@
 //! `download_tests.rs`; these checks need no I/O at all.
 
 use host_core::toolchain_download::{
-    spec_for_current_platform, ArchiveKind, DownloadSpec, XPACK_RISCV_GCC_VERSION,
+    spec_for_current_platform, ArchiveKind, DownloadSpec, Toolchain, XPACK_RISCV_GCC_VERSION,
 };
 
 #[test]
@@ -56,6 +56,7 @@ fn the_asset_name_is_the_last_url_segment() {
         url: "https://example.invalid/releases/download/v1.2.3/toolchain-x.tar.gz".into(),
         sha256: "00".into(),
         archive_kind: ArchiveKind::TarGz,
+        toolchain: Toolchain::C,
         install_subdir: "toolchain-x".into(),
     };
     assert_eq!(spec.file_name(), "toolchain-x.tar.gz");

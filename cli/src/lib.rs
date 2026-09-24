@@ -259,7 +259,7 @@ struct Waiting {
 /// apply (`parse` refuses that case, so this is belt and braces).
 fn waiting_for(command: &Command) -> Option<Waiting> {
     match command {
-        Command::ToolchainDownload => Some(Waiting {
+        Command::ToolchainDownload { .. } => Some(Waiting {
             event: "toolchain:download",
             label: "download",
             terminal: download_terminal,
@@ -606,7 +606,7 @@ mod tests {
     #[test]
     fn a_wait_is_named_for_the_event_it_follows() {
         assert_eq!(
-            waiting_for(&Command::ToolchainDownload)
+            waiting_for(&Command::ToolchainDownload { toolchain: None })
                 .expect("download")
                 .event,
             "toolchain:download"

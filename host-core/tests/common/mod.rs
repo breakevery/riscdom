@@ -158,11 +158,94 @@ pub fn spec_for(
         url: server.url(name),
         sha256,
         archive_kind: platform_archive_kind(),
+        toolchain: host_core::toolchain_download::Toolchain::C,
         install_subdir: format!(
             "xpack-riscv-none-elf-gcc-{}",
             host_core::toolchain_download::XPACK_RISCV_GCC_VERSION
         ),
     }
+}
+
+/// The archive kind Zig ships on this platform (`.zip` on Windows, `.tar.xz` elsewhere).
+pub fn zig_archive_kind() -> ArchiveKind {
+    if cfg!(target_os = "windows") {
+        ArchiveKind::Zip
+    } else {
+        ArchiveKind::TarXz
+    }
+}
+
+/// The archive stem Zig uses here: `zig-<arch>-<os>-<version>`.
+///
+/// Built from the platform's own words, so the fixture cannot drift away from what
+/// [`host_core::toolchain_download::zig_spec_for_current_platform`] names.
+pub fn zig_stem() -> String {
+    format!(
+        "zig-{}-{}-{}",
+        std::env::consts::ARCH,
+        std::env::consts::OS,
+        host_core::toolchain_download::ZIG_VERSION
+    )
+}
+
+/// Where the Zig executable sits inside an extracted archive.
+///
+/// Zig's release puts it at the **top level**, beside `lib/` -- not in a `bin/`.
+pub fn zig_entry() -> String {
+    let exe = if cfg!(target_os = "windows") {
+        "zig.exe"
+    } else {
+        "zig"
+    };
+    format!("{}/{exe}", zig_stem())
+}
+
+/// Build the archive kind Zig ships here (`.zip` on Windows, `.tar.xz` elsewhere).
+pub fn build_zig_archive(entries: &[(&str, &[u8])]) -> (Vec<u8>, String) {
+    let bytes = if cfg!(target_os = "windows") {
+        build_archive_bytes(entries)
+    } else {
+        build_tar_xz_bytes(entries)
+    };
+    let hash = sha256_hex(&bytes);
+    (bytes, hash)
+}
+
+/// Archive bytes for a valid, installable Zig fixture (v0.9 F3a-download-apply).
+pub fn zig_archive() -> (Vec<u8>, String) {
+    let entry = zig_entry();
+    let lib = format!("{}/lib/README.txt", zig_stem());
+    build_zig_archive(&[
+        (entry.as_str(), b"not a program\n".as_slice()),
+        (lib.as_str(), b"zig fixture\n".as_slice()),
+    ])
+}
+
+/// A download spec pointing at `server` for the Zig toolchain.
+pub fn zig_spec_for(
+    server: &MockServer,
+    sha256: String,
+    name: &str,
+) -> host_core::toolchain_download::DownloadSpec {
+    host_core::toolchain_download::DownloadSpec {
+        version: host_core::toolchain_download::ZIG_VERSION.to_string(),
+        url: server.url(name),
+        sha256,
+        archive_kind: zig_archive_kind(),
+        toolchain: host_core::toolchain_download::Toolchain::Zig,
+        install_subdir: zig_stem(),
+    }
+}
+
+/// Archive bytes whose `zig` really runs, so adoption (`zig version`) succeeds.
+pub fn zig_archive_with_executable() -> (Vec<u8>, String) {
+    let zig = fake_executable_bytes();
+    let entry = zig_entry();
+    let lib = format!("{}/lib/README.txt", zig_stem());
+    build_zig_archive(&[
+        (entry.as_str(), zig.as_slice()),
+        (lib.as_str(), b"zig fixture\n".as_slice()),
+    ])
 }
 
 /// Archive bytes for a valid, installable toolchain fixture.
@@ -230,6 +313,7 @@ pub fn spec_for_tar_xz(
         url: server.url(name),
         sha256,
         archive_kind: ArchiveKind::TarXz,
+        toolchain: host_core::toolchain_download::Toolchain::C,
         install_subdir: format!(
             "xpack-riscv-none-elf-gcc-{}",
             host_core::toolchain_download::XPACK_RISCV_GCC_VERSION

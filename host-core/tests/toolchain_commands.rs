@@ -250,6 +250,42 @@ fn a_mock_download_installs_and_adopts_the_toolchain() {
 }
 
 #[test]
+fn a_mock_zig_download_installs_and_adopts_the_compiler() {
+    let state = state("dl-zig");
+    let (bytes, hash) = common::zig_archive_with_executable();
+    let server = common::MockServer::start(bytes);
+    let spec = common::zig_spec_for(&server, hash, "zig-archive");
+    let install_root = common::unique_dir("dl-zig-install");
+
+    let cancel = state.begin_toolchain_download(&spec).expect("start");
+    assert_eq!(
+        state.toolchain_download_status().toolchain,
+        Some(host_core::toolchain_download::Toolchain::Zig),
+        "the status names the toolchain that is running"
+    );
+    let zig = state
+        .download_toolchain_now(&spec, &install_root, cancel, &mut |_| {})
+        .expect("the mock download must succeed");
+    println!("installed: {}", zig.display());
+    assert!(zig.is_file());
+    assert_eq!(server.hits(), 1);
+
+    // The downloaded binary is the active Zig compiler now -- and the C pin is untouched,
+    // which is the whole point of two single values instead of one map.
+    assert_eq!(state.zig_config().zig, zig);
+    let settings = std::fs::read_to_string(state.settings_path()).expect("settings.json");
+    println!("settings.json: {settings}");
+    let parsed: serde_json::Value = serde_json::from_str(&settings).expect("json");
+    assert!(parsed["zig_path"].is_string(), "{settings}");
+    assert!(
+        parsed["toolchain_path"].is_null(),
+        "a Zig download must not touch the C pin: {settings}"
+    );
+    assert!(!state.toolchain_download_status().in_progress);
+    assert_eq!(state.toolchain_download_status().toolchain, None);
+}
+
+#[test]
 fn download_audit_events_are_complete() {
     let state = state("dl-audit");
     let (bytes, hash) = common::toolchain_archive_with_executable();

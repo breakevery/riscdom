@@ -1053,3 +1053,43 @@ the next batch, and a Windows host reading a `.tar.xz` is exactly what those dow
 **unchanged** (still the single xPack spec), so nothing downloads an xz archive yet — the Zig
 locator and the Zig/Rust specs belong to the apply batch. `ArchiveKind` carries no serde, so no
 wire type moved.
+
+## 49. A download names its toolchain; the language is a label, and the spec stays two functions
+
+**Date**: 2026-09-24 ｜ **Status**: Decided
+
+**Decision**: `DownloadSpec` gained `toolchain: Toolchain` (`C` / `Zig`, serde-able, absent means
+C). It decides the two things the module cannot infer: which locator finds the product inside the
+extracted archive (`product_locator`: `find_compiler` for C, the new `find_zig` for Zig) and which
+adopt call the host makes after the install (`set_toolchain_path` for C, `set_zig_path` for Zig).
+The language reaches the download as a **label** — `--toolchain zig` on the CLI, a
+`{"toolchain":"zig"}` body on `POST /v0/toolchain/download`, an optional argument on the Tauri
+command — and one function, `Toolchain::parse`, turns a label into the enum, so no edge can
+disagree with another. Zig gets its own spec function (`zig_spec_for_current_platform`), and
+`spec_for_current_platform()` is untouched.
+
+**Why a field rather than a second spec family**: two spec functions, one enum. The spec is what
+carries the *product* (version, URL, checksum, archive kind) and the two releases share nothing of
+that; but everything after the download — the staging directory, the rename, the idempotent
+"already installed" check, the adoption — is identical, and it needs to know which product it is
+looking at. A `toolchain` field is that knowledge in the one place both halves already read.
+
+**Why a label and not a richer type on the wire**: the HTTP body's parameters are flat strings by
+design (`Params::from_json` keeps scalars and drops nested values), and the Tauri command takes
+`Option<String>` so a frontend cannot send a shape the other edges would refuse. `None` and the
+empty string both mean C, which is exactly what every caller sent before this batch — so the
+change is additive at every edge, including the endpoint whose body did not exist.
+
+**Why `install_subdir` is still dead**: the batch set out to "wire it up or delete it" and found
+the wiring does not work. `download_and_install` finishes with `fs::rename(staging, install_dir)`,
+where `install_dir = dest_root/<version>`; an "extract to `dest_root/<install_subdir>`" reading
+with Zig's empty string would rename onto the existing, non-empty `dest_root` and fail. What the
+module actually needed was the **locator**, which is per-language, not a directory hint. The field
+stays as it is and remains dead: it is its own (small) decision, recorded here so the next batch
+does not rediscover it.
+
+**Impact**: `find_compiler` and `is_compiler_name` are untouched (the sandbox registry scans
+through them); the C arm of `product_locator` names the same function the code called before, so
+the C path does not move. `ToolchainDownloadStatus` carries the running toolchain. Zig's five
+assets cover the same `(os, arch)` set xPack does; Zig also publishes `aarch64-windows`, which is
+**not** in this batch's five — one arm and one checksum away when someone wants it.

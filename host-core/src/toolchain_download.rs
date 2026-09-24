@@ -32,6 +32,47 @@ pub const XPACK_RISCV_GCC_VERSION: &str = "15.2.0-1";
 pub const XPACK_RELEASE_BASE: &str =
     "https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download";
 
+/// Which toolchain a download installs (v0.9 multi-language batch F3a-download-apply).
+///
+/// `serde` because it travels: the body that starts a download carries it, and the status a UI
+/// polls reports it back. The labels are the ones every edge accepts (`"c"` / `"zig"`), and
+/// [`Toolchain::parse`] is the single place that decides what is acceptable — the Tauri command,
+/// the HTTP body and the CLI all route through it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Toolchain {
+    /// The xPack RISC-V GCC: what the C path compiles with. The default.
+    C,
+    /// The Zig compiler (v0.9 F3a): the sandbox's second language.
+    Zig,
+}
+
+impl Toolchain {
+    /// Every label this type accepts, in the order the error messages list them.
+    pub const LABELS: [&str; 2] = ["c", "zig"];
+
+    /// The label this toolchain travels as.
+    pub fn label(self) -> &'static str {
+        match self {
+            Toolchain::C => "c",
+            Toolchain::Zig => "zig",
+        }
+    }
+
+    /// Parse a label. Absent or empty is [`Toolchain::C`], so a caller that sends no language
+    /// keeps downloading exactly what it always did.
+    pub fn parse(label: Option<&str>) -> Result<Self, String> {
+        match label.map(str::trim).filter(|l| !l.is_empty()) {
+            None | Some("c") => Ok(Toolchain::C),
+            Some("zig") => Ok(Toolchain::Zig),
+            Some(other) => Err(format!(
+                "unknown toolchain {other:?}: expected one of {}",
+                Toolchain::LABELS.join(", ")
+            )),
+        }
+    }
+}
+
 /// How the downloaded archive is packed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveKind {
@@ -53,6 +94,10 @@ pub struct DownloadSpec {
     /// Lowercase hex SHA-256 of the archive, as published by the vendor.
     pub sha256: String,
     pub archive_kind: ArchiveKind,
+    /// Which toolchain this is (v0.9 F3a-download-apply). It decides **two** things the rest of
+    /// the module cannot guess: which locator finds the product inside the archive, and which
+    /// "adopt" call the host makes once it is installed.
+    pub toolchain: Toolchain,
     /// Directory (under the install root) the archive is extracted into.
     pub install_subdir: String,
 }
@@ -176,7 +221,110 @@ pub fn spec_for_current_platform() -> Result<DownloadSpec, ToolchainDownloadErro
         version,
         sha256: sha256.to_string(),
         archive_kind,
+        toolchain: Toolchain::C,
         install_subdir: format!("xpack-riscv-none-elf-gcc-{XPACK_RISCV_GCC_VERSION}"),
+    })
+}
+
+/// Version of the Zig release we offer for download (v0.9 F3a-download-apply).
+///
+/// Pinned exactly like the xPack one: the checksums below belong to this release and to no
+/// other, so the two move together.
+pub const ZIG_VERSION: &str = "0.16.0";
+
+/// Base URL of the Zig release assets (the manifest lives at `<base>/index.json`).
+pub const ZIG_RELEASE_BASE: &str = "https://ziglang.org/download";
+
+/// Official SHA-256 values for Zig 0.16.0, taken from the `shasum` field of
+/// `https://ziglang.org/download/index.json`.
+///
+/// Zig publishes no per-asset `.sha` file the way xPack does; the manifest **is** the source.
+/// They are hardcoded for the same reason the xPack ones are: a download must not need the
+/// network (or a build script) just to learn what it is about to verify.
+const SHA256_ZIG_WIN32_X64: &str =
+    "68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e";
+const SHA256_ZIG_DARWIN_X64: &str =
+    "0387557ed1877bc6a2e1802c8391953baddba76081876301c522f52977b52ba7";
+const SHA256_ZIG_DARWIN_ARM64: &str =
+    "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489";
+const SHA256_ZIG_LINUX_X64: &str =
+    "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00";
+const SHA256_ZIG_LINUX_ARM64: &str =
+    "ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17";
+
+/// `(asset file name, archive kind)` for the current OS/arch, Zig's names.
+///
+/// Separate from [`platform_asset_owned`] because the names, the archive kinds and the release
+/// host all differ; the **shape** (five `(os, arch)` arms and an honest
+/// [`ToolchainDownloadError::UnsupportedPlatform`]) is deliberately the same one. Taking
+/// `os`/`arch` as arguments is what lets the unit test cover all five arms on one machine.
+fn zig_asset_for(os: &str, arch: &str) -> Result<(String, ArchiveKind), ToolchainDownloadError> {
+    let v = ZIG_VERSION;
+    let asset = |arch: &str, os: &str, ext: &str| format!("zig-{arch}-{os}-{v}.{ext}");
+    match (os, arch) {
+        ("windows", "x86_64") => Ok((asset("x86_64", "windows", "zip"), ArchiveKind::Zip)),
+        ("macos", "x86_64") => Ok((asset("x86_64", "macos", "tar.xz"), ArchiveKind::TarXz)),
+        ("macos", "aarch64") => Ok((asset("aarch64", "macos", "tar.xz"), ArchiveKind::TarXz)),
+        ("linux", "x86_64") => Ok((asset("x86_64", "linux", "tar.xz"), ArchiveKind::TarXz)),
+        ("linux", "aarch64") => Ok((asset("aarch64", "linux", "tar.xz"), ArchiveKind::TarXz)),
+        _ => Err(ToolchainDownloadError::UnsupportedPlatform(format!(
+            "{os}-{arch}"
+        ))),
+    }
+}
+
+/// The pinned download for this machine, for one toolchain (v0.9 F3a-download-apply).
+///
+/// The single place the three edges (the Tauri command, the HTTP route, the CLI) agree on how a
+/// language becomes a spec, so none of them repeats the match.
+pub fn spec_for_toolchain(toolchain: Toolchain) -> Result<DownloadSpec, ToolchainDownloadError> {
+    match toolchain {
+        Toolchain::C => spec_for_current_platform(),
+        Toolchain::Zig => zig_spec_for_current_platform(),
+    }
+}
+
+/// Official checksum for a Zig asset file name.
+fn sha256_for_zig_asset(asset: &str) -> Result<&'static str, ToolchainDownloadError> {
+    let v = ZIG_VERSION;
+    if asset == format!("zig-x86_64-windows-{v}.zip") {
+        Ok(SHA256_ZIG_WIN32_X64)
+    } else if asset == format!("zig-x86_64-macos-{v}.tar.xz") {
+        Ok(SHA256_ZIG_DARWIN_X64)
+    } else if asset == format!("zig-aarch64-macos-{v}.tar.xz") {
+        Ok(SHA256_ZIG_DARWIN_ARM64)
+    } else if asset == format!("zig-x86_64-linux-{v}.tar.xz") {
+        Ok(SHA256_ZIG_LINUX_X64)
+    } else if asset == format!("zig-aarch64-linux-{v}.tar.xz") {
+        Ok(SHA256_ZIG_LINUX_ARM64)
+    } else {
+        Err(ToolchainDownloadError::UnknownAsset(asset.to_string()))
+    }
+}
+
+/// The Zig download that matches this machine (v0.9 F3a-download-apply).
+///
+/// A sibling of [`spec_for_current_platform`] rather than a branch inside it: the two
+/// releases share a shape and nothing else, and keeping them apart is what leaves the C spec
+/// (and its test) untouched.
+pub fn zig_spec_for_current_platform() -> Result<DownloadSpec, ToolchainDownloadError> {
+    let (asset, archive_kind) = zig_asset_for(std::env::consts::OS, std::env::consts::ARCH)?;
+    let sha256 = sha256_for_zig_asset(&asset)?;
+    let version = ZIG_VERSION.to_string();
+    // The field is dead this batch (decision §49); naming the archive's own top directory is
+    // the least surprising thing to leave in it.
+    let stem = asset
+        .strip_suffix(".tar.xz")
+        .or_else(|| asset.strip_suffix(".zip"))
+        .unwrap_or(&asset)
+        .to_string();
+    Ok(DownloadSpec {
+        url: format!("{ZIG_RELEASE_BASE}/{version}/{asset}"),
+        version,
+        sha256: sha256.to_string(),
+        archive_kind,
+        toolchain: Toolchain::Zig,
+        install_subdir: stem,
     })
 }
 
@@ -191,7 +339,7 @@ pub fn download_and_install(
     on_event: &mut dyn FnMut(DownloadEvent),
 ) -> Result<PathBuf, ToolchainDownloadError> {
     let install_dir = dest_root.join(&spec.version);
-    if let Some(existing) = find_compiler(&install_dir) {
+    if let Some(existing) = product_locator(spec.toolchain)(&install_dir) {
         on_event(DownloadEvent::Done {
             install_path: existing.clone(),
         });
@@ -332,7 +480,7 @@ fn extract(
         return Err(e);
     }
 
-    let Some(found) = find_compiler(&staging) else {
+    let Some(found) = product_locator(spec.toolchain)(&staging) else {
         let _ = fs::remove_dir_all(&staging);
         return Err(ToolchainDownloadError::NoCompilerInArchive);
     };
@@ -478,6 +626,62 @@ fn extract_tar_xz(
     Ok(())
 }
 
+/// The locator that finds a spec's product inside a directory (v0.9 F3a-download-apply).
+///
+/// One function per language, as §49 decides: the C toolchain's scan is the wide, recursive
+/// one the sandbox registry also uses, while a Zig release is shallow by construction. The
+/// C arm names exactly the function the code used before this batch, so the C path does not
+/// move.
+fn product_locator(toolchain: Toolchain) -> fn(&Path) -> Option<PathBuf> {
+    match toolchain {
+        Toolchain::C => find_compiler,
+        Toolchain::Zig => find_zig,
+    }
+}
+
+/// Find the Zig executable inside `dir` (v0.9 F3a-download-apply).
+///
+/// Zig's release is shallow: the archive's top-level directory holds the binary **beside**
+/// `lib/` (`zig-x86_64-linux-0.16.0/zig`), so depth 0 covers an extracted archive and depth 1
+/// covers the same archive once it sits inside a parent directory. The names come from the
+/// agent, which already owns them (`agent::ZIG_NAMES`); the `.exe` suffix is the platform's.
+pub(crate) fn find_zig(dir: &Path) -> Option<PathBuf> {
+    let names: Vec<String> = agent::ZIG_NAMES
+        .iter()
+        .flat_map(|name| [(*name).to_string(), format!("{name}.exe")])
+        .collect();
+
+    // Depth 0: the binary sits in `dir` itself (`dir/zig`, `dir/zig.exe`).
+    for name in &names {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    // Depth 1: the archive's own top directory. Its name carries the version, so it is not
+    // written down anywhere -- the scan reads it.
+    let mut subdirs: Vec<PathBuf> = fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir())
+                .collect()
+        })
+        .unwrap_or_default();
+    subdirs.sort();
+    for subdir in subdirs {
+        for name in &names {
+            let candidate = subdir.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
 /// Find a RISC-V compiler inside `dir` (bounded recursive scan).
 ///
 /// `pub(crate)` since v0.9 F2a: the sandbox registry scans `<data-dir>/toolchain`
@@ -595,5 +799,107 @@ mod tests {
             .expect_err("a cancelled extract must stop");
         assert!(matches!(err, ToolchainDownloadError::Cancelled), "{err}");
         assert!(!dest.join("hello.txt").exists());
+    }
+
+    /// The three edges (Tauri / HTTP / CLI) all parse their language here, so the default and
+    /// the refusal are this type's business (v0.9 F3a-download-apply).
+    #[test]
+    fn the_toolchain_labels_round_trip_and_default_to_c() {
+        assert_eq!(Toolchain::parse(None), Ok(Toolchain::C));
+        assert_eq!(Toolchain::parse(Some("")), Ok(Toolchain::C));
+        assert_eq!(Toolchain::parse(Some(" c ")), Ok(Toolchain::C));
+        assert_eq!(Toolchain::parse(Some("zig")), Ok(Toolchain::Zig));
+        assert_eq!(Toolchain::C.label(), "c");
+        assert_eq!(Toolchain::Zig.label(), "zig");
+        let err = Toolchain::parse(Some("rust")).expect_err("rust is not a toolchain here");
+        assert!(err.contains("zig"), "{err}");
+    }
+
+    /// Zig's five supported platforms, named and checksummed (0.16.0).
+    ///
+    /// `zig_asset_for` takes `os`/`arch` precisely so this test can cover every arm on one
+    /// machine: `spec_for_current_platform`-style functions can only ever exercise the host's
+    /// own arm.
+    #[test]
+    fn zig_covers_the_five_platforms_and_names_its_archives() {
+        let cases = [
+            (
+                "windows",
+                "x86_64",
+                "zig-x86_64-windows-0.16.0.zip",
+                ArchiveKind::Zip,
+            ),
+            (
+                "macos",
+                "x86_64",
+                "zig-x86_64-macos-0.16.0.tar.xz",
+                ArchiveKind::TarXz,
+            ),
+            (
+                "macos",
+                "aarch64",
+                "zig-aarch64-macos-0.16.0.tar.xz",
+                ArchiveKind::TarXz,
+            ),
+            (
+                "linux",
+                "x86_64",
+                "zig-x86_64-linux-0.16.0.tar.xz",
+                ArchiveKind::TarXz,
+            ),
+            (
+                "linux",
+                "aarch64",
+                "zig-aarch64-linux-0.16.0.tar.xz",
+                ArchiveKind::TarXz,
+            ),
+        ];
+        let mut seen = std::collections::HashSet::new();
+        for (os, arch, asset, kind) in cases {
+            let (found, found_kind) = zig_asset_for(os, arch).expect("a supported platform");
+            assert_eq!(found, asset, "{os}-{arch}");
+            assert_eq!(found_kind, kind, "{os}-{arch}");
+            let sha = sha256_for_zig_asset(&found).expect("a published checksum");
+            assert_eq!(sha.len(), 64, "{found}");
+            assert!(
+                sha.chars()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+                "{sha}"
+            );
+            assert!(seen.insert(sha), "two assets share a checksum: {found}");
+        }
+        assert!(
+            zig_asset_for("windows", "aarch64").is_err(),
+            "Zig publishes this one; it is outside this batch's five"
+        );
+        assert!(zig_asset_for("freebsd", "x86_64").is_err());
+        assert!(
+            sha256_for_zig_asset("zig-0.16.0.tar.xz").is_err(),
+            "the source tarball is not a product"
+        );
+    }
+
+    /// The locator reads both layouts the release can land in: extracted, and extracted
+    /// inside a parent (which is how `extract()` leaves a staging directory).
+    #[test]
+    fn find_zig_reads_both_depths() {
+        let flat = std::env::temp_dir().join(format!("riscdom-zig-flat-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&flat);
+        fs::create_dir_all(&flat).expect("create flat");
+        fs::write(flat.join("zig"), b"#!/bin/sh\n").expect("write zig");
+        assert_eq!(find_zig(&flat), Some(flat.join("zig")));
+
+        let nested =
+            std::env::temp_dir().join(format!("riscdom-zig-nested-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&nested);
+        let top = nested.join("zig-x86_64-linux-0.16.0");
+        fs::create_dir_all(top.join("lib")).expect("create lib");
+        fs::write(top.join("zig"), b"#!/bin/sh\n").expect("write zig");
+        assert_eq!(find_zig(&nested), Some(top.join("zig")));
+
+        let empty = std::env::temp_dir().join(format!("riscdom-zig-empty-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&empty);
+        fs::create_dir_all(&empty).expect("create empty");
+        assert_eq!(find_zig(&empty), None);
     }
 }

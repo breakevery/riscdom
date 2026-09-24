@@ -519,3 +519,15 @@
 **为何不加 `cfg` 门**：`.tar.gz` 在这里被限到非 Windows，是因为它只是我们自制下载里的 **unix 资产**。`.tar.xz` 不同：它是**宿主自己** Zig 发行包的形态（Windows 是 `.zip`，macOS/Linux 是 `.tar.xz`），也是 Rust 的 `rust-std-*.tar.xz` 在所有平台的形态。把它限到非 Windows 只会被下一批撤销，而「Windows 主机也能读 `.tar.xz`」正是那两个下载需要的能力。
 
 **影响**：`extract_tar_xz` 在所有平台可用；`spec_for_current_platform()` **未改**（仍是那一条 xPack 规格），所以目前还没有任何东西会去下载 xz 归档——Zig 定位器与 Zig/Rust 规格属 apply 批。`ArchiveKind` 不参与 serde，无线类型变动。
+
+## 49. 下载要说出自己的工具链；语言是个标签，规格仍是两个函数
+
+**日期**：2026-09-24 ｜ **状态**：已定
+
+**决策**：`DownloadSpec` 新增 `toolchain: Toolchain`（`C` / `Zig`，可 serde，缺省即 C）。它决定模块推不出的**两件事**：解包后的归档里由**哪个定位器**找产物（`product_locator`：C 走 `find_compiler`，Zig 走新的 `find_zig`），以及装完之后宿主做哪一次**采用**（C 走 `set_toolchain_path`，Zig 走 `set_zig_path`）。语言以**标签**抵达下载——CLI 的 `--toolchain zig`、`POST /v0/toolchain/download` 的 body `{"toolchain":"zig"}`、Tauri 命令的可选参数——而**只有一个**函数 `Toolchain::parse` 把标签变成枚举，任何一条边都不可能跟另一条打架。Zig 有自己的规格函数（`zig_spec_for_current_platform`），`spec_for_current_platform()` 一字未动。
+
+**为何用一个字段而不是第二套规格家族**：两个规格函数共用一个枚举。规格携带的是**产物**（版本、URL、校验和、归档种类），两个发布在这上面毫无共同之处；但下载之后的一切——暂存目录、改名、幂等的「已安装」判定、采用——完全相同，而它需要知道自己面对的是哪个产物。`toolchain` 字段正是把这份知识放在两边都已读到的那一个位置。
+
+**为何线上传的是标签而不是更富的类型**：HTTP body 的参数按设计就是扁平字符串（`Params::from_json` 保留标量、丢弃嵌套值），而 Tauri 命令收 `Option<String>`，前端因此发不出别的边会拒的形状。`None` 与空串都等于 C——正是本批之前每个调用者一直在发的——所以改动在每条边上都是加法，包括那个原本没有 body 的端点。
+
+**为何 `install_subdir` 仍然是死的**：本批本想「接通或删掉」，结果发现接通不成立。`download_and_install` 最后一步是 `fs::rename(staging, install_dir)`，而 `install_dir = dest_root/<version>`；若按「解压到 `dest_root/<install_subdir>`」且 Zig 用空串，就会往已存在且非空的 `dest_root` 上改名，直接失败。模块真正需要的是**定位器**，那是逐语言的，不是一个目录提示。字段保持原样、继续是死字段：那是它自己的（小）决策，记在这里，免得下一批重新踩。

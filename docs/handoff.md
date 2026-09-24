@@ -13,6 +13,25 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The Zig compiler is one click away, and a download now says which language it means**
+  (v0.9 multi-language batch F3a-download-apply). `DownloadSpec` gained `toolchain: Toolchain`
+  (`C` / `Zig`, serde, absent means C), and with it the two things the module could not guess:
+  **which locator** finds the product (`product_locator`: `find_compiler` for C, the new
+  `find_zig` for Zig — depth 0/1 over `agent::ZIG_NAMES`, because a Zig release is shallow) and
+  **which adopt call** the host makes (`set_toolchain_path` vs `set_zig_path`).
+  `zig_spec_for_current_platform()` is a sibling of the C spec with Zig's five assets and its own
+  hardcoded 0.16.0 checksums, taken from `ziglang.org/download/index.json`'s `shasum` field (Zig
+  publishes no per-asset `.sha`, unlike xPack). The language travels as a **label** parsed in one
+  place, `Toolchain::parse`: `--toolchain zig` on the CLI, `{"toolchain":"zig"}` in the
+  `POST /v0/toolchain/download` body (that endpoint had **no** body before this batch; sending
+  none still means C), and `Option<String>` on the Tauri command. `ToolchainDownloadStatus` gained
+  `toolchain: Option<Toolchain>` so a UI can name what is running. **5 new tests** (3 unit: the
+  label round-trip, Zig's five platform arms + checksums, both `find_zig` depths; 2 integration:
+  Zig through the loopback download path, and Zig adoption through `download_toolchain_now`
+  asserting the C pin stays `null`); the CLI assertions for `--toolchain` live in the two tests
+  that already own the command table. `install_subdir` is **still** the dead field it was — it is
+  not what this batch needed, and wiring it as an extract root would break the Zig install
+  (decision §49).
 - **A `.tar.xz` archive kind exists, and its extractor is the gzip one with another decoder**
   (v0.9 multi-language batch F3a-download). `ArchiveKind` gained `TarXz`; `extract_tar_xz` is
   `extract_tar_gz` line for line with `xz2::read::XzDecoder` where `flate2::read::GzDecoder` was —

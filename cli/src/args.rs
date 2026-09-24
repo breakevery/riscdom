@@ -90,8 +90,10 @@ configuration commands:
                                 prints how to install QEMU yourself)
   qemu cancel                   cancel a running QEMU download
   qemu status                   whether a QEMU download is running
-  toolchain download [--wait]   download the pinned RISC-V toolchain; --wait
-                                prints progress until it finishes
+  toolchain download [--toolchain c|zig] [--wait]
+                                download a pinned toolchain (default c: the RISC-V
+                                GCC; zig: the Zig compiler); --wait prints
+                                progress until it finishes
   toolchain cancel              cancel a running download
   toolchain path <file>         use this compiler
   toolchain clear               forget it (asks)
@@ -113,6 +115,7 @@ options:
                                 against the workspace root)
   --target <agent_id>           `tasks dispatch` only: who the task is for
   --input <text>                `tasks dispatch` only: what the task says
+  --toolchain <c|zig>           `toolchain download` only: which toolchain to install
   --api-key <key>               the model's API key (warns: it lands in the
                                 shell history)
   --api-key-file <path>         read the API key from this file instead
@@ -271,7 +274,9 @@ pub enum Command {
     QemuDownload,
     QemuCancel,
     QemuStatus,
-    ToolchainDownload,
+    ToolchainDownload {
+        toolchain: Option<String>,
+    },
     ToolchainCancel,
     ToolchainPath {
         path: String,
@@ -373,7 +378,7 @@ impl Command {
             Command::QemuClear => "/v0/qemu/path/clear".to_string(),
             Command::QemuDownload | Command::QemuStatus => "/v0/qemu/download".to_string(),
             Command::QemuCancel => "/v0/qemu/download/cancel".to_string(),
-            Command::ToolchainDownload => "/v0/toolchain/download".to_string(),
+            Command::ToolchainDownload { .. } => "/v0/toolchain/download".to_string(),
             Command::ToolchainCancel => "/v0/toolchain/download/cancel".to_string(),
             Command::ToolchainPath { .. } => "/v0/toolchain/path".to_string(),
             Command::ToolchainClear => "/v0/toolchain/path/clear".to_string(),
@@ -415,6 +420,11 @@ impl Command {
                 Some(name) => Some(json!({ "target": target, "input": input, "sandbox": name })),
                 None => Some(json!({ "target": target, "input": input })),
             },
+            // Only when a language was named: `toolchain download` with no flag sends no body,
+            // which is exactly what it sent before the flag existed (v0.9 F3a-download-apply).
+            Command::ToolchainDownload { toolchain } => toolchain
+                .as_ref()
+                .map(|label| json!({ "toolchain": label })),
             Command::SnapshotsSave { name }
             | Command::SnapshotsResume { name }
             | Command::SnapshotsDelete { name } => Some(json!({ "name": name })),
@@ -570,6 +580,9 @@ struct Flags {
     target: Option<String>,
     /// `--input <text>`: what a dispatched task says (v0.9 interface E0).
     input: Option<String>,
+    /// `--toolchain <c|zig>`: which toolchain `toolchain download` installs
+    /// (v0.9 F3a-download-apply). Absent means the C toolchain, as it always did.
+    toolchain: Option<String>,
     api_key: Option<String>,
     api_key_file: Option<PathBuf>,
     base_url: Option<String>,
@@ -617,6 +630,7 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
             "--sandbox" => flags.sandbox = Some(value("--sandbox")?),
             "--target" => flags.target = Some(value("--target")?),
             "--input" => flags.input = Some(value("--input")?),
+            "--toolchain" => flags.toolchain = Some(value("--toolchain")?),
             "--api-key" => flags.api_key = Some(value("--api-key")?),
             "--api-key-file" => flags.api_key_file = Some(PathBuf::from(value("--api-key-file")?)),
             "--base-url" => flags.base_url = Some(value("--base-url")?),
@@ -643,7 +657,7 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
     if wait
         && !matches!(
             command,
-            Command::ToolchainDownload | Command::PreflightRun | Command::QemuDownload
+            Command::ToolchainDownload { .. } | Command::PreflightRun | Command::QemuDownload
         )
     {
         return Err(
@@ -797,7 +811,17 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
         (Some("qemu"), Some("download"), None, None) => Some(Command::QemuDownload),
         (Some("qemu"), Some("cancel"), None, None) => Some(Command::QemuCancel),
         (Some("qemu"), Some("status"), None, None) => Some(Command::QemuStatus),
-        (Some("toolchain"), Some("download"), None, None) => Some(Command::ToolchainDownload),
+        (Some("toolchain"), Some("download"), None, None) => {
+            // Validated here so a typo is a usage error (exit 2) rather than a `400` from the
+            // control plane. The server runs the same parser, so the two cannot disagree
+            // (v0.9 F3a-download-apply).
+            if let Some(label) = flags.toolchain.as_deref() {
+                host_core::toolchain_download::Toolchain::parse(Some(label))?;
+            }
+            Some(Command::ToolchainDownload {
+                toolchain: flags.toolchain.clone(),
+            })
+        }
         (Some("toolchain"), Some("cancel"), None, None) => Some(Command::ToolchainCancel),
         (Some("toolchain"), Some("path"), Some(path), None) => Some(Command::ToolchainPath {
             path: path.to_string(),
@@ -1329,7 +1353,19 @@ mod tests {
         assert_eq!(command(&["qemu", "clear"]), Command::QemuClear);
         assert_eq!(
             command(&["toolchain", "download"]),
-            Command::ToolchainDownload
+            Command::ToolchainDownload { toolchain: None }
+        );
+        assert_eq!(
+            command(&["toolchain", "download", "--toolchain", "zig"]),
+            Command::ToolchainDownload {
+                toolchain: Some("zig".to_string())
+            }
+        );
+        assert_eq!(
+            command(&["toolchain", "download", "--toolchain", "c"]),
+            Command::ToolchainDownload {
+                toolchain: Some("c".to_string())
+            }
         );
         assert_eq!(command(&["toolchain", "cancel"]), Command::ToolchainCancel);
         assert_eq!(
@@ -1477,7 +1513,10 @@ mod tests {
             ),
             (Command::QemuPath { path: "p".into() }, "/v0/qemu/path"),
             (Command::QemuClear, "/v0/qemu/path/clear"),
-            (Command::ToolchainDownload, "/v0/toolchain/download"),
+            (
+                Command::ToolchainDownload { toolchain: None },
+                "/v0/toolchain/download",
+            ),
             (Command::ToolchainCancel, "/v0/toolchain/download/cancel"),
             (
                 Command::ToolchainPath { path: "p".into() },
@@ -1582,7 +1621,15 @@ mod tests {
             minimal.body(),
             Some(json!({ "api_key": "k", "base_url": "u", "model": "m" }))
         );
-        assert_eq!(Command::ToolchainDownload.body(), None);
+        assert_eq!(Command::ToolchainDownload { toolchain: None }.body(), None);
+        assert_eq!(
+            Command::ToolchainDownload {
+                toolchain: Some("zig".into())
+            }
+            .body(),
+            Some(json!({ "toolchain": "zig" })),
+            "naming a language is what puts a body on the request"
+        );
         assert_eq!(Command::ToolchainCancel.body(), None);
         assert_eq!(Command::PreflightRun.body(), None);
         assert_eq!(Command::PreflightAck.body(), None);
@@ -1599,7 +1646,7 @@ mod tests {
             assert!(command.confirmation().is_some(), "{command:?}");
         }
         for command in [
-            Command::ToolchainDownload,
+            Command::ToolchainDownload { toolchain: None },
             Command::ToolchainCancel,
             Command::PreflightRun,
             Command::PreflightAck,
@@ -1632,7 +1679,13 @@ mod tests {
             Some("a")
         );
         assert_eq!(Command::Health.output_path(), None);
-        assert_eq!(Command::ToolchainDownload.output_path(), None);
+        assert_eq!(
+            Command::ToolchainDownload {
+                toolchain: Some("zig".into())
+            }
+            .output_path(),
+            None
+        );
     }
 
     #[test]

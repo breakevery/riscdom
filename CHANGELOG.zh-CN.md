@@ -31,6 +31,8 @@
 
 **多了 `.tar.xz` 归档类型。** `ArchiveKind` 新增 `TarXz`，`extract_tar_xz` 用 `xz2::read::XzDecoder` 照抄 `extract_tar_gz`——同一个 Zip-Slip 守卫、同一个覆盖语义、同一套逐条目取消。该臂**不带平台门**：`.tar.xz` 是宿主自己 Zig 与 Rust 下载的形态，所以 Windows 主机也得能读。`xz2` 本就在 `Cargo.lock` 里（由 `zip` 带入）：锁只多一行、无版本变动，也没有任何平台新增系统库前提。目前还没有东西会去下载 xz 归档——那是 apply 批。
 
+**Zig 编译器现在能从应用里安装，而下载终于会说自己在为哪种语言干活。** `DownloadSpec` 新增 `toolchain`（`C` / `Zig`）：它决定归档里由哪个定位器找产物，以及装完之后做哪一次「采用」——C 编译器走 `set_toolchain_path`，Zig 走 `set_zig_path`。语言以各条边都接受的**标签**传递（`--toolchain zig`；下载端点 body 里的 `{"toolchain":"zig"}`，body 是本批新加的，不发 body 仍然等于 C；Tauri 命令上一个可选参数），状态也把它报回来。Zig 的校验和与 xPack 一样钉在源码里。
+
 ### 新增
 
 - **Zig 可编译（v0.9 F3a）**：`compile` 按源扩展名分派——`.c` / `.h` / `.S` / `.s` 走 GCC，`.zig` 走 `zig build-exe -target riscv64-freestanding`。Zig 不注入任何东西：源自己写 `_start`（`-bios none` 的客机跳到载入地址，所以启动代码必须排最前），生成的 `link.ld` 原样复用。`ZigConfig` 负责探测（`RISCDOM_ZIG` → 已知路径 → `PATH`），`settings.json` 新增 `zig_path`，由 `AppState::set_zig_path` / `clear_zig_path` 固定与清除。Zig 归档**不**在本批下载：其 macOS/Linux 构建是 `.tar.xz`，现有下载器无法解包（独立批次，与 Rust 共用）。

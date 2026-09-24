@@ -69,6 +69,14 @@ Zig and Rust downloads, so a Windows host must read one too. `xz2` was already i
 (through `zip`): the lock grew by one line, no version moved, and no platform gained a
 system-library requirement. Nothing downloads an xz archive yet — that is the apply batch.
 
+**The Zig compiler is installable from the app, and a download now says which language it is
+for.** `DownloadSpec` gained a `toolchain` (`C` / `Zig`): it decides which locator finds the
+product inside the archive and which "adopt" call follows the install — `set_toolchain_path` for
+the C compiler, `set_zig_path` for Zig. The language travels as a label every edge accepts
+(`--toolchain zig`, `{"toolchain":"zig"}` in the download endpoint's body — which is new; no body
+still means C — and an optional argument on the Tauri command), and the status reports it back.
+Zig's checksums are pinned in the source like xPack's.
+
 ### Added
 
 - **Zig compiles (v0.9 F3a)**: `compile` dispatches on the source extension — `.c` /
