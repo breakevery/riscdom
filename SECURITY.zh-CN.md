@@ -38,5 +38,5 @@
 （`qemu-system-riscv64`）与 RISC-V 交叉编译器（`riscv64-unknown-elf-gcc`），
 标准 runner 不具备，由开发者在本地执行 `cargo test`。
 
-`host-tauri` 依赖 Tauri，在 Linux 需要系统库（webkit2gtk / gtk），故 CI 不编译 `host-tauri`；
-MVP 面向 Windows，它在 Windows 本地 lint / check。不含 Tauri 的 crate——`cli`、`server` 与 `host-core`——则在两个平台都 lint。
+`host-tauri` 依赖 Tauri，在 Linux 需要系统库（webkit2gtk / gtk）。Linux 的 `gate` job 会把它们装上，
+因此每个 workspace crate 在 CI 里也会被 lint 与 check——没有任何东西只在开发机上 lint。留在本地的是上面那类端到端工作。

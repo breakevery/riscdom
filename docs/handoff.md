@@ -13,6 +13,16 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The gate lints and checks every workspace crate on every platform now** (v0.9
+  gate-consistency batch B-2). The last two skips are gone — `host-tauri` and `ui/src-tauri` are
+  linted on Linux as well — and `worker`, which no clippy list on either platform mentioned,
+  joined them. The OS branch in `scripts/gate.sh` went with the skips, and the `gate` job in
+  `ci.yml` now installs the Tauri system libraries (webkit2gtk / gtk / librsvg / libsoup) beside
+  the `libdbus-1-dev` it already had. `ui/dist` turned out **not** to be a prerequisite for
+  `cargo check` / `clippy`: `tauri::generate_context!()` takes the dev branch unless the
+  `custom-protocol` feature is on (`tauri-macros/src/context.rs`), which is true for a plain
+  `cargo check`; verified by moving `ui/dist` aside and checking the crate. Still open: a
+  non-Windows gate runs `cargo test -p audit -p sandbox --lib` — 10 tests of 638 (B-3).
 - **B-1's follow-up: the lint it surfaced is fixed** (v0.9 gate-consistency batch B-1-fix).
   Un-skipping `cli` on Linux failed there immediately: `cli/tests/control.rs`'s
   `write_executor_settings` was called only from a `#[cfg(windows)]` dispatch test but carried

@@ -963,6 +963,14 @@ repository, who it is for, and whether it is living, a snapshot or history.
   dependency is `libdbus-1-dev` (reached through `keyring`), which the gate job already
   installs. E4 is why this was overdue — its `worker` example step was the first Linux gate
   step to compile `host-core`, and it was red for four commits before anyone looked.
+- **Every workspace crate is linted and checked on every platform.** The non-Windows branch is
+  gone from `scripts/gate.sh` (the OS detection went with it): `host-tauri` and `ui/src-tauri`
+  are linted and checked on Linux too, and `worker` — absent from every clippy list until now,
+  on both platforms — joined the same command. The Linux `gate` job installs the Tauri system
+  libraries (webkit2gtk / gtk / librsvg / libsoup) next to the `libdbus-1-dev` it already
+  installed. No frontend-ordering change was needed: `tauri::generate_context!()` takes its dev
+  branch while `custom-protocol` is off, which is the case for a plain `cargo check` /
+  `cargo clippy`.
 
 ## [0.8.0] - 2026-09-22
 

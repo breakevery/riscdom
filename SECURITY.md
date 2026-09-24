@@ -44,6 +44,6 @@ single known false positive and does not weaken the rest of the full-history sca
 (`qemu-system-riscv64`) and a RISC-V cross compiler (`riscv64-unknown-elf-gcc`), which the
 standard runners do not have; developers run `cargo test` locally.
 
-`host-tauri` depends on Tauri and needs system libraries on Linux (webkit2gtk / gtk), so CI does
-not build `host-tauri`; the MVP targets Windows, where it is linted and checked locally. The
-crates that carry no Tauri — `cli`, `server` and `host-core` — are linted on both platforms.
+`host-tauri` depends on Tauri, which needs system libraries on Linux (webkit2gtk / gtk). The Linux
+`gate` job installs them, so every workspace crate is linted and checked in CI too — nothing is
+linted only on the developer's machine. What stays local is the end-to-end work above.

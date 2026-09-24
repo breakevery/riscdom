@@ -8,15 +8,14 @@
 #
 # Requirements: Rust (rustfmt + clippy) and Node >= 22.6 (the UI probes import the
 # `.ts` modules and rely on type stripping: default from Node 23.6, needs
-# `--experimental-strip-types` on 22.6-23.5). On Windows, QEMU
-# (`qemu-system-riscv64`) and a RISC-V bare-metal GCC must be on PATH, because
-# several tests boot a real guest. Python 3 is optional: it runs
+# `--experimental-strip-types` on 22.6-23.5). On Linux the two Tauri crates need the
+# webkit2gtk / gtk / librsvg / libsoup development packages, and `host-core` needs
+# `libdbus-1-dev` through `keyring`; CI installs them (`.github/workflows/ci.yml`).
+# On Windows, QEMU (`qemu-system-riscv64`) and a RISC-V bare-metal GCC must be on PATH,
+# because several tests boot a real guest. Python 3 is optional: it runs
 # `examples/python`'s self-test, which prints a skip when no interpreter is there.
 #
 # Platform differences are printed, never skipped silently:
-#   - non-Windows: `host-tauri` and `ui/src-tauri` lint and check are skipped (their
-#     build needs webkit2gtk / gtk / librsvg). `cli`, `server` and `host-core` carry no
-#     Tauri and are linted on every platform.
 #   - without QEMU + a RISC-V GCC: the guest-booting tests are skipped and the
 #     portable library tests run instead.
 #   - without python3/python: the reference supervisor's self-test is skipped.
@@ -60,11 +59,6 @@ have_python() {
   fi
 }
 
-case "$(uname -s 2>/dev/null || echo unknown)" in
-  MINGW*|MSYS*|CYGWIN*) host_os="windows" ;;
-  *) host_os="unix" ;;
-esac
-
 echo "==> cargo fmt --all -- --check"
 cargo fmt --all -- --check || fail "cargo fmt"
 
@@ -74,26 +68,19 @@ cargo clippy -p audit -p sandbox -p agent --all-targets -- -D warnings || fail "
 echo "==> cargo check (portable crates audit sandbox agent)"
 cargo check -p audit -p sandbox -p agent || fail "cargo check"
 
-if [ "$host_os" = "windows" ]; then
-  echo "==> cargo clippy (cli + server + host-core + host-tauri)"
-  # `--no-deps`: the crates we own are linted, their dependencies are only built.
-  cargo clippy -p cli -p server -p host-core -p host-tauri --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + server + host-core + host-tauri"
+# Every crate is linted and checked on **every** platform, so there is no OS branch here.
+# The two Tauri crates need webkit2gtk / gtk / librsvg on Linux and `host-core` needs
+# `dbus-1` (through `keyring`); CI installs those. `worker` was missing from every clippy
+# list before this batch, on both platforms.
+echo "==> cargo clippy (cli + server + host-core + host-tauri + worker)"
+# `--no-deps`: the crates we own are linted, their dependencies are only built.
+cargo clippy -p cli -p server -p host-core -p host-tauri -p worker --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + server + host-core + host-tauri + worker"
 
-  echo "==> cargo clippy (ui/src-tauri)"
-  cargo clippy --manifest-path ui/src-tauri/Cargo.toml --all-targets -- -D warnings || fail "cargo clippy ui/src-tauri"
+echo "==> cargo clippy (ui/src-tauri)"
+cargo clippy --manifest-path ui/src-tauri/Cargo.toml --all-targets -- -D warnings || fail "cargo clippy ui/src-tauri"
 
-  echo "==> cargo check (ui/src-tauri)"
-  cargo check --manifest-path ui/src-tauri/Cargo.toml || fail "cargo check ui/src-tauri"
-else
-  # `cli`, `server` and `host-core` name no Tauri crate, so they lint on both platforms;
-  # only the two Tauri crates are skipped here. Their Linux system dependency is
-  # `libdbus-1-dev` (reached through `host-core`'s `keyring` backend), which CI installs.
-  echo "==> cargo clippy (cli + server + host-core)"
-  # `--no-deps`: the crates we own are linted, their dependencies are only built.
-  cargo clippy -p cli -p server -p host-core --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + server + host-core"
-
-  skip "host-tauri + ui/src-tauri lint and check (Tauri needs webkit2gtk / gtk / librsvg; they are linted on Windows)"
-fi
+echo "==> cargo check (ui/src-tauri)"
+cargo check --manifest-path ui/src-tauri/Cargo.toml || fail "cargo check ui/src-tauri"
 
 if have_guest_tools; then
   echo "==> cargo test"

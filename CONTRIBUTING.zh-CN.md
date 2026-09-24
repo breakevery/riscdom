@@ -31,8 +31,8 @@ sh scripts/gate.sh    # Unix
 
 gate 就是**「全绿」的唯一清单**：CI 跑的是同一个文件（`.github/workflows/ci.yml` 里的
 `sh scripts/gate.sh`），所以检查项再也不会在 CI 与本机之间漂移。依次执行：`cargo fmt --all -- --check` →
-`cargo clippy -D warnings`（workspace 的 `audit` / `sandbox` / `agent` / `cli` / `server` / `host-core` / `host-tauri`，
-以及 `ui/src-tauri`）→
+`cargo clippy -D warnings`（workspace 的 `audit` / `sandbox` / `agent` / `cli` / `server` / `host-core` / `host-tauri` /
+`worker`，以及 `ui/src-tauri`）→
 `cargo check` → `cargo test` → `ui/src-tauri` 的 `cargo check` → `npm run build` →
 UI 回归探针（`node ui/scripts/probe-ui-*.mjs`）→ 镜像常量守卫
 （`node scripts/check-mirrored-constants.mjs`）→ wix 版本守卫
@@ -40,9 +40,8 @@ UI 回归探针（`node ui/scripts/probe-ui-*.mjs`）→ 镜像常量守卫
 （`node scripts/check-ui-strings.mjs`）→ 双语文档链接检查（`scripts/check-bilingual.ps1` /
 `.sh`）。
 
-平台差异一律**打印出来，绝不静默跳过**：非 Windows 上会跳过 `host-tauri` / `ui/src-tauri` 的 lint 与 check
-（它们需要 webkit2gtk / gtk / librsvg；`cli`、`server` 与 `host-core` 不含 Tauri，在**每个**平台都 lint）；
-PATH 上没有 QEMU + RISC-V GCC 时，跳过需要起 guest 的测试，改为跑可移植 crate 的库测试。
+平台差异一律**打印出来，绝不静默跳过**：PATH 上没有 QEMU + RISC-V GCC 时，跳过需要起 guest 的测试，
+改为跑可移植 crate 的库测试。
 
 另有更轻量的预检：`scripts/preflight.ps1`（Windows）/ `scripts/preflight.sh`（Unix）。
 
