@@ -497,3 +497,13 @@
 **拆出去的（F3a-download）**：下载 Zig 归档**不**在本批。Zig 的 macOS/Linux 构建是 `.tar.xz`，而 `toolchain_download::ArchiveKind` 只认 `Zip` 与 `TarGz`，要解包就得新增一种归档类型加一个 xz 解码器；产物定位器也带 GCC 形状（`find_compiler` 匹配 `agent::GCC_NAMES`，而 Zig 装的是 `zig` / `zig.exe`）。任一条都超出现有下载器的「填一条规格」形制，所以它是独立批次——而且正是 Rust 也需要的那一批，因此排在 F3b 之前。
 
 **影响**：`write_source` 放行 `.zig`（`Policy.allowed_extensions`），`settings.json` 新增 `zig_path`，工具 schema 文档与 `agent/README.md` 都点名两种语言。Rust（F3b）复用同一分派点；Python 不属 v0.9（它需要 Linux 沙箱，属 v1.x）。
+
+## 47. MVP 期的 Zig 禁令解除
+
+**日期**：2026-09-24 ｜ **状态**：已定
+
+**决策**：`PROJECT_CONSTITUTION.md` 在**三处**禁 Zig——§3.6（在「不可协商」列表内）、§4.6（代理层）、§5（语言限制）——并在 §9 的 v0.1 清单里又记了一次。自 v0.9 F3a 起 **Zig 解禁**；C++、Rust、Python 仍在禁令内（Rust 待 F3b，Python 待 Linux 沙箱，v1.x）。**原句全部保留**，三处各带一条旁注，说明它所写的时效条件已过。§9 **不动**：那是历史清单，v0.1 当时确实只支持 C。
+
+**理由**：Zig 自带交叉编译器（无 sysroot、无外部链接器），能为 `riscv64-freestanding` 产出载入地址 `0x80000000` 的裸机 ELF——与 C 路径同形，所以沙箱本身无需改（§46）。MVP 期禁 Zig 是为把 MVP 面收小，不是长期语言政策。起决定作用的是：那些条款禁 Zig 的条件是「**MVP 阶段**」，而 MVP 已于 v0.8.0 结束——条款自带的限定词不再成立。因此解禁 Zig **不是协商一条不可协商的原则**，而是诚实读条款自己的时效条件。「不可协商」列表没有被削弱，其标题也一字未动。
+
+**影响**：§3.6、§4.6、§5 各带一条时效旁注（原句完整、`non-negotiable` 完整）；§9 未改。受支持的语言现为 C / Zig。宪法本身是一份停在 v0.5 roadmap 节之后的活文档——那是独立议题，在这里记录，本批**故意不修**。

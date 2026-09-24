@@ -29,6 +29,7 @@
 4. 人类永远有暂停、回滚、断网、终止权。
 5. AI 民主是实验变量，不是 MVP 必做。
 6. MVP 阶段 AI 在沙箱内只能生成 C 和 RISC-V 汇编。
+   *MVP 已于 v0.8.0 结束，本条的时效条件不再成立；v0.9 F3a 解除 Zig 禁令——见 [decisions.zh-CN.md](docs/decisions.zh-CN.md) §47。原则本身未被触碰：过期的是本条自带的「MVP 阶段」限定词。*
 7. AI 接入先用 API keys。
 
 ## 4. 架构分层
@@ -47,6 +48,7 @@
    QEMU `virt` 机器上运行裸机 ELF。AI 在其中拥有虚拟内核级权限，但仅限沙箱内。
 6. **AI 代理层（Agent，Rust）**
    LLM 循环 + 工具调用。MVP 阶段只能生成 C11 与 RISC-V RV64GC 汇编。
+   *与 §3.6 同一时效条件：MVP 已于 v0.8.0 结束，v0.9 F3a 解除 Zig 禁令（见 [decisions.zh-CN.md](docs/decisions.zh-CN.md) §47）。*
 
 ## 5. 语言限制
 
@@ -56,6 +58,8 @@ MVP 沙箱内 AI 只能生成：
 - RISC-V RV64GC 汇编
 
 禁止：C++、Rust、Zig、Python。
+
+*MVP 已于 v0.8.0 结束，上述时效条件不再成立：**Zig 解禁**——v0.9 F3a，见 [decisions.zh-CN.md](docs/decisions.zh-CN.md) §47。**C++、Rust、Python 仍在禁令内**：Rust 待 F3b，Python 待 Linux 沙箱（v1.x），C++ 仍不在范围。*
 
 ## 6. 审计事件类型（Audit Event Types）
 

@@ -998,3 +998,27 @@ own batch — and it is the same batch Rust needs, which is why it comes before 
 `zig_path`, and both the tool-schema document and `agent/README.md` name the two languages.
 Rust (F3b) reuses the same dispatch point; Python stays out of v0.9 (it needs a Linux sandbox,
 which is v1.x).
+
+## 47. The MVP-era Zig ban is lifted
+
+**Date**: 2026-09-24 ｜ **Status**: Decided
+
+**Decision**: `PROJECT_CONSTITUTION.md` forbade Zig in **three** places — §3.6 (inside the
+"non-negotiable" list), §4.6 (the agent layer) and §5 (Language limits) — and recorded it once
+more in §9's v0.1 checklist. From v0.9 F3a **Zig is allowed**; C++, Rust and Python stay
+forbidden (Rust waits for F3b, Python for a Linux sandbox, v1.x). The original sentences are
+**kept**, each of the three carrying an annotation that the time condition it states has passed.
+§9 is not touched: it is a historical checklist, and v0.1 really did support only C.
+
+**Why**: Zig brings its own cross compiler (no sysroot, no external linker) and emits a
+bare-metal ELF for `riscv64-freestanding` at load address `0x80000000` — the same shape as the C
+path, so the sandbox itself did not have to change (§46). The MVP-era ban existed to keep the MVP
+small, not as a long-term language policy. Decisively, the clauses forbid Zig **"During MVP"**:
+MVP ended at v0.8.0, so the qualifier they carry no longer holds. Lifting Zig is therefore **not
+a negotiation of a non-negotiable principle** — it is reading the clause's own time condition
+honestly. Nothing in the "non-negotiable" list is weakened, and its heading is untouched.
+
+**Impact**: §3.6, §4.6 and §5 carry a time-condition annotation (original sentences intact,
+`non-negotiable` intact); §9 is unchanged. Supported languages are now C / Zig. The constitution
+itself is a live document that stopped being maintained after its v0.5 roadmap section — a
+separate issue, recorded here and deliberately not fixed by this batch.

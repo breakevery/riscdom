@@ -27,6 +27,8 @@
 
 **Zig 是沙箱能编的第二种语言。** `.zig` 源经 `zig build-exe -target riscv64-freestanding` 编成同一个载入地址上的同一个裸机 ELF；Zig 自带交叉链接器，裸机目标无需外部工具链、无需 sysroot。语言按源扩展名分派，所以 `compile_freestanding` **签名字形不变**、C 路径一字未动，生成的链接脚本原样复用。**不**包含下载 Zig 归档：其 macOS/Linux 构建是 `.tar.xz`，现有下载器无法解包——那是独立批次，并同时服务 Rust。
 
+**宪法不再与编译器矛盾。** `PROJECT_CONSTITUTION.md` 在**三处**禁 Zig——§3.6（在 `non-negotiable` 列表内）、§4.6、§5——并在 §9 的 v0.1 清单里又记了一次。三处现在各带一条**时效旁注**；原句与 `non-negotiable` 标题一字未动，因为那些条款禁 Zig 的条件是「**MVP 阶段**」，而 MVP 已于 v0.8.0 结束。只动了 Zig：C++、Rust、Python 仍在禁令内。§9 未动——v0.1 当时确实只支持 C。记入决策 §47。
+
 ### 新增
 
 - **Zig 可编译（v0.9 F3a）**：`compile` 按源扩展名分派——`.c` / `.h` / `.S` / `.s` 走 GCC，`.zig` 走 `zig build-exe -target riscv64-freestanding`。Zig 不注入任何东西：源自己写 `_start`（`-bios none` 的客机跳到载入地址，所以启动代码必须排最前），生成的 `link.ld` 原样复用。`ZigConfig` 负责探测（`RISCDOM_ZIG` → 已知路径 → `PATH`），`settings.json` 新增 `zig_path`，由 `AppState::set_zig_path` / `clear_zig_path` 固定与清除。Zig 归档**不**在本批下载：其 macOS/Linux 构建是 `.tar.xz`，现有下载器无法解包（独立批次，与 Rust 共用）。

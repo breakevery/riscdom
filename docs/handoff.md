@@ -13,6 +13,15 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The constitution stops contradicting the compiler: the MVP-era Zig ban is annotated, not
+  negotiated** (v0.9 constitution batch). `PROJECT_CONSTITUTION.md` forbade Zig in **three** places —
+  §3.6 (inside the `non-negotiable` list), §4.6, §5 — and recorded it once more in §9's v0.1
+  checklist. Each of the three now carries a **time-condition note** (original sentences intact, the
+  `non-negotiable` heading intact): the clauses ban Zig *"During MVP"*, and MVP ended at v0.8.0.
+  §5's note spells out that only Zig moved — C++, Rust and Python stay forbidden (Rust: F3b;
+  Python: a Linux sandbox, v1.x). §9 is untouched: v0.1 really did support only C. Recorded as
+  decision §47. Two things reported and **not** fixed: the constitution is a live document that
+  stopped after its v0.5 roadmap section, and this batch added no v0.6–v0.9 section either.
 - **Zig is the sandbox's second language, and the language is chosen by the source extension**
   (v0.9 multi-language batch F3a). `compile` sends `.c` / `.h` / `.S` / `.s` to GCC (unchanged)
   and `.zig` to `zig build-exe -target riscv64-freestanding -O ReleaseSmall -fno-stack-check -T

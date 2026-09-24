@@ -55,6 +55,13 @@ linker script is shared verbatim. Downloading Zig's own archive is **not** part 
 its macOS/Linux builds are `.tar.xz`, which the existing downloader cannot unpack — that
 is a separate batch, and it serves Rust as well.
 
+**The constitution stops contradicting the compiler.** `PROJECT_CONSTITUTION.md` forbade Zig in
+**three** places — §3.6 (inside the `non-negotiable` list), §4.6 and §5 — and recorded it once more
+in §9's v0.1 checklist. Each of the three now carries a **time-condition note**; the original
+sentences and the `non-negotiable` heading are untouched, because the clauses ban Zig *"During
+MVP"* and MVP ended at v0.8.0. Only Zig moved: C++, Rust and Python stay forbidden. §9 is left
+alone — v0.1 really did support only C. Recorded as decision §47.
+
 ### Added
 
 - **Zig compiles (v0.9 F3a)**: `compile` dispatches on the source extension — `.c` /
