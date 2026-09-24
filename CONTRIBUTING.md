@@ -40,10 +40,10 @@ the ui regression probes (`node ui/scripts/probe-ui-*.mjs`) → the mirror guard
 (`node scripts/check-ui-strings.mjs`) → the bilingual-link check
 (`scripts/check-bilingual.ps1` / `.sh`).
 
-Platform differences are **printed, never skipped silently**: on non-Windows the `host-core` /
-`ui/src-tauri` lint and check are skipped (Tauri needs webkit2gtk / gtk / librsvg there), and
-without QEMU + a RISC-V GCC the guest-booting tests are skipped in favour of the portable library
-tests.
+Platform differences are **printed, never skipped silently**: on non-Windows the `host-tauri` /
+`ui/src-tauri` lint and check are skipped (Tauri needs webkit2gtk / gtk / librsvg there; `cli`,
+`server` and `host-core` are linted on every platform), and without QEMU + a RISC-V GCC the
+guest-booting tests are skipped in favour of the portable library tests.
 
 There is also a lighter preflight: `scripts/preflight.ps1` (Windows) /
 `scripts/preflight.sh` (Unix).

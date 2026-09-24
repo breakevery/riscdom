@@ -13,6 +13,16 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The gate lints `cli` / `server` / `host-core` on Linux now** (v0.9 gate-consistency batch
+  B-1). The non-Windows branch of `scripts/gate.sh` used to skip all four crates together; it now
+  runs `cargo clippy -p cli -p server -p host-core --all-targets --no-deps -- -D warnings` on
+  every platform and skips only the two Tauri crates (`host-tauri`, `ui/src-tauri`). No new
+  system package was needed: `libdbus-1-dev` + `pkg-config`, which CI already installs, are what
+  `host-core`'s `keyring` backend needs on Linux. The gap this closes was found the hard way —
+  E4's `worker` example step was the first Linux gate step to compile `host-core`, and it went
+  red for four commits. `ci.yml` is unchanged. Still open: the two Tauri crates (B-2) and the
+  fact that a non-Windows gate runs `cargo test -p audit -p sandbox --lib` — 10 tests of 638
+  (B-3).
 - **The crate examples are documented, and the contributor templates exist** (v0.9
   small-changes batch). `agent/README` and `audit/README`, both languages, gained an `## Example`
   section for `examples/audit_demo.rs` and `examples/chain_demo.rs` — the two examples that were
@@ -450,7 +460,9 @@ current request authorising it (§2).
   PROJECT_CONSTITUTION and ci.yml's comment name both crates now, and `README.md`'s crate index
   lists `host-core` and `host-tauri`. History was left alone: the CHANGELOG, RELEASE_NOTES, the
   decisions ledger, §1 of this file and the architecture-evolution snapshot still say `host` for
-  the waves that happened. The non-Windows clippy gap is deliberately **not** closed in this wave.
+  the waves that happened. The non-Windows clippy gap is deliberately **not** closed in this wave
+  (it was **partly** closed later, in the v0.9 gate-consistency batch B-1: `cli`, `server` and
+  `host-core` lint on Linux too; the two Tauri crates wait for B-2).
 - **The host split is complete: `host-core` + `host-tauri`** (v0.9 A1, wave 4 of 4).
   `host` is renamed `host-tauri` (directory, `[package] name`, workspace member) and the
   desktop shell depends on it: all 57 `host::` paths in `ui/src-tauri/src/lib.rs` became

@@ -14,8 +14,9 @@
 # `examples/python`'s self-test, which prints a skip when no interpreter is there.
 #
 # Platform differences are printed, never skipped silently:
-#   - non-Windows: `cli` / `server` / `host-core` / `host-tauri` / `ui/src-tauri` lint and check are
-#     skipped (the build needs webkit2gtk / gtk / librsvg or Windows-only platform crates)
+#   - non-Windows: `host-tauri` and `ui/src-tauri` lint and check are skipped (their
+#     build needs webkit2gtk / gtk / librsvg). `cli`, `server` and `host-core` carry no
+#     Tauri and are linted on every platform.
 #   - without QEMU + a RISC-V GCC: the guest-booting tests are skipped and the
 #     portable library tests run instead.
 #   - without python3/python: the reference supervisor's self-test is skipped.
@@ -84,7 +85,14 @@ if [ "$host_os" = "windows" ]; then
   echo "==> cargo check (ui/src-tauri)"
   cargo check --manifest-path ui/src-tauri/Cargo.toml || fail "cargo check ui/src-tauri"
 else
-  skip "host-core + host-tauri + ui/src-tauri lint and check (Tauri needs webkit2gtk / gtk / librsvg; they are linted on Windows)"
+  # `cli`, `server` and `host-core` name no Tauri crate, so they lint on both platforms;
+  # only the two Tauri crates are skipped here. Their Linux system dependency is
+  # `libdbus-1-dev` (reached through `host-core`'s `keyring` backend), which CI installs.
+  echo "==> cargo clippy (cli + server + host-core)"
+  # `--no-deps`: the crates we own are linted, their dependencies are only built.
+  cargo clippy -p cli -p server -p host-core --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + server + host-core"
+
+  skip "host-tauri + ui/src-tauri lint and check (Tauri needs webkit2gtk / gtk / librsvg; they are linted on Windows)"
 fi
 
 if have_guest_tools; then

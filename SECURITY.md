@@ -45,4 +45,5 @@ single known false positive and does not weaken the rest of the full-history sca
 standard runners do not have; developers run `cargo test` locally.
 
 `host-tauri` depends on Tauri and needs system libraries on Linux (webkit2gtk / gtk), so CI does
-not build `host-tauri`; the MVP targets Windows, where `host-core` and `host-tauri` are linted and checked locally.
+not build `host-tauri`; the MVP targets Windows, where it is linted and checked locally. The
+crates that carry no Tauri — `cli`, `server` and `host-core` — are linted on both platforms.

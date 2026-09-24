@@ -39,4 +39,4 @@
 标准 runner 不具备，由开发者在本地执行 `cargo test`。
 
 `host-tauri` 依赖 Tauri，在 Linux 需要系统库（webkit2gtk / gtk），故 CI 不编译 `host-tauri`；
-MVP 面向 Windows，`host-core` 与 `host-tauri` 在 Windows 本地 lint / check。
+MVP 面向 Windows，它在 Windows 本地 lint / check。不含 Tauri 的 crate——`cli`、`server` 与 `host-core`——则在两个平台都 lint。

@@ -949,6 +949,14 @@ repository, who it is for, and whether it is living, a snapshot or history.
   patents) and is what lets an open-core project ship derived work under a commercial
   proprietary licence; a DCO is only a statement of origin, and §20's wording — "a DCO (the
   CLA already exists)" — carried the contradiction. No `Signed-off-by` check goes into CI.
+- **The gate lints `cli`, `server` and `host-core` on non-Windows platforms now.** That branch
+  of `scripts/gate.sh` skipped all four together — `cli`, `server`, `host-core`, `host-tauri` —
+  because `host-tauri` needs webkit2gtk / gtk / librsvg there. The three crates that carry no
+  Tauri are linted on every platform now, and only the two Tauri crates (`host-tauri`,
+  `ui/src-tauri`) stay Windows-only. `ci.yml` did not change: `host-core`'s Linux system
+  dependency is `libdbus-1-dev` (reached through `keyring`), which the gate job already
+  installs. E4 is why this was overdue — its `worker` example step was the first Linux gate
+  step to compile `host-core`, and it was red for four commits before anyone looked.
 
 ## [0.8.0] - 2026-09-22
 

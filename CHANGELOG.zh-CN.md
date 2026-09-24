@@ -526,6 +526,7 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 
 - **根 `README` 的「更多」节**改为以导航开头，并列全九个 crate README，而不是六个。
 - **[决策 §43](docs/decisions.zh-CN.md) 撤销了 §20 的 DCO 条款。** 账本自己的规矩是：被推翻的决策以**追加**一条新条目的方式记录、并在其中点名旧条目，所以 §43 记下这件事，§20 的状态行指向 §43。CLA 是权利授予（再许可、专利），正是它让一个 open-core 项目能以商业专有许可分发派生作品；DCO 只是来源声明，而 §20 的措辞——「DCO（CLA 已有）」——本身就带着矛盾。CI 里不接任何 `Signed-off-by` 校验。
+- **gate 现在在非 Windows 平台上也 lint `cli`、`server` 与 `host-core`。** `scripts/gate.sh` 的那个分支原本把这四个（`cli` / `server` / `host-core` / `host-tauri`）合在一起跳过——因为 `host-tauri` 在那里需要 webkit2gtk / gtk / librsvg。现在不带 Tauri 的三个 crate 在**每个**平台都 lint，只有两个 Tauri crate（`host-tauri`、`ui/src-tauri`）仍是 Windows 专属。`ci.yml` 没改：`host-core` 的 Linux 系统依赖是 `libdbus-1-dev`（经 `keyring` 抵达），而 gate job 早就装了它。这件事拖到现在要怪 E4——它的 `worker` example 步骤是 Linux 上第一个编译 `host-core` 的 gate 步骤，而它连红了四个提交才有人去看。
 
 ## [0.8.0] - 2026-09-22
 
