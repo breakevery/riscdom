@@ -35,6 +35,8 @@
 
 **只要机器上有 `rustc` 与目标的 sysroot，Rust 也能编。** `compile` 第三次按扩展名分派：`.rs` 走 `rustc --target riscv64gc-unknown-none-elf --sysroot <dir>`，配上 C / Zig 路径同一份生成的 `link.ld`，以配置里的 RISC-V GCC 为链接器，并用 `panic=abort`。`rustc` 来自机器（同 QEMU 的先例），sysroot 是一项设置——一个 `rust-std-<target>/` 目录，因为 Rust 向我们要的是目标的 `core`。缺哪一半就**点名拒绝**，绝不静默。`rust-std` 的下载是独立批次。
 
+**Rust 的 sysroot 也可以下载了，而且它是唯一「产物与版本硬绑定」的 pin。** `Toolchain` 新增 `Rust`，于是 `--toolchain rust`（或 body `{"toolchain":"rust"}`）会下载裸机目标所钉的 `rust-std` 组件：一个资产服务所有平台，因为 `rust-std` 是给**目标**而不是给宿主的。定位器返回归档嵌下一层的那个 **sysroot 目录**；当机器的 `rustc` 不是钉住的那个 release 时，宿主会在下载之前就拒绝——sysroot 只能由产出它的 `rustc` 使用。`rustc` 本身仍来自机器。
+
 ### 新增
 
 - **Zig 可编译（v0.9 F3a）**：`compile` 按源扩展名分派——`.c` / `.h` / `.S` / `.s` 走 GCC，`.zig` 走 `zig build-exe -target riscv64-freestanding`。Zig 不注入任何东西：源自己写 `_start`（`-bios none` 的客机跳到载入地址，所以启动代码必须排最前），生成的 `link.ld` 原样复用。`ZigConfig` 负责探测（`RISCDOM_ZIG` → 已知路径 → `PATH`），`settings.json` 新增 `zig_path`，由 `AppState::set_zig_path` / `clear_zig_path` 固定与清除。Zig 归档**不**在本批下载：其 macOS/Linux 构建是 `.tar.xz`，现有下载器无法解包（独立批次，与 Rust 共用）。

@@ -145,7 +145,11 @@ const RUSTC_ENV_VARS: [&str; 1] = ["RISCDOM_RUSTC"];
 const RUST_SYSROOT_ENV: [&str; 1] = ["RISCDOM_RUST_SYSROOT"];
 
 /// The Rust target triple a `.rs` source is built for (v0.9 F3b-1).
-const RUST_TARGET: &str = "riscv64gc-unknown-none-elf";
+///
+/// Public because the host's `rust-std` spec names its asset after it
+/// (`rust-std-<version>-<target>.tar.xz`), exactly as the GCC and Zig names are shared rather
+/// than copied.
+pub const RUST_TARGET: &str = "riscv64gc-unknown-none-elf";
 
 /// The Rust edition a `.rs` source is built with.
 const RUST_EDITION: &str = "2021";

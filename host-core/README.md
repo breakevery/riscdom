@@ -18,7 +18,8 @@ driven by the CLI, by `worker` and by the control plane without linking a GUI to
 - `executor` — the stdio executor handle
 - `preflight` — the environment preflight
 - `qemu_download` / `toolchain_download` — the two download paths (the toolchain one serves
-  both languages: `Toolchain::C` and `Toolchain::Zig`, v0.9 F3a-download-apply)
+  every language: `Toolchain::C`, `Toolchain::Zig` and `Toolchain::Rust` — the last being the
+  target's `rust-std` sysroot, v0.9 F3b-2)
 - `run_diff` — run fingerprint comparison
 - `session` / `settings` — sessions and local settings
 - `keyring` — the API-key store

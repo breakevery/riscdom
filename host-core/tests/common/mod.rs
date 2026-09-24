@@ -237,6 +237,77 @@ pub fn zig_spec_for(
     }
 }
 
+/// The inner directory name of a `rust-std` component: `rust-std-<target>`.
+///
+/// Version-free on purpose: that is the name the locator looks for, while the version lives in
+/// the *outer* directory (`rust-std-<version>-<target>/rust-std-<target>/`).
+pub fn rust_std_dir_name() -> String {
+    format!("rust-std-{}", agent::RUST_TARGET)
+}
+
+/// Build a `.tar.xz` with the `tar` crate's **own** path handling, long names included.
+///
+/// [`build_tar_xz_bytes`] writes the header name by hand so that it can express an escaping
+/// entry; this one is for fixtures whose names are merely *long*. A real `rust-std` path runs
+/// well past the 100-byte header field, and the crate then emits the same GNU long-name entry
+/// the published archives carry.
+fn build_tar_xz_paths(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut encoder = xz2::write::XzEncoder::new(Vec::new(), 6);
+    {
+        let mut tar = tar::Builder::new(&mut encoder);
+        for (name, body) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(body.len() as u64);
+            header.set_mode(0o644);
+            tar.append_data(&mut header, name, *body)
+                .expect("append a named entry");
+        }
+        tar.finish().expect("finish tar");
+    }
+    encoder.finish().expect("finish xz")
+}
+
+/// Archive bytes for a valid `rust-std` fixture (v0.9 F3b-2).
+///
+/// The shape is the real one: a top directory, the sysroot inside it, and `lib/rustlib/<target>/
+/// lib` below that — which is both what `find_rust_std` returns and what `set_rust_sysroot`
+/// insists on before it adopts anything. Those paths are longer than a tar header's name field,
+/// so this fixture goes through the crate's long-name support.
+pub fn rust_std_archive() -> (Vec<u8>, String) {
+    let target = agent::RUST_TARGET;
+    let inner = format!("rust-std-1.98.1-{target}/{}", rust_std_dir_name());
+    let libs = format!("{inner}/lib/rustlib/{target}/lib");
+    let core = format!("{libs}/libcore-fixture.rlib");
+    let copyright = format!("{inner}/COPYRIGHT");
+    let bytes = build_tar_xz_paths(&[
+        (core.as_str(), b"core\n".as_slice()),
+        (copyright.as_str(), b"fixture\n".as_slice()),
+    ]);
+    let hash = sha256_hex(&bytes);
+    (bytes, hash)
+}
+
+/// A download spec pointing at `server` for Rust's sysroot, pinned to `version`.
+///
+/// `version` is a parameter, not `RUST_VERSION`, because the host refuses a download whose pin
+/// does not match this machine's `rustc` (decision §52) — a test that wants a download to happen
+/// has to ask the machine what it is.
+pub fn rust_spec_for(
+    server: &MockServer,
+    sha256: String,
+    name: &str,
+    version: &str,
+) -> host_core::toolchain_download::DownloadSpec {
+    host_core::toolchain_download::DownloadSpec {
+        version: version.to_string(),
+        url: server.url(name),
+        sha256,
+        archive_kind: ArchiveKind::TarXz,
+        toolchain: host_core::toolchain_download::Toolchain::Rust,
+        install_subdir: format!("rust-std-{version}-{}", agent::RUST_TARGET),
+    }
+}
+
 /// Archive bytes whose `zig` really runs, so adoption (`zig version`) succeeds.
 pub fn zig_archive_with_executable() -> (Vec<u8>, String) {
     let zig = fake_executable_bytes();

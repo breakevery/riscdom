@@ -286,6 +286,70 @@ fn a_mock_zig_download_installs_and_adopts_the_compiler() {
 }
 
 #[test]
+fn a_mock_rust_download_installs_and_adopts_the_sysroot() {
+    let state = state("dl-rust");
+    // The pin has to be this machine's own release: the host refuses a Rust download whose pin
+    // disagrees with the `rustc` that would have to use it (decision §52).
+    let Some(release) = state.rust_release() else {
+        eprintln!(
+            "skip: a_mock_rust_download_installs_and_adopts_the_sysroot -- no rustc (ENVIRONMENT.md)"
+        );
+        return;
+    };
+    let (bytes, hash) = common::rust_std_archive();
+    let server = common::MockServer::start(bytes);
+    let spec = common::rust_spec_for(&server, hash, "rust-std.tar.xz", &release);
+    let install_root = common::unique_dir("dl-rust-install");
+
+    let cancel = state.begin_toolchain_download(&spec).expect("start");
+    assert_eq!(
+        state.toolchain_download_status().toolchain,
+        Some(host_core::toolchain_download::Toolchain::Rust),
+        "the status names the toolchain that is running"
+    );
+    let sysroot = state
+        .download_toolchain_now(&spec, &install_root, cancel, &mut |_| {})
+        .expect("the mock download must succeed");
+    println!("sysroot: {}", sysroot.display());
+    assert!(sysroot.is_dir(), "a Rust sysroot is a directory");
+    assert_eq!(server.hits(), 1);
+
+    // The downloaded sysroot is the active one now — and neither of the other two pins moved.
+    assert_eq!(state.rust_config().sysroot, Some(sysroot));
+    let settings = std::fs::read_to_string(state.settings_path()).expect("settings.json");
+    println!("settings.json: {settings}");
+    let parsed: serde_json::Value = serde_json::from_str(&settings).expect("json");
+    assert!(parsed["rust_sysroot"].is_string(), "{settings}");
+    assert!(
+        parsed["toolchain_path"].is_null(),
+        "a Rust download must not touch the C pin: {settings}"
+    );
+    assert!(
+        parsed["zig_path"].is_null(),
+        "a Rust download must not touch the Zig pin: {settings}"
+    );
+    assert!(!state.toolchain_download_status().in_progress);
+}
+
+/// The version coupling, refused **before** anything is downloaded (v0.9 F3b-2).
+#[test]
+fn a_rust_download_pinned_to_another_version_is_refused_before_it_starts() {
+    let state = state("dl-rust-version");
+    let (bytes, hash) = common::rust_std_archive();
+    let server = common::MockServer::start(bytes);
+    // No machine runs release 0.0.1, so the check has to refuse whichever arm it takes (a
+    // mismatch, or no `rustc` to ask at all).
+    let spec = common::rust_spec_for(&server, hash, "rust-std.tar.xz", "0.0.1");
+
+    let err = state
+        .begin_toolchain_download(&spec)
+        .expect_err("a mismatched pin must be refused");
+    println!("{err}");
+    assert_eq!(server.hits(), 0, "nothing may be downloaded");
+    assert!(!state.toolchain_download_status().in_progress);
+}
+
+#[test]
 fn download_audit_events_are_complete() {
     let state = state("dl-audit");
     let (bytes, hash) = common::toolchain_archive_with_executable();

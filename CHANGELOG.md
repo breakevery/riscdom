@@ -85,6 +85,14 @@ machine (like QEMU) and the sysroot is a setting — a `rust-std-<target>/` dire
 Rust needs from us is the target's `core`. A missing half is refused by name, never silently.
 Downloading `rust-std` is a separate batch.
 
+**The Rust sysroot is downloadable too, and it is the one pin whose product is version-coupled.**
+`Toolchain` gained `Rust`, so `--toolchain rust` (or a `{"toolchain":"rust"}` body) downloads the
+pinned `rust-std` component for the bare-metal target: one asset for every platform, because a
+`rust-std` is for a target rather than a host. The locator returns the **sysroot directory** the
+archive nests one level down, and the host refuses the download when the machine's `rustc` is not
+the pinned release — a sysroot is only usable by the `rustc` that produced it. `rustc` itself still
+comes from the machine.
+
 ### Added
 
 - **Zig compiles (v0.9 F3a)**: `compile` dispatches on the source extension — `.c` /

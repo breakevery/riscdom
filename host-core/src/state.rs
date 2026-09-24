@@ -171,6 +171,45 @@ fn zig_runs(path: &Path) -> Result<String, String> {
     }
 }
 
+/// The `release:` field of `rustc -vV` (`1.98.1`), or the raw error text.
+///
+/// `--version` is for humans; `-vV` is the machine-readable form, and its `release` field is what
+/// a `rust-std` sysroot has to match (v0.9 F3b-2).
+fn rustc_release(path: &Path) -> Result<String, String> {
+    match std::process::Command::new(path).arg("-vV").output() {
+        Ok(out) if out.status.success() => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            text.lines()
+                .find_map(|line| {
+                    line.strip_prefix("release:")
+                        .map(|value| value.trim().to_string())
+                })
+                .ok_or_else(|| "`rustc -vV` printed no `release:` line".to_string())
+        }
+        Ok(out) => Err(format!("`rustc -vV` exited with {}", out.status)),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Does a machine release satisfy a pinned one?
+///
+/// Pure, so the rule is testable on a machine that has no `rustc` at all — which is exactly the
+/// machine the first arm is for.
+fn rust_release_matches(release: Option<&str>, pinned: &str) -> Result<(), String> {
+    match release {
+        None => Err(format!(
+            "no rustc was found, and a rust-std {pinned} sysroot is only usable by the rustc that \
+             produced it: install Rust from https://rustup.rs/ and try again"
+        )),
+        Some(found) if found == pinned => Ok(()),
+        Some(found) => Err(format!(
+            "the Rust sysroot offered is {pinned}, but this machine's rustc is {found}; a sysroot \
+             is only usable by the release that produced it — install rustc {pinned}, or wait for a \
+             pinned {found} sysroot"
+        )),
+    }
+}
+
 /// Run `<path> --version` for `rustc`; returns its first output line, or the raw error text.
 ///
 /// The version matters more here than anywhere else: a Rust sysroot is only usable by the
@@ -1267,10 +1306,20 @@ impl AppState {
     // ----- Toolchain download (v0.3 #3b) ------------------------------------
 
     /// Claim the download slot. Errors when a download is already running.
+    ///
+    /// Also the **gate** for the one pin whose product is version-coupled: a `rust-std` sysroot
+    /// is only usable by the `rustc` that produced it, so a Rust download is refused here — before
+    /// any bytes move — when this machine's `rustc` reports a different release (v0.9 F3b-2,
+    /// decision §52). Every edge goes through this method, so the check cannot be bypassed.
     pub fn begin_toolchain_download(
         &self,
         spec: &crate::toolchain_download::DownloadSpec,
     ) -> Result<Arc<AtomicBool>, HostError> {
+        if spec.toolchain == crate::toolchain_download::Toolchain::Rust {
+            rust_release_matches(self.rust_release().as_deref(), &spec.version)
+                .map_err(HostError::Other)?;
+        }
+
         let mut slot = self
             .toolchain_download
             .lock()
@@ -1363,11 +1412,14 @@ impl AppState {
             Ok(compiler) => {
                 let path = compiler.display().to_string();
                 // Which "adopt" call this is follows the spec (v0.9 F3a-download-apply): the C
-                // toolchain replaces `toolchain_path`, Zig replaces `zig_path`. Both are the
-                // single-value shape F3a established, so neither can disturb the other.
+                // toolchain replaces `toolchain_path`, Zig replaces `zig_path`, and Rust replaces
+                // `rust_sysroot` — with a **directory** instead of an executable, because that is
+                // what a Rust sysroot is (v0.9 F3b-2). All three are single values, so none can
+                // disturb the others.
                 let adopted = match spec.toolchain {
                     crate::toolchain_download::Toolchain::C => self.set_toolchain_path(&path),
                     crate::toolchain_download::Toolchain::Zig => self.set_zig_path(&path),
+                    crate::toolchain_download::Toolchain::Rust => self.set_rust_sysroot(&path),
                 };
                 self.finish_toolchain_download();
                 match adopted {
@@ -1594,6 +1646,15 @@ impl AppState {
             cfg.sysroot = Some(sysroot);
         }
         cfg
+    }
+
+    /// The machine's `rustc` release (`1.98.1`), when there is one (v0.9 F3b-2).
+    ///
+    /// The value a `rust-std` download is checked against before it starts — and the value a UI
+    /// would show beside a sysroot, since the two have to agree.
+    pub fn rust_release(&self) -> Option<String> {
+        let rustc = self.rust_config().rustc?;
+        rustc_release(&rustc).ok()
     }
 
     /// Effective Zig config: an explicit user path wins over discovery (v0.9 F3a).

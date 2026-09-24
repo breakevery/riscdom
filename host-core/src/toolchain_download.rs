@@ -35,9 +35,10 @@ pub const XPACK_RELEASE_BASE: &str =
 /// Which toolchain a download installs (v0.9 multi-language batch F3a-download-apply).
 ///
 /// `serde` because it travels: the body that starts a download carries it, and the status a UI
-/// polls reports it back. The labels are the ones every edge accepts (`"c"` / `"zig"`), and
-/// [`Toolchain::parse`] is the single place that decides what is acceptable — the Tauri command,
-/// the HTTP body and the CLI all route through it.
+/// polls reports it back. The labels are the ones every edge accepts (`"c"` / `"zig"` /
+/// `"rust"`), and [`Toolchain::parse`] is the single place that decides what is acceptable — the
+/// Tauri command, the HTTP body and the CLI all route through it, so a new label reaches every
+/// edge at once.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Toolchain {
@@ -45,17 +46,21 @@ pub enum Toolchain {
     C,
     /// The Zig compiler (v0.9 F3a): the sandbox's second language.
     Zig,
+    /// Rust (v0.9 F3b-2): the **sysroot** (`rust-std`), not the compiler — `rustc` comes from the
+    /// machine, which is F3b's first ruling. This is the one arm whose product is a directory.
+    Rust,
 }
 
 impl Toolchain {
     /// Every label this type accepts, in the order the error messages list them.
-    pub const LABELS: [&str; 2] = ["c", "zig"];
+    pub const LABELS: [&str; 3] = ["c", "zig", "rust"];
 
     /// The label this toolchain travels as.
     pub fn label(self) -> &'static str {
         match self {
             Toolchain::C => "c",
             Toolchain::Zig => "zig",
+            Toolchain::Rust => "rust",
         }
     }
 
@@ -65,6 +70,7 @@ impl Toolchain {
         match label.map(str::trim).filter(|l| !l.is_empty()) {
             None | Some("c") => Ok(Toolchain::C),
             Some("zig") => Ok(Toolchain::Zig),
+            Some("rust") => Ok(Toolchain::Rust),
             Some(other) => Err(format!(
                 "unknown toolchain {other:?}: expected one of {}",
                 Toolchain::LABELS.join(", ")
@@ -281,6 +287,7 @@ pub fn spec_for_toolchain(toolchain: Toolchain) -> Result<DownloadSpec, Toolchai
     match toolchain {
         Toolchain::C => spec_for_current_platform(),
         Toolchain::Zig => zig_spec_for_current_platform(),
+        Toolchain::Rust => rust_spec_for_current_platform(),
     }
 }
 
@@ -300,6 +307,60 @@ fn sha256_for_zig_asset(asset: &str) -> Result<&'static str, ToolchainDownloadEr
     } else {
         Err(ToolchainDownloadError::UnknownAsset(asset.to_string()))
     }
+}
+
+/// Version of the `rust-std` component we offer for download (v0.9 F3b-2).
+///
+/// **The hard constraint**: a sysroot carries metadata `rustc` compares against its own, so it is
+/// only usable by the release that produced it. The host therefore refuses a Rust download when
+/// the machine's `rustc` reports a different release (decision §52).
+pub const RUST_VERSION: &str = "1.98.1";
+
+/// Base URL of the Rust release components.
+///
+/// The dated directory form (`<base>/<date>/…`) does not exist for this asset; the unversioned
+/// directory is the one that serves it.
+pub const RUST_RELEASE_BASE: &str = "https://static.rust-lang.org/dist";
+
+/// Official SHA-256 of `rust-std-1.98.1-riscv64gc-unknown-none-elf.tar.xz`, from the `.sha256`
+/// file published beside it (12,508,136 bytes).
+///
+/// Unlike Zig, Rust publishes that per-asset file — the value is hardcoded here for the same
+/// reason as the others: a download must not need the network to learn what it is about to verify.
+const SHA256_RUST_STD_RISCV64GC: &str =
+    "32ff80918e1adff90f1ac4ccc7f53ff65b709616b0c08630ca29e0c1187cb870";
+
+/// The one `rust-std` asset: `rust-std-<version>-<target>.tar.xz`.
+fn rust_asset() -> String {
+    format!("rust-std-{RUST_VERSION}-{}.tar.xz", agent::RUST_TARGET)
+}
+
+/// Official checksum for the `rust-std` asset (a single arm: there is one asset).
+fn sha256_for_rust_asset(asset: &str) -> Result<&'static str, ToolchainDownloadError> {
+    if asset == rust_asset() {
+        Ok(SHA256_RUST_STD_RISCV64GC)
+    } else {
+        Err(ToolchainDownloadError::UnknownAsset(asset.to_string()))
+    }
+}
+
+/// The pinned Rust sysroot download (v0.9 F3b-2).
+///
+/// **No `(os, arch)` branch**: a `rust-std` component is for a *target*, not a host, so one asset
+/// serves every platform — `rustc` itself comes from the machine (F3b's first ruling).
+pub fn rust_spec_for_current_platform() -> Result<DownloadSpec, ToolchainDownloadError> {
+    let asset = rust_asset();
+    let sha256 = sha256_for_rust_asset(&asset)?;
+    let version = RUST_VERSION.to_string();
+    let stem = asset.strip_suffix(".tar.xz").unwrap_or(&asset).to_string();
+    Ok(DownloadSpec {
+        url: format!("{RUST_RELEASE_BASE}/{asset}"),
+        version,
+        sha256: sha256.to_string(),
+        archive_kind: ArchiveKind::TarXz,
+        toolchain: Toolchain::Rust,
+        install_subdir: stem,
+    })
 }
 
 /// The Zig download that matches this machine (v0.9 F3a-download-apply).
@@ -636,7 +697,46 @@ fn product_locator(toolchain: Toolchain) -> fn(&Path) -> Option<PathBuf> {
     match toolchain {
         Toolchain::C => find_compiler,
         Toolchain::Zig => find_zig,
+        Toolchain::Rust => find_rust_std,
     }
+}
+
+/// Find the Rust sysroot inside `dir` (v0.9 F3b-2).
+///
+/// Unlike the C and Zig arms this returns a **directory**: what Rust needs from us is the target's
+/// `core`, and a `rust-std-<target>/` tree is what carries it. The component nests it one level
+/// down (`rust-std-<version>-<target>/rust-std-<target>/`) and the **inner** name carries no
+/// version — that is the name this looks for, at depth 0 (a sysroot somebody unpacked by hand) and
+/// at depth 1 (the archive as it comes out). Both are directories, so the locator's `PathBuf`
+/// contract is unchanged; only what the path *means* differs, and the adopt call
+/// (`set_rust_sysroot`) is the one that knows it.
+pub(crate) fn find_rust_std(dir: &Path) -> Option<PathBuf> {
+    let name = format!("rust-std-{}", agent::RUST_TARGET);
+
+    // Depth 0: the sysroot sits in `dir` itself.
+    let direct = dir.join(&name);
+    if direct.is_dir() {
+        return Some(direct);
+    }
+
+    // Depth 1: the component's own top directory, whose name carries the version.
+    let mut subdirs: Vec<PathBuf> = fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir())
+                .collect()
+        })
+        .unwrap_or_default();
+    subdirs.sort();
+    for subdir in subdirs {
+        let candidate = subdir.join(&name);
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 /// Find the Zig executable inside `dir` (v0.9 F3a-download-apply).
@@ -809,10 +909,69 @@ mod tests {
         assert_eq!(Toolchain::parse(Some("")), Ok(Toolchain::C));
         assert_eq!(Toolchain::parse(Some(" c ")), Ok(Toolchain::C));
         assert_eq!(Toolchain::parse(Some("zig")), Ok(Toolchain::Zig));
+        assert_eq!(Toolchain::parse(Some("rust")), Ok(Toolchain::Rust));
         assert_eq!(Toolchain::C.label(), "c");
         assert_eq!(Toolchain::Zig.label(), "zig");
-        let err = Toolchain::parse(Some("rust")).expect_err("rust is not a toolchain here");
-        assert!(err.contains("zig"), "{err}");
+        assert_eq!(Toolchain::Rust.label(), "rust");
+        let err = Toolchain::parse(Some("go")).expect_err("go is not a toolchain here");
+        assert!(err.contains("rust"), "the message lists every label: {err}");
+    }
+
+    /// One asset, no platform branch, and the checksum the vendor published (v0.9 F3b-2).
+    #[test]
+    fn the_rust_spec_is_one_asset_for_every_platform() {
+        let spec = rust_spec_for_current_platform().expect("the Rust spec needs no platform arm");
+        assert_eq!(
+            spec.url,
+            "https://static.rust-lang.org/dist/rust-std-1.98.1-riscv64gc-unknown-none-elf.tar.xz"
+        );
+        assert_eq!(spec.version, RUST_VERSION);
+        assert_eq!(spec.sha256, SHA256_RUST_STD_RISCV64GC);
+        assert_eq!(spec.archive_kind, ArchiveKind::TarXz);
+        assert_eq!(spec.toolchain, Toolchain::Rust);
+        assert_eq!(
+            spec.file_name(),
+            "rust-std-1.98.1-riscv64gc-unknown-none-elf.tar.xz"
+        );
+        assert!(
+            sha256_for_rust_asset("rust-std-1.98.1-riscv64gc-unknown-none-elf.tar.gz").is_err(),
+            "only the published asset has a checksum here"
+        );
+        // Every label the edges accept maps to a spec, so `LABELS` cannot drift from `parse`.
+        for label in Toolchain::LABELS {
+            let kind = Toolchain::parse(Some(label)).expect("a label that parses");
+            assert_eq!(kind.label(), label);
+            assert!(spec_for_toolchain(kind).is_ok(), "{label}");
+        }
+    }
+
+    /// The Rust locator returns a **directory** — the sysroot — at either depth (v0.9 F3b-2).
+    #[test]
+    fn find_rust_std_reads_both_depths() {
+        let target = agent::RUST_TARGET;
+        let name = format!("rust-std-{target}");
+
+        // Depth 1: exactly how the component comes out of the archive.
+        let nested =
+            std::env::temp_dir().join(format!("riscdom-rust-nested-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&nested);
+        let inner = nested.join(format!("rust-std-1.98.1-{target}")).join(&name);
+        fs::create_dir_all(inner.join("lib").join("rustlib").join(target).join("lib"))
+            .expect("create the sysroot shape");
+        let found = find_rust_std(&nested).expect("the nested sysroot");
+        assert_eq!(found, inner);
+        assert!(found.is_dir(), "the product is a directory, not a file");
+
+        // Depth 0: a sysroot somebody unpacked by hand.
+        let flat = std::env::temp_dir().join(format!("riscdom-rust-flat-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&flat);
+        fs::create_dir_all(flat.join(&name).join("lib")).expect("create flat");
+        assert_eq!(find_rust_std(&flat), Some(flat.join(&name)));
+
+        let empty = std::env::temp_dir().join(format!("riscdom-rust-empty-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&empty);
+        fs::create_dir_all(&empty).expect("create empty");
+        assert_eq!(find_rust_std(&empty), None);
     }
 
     /// Zig's five supported platforms, named and checksummed (0.16.0).

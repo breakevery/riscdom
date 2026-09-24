@@ -13,7 +13,7 @@ RiscDom 宿主（host）的**可移植半边**：内核门面里所有不需要 
 - `dispatch` —— 宿主自己的执行器路由（接进 `agent::dispatch`）
 - `executor` —— stdio 执行器句柄
 - `preflight` —— 环境预检
-- `qemu_download` / `toolchain_download` —— 两条下载路径（后者同时服务两种语言：`Toolchain::C` 与 `Toolchain::Zig`，v0.9 F3a-download-apply）
+- `qemu_download` / `toolchain_download` —— 两条下载路径（后者服务每一种语言：`Toolchain::C`、`Toolchain::Zig` 与 `Toolchain::Rust`——最后一个是目标平台的 `rust-std` sysroot，v0.9 F3b-2）
 - `run_diff` —— 运行指纹对比
 - `session` / `settings` —— 会话与本地设置
 - `keyring` —— API key 存储

@@ -1147,3 +1147,27 @@ has recorded, after a missing system package (E4) and a missing environment capa
 child through pipes; the failure message reports the child's exit status and the stdout line
 count, so a recurrence is diagnosed from one line of CI output instead of three batches. No
 production code changed — the server's own `println!`s are correct; the reader was not.
+
+## 52. A version-coupled download is refused before it starts, not after
+
+**Date**: 2026-09-24 ｜ **Status**: Decided
+
+**Decision**: the Rust sysroot (`rust-std`) is downloaded only when the machine's `rustc -vV`
+reports the **same release** as the pinned asset, and the refusal happens in
+`AppState::begin_toolchain_download` — the one method the Tauri command, the HTTP route and the CLI
+all go through — so no edge can bypass it and no bytes move first. The decision itself is a pure
+function (`rust_release_matches`), so the rule is testable on a machine that has no `rustc` at all.
+A sysroot offered for another release is refused with a message naming both.
+
+**Why**: a `rust-std` carries metadata that `rustc` compares against its own, so a mismatched
+sysroot is not "slightly wrong", it cannot be used. The alternative — fetching the asset's sibling
+`.sha256` at download time — was considered and rejected when the version was pinned (§F3b
+reconnaissance, ruling 3): Cargo's lock-style promise here is "the checksum in the source is the one
+this build verifies", and a checksum fetched at runtime verifies transport, not intent. Refusing
+early is also what keeps the failure honest: the user learns their `rustc` is a different release
+instead of discovering it at the first `.rs` compile, with 12 MB already on disk.
+
+**Impact**: `RUST_VERSION` (1.98.1) is the pin, and a user whose toolchain is another release
+cannot download a sysroot until the pin moves — deliberately, since that download could not work.
+The rule generalises: any future component bound to a compiler release is gated the same way, in
+`begin_toolchain_download`, not at adoption.
