@@ -13,6 +13,14 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **A gate without a guest now runs every crate's unit tests** (v0.9 gate-consistency batch
+  B-3a). The branch used to run `cargo test -p audit -p sandbox --lib` — **10** tests of 638 — so
+  `agent`, `host-core`, `cli`, `server`, `worker` and the audit/sandbox `tests/` directories had
+  no coverage at all off Windows. It is `cargo test --workspace --lib` now: **204** unit tests,
+  no QEMU risk (they are all pure logic; the only platform-gated ones are
+  `sandbox/src/platform.rs` (unix) and `server/src/token.rs` (unix + windows)). Still open:
+  the guest-booting integration tests are not separated from the portable ones yet, and the
+  portable **integration** tests (`tests/*.rs`) still do not run off Windows (B-3b).
 - **The gate lints and checks every workspace crate on every platform now** (v0.9
   gate-consistency batch B-2). The last two skips are gone — `host-tauri` and `ui/src-tauri` are
   linted on Linux as well — and `worker`, which no clippy list on either platform mentioned,

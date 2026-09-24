@@ -42,7 +42,8 @@ the ui regression probes (`node ui/scripts/probe-ui-*.mjs`) → the mirror guard
 (`scripts/check-bilingual.ps1` / `.sh`).
 
 Platform differences are **printed, never skipped silently**: without QEMU + a RISC-V GCC the
-guest-booting tests are skipped in favour of the portable library tests.
+guest-booting tests are skipped in favour of every crate's unit tests
+(`cargo test --workspace --lib`).
 
 There is also a lighter preflight: `scripts/preflight.ps1` (Windows) /
 `scripts/preflight.sh` (Unix).

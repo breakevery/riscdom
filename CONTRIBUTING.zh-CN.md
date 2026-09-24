@@ -41,7 +41,7 @@ UI 回归探针（`node ui/scripts/probe-ui-*.mjs`）→ 镜像常量守卫
 `.sh`）。
 
 平台差异一律**打印出来，绝不静默跳过**：PATH 上没有 QEMU + RISC-V GCC 时，跳过需要起 guest 的测试，
-改为跑可移植 crate 的库测试。
+改为跑**每个** crate 的单元测试（`cargo test --workspace --lib`）。
 
 另有更轻量的预检：`scripts/preflight.ps1`（Windows）/ `scripts/preflight.sh`（Unix）。
 

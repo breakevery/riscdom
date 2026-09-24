@@ -16,8 +16,8 @@
 # `examples/python`'s self-test, which prints a skip when no interpreter is there.
 #
 # Platform differences are printed, never skipped silently:
-#   - without QEMU + a RISC-V GCC: the guest-booting tests are skipped and the
-#     portable library tests run instead.
+#   - without QEMU + a RISC-V GCC: the guest-booting tests are skipped and every crate's
+#     unit tests run instead (`cargo test --workspace --lib`).
 #   - without python3/python: the reference supervisor's self-test is skipped.
 #
 # Each step fails fast with a non-zero exit code.
@@ -87,8 +87,8 @@ if have_guest_tools; then
   cargo test || fail "cargo test"
 else
   skip "the guest-booting tests (no qemu-system-riscv64 + RISC-V GCC on PATH)"
-  echo "==> cargo test --lib (audit / sandbox)"
-  cargo test -p audit -p sandbox --lib || fail "cargo test --lib"
+  echo "==> cargo test --workspace --lib"
+  cargo test --workspace --lib || fail "cargo test --workspace --lib"
 fi
 
 echo "==> npm run build (ui)"

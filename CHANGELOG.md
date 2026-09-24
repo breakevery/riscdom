@@ -971,6 +971,12 @@ repository, who it is for, and whether it is living, a snapshot or history.
   installed. No frontend-ordering change was needed: `tauri::generate_context!()` takes its dev
   branch while `custom-protocol` is off, which is the case for a plain `cargo check` /
   `cargo clippy`.
+- **A gate without a guest runs every crate's unit tests.** Where the non-Windows branch ran
+  `cargo test -p audit -p sandbox --lib` — 10 tests of 638 — it runs
+  `cargo test --workspace --lib` now: **204** unit tests across all eight crates. They are pure
+  logic (nothing boots a guest), so this needs no QEMU, and it is the first coverage `agent`,
+  `host-core`, `cli`, `server` and `worker` have had off Windows. The portable **integration**
+  tests still do not run there; separating them from the guest-booting ones is B-3b.
 
 ## [0.8.0] - 2026-09-22
 
