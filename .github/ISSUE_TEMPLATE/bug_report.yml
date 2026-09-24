@@ -1,0 +1,100 @@
+# Bug report -- GitHub issue form (v0.9 contributor-templates batch).
+#
+# A `.yml` form rather than a Markdown template, deliberately: `scripts/check-bilingual.sh`
+# scans every `*.md`, so a Markdown template would need a `.zh-CN.md` counterpart, and GitHub
+# would then offer that counterpart as a second template in the chooser. A form is not
+# Markdown, so it stays single-language and outside the bilingual check. Issues themselves
+# may be written in English or Chinese.
+#
+# Schema: https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema
+name: Bug report
+description: Something behaves differently from what the documentation says.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. RiscDom is verified on Windows 10/11 (see `ENVIRONMENT.md`);
+        a report from another platform is welcome, but say which one — that is often the answer.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you observed, verbatim — the error text, the exit code, the buffer, the timestamps.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: The shortest sequence that shows it, with the command and its output.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where in the repository
+      options:
+        - sandbox (QEMU, serial, snapshots)
+        - agent (LLM loop, tools, capability policy)
+        - audit (chain, store, audit-verify)
+        - host / control plane / CLI
+        - ui (desktop app)
+        - not crate-specific (documentation, build, CI)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release tag, or what `git rev-parse --short HEAD` prints.
+      placeholder: v0.8.0 / e56ba3f
+    validations:
+      required: true
+
+  - type: dropdown
+    id: gate
+    attributes:
+      label: Does the gate pass locally?
+      description: "`scripts\\gate.ps1` on Windows, `sh scripts/gate.sh` elsewhere."
+      options:
+        - Yes — the gate is green
+        - No — and the failing step is what this report is about
+        - I did not run it
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: The failing step's own output. **Do not paste an API key or token.**
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true
+        - label: This report contains no API key, token or credential.
+          required: true
+        - label: This is not a security issue — those go through `SECURITY.md`, never a public issue.
+          required: true

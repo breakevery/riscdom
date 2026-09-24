@@ -279,7 +279,7 @@ node's history and identity.
 
 ## 20. Contributor workflow
 
-**Date**: 2026-09-22 ｜ **Status**: Decided
+**Date**: 2026-09-22 ｜ **Status**: Decided; the DCO clause is withdrawn (see §43)
 
 **Decision**: CONTRIBUTING, issue and PR templates, a DCO (the CLA already exists) and review
 rules.
@@ -889,3 +889,22 @@ mutual authentication and a story for what a token authorises on the far side, w
 work; and the example is proven against a stand-in node, because the real one lives in the
 `server` crate, which `worker` deliberately does not depend on (the server's own tests own
 `POST /v0/tasks`).
+
+## 43. The DCO clause of §20 is withdrawn; the CLA covers its purpose
+
+**Date**: 2026-09-24 ｜ **Status**: Decided
+
+**Decision**: §20's "a DCO" is withdrawn. Contributions are covered by the CLA alone — the
+signature `.github/workflows/cla.yml` records, exactly as `CONTRIBUTING.md` describes it. No
+`Signed-off-by` trailer is required, and no DCO check is wired into CI.
+
+**Why**: The two instruments do not do the same job, and the stronger one is already in place. A
+CLA is a *grant of rights* (relicensing, patents) — what lets an open-core project distribute
+derived work under a commercial proprietary licence, so it is mandatory here. A DCO is a
+*statement of origin* (`Signed-off-by`) and is the weaker of the two. §20's own wording carried
+the contradiction — "a DCO (the CLA already exists)". Enforcing a DCO is not free either: it is
+another rule on every pull request, and it would put a `Signed-off-by` check into CI.
+
+**Impact**: `.github/` carries no DCO check. The issue forms and the pull-request template added
+in the same batch ask for the CLA and for the gate, not for a sign-off. If a DCO is ever wanted
+on top of the CLA, it is a new entry here and a new CI step — not a rewrite of §20.

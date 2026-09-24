@@ -77,6 +77,15 @@ Coverage: empty chain / three-event chain / tamper localisation / UPDATE + DELET
 the triggers / query filtering / JSONL export / CLI exit codes / concurrent appends /
 concurrent **opens** (8 threads racing one fresh file, and one already in WAL).
 
+## Example
+
+```text
+cargo run -p audit --example chain_demo
+```
+
+`examples/chain_demo.rs` writes a three-event chain to a temporary SQLite database, prints a
+table with each event's `prev_hash` and `hash`, and calls `verify_chain`.
+
 ## v0.2 TODO
 
 - audit log sharding (roll over by time/size while keeping the chain continuous)

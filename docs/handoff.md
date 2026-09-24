@@ -13,6 +13,17 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The crate examples are documented, and the contributor templates exist** (v0.9
+  small-changes batch). `agent/README` and `audit/README`, both languages, gained an `## Example`
+  section for `examples/audit_demo.rs` and `examples/chain_demo.rs` — the two examples that were
+  the only ones not named in their crate's README (`sandbox`'s `run_hello`, and `worker`'s
+  `dispatch` and `remote_executor`, already were). `.github/` gained two issue forms
+  (`ISSUE_TEMPLATE/bug_report.yml`, `ISSUE_TEMPLATE/feature_request.yml`) and a bilingual
+  pull-request template (`PULL_REQUEST_TEMPLATE.md` + `.zh-CN.md`). The forms are `.yml` on
+  purpose: `scripts/check-bilingual.sh` scans every `*.md`, so a Markdown template would need a
+  `.zh-CN.md` sibling — and GitHub would then offer that sibling as a second template. **Decision
+  §43** withdraws §20's DCO clause: the two instruments do not do the same job, the CLA (a grant
+  of rights) is the stronger and is what open-core needs, and a DCO is only a statement of origin.
 - **The Linux CI red is fixed in configuration** (v0.9 CI fix). The `gate` job went red on Linux
   from `00fca17` on — four consecutive commits — because its `remote executor example` step is the
   first Linux gate step that compiles `host-core`, and `host-core`'s `keyring` backend on Linux
@@ -34,10 +45,10 @@ current request authorising it (§2).
   section now opens with the map and lists all nine crate READMEs. Two stale counts in the
   normative documents (`control-plane-api` said 35 controls, the client guide said 31
   queries) are fixed. **Reported, not fixed**: four crate READMEs (`audit`, `cli`,
-  `host-core`, `ui`) link to no neighbour at all — their only link is the language switcher;
-  three crate examples (`agent/examples/audit_demo.rs`, `audit/examples/chain_demo.rs`) are
-  undocumented in their crate's README; and [decisions](decisions.md) §20 decided issue and
-  PR templates and a DCO that do not exist in the repository yet.
+  `host-core`, `ui`) link to no neighbour at all — their only link is the language switcher.
+  (The other two items that batch reported — the crate examples missing from their crates'
+  READMEs, and §20's templates and DCO — were closed in the small-changes batch of
+  2026-09-24; §20's DCO clause turned out to be the wrong call, and §43 withdraws it.)
 - **The repository owns its line endings now** (v0.9 line-ending batch, mechanical). A
   `.gitattributes` (`* text=auto eol=lf`; `*.sh` named; the six tracked binaries marked
   `binary`; **no `*.ps1` exception**, because all five PowerShell scripts are LF today and

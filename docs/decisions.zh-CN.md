@@ -202,7 +202,7 @@
 
 ## 20. 贡献者工作流
 
-**日期**：2026-09-22 ｜ **状态**：已定
+**日期**：2026-09-22 ｜ **状态**：已定；DCO 条款已撤销（见 §43）
 
 **决策**：CONTRIBUTING + issue / PR 模板 + DCO（CLA 已有）+ 审查规则。
 
@@ -453,3 +453,13 @@
 **理由**：（一）**那条缝本身就是交付物**。这个 trait 被设计成可以从外部实现，所以证明就是一份什么都不碰的实现——如果填它需要改 `agent` 或 `host-core`，那说明那条缝不对，而那才是真正的发现。（二）**是示例，不是随行句柄**。生产级的 `HttpExecutorHandle` 需要一套关 token、TLS、重试与身份的策略，而 v0.9 尚未定下这些；示例可以展示形状并在 README 里说明这件事。（三）**不新增依赖**。`worker` 只依赖 `host-core`、`agent` 与 `serde_json`；`reqwest` 0.12 在锁里是因为 `cli` 用它，但在这里加上它会让参考实现把它要展示的那根线藏起来。请求用手写，用的是本仓已有的手法（`server/tests/smoke.rs`、`host-core/tests/common/mod.rs`）。（四）**端点是 `POST /v0/tasks` 而不是 `/v0/agent/run`**。后者在节点自身上跑、答 `AgentOutcomeView`；只有前者路由给远端节点**拥有的**执行者并答 `TaskOutcome`——与 `StdioExecutorHandle` 从子进程拿到的契约相同，这正是它是真正执行者而非形状演示的原因。（五）**两个名字，与 stdio 句柄一样**。本地派发器按句柄的 `agent_id` 路由；远端节点按它认识的 label 路由，所以 body 把它作为 `target` 带上。发本地 label 就是在要一个远端节点未必拥有的执行者。
 
 **影响**：一个新示例、一步新 gate 步骤（`cargo run -q -p worker --example remote_executor -- --self-test`，与 Python 那一步并列）、`worker/README.zh-CN.md` 的一节、客户端指南 §9（于是「还没有的东西」重编号为 §10）以及本条。映射是刻意的、并写在代码里：远端节点的 `404` 是 `DispatchError::NoSuchAgent`（缺的是**对面**的队伍——一个路由事实），其它都是 `Failed`，而一条指向别的任务的应答是协议破裂而不是结果，与 stdio 句柄的处理完全一致。已在 README 写明而非藏起来的已知缺口：它是回环 HTTP，不是跨设备方案——真正的跨机句柄需要双向认证以及对端一个 token 授权什么的叙事，那是 v1.0 的工作；而示例是对着替身节点证明的，因为真的那个住在 `server` crate 里，而 `worker` 刻意不依赖它（`POST /v0/tasks` 由服务端自己的测试拥有）。
+
+## 43. §20 的 DCO 条款已撤销；CLA 已覆盖其目的
+
+**日期**：2026-09-24 ｜ **状态**：已定
+
+**决策**：§20 里的「DCO」部分撤销。贡献只由 CLA 覆盖——即 `.github/workflows/cla.yml` 记录的那份签署，与 `CONTRIBUTING.zh-CN.md` 的描述完全一致。不要求 `Signed-off-by` trailer，也不在 CI 里接任何 DCO 校验。
+
+**理由**：两件工具并不干同一件事，而更强的那件已经在位。CLA 是**权利授予**（再许可、专利）——正是它让一个 open-core 项目能把派生作品以商业专有许可分发，所以在这里是必需的。DCO 是**来源声明**（`Signed-off-by`），是两者中更弱的那个。§20 自己的措辞就带着矛盾——「DCO（CLA 已有）」。接 DCO 也不是免费的：它是每个 PR 上又多一条规则，并会把一个 `Signed-off-by` 校验塞进 CI。
+
+**影响**：`.github/` 不接 DCO 校验。同批新增的 issue 表单与 PR 模板要的是 CLA 与 gate，而不是 sign-off。若日后想在 CLA 之上再加 DCO，那是本账本里的**新条目**加一步新 CI——而不是重写 §20。

@@ -92,6 +92,17 @@ a **new handle** reopens the same database and `audit::verify_chain` must return
 `agent.tool.call` / `agent.tool.result`. The temp database is removed by a `Drop` guard (it is
 deleted on failure and panic too).
 
+## Example
+
+```text
+cargo run -p agent --example audit_demo
+```
+
+`examples/audit_demo.rs` writes a worked set of the agent's audit events (`agent.llm.request`,
+`agent.llm.response`, `agent.tool.call`, `agent.tool.result`, `agent.policy.deny`) to a
+temporary SQLite database, prints them as JSON and calls `verify_chain` — no API key and no
+network involved.
+
 ## Tools
 
 The catalogue is eight tools. Each one's name, description and JSON-schema parameters — the

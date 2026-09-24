@@ -1,0 +1,74 @@
+# Feature request -- GitHub issue form (v0.9 contributor-templates batch).
+#
+# A `.yml` form for the same reason as `bug_report.yml`: a Markdown template would need a
+# `.zh-CN.md` counterpart for `scripts/check-bilingual.sh`, and GitHub would then offer that
+# counterpart as a second template. Issues may be written in English or Chinese.
+#
+# Schema: https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema
+name: Feature request
+description: A capability RiscDom does not have yet.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        RiscDom's kernel provides mechanism only, never policy (`docs/decisions.md` §1).
+        A request that puts policy in the kernel will be read as a request for a caller-side feature
+        instead.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do that you cannot do today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+      description: The shape of the change — an endpoint, a setting, a crate, a document.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where in the repository
+      options:
+        - sandbox (QEMU, serial, snapshots)
+        - agent (LLM loop, tools, capability policy)
+        - audit (chain, store, audit-verify)
+        - host / control plane / CLI
+        - ui (desktop app)
+        - not crate-specific (documentation, build, CI)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release tag, or what `git rev-parse --short HEAD` prints.
+      placeholder: v0.8.0 / e56ba3f
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and the decision ledger (`docs/decisions.md`) for this.
+          required: true
+        - label: I understand this may be recorded as a decision before it is built — this project is built one verifiable step at a time.
+          required: true

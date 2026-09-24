@@ -83,6 +83,16 @@ cargo test -p agent -- --ignored --nocapture
 并要求 `agent.llm.request` / `agent.tool.call` / `agent.tool.result` 各至少 1 条。临时库用
 `Drop` 守卫清理（失败/panic 时同样删除）。
 
+## 示例
+
+```text
+cargo run -p agent --example audit_demo
+```
+
+`examples/audit_demo.rs` 把 agent 的一组审计事件（`agent.llm.request`、`agent.llm.response`、
+`agent.tool.call`、`agent.tool.result`、`agent.policy.deny`）写进临时 SQLite 库，打印成 JSON，
+并调用 `verify_chain`——不需要 API Key，也不联网。
+
 ## 工具清单
 
 清单是八个工具。每个工具的名字、描述与 JSON schema 参数——模型每轮收到的 `tools[]` 数组——在 [`docs/tool-schema-executor.zh-CN.md`](../docs/tool-schema-executor.zh-CN.md)，由本 crate 生成、并由 `tests/tool_schema_doc.rs` 与它校对。名字列在这里，好让这一页仍答得上「都有什么」：

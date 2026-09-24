@@ -513,6 +513,8 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 ### 新增
 
 - **`docs/README.zh-CN.md`**（及英文对偶）：文档导航。五节受众——从这里开始 · 内核开发者 · 发行集成者 · 管理员 · 终端用户 · 贡献者——另有一节写明刻意不在导航内的东西（`IDENTITY.md` / `SOUL.md` / `USER.md`、`LICENSE`、CLA 签署存储）。全仓每一份 Markdown 都出现，并带它做什么、它的**状态**（*活跃* / *快照* / *历史*）与适用版本。历史会被标为历史：`architecture-evolution.md` 是 v0.7 快照，较早的 `CHANGELOG` 段与已发布的 `RELEASE_NOTES` 都标为不重写。
+- **两个没在本 crate README 里点名的示例现在点名了。** `agent/README` 与 `audit/README`（两个语言）各加了一节 `## 示例`，对应 `examples/audit_demo.rs` 与 `examples/chain_demo.rs`，形状与 `sandbox/README` 已有的那一节一致（`sandbox` 的 `run_hello`、`worker` 的 `dispatch` 与 `remote_executor` 早就写上了——这两个是最后两个）。
+- **贡献者模板。** `.github/ISSUE_TEMPLATE/bug_report.yml` 与 `feature_request.yml`（GitHub issue 表单），以及 `.github/PULL_REQUEST_TEMPLATE.md` 及其 `.zh-CN.md` 译文。表单刻意用 `.yml`：`scripts/check-bilingual.sh` 扫每一个 `*.md`，所以 Markdown 模板会需要一个 `.zh-CN.md` 兄弟文件——而 GitHub 又会把它当成第二个模板列在选择器里。PR 模板是 Markdown（GitHub 只读一个，而双语是本仓规矩），所以它的首行是语言切换行，因此那行也会出现在新建 PR 的正文里。
 
 ### 修正
 
@@ -523,6 +525,7 @@ agent 自己的目录里找，再回退共享根目录 —— 旧版本留下的
 ### 变更
 
 - **根 `README` 的「更多」节**改为以导航开头，并列全九个 crate README，而不是六个。
+- **[决策 §43](docs/decisions.zh-CN.md) 撤销了 §20 的 DCO 条款。** 账本自己的规矩是：被推翻的决策以**追加**一条新条目的方式记录、并在其中点名旧条目，所以 §43 记下这件事，§20 的状态行指向 §43。CLA 是权利授予（再许可、专利），正是它让一个 open-core 项目能以商业专有许可分发派生作品；DCO 只是来源声明，而 §20 的措辞——「DCO（CLA 已有）」——本身就带着矛盾。CI 里不接任何 `Signed-off-by` 校验。
 
 ## [0.8.0] - 2026-09-22
 

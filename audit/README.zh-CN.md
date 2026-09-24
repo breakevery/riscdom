@@ -69,6 +69,15 @@ cargo test -p audit
 覆盖：空链 / 三事件链 / 篡改定位 / UPDATE+DELETE 被触发器拒绝 / 查询过滤 /
 JSONL 导出 / CLI 退出码 / 并发 append / 并发**打开**（8 线程抢开同一新文件，以及一个已在 WAL 的文件）。
 
+## 示例
+
+```text
+cargo run -p audit --example chain_demo
+```
+
+`examples/chain_demo.rs` 把一条三事件链写进临时 SQLite 库，打印出带各自 `prev_hash` 与
+`hash` 的表，并调用 `verify_chain`。
+
 ## v0.2 TODO
 
 - 审计日志分片（按时间/大小滚动，同时保持链连续）

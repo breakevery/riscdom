@@ -908,6 +908,19 @@ repository, who it is for, and whether it is living, a snapshot or history.
   `architecture-evolution.md` is the v0.7 snapshot, and the older `CHANGELOG` sections and
   the released `RELEASE_NOTES` are marked as not rewritten.
 
+- **The two crate examples that were not named in their crate's README are now named.**
+  `agent/README` and `audit/README`, both languages, gained an `## Example` section for
+  `examples/audit_demo.rs` and `examples/chain_demo.rs`, in the shape `sandbox/README` already
+  used (`sandbox`'s `run_hello`, and `worker`'s `dispatch` and `remote_executor`, were already
+  documented — those two were the last).
+- **Contributor templates.** `.github/ISSUE_TEMPLATE/bug_report.yml` and
+  `feature_request.yml` (GitHub issue forms) and `.github/PULL_REQUEST_TEMPLATE.md` with its
+  `.zh-CN.md` translation. The forms are `.yml` deliberately: `scripts/check-bilingual.sh`
+  scans every `*.md`, so a Markdown template would need a `.zh-CN.md` sibling — and GitHub
+  would then offer that sibling as a second template in the chooser. The pull-request template
+  is Markdown (GitHub reads one, and a translation is the repository's rule), so its first line
+  is the language switcher, which means that line also appears in a new pull request's body.
+
 ### Fixed
 
 - **The root `README`'s layout tree** described `host/` and four crates; the workspace has
@@ -930,6 +943,12 @@ repository, who it is for, and whether it is living, a snapshot or history.
 
 - **The root `README`'s "More" section** opens with the map and lists all nine crate
   READMEs rather than six.
+- **[Decision §43](docs/decisions.md) withdraws §20's DCO clause.** The ledger's own rule is
+  that an overturned decision is recorded by appending a new entry that names the old one, so
+  §43 records it and §20's status line points at §43. A CLA is a grant of rights (relicensing,
+  patents) and is what lets an open-core project ship derived work under a commercial
+  proprietary licence; a DCO is only a statement of origin, and §20's wording — "a DCO (the
+  CLA already exists)" — carried the contradiction. No `Signed-off-by` check goes into CI.
 
 ## [0.8.0] - 2026-09-22
 
