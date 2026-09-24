@@ -101,7 +101,7 @@ fi
 echo "==> npm run build (ui)"
 (cd ui && npm run build) || fail "npm run build"
 
-echo "==> ui probes (scroll / layout / runs / snapshot / dialog / preflight / theme / i18n / api / login)"
+echo "==> ui probes (scroll / layout / runs / snapshot / dialog / preflight / theme / i18n / api / login / sse)"
 node ui/scripts/probe-ui-scroll.mjs || fail "ui probe (chat scroll)"
 node ui/scripts/probe-ui-width.mjs || fail "ui probe (pane layout)"
 node ui/scripts/probe-ui-runs.mjs || fail "ui probe (run list)"
@@ -112,6 +112,7 @@ node ui/scripts/probe-ui-theme.mjs || fail "ui probe (theme)"
 node ui/scripts/probe-ui-i18n.mjs || fail "ui probe (i18n)"
 node ui/scripts/probe-ui-api.mjs || fail "ui probe (api adapter)"
 node ui/scripts/probe-ui-login.mjs || fail "ui probe (login gate)"
+node ui/scripts/probe-ui-sse.mjs || fail "ui probe (event stream)"
 
 echo "==> mirrored constants (host-core/src + host-tauri/src)"
 node scripts/check-mirrored-constants.mjs || fail "mirrored constants"

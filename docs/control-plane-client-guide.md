@@ -790,3 +790,23 @@ The three facts a handle's author needs, and none of them is a new endpoint:
   only one of is credentials. The single token holds everything, so a client cannot be given
   read-only access to the audit chain alone — per-capability tokens are v1.0 work.
 - **`POST /v0/vm/start`** and **`GET /v0/resources`** answer `501`.
+
+## 11. The management program
+
+The Web client is the fourth consumer of this API, next to the CLI (§7), an AI supervisor (§8) and
+an executor handle (§9). It is the same React application the desktop shell runs, with one
+difference: its API calls go over HTTP instead of the Tauri IPC (the adapter picks one at runtime),
+so a browser gets the same screens.
+
+Two things are worth knowing before writing another client against this API:
+
+- **The event stream is read with `fetch`, not `EventSource`.** `EventSource` cannot set headers and
+  the stream needs `Authorization: Bearer`; the frames are `id:` / `data:` lines, and the envelope's
+  `kind` tells `hello`, `event` and `gap` apart (see [control-plane-events.md](control-plane-events.md)).
+- **A `gap` frame is not an error, it is an instruction**: the server could not cover the hole in its
+  replay buffer, so re-read what the API can answer again. Streamed text — chat deltas, serial bytes
+  — cannot be recovered this way; no endpoint replays it.
+
+The server can serve the built front end itself (`riscdom-server --web-root <dir>`, decision §55), so
+one URL answers both the pages and the API: same origin, no CORS layer, and the token the page asks
+for is the same token the API wants.

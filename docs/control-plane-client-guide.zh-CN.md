@@ -626,3 +626,14 @@ riscdom toolchain download --wait
 
 - **细粒度凭证。** 每条路由的 capability 都已强制（见 §1）；v0.9 缺的只是不止一种凭证。单个 token 持有一切，因此没法只授予「只读审计链」的客户端——按能力细分的 token 属 v1.0。
 - **`POST /v0/vm/start`** 与 **`GET /v0/resources`** 回 `501`。
+
+## 11. 管理程序
+
+Web 客户端是本 API 的第四个消费者，与 CLI（§7）、AI 监工（§8）和远程执行者句柄（§9）并列。它就是桌面外壳跑的那个 React 应用，只有一点不同：它的 API 调用走 HTTP 而不是 Tauri IPC（适配层在运行时选其一），所以浏览器里得到的是同一批界面。
+
+在对着本 API 再写一个客户端之前，有两件事值得知道：
+
+- **事件流用 `fetch` 读，不用 `EventSource`。** `EventSource` 设不了头，而这条流需要 `Authorization: Bearer`；帧就是 `id:` / `data:` 行，envelope 的 `kind` 用于区分 `hello`、`event` 与 `gap`（见 [control-plane-events.zh-CN.md](control-plane-events.zh-CN.md)）。
+- **`gap` 帧不是错误，而是一条指令**：服务的重放缓冲盖不住那个洞，所以去把「API 能再答一遍的东西」重读一遍。流式文本——聊天增量、串口字节——无法用这种方式找回；没有任何端点会重放它们。
+
+服务端可以自己提供构建好的前端（`riscdom-server --web-root <dir>`，决策 §55），于是一个 URL 同时答页面与 API：同源、无需 CORS 层，而页面要你输入的 token 就是 API 要的那个 token。

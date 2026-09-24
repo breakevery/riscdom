@@ -72,6 +72,11 @@ export type {
   ToolchainView,
   VmStatus,
 } from "./types.ts";
+import { SseReader } from "../lib/sse.ts";
+import type { SseFrame } from "../lib/sse.ts";
+import { unwrapHostPayload } from "./envelope.ts";
+import type { HostEnvelope } from "./envelope.ts";
+
 export { unwrapHostPayload } from "./envelope.ts";
 
 /**
@@ -468,25 +473,183 @@ export const deleteSession = (_sessionId: string): Promise<void> =>
 export const clearAllSessions = (): Promise<void> => desktopOnly("clear_all_sessions");
 
 /**
- * Subscriptions are the one stubbed group that must **not** reject: they are
- * registered from React effects, so a rejection would be an unhandled error on
- * every mount. The Web client's stream arrives with D2b-3 — one `fetch` stream
- * feeding exactly this subscription shape — and until then this returns a no-op
- * unsubscribe, so a panel that only *subscribes* keeps working while the page
- * shows nothing live.
+ * The event stream (v0.9 D2b-3).
  *
- * (`unwrapHostPayload` above is already the real rule: the stream's frames carry
- * the same envelope the desktop's events do.)
+ * One `fetch` and one `ReadableStream`, because `EventSource` cannot carry the
+ * `Authorization` header: the frames are `id:` / `data:` lines decoded by
+ * `lib/sse.ts`, and the envelope inside each one decides where it goes.
+ *
+ * One stream serves every subscriber. `onHostEvent` keeps the name, the signature and
+ * the "returns an unsubscribe" contract of the desktop's implementation, so the
+ * store's ten subscriptions did not have to change.
+ */
+
+type HostListener = (payload: unknown) => void;
+
+/** Listeners per host event name. The stream stays open while this, or the gap
+ * listeners below, are not empty. */
+const listeners = new Map<string, Set<HostListener>>();
+
+/**
+ * Who wants to know that frames were lost.
+ *
+ * A `gap` frame is the server saying "what you missed is gone" — it happens when a
+ * subscriber lags past the replay buffer. It is not a host event, so it is not
+ * delivered through the map above.
+ */
+const gapListeners = new Set<() => void>();
+
+/** The cursor a reconnect resumes from: the last non-empty `id:` this client saw. */
+let lastEventId = "";
+
+/** The live stream, or `null` while there is none. */
+let streamAbort: AbortController | null = null;
+/** A queued reconnect, and the delay it will use. */
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectDelayMs = 0;
+
+const RECONNECT_FIRST_MS = 1_000;
+const RECONNECT_MAX_MS = 15_000;
+
+/**
+ * Register a callback for one host event, opening the stream on first use.
+ *
+ * The returned function unsubscribes; the last unsubscribe closes the stream, so a
+ * page that stops caring does not leave a request open.
  */
 export const onHostEvent = (
-  _event: string,
-  _cb: (payload: unknown) => void,
-): (() => void) => () => {};
+  event: string,
+  callback: (payload: unknown) => void,
+): (() => void) => {
+  const set = listeners.get(event) ?? new Set<HostListener>();
+  set.add(callback);
+  listeners.set(event, set);
+  void openStream();
+  return () => {
+    set.delete(callback);
+    if (set.size === 0) listeners.delete(event);
+    if (listeners.size === 0) closeStream();
+  };
+};
 
+/** Register a callback for "frames were lost". See `gapListeners` above. */
+export const onGap = (callback: () => void): (() => void) => {
+  gapListeners.add(callback);
+  void openStream();
+  return () => {
+    gapListeners.delete(callback);
+    if (listeners.size === 0) closeStream();
+  };
+};
+
+/** Drop the stream and any queued reconnect, and forget the backoff. */
+function closeStream(): void {
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  reconnectDelayMs = 0;
+  streamAbort?.abort();
+  streamAbort = null;
+}
+
+/** Connect, unless a stream is up or one is already queued. */
+async function openStream(): Promise<void> {
+  if (streamAbort !== null || reconnectTimer !== null) return;
+  if (listeners.size === 0 && gapListeners.size === 0) return;
+
+  const controller = new AbortController();
+  streamAbort = controller;
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+  if (token !== "") {
+    // Concatenated, not templated: a literal "scheme + value" span is a shape secret
+    // scanners and editors both like to rewrite (see the note in `request`).
+    const scheme = "Bearer";
+    headers.Authorization = scheme + " " + token;
+  }
+  // A browser does this for `EventSource`; a reader written by hand has to, and it is
+  // the whole reason the server keeps a replay buffer.
+  if (lastEventId !== "") headers["Last-Event-ID"] = lastEventId;
+
+  try {
+    const response = await fetch(`${base}/v0/events`, { headers, signal: controller.signal });
+    if (!response.ok || response.body === null) {
+      throw new Error(`the event stream answered ${response.status}`);
+    }
+    reconnectDelayMs = 0; // it worked, so a later drop starts its backoff over
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const sse = new SseReader();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      // `{ stream: true }`: a multi-byte character can straddle two chunks.
+      for (const frame of sse.push(decoder.decode(value, { stream: true }))) dispatchFrame(frame);
+    }
+    const tail = sse.flush();
+    if (tail !== undefined) dispatchFrame(tail);
+  } catch {
+    // A dropped (or refused) stream is not an error a dashboard should shout about:
+    // every page keeps showing what it last read, and the loop below dials again.
+  } finally {
+    streamAbort = null;
+    scheduleReconnect();
+  }
+}
+
+/** Remember the cursor, then hand the envelope to whoever asked for it. */
+function dispatchFrame(frame: SseFrame): void {
+  if (frame.id !== undefined && frame.id !== "") lastEventId = frame.id;
+
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(frame.data);
+  } catch {
+    return; // a frame this client cannot read is not a reason to stop reading
+  }
+  if (envelope === null || typeof envelope !== "object") return;
+
+  const host = envelope as Partial<HostEnvelope>;
+  if (host.kind === "gap") {
+    for (const callback of gapListeners) callback();
+    return;
+  }
+  // `hello` describes the stream itself (its buffer and its filters) and is not an
+  // event: the pages read what they need when they mount, and the frame's `id` has
+  // already been kept above as the cursor.
+  if (host.kind !== "event" || typeof host.event !== "string") return;
+
+  const set = listeners.get(host.event);
+  if (set === undefined) return;
+  const payload = unwrapHostPayload(envelope);
+  for (const callback of set) callback(payload);
+}
+
+/** Dial again, further out each time, unless nobody is listening any more. */
+function scheduleReconnect(): void {
+  if (listeners.size === 0 && gapListeners.size === 0) return;
+  reconnectDelayMs =
+    reconnectDelayMs === 0
+      ? RECONNECT_FIRST_MS
+      : Math.min(reconnectDelayMs * 2, RECONNECT_MAX_MS);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    void openStream();
+  }, reconnectDelayMs);
+}
+
+/** Incremental assistant text from the LLM stream (`agent:stream:delta`). */
+export const onAgentStreamDelta = (cb: (text: string) => void): (() => void) =>
+  onHostEvent("agent:stream:delta", (payload) =>
+    cb((payload as { text?: string }).text ?? ""),
+  );
+
+/** The LLM stream finished (`agent:stream:done`). */
+export const onAgentStreamDone = (cb: () => void): (() => void) =>
+  onHostEvent("agent:stream:done", () => cb());
+
+/** Subscribe to `toolchain:download` progress events. */
 export const onToolchainDownload = (
-  _onEvent: (event: ToolchainDownloadEvent) => void,
-): (() => void) => () => {};
-
-export const onAgentStreamDelta = (_cb: (text: string) => void): (() => void) => () => {};
-
-export const onAgentStreamDone = (_cb: () => void): (() => void) => () => {};
+  onEvent: (event: ToolchainDownloadEvent) => void,
+): (() => void) =>
+  onHostEvent("toolchain:download", (payload) => onEvent(payload as ToolchainDownloadEvent));

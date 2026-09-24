@@ -60,6 +60,7 @@ type SharedApi = Omit<
   | "verifyToken"
   | "getHealth"
   | "getStatus"
+  | "onGap"
 >;
 
 /**
@@ -84,6 +85,7 @@ export {
   currentToken,
   getHealth,
   getStatus,
+  onGap,
   setApiBase,
   setToken,
   verifyToken,

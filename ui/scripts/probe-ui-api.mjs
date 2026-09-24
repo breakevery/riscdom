@@ -54,16 +54,18 @@ function exportedNames(source) {
  * The names only the Web implementation carries.
  *
  * Every one of them is a **client** concern — where a token is kept, whether a
- * typed token is accepted, what the node says about itself — and the desktop has no
- * use for any: it is in the same process as its host, always authenticated by being
- * so. They are listed here, and in `api/index.ts`'s `SharedApi`, so the two lists
- * have to agree.
+ * typed token is accepted, what the node says about itself, and where the Web
+ * client's own event stream reports lost frames — and the desktop has no use for
+ * any: it is in the same process as its host, always authenticated by being so.
+ * They are listed here, and in `api/index.ts`'s `SharedApi`, so the two lists have
+ * to agree.
  */
 const WEB_ONLY = [
   "clearToken",
   "currentToken",
   "getHealth",
   "getStatus",
+  "onGap",
   "setApiBase",
   "setToken",
   "verifyToken",

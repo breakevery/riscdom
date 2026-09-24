@@ -49,6 +49,8 @@
 
 ### 新增
 
+- **Web 客户端能实时刷新了**（v0.9 D2b-3）：浏览器用 `fetch` + `ReadableStream` 读事件流（`EventSource` 设不了 `Authorization` 头），并用纯模块 `lib/sse.ts` 解帧。一条流服务所有订阅者；断开后按倍延迟重连，并以 `Last-Event-ID` 从最后看到的 `id:` 续传；`event` envelope 到达各自订阅者，`gap` 到达一个 `onGap` 回调，由它触发对「可重读内容」的全量重读。`onHostEvent` 契约不变，因此商店的 10 处订阅无需改动。
+
 - **Zig 可编译（v0.9 F3a）**：`compile` 按源扩展名分派——`.c` / `.h` / `.S` / `.s` 走 GCC，`.zig` 走 `zig build-exe -target riscv64-freestanding`。Zig 不注入任何东西：源自己写 `_start`（`-bios none` 的客机跳到载入地址，所以启动代码必须排最前），生成的 `link.ld` 原样复用。`ZigConfig` 负责探测（`RISCDOM_ZIG` → 已知路径 → `PATH`），`settings.json` 新增 `zig_path`，由 `AppState::set_zig_path` / `clear_zig_path` 固定与清除。Zig 归档**不**在本批下载：其 macOS/Linux 构建是 `.tar.xz`，现有下载器无法解包（独立批次，与 Rust 共用）。
 - **`cli`，新的 workspace crate，含 `riscdom` 二进制**：八个只读子命令（`health`、`status`、`agents`、`runs list` / `runs get <id>`、`audit status`、`audit events`、`snapshots list`），每条都是对控制平面的 HTTP 调用。
 - **两种模式、一条代码路径**：`--remote host:port` 连已在运行的 `riscdom-server`；不加则在**本进程内**把控制平面起在 `127.0.0.1:0` 并对其说 HTTP。CLI 从不直接调 `AppState`。

@@ -62,6 +62,12 @@ import os
 import re
 import sys
 
+# The console's code page is itself one of the accidents this script reports, so its
+# own output must not depend on it: a finding that cannot be printed would turn a
+# report into a crash (found while wiring this into the gate, v0.9 D2b-3).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 # Where the accident can hide: source and documentation, in the languages this
 # repository uses. Data files (locks) are included because a generator writing them
 # is the same pipeline that writes everything else. `.mjs` / `.js` are not listed yet:

@@ -712,6 +712,34 @@ export function useAppStore(): AppStore {
     }
   }, []);
 
+  // Re-read everything a `gap` frame could have made stale (v0.9 D2b-3).
+  //
+  // A gap is the server saying "what you missed is gone" — it happens when this
+  // subscriber lags past the replay buffer — so the honest answer is to re-read what
+  // can be re-read. What cannot: the streamed chat text and the serial bytes, which
+  // only ever arrived as events, and no endpoint replays them.
+  const refreshAll = useCallback(async () => {
+    await Promise.all([
+      refreshStatus(),
+      refreshAudit(),
+      refreshRuns(),
+      refreshSessions(),
+      refreshSnapshots(),
+      refreshVmState(),
+      refreshToolchain(),
+      refreshPreflight(),
+    ]);
+  }, [
+    refreshStatus,
+    refreshAudit,
+    refreshRuns,
+    refreshSessions,
+    refreshSnapshots,
+    refreshVmState,
+    refreshToolchain,
+    refreshPreflight,
+  ]);
+
   const setQemuPath = useCallback(
     async (path: string) => {
       try {
@@ -906,6 +934,16 @@ export function useAppStore(): AppStore {
     );
     return () => offs.forEach((f) => f());
   }, [push, refreshAudit, refreshRuns, refreshPreflight, refreshWorkspace]);
+
+  // Lost frames are the Web client's problem alone: the desktop is in the same process
+  // as its host and cannot lag behind it, so `api`'s stream — and this subscription —
+  // are the browser's (v0.9 D2b-3).
+  useEffect(() => {
+    if (api.isTauriRuntime()) return;
+    return api.onGap(() => {
+      void refreshAll();
+    });
+  }, [refreshAll]);
 
   useEffect(() => {
     void refreshLlmStatus();

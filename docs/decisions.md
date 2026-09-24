@@ -1403,3 +1403,31 @@ narrow on purpose, and a finding it does raise is worth acting on immediately.
 **Impact**: `--check` exits `1` on E or F and `0` otherwise; every other mode still exits `0` and
 still prints everything. On the day it was added it reported `A 0, B 4, C 16, D 0, E 0, F 0` — the
 four and the sixteen are the ambiguous classes, kept visible on purpose and harmless by design.
+
+## 61. The Web client reads the event stream by hand, over `fetch`
+
+**Date**: 2026-09-25 ｜ **Status**: Decided; landed with the v0.9 D2b-3 batch
+
+**Decision**: the browser reads `GET /v0/events` with `fetch` and a `ReadableStream` reader, not with
+`EventSource`. Frames are decoded by `ui/src/lib/sse.ts` — a pure module (no `fetch`, no DOM) that the
+probe imports directly — and the envelope inside each frame decides where it goes: `kind: "event"` to
+the subscribers of that `event` name, `kind: "gap"` to a separate **`onGap`** callback, `kind:
+"hello"` nowhere. The transport keeps the last `id:` it saw and sends it as `Last-Event-ID` on the
+next dial, and re-dials with a doubling delay (1 s → 15 s) while anyone is subscribed.
+
+**Why**: `EventSource` cannot set request headers, and this stream is token-authenticated with
+`Authorization: Bearer` — the alternatives (a cookie session, a token in the query string) are the two
+options `docs/control-plane-events.md` already records as undesirable, and this server implements
+neither. `hello` is not dispatched because it describes the *stream* (its buffer and filters) rather
+than the host, and what a client actually needs from it — how far the buffer reaches — arrives on
+every frame as its `id`. `gap` gets its own callback rather than being dressed up as a host event,
+because it is not one: it says the replay buffer could not cover the hole, and the only honest answer
+is to re-read what can be re-read. The parser lives in `lib/` for the reason the other rules there do:
+it is the part worth testing, and a pure module can be probed in Node without a server or a browser.
+
+**Impact**: one stream serves every subscriber — opened by the first subscription, closed by the last —
+so a page that stops caring does not leave a request open. A dropped connection is not surfaced as an
+error (pages keep showing what they last read) and the re-dial backs off instead of spinning. What a
+gap *cannot* restore is written down where it is handled: streamed chat text and serial bytes only ever
+arrived as events, and no endpoint replays them. `api/index.ts`'s `Omit` list and `probe-ui-api.mjs`
+both name the Web client's own exports (`onGap` joins them here), so the two lists cannot drift.

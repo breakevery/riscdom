@@ -151,6 +151,13 @@ the gate stays outside the store and that every key these screens use exists in 
 
 ### Added
 
+- **The Web client is live** (v0.9 D2b-3): the browser reads the event stream with `fetch` and a
+  `ReadableStream` (`EventSource` cannot set the `Authorization` header) and decodes it with the pure
+  module `lib/sse.ts`. One stream serves every subscriber; a drop re-dials with a doubling delay and
+  resumes from the last `id:` via `Last-Event-ID`; `event` envelopes reach their subscribers, `gap`
+  reaches an `onGap` callback that triggers a full re-read of what can be re-read. `onHostEvent` kept
+  its contract, so the store's ten subscriptions did not change.
+
 - **Zig compiles (v0.9 F3a)**: `compile` dispatches on the source extension — `.c` /
   `.h` / `.S` / `.s` through GCC, `.zig` through `zig build-exe -target
   riscv64-freestanding`. Nothing is injected for Zig: the source writes its own `_start`

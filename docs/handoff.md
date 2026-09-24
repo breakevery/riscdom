@@ -13,6 +13,22 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The Web client is live** (v0.9 D2b-3): the browser reads `GET /v0/events` with `fetch` and a
+  `ReadableStream` — `EventSource` cannot carry the `Authorization` header — decoding frames with the
+  pure module `ui/src/lib/sse.ts` (`parseSseLine` + `SseReader`, which keeps a half-arrived frame and
+  joins a frame's `data:` lines). One stream serves every subscriber, opened by the first
+  subscription and closed by the last; a drop re-dials with a doubling delay (1 s → 15 s) and the
+  last `id:` is sent back as `Last-Event-ID`, which is what the server's replay buffer exists for.
+  Envelopes are routed by `kind`: `event` → the subscribers of that `event` name, `gap` → a separate
+  **`onGap`** callback (`hello` is not dispatched: it describes the stream, and its `id` is already
+  the cursor). `onHostEvent` kept its name, signature and "returns an unsubscribe" contract, so the
+  store's **ten subscriptions are unchanged**; a `gap` now drives a new `refreshAll`
+  (status/audit/runs/sessions/snapshots/vm/toolchain/preflight — what a lost frame can make stale;
+  streamed chat text and serial bytes are not recoverable, and the docs say so). **+1 probe**
+  (`probe-ui-sse.mjs`, 11 ui probes now) with 21 checks — 15 on the wire format, 6 on the transport
+  with `fetch` replaced by a stand-in `ReadableStream`. `scan-encoding.py`'s `print` no longer depends
+  on the console's code page. Decisions §61.
+
 - **The source files are free of the Windows code-page accident, and the gate now looks for it**
   (v0.9 encoding clean-up). Windows PowerShell 5.1 reads a BOM-less UTF-8 file as the ANSI code page
   and writes the text back as UTF-8: `E2 80 xx` (an em dash, an ellipsis) becomes `U+9225` plus a
