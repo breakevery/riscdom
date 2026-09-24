@@ -43,7 +43,9 @@ the ui regression probes (`node ui/scripts/probe-ui-*.mjs`) → the mirror guard
 
 Platform differences are **printed, never skipped silently**: without QEMU + a RISC-V GCC the
 guest-booting tests are skipped in favour of every crate's unit tests
-(`cargo test --workspace --lib`).
+(`cargo test --workspace --lib`), and the two unit tests that compile C for real say so when
+no RISC-V GCC is there. `cargo test` runs with `--no-fail-fast`, so one failing test binary
+cannot hide the rest of the workspace.
 
 There is also a lighter preflight: `scripts/preflight.ps1` (Windows) /
 `scripts/preflight.sh` (Unix).

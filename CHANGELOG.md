@@ -977,6 +977,12 @@ repository, who it is for, and whether it is living, a snapshot or history.
   logic (nothing boots a guest), so this needs no QEMU, and it is the first coverage `agent`,
   `host-core`, `cli`, `server` and `worker` have had off Windows. The portable **integration**
   tests still do not run there; separating them from the guest-booting ones is B-3b.
+- **`agent`'s two C-compiling unit tests print a skip when no toolchain is present.** They call
+  `compile_freestanding(...).expect("run gcc")`, so on the Linux job — which has no RISC-V GCC —
+  turning on `cargo test --workspace --lib` failed at once. They probe
+  `CompilerConfig::discover()` first and print `skip: <test> -- no RISC-V GCC found` instead;
+  a machine with the toolchain still compiles for real. Both `cargo test` invocations also run
+  with `--no-fail-fast`, so one failing test binary no longer hides the rest of the workspace.
 
 ## [0.8.0] - 2026-09-22
 

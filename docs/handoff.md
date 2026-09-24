@@ -13,6 +13,15 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The two unit tests that compile C say so when there is no toolchain** (v0.9 gate-consistency
+  batch B-3a-fix). B-3a went red on Linux at once: `agent/src/compiler.rs`'s
+  `compiles_hello_fixture` and `reports_compile_failure_without_panicking` call
+  `compile_freestanding(...).expect("run gcc")` and the CI job has no RISC-V GCC. They probe
+  `CompilerConfig::discover()` now and print `skip: ... -- no RISC-V GCC found` instead of
+  failing; the machine that has the toolchain still runs them for real. Both `cargo test`
+  invocations also gained `--no-fail-fast`, so one failing test binary cannot hide the rest.
+  **Lesson worth keeping**: a Windows machine has the toolchain, so running the suite there
+  cannot reveal a toolchain prerequisite — the local check looked green all the way.
 - **A gate without a guest now runs every crate's unit tests** (v0.9 gate-consistency batch
   B-3a). The branch used to run `cargo test -p audit -p sandbox --lib` — **10** tests of 638 — so
   `agent`, `host-core`, `cli`, `server`, `worker` and the audit/sandbox `tests/` directories had

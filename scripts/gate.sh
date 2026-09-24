@@ -17,8 +17,11 @@
 #
 # Platform differences are printed, never skipped silently:
 #   - without QEMU + a RISC-V GCC: the guest-booting tests are skipped and every crate's
-#     unit tests run instead (`cargo test --workspace --lib`).
+#     unit tests run instead (`cargo test --workspace --lib`). Two of `agent`'s unit tests
+#     compile C for real and print a skip when no GCC is there.
 #   - without python3/python: the reference supervisor's self-test is skipped.
+#
+# `--no-fail-fast`: one failing test binary must not hide the rest of the workspace.
 #
 # Each step fails fast with a non-zero exit code.
 set -eu
@@ -83,12 +86,12 @@ echo "==> cargo check (ui/src-tauri)"
 cargo check --manifest-path ui/src-tauri/Cargo.toml || fail "cargo check ui/src-tauri"
 
 if have_guest_tools; then
-  echo "==> cargo test"
-  cargo test || fail "cargo test"
+  echo "==> cargo test --no-fail-fast"
+  cargo test --no-fail-fast || fail "cargo test"
 else
   skip "the guest-booting tests (no qemu-system-riscv64 + RISC-V GCC on PATH)"
-  echo "==> cargo test --workspace --lib"
-  cargo test --workspace --lib || fail "cargo test --workspace --lib"
+  echo "==> cargo test --workspace --lib --no-fail-fast"
+  cargo test --workspace --lib --no-fail-fast || fail "cargo test --workspace --lib"
 fi
 
 echo "==> npm run build (ui)"
