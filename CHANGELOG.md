@@ -93,6 +93,15 @@ archive nests one level down, and the host refuses the download when the machine
 the pinned release — a sysroot is only usable by the `rustc` that produced it. `rustc` itself still
 comes from the machine.
 
+**The constitution no longer argues with the compiler about Rust either.** `PROJECT_CONSTITUTION.md`
+forbids Rust in §3.6 (inside the `non-negotiable` list), §4.6 and §5, and §47 had annotated the Zig
+half of those three while leaving Rust to "wait for F3b". Each of the three annotations now carries
+the Rust sentence too, and §5's spells out what is still banned: **C++ and Python stay forbidden**
+— Python for a Linux sandbox (v1.x), C++ still out of scope. Every original sentence and the
+`non-negotiable` heading are untouched, and so is §9 — the v0.1 status list — because it is history:
+in v0.1 only C was supported. The sandbox's languages are now C / Zig / Rust. Recorded as decision
+§53.
+
 ### Added
 
 - **Zig compiles (v0.9 F3a)**: `compile` dispatches on the source extension — `.c` /

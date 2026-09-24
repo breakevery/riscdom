@@ -1171,3 +1171,23 @@ instead of discovering it at the first `.rs` compile, with 12 MB already on disk
 cannot download a sysroot until the pin moves — deliberately, since that download could not work.
 The rule generalises: any future component bound to a compiler release is gated the same way, in
 `begin_toolchain_download`, not at adoption.
+
+## 53. The MVP-era Rust ban is lifted
+
+**Date**: 2026-09-24 ｜ **Status**: Decided
+
+**Decision**: the constitution's §3.6, §4.6 and §5 forbid Rust during MVP. From v0.9 F3b the Rust
+ban is lifted; the C++ and Python bans are unchanged (Python waits for a Linux sandbox, v1.x; C++
+is still out of scope). The original sentences are all kept — each of the three now carries an
+annotation saying the time condition it states has expired.
+
+**Why**: Rust's `riscv64gc-unknown-none-elf` target with `no_std` builds a bare-metal ELF that
+loads at `0x80000000` — the same shape as the C and Zig paths — so the sandbox itself needs no
+change. `rustc` comes from the system (following the "the user installs it" precedent set by
+QEMU), while `rust-std` is self-downloaded and version-coupled to `rustc`, pinned at 1.98.1 (§52).
+The ban is written with the qualifier "During MVP", and MVP ended at v0.8.0, so lifting it is not
+renegotiating a non-negotiable principle; it is reading the clause's own time condition honestly.
+
+**Impact**: §3.6, §4.6 and §5 each carry an annotation (originals intact, the `non-negotiable`
+heading untouched); §9 — the v0.1 status list — is not touched, because it is history: in v0.1
+only C was supported. The supported languages are now C / Zig / Rust; Python waits for v1.x.

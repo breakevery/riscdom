@@ -37,6 +37,8 @@
 
 **Rust 的 sysroot 也可以下载了，而且它是唯一「产物与版本硬绑定」的 pin。** `Toolchain` 新增 `Rust`，于是 `--toolchain rust`（或 body `{"toolchain":"rust"}`）会下载裸机目标所钉的 `rust-std` 组件：一个资产服务所有平台，因为 `rust-std` 是给**目标**而不是给宿主的。定位器返回归档嵌下一层的那个 **sysroot 目录**；当机器的 `rustc` 不是钉住的那个 release 时，宿主会在下载之前就拒绝——sysroot 只能由产出它的 `rustc` 使用。`rustc` 本身仍来自机器。
 
+**宪法与编译器在 Rust 上也不再矛盾。** `PROJECT_CONSTITUTION.md` 在 §3.6（在 `non-negotiable` 列表内）、§4.6、§5 三处禁 Rust，而 §47 当时只把这三处的 Zig 半边标了时效、把 Rust 留作「待 F3b」。现在这三条旁注各自补上 Rust 那句，且 §5 的旁注把仍在禁的写明：**C++、Python 仍在禁令内**——Python 待 Linux 沙箱（v1.x），C++ 仍不在范围。原句与 `non-negotiable` 标题一字未动；§9（v0.1 完成情况）同样未动——v0.1 当时确实只支持 C。沙箱能用的语言现为 C / Zig / Rust。记入决策 §53。
+
 ### 新增
 
 - **Zig 可编译（v0.9 F3a）**：`compile` 按源扩展名分派——`.c` / `.h` / `.S` / `.s` 走 GCC，`.zig` 走 `zig build-exe -target riscv64-freestanding`。Zig 不注入任何东西：源自己写 `_start`（`-bios none` 的客机跳到载入地址，所以启动代码必须排最前），生成的 `link.ld` 原样复用。`ZigConfig` 负责探测（`RISCDOM_ZIG` → 已知路径 → `PATH`），`settings.json` 新增 `zig_path`，由 `AppState::set_zig_path` / `clear_zig_path` 固定与清除。Zig 归档**不**在本批下载：其 macOS/Linux 构建是 `.tar.xz`，现有下载器无法解包（独立批次，与 Rust 共用）。

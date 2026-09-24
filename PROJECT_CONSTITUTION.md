@@ -33,8 +33,9 @@ Freedom inside boundaries, audit outside the AI, root privilege with humans.
 5. AI democracy is an experiment variable, not an MVP requirement.
 6. During MVP the AI inside the sandbox may only generate C and RISC-V assembly.
    *MVP ended at v0.8.0, so this clause's time condition no longer holds; v0.9 F3a lifts the
-   Zig ban — see [decisions.md](docs/decisions.md) §47. The principle is untouched: what
-   expired is the "During MVP" qualifier the clause carries.*
+   Zig ban — see [decisions.md](docs/decisions.md) §47 — and v0.9 F3b lifts the Rust ban — see
+   §53. The principle is untouched: what expired is the "During MVP" qualifier the clause
+   carries.*
 7. AI access starts with API keys.
 
 ## 4. Architecture layers
@@ -59,7 +60,7 @@ From the outside in, privilege tightens layer by layer:
 6. **AI agent layer (Agent, Rust)**
    Agent loop + tool calls. During MVP it may only generate C11 and RISC-V RV64GC assembly.
    *Same time condition as §3.6: MVP ended at v0.8.0, and v0.9 F3a lifts the Zig ban
-   ([decisions.md](docs/decisions.md) §47).*
+   ([decisions.md](docs/decisions.md) §47); v0.9 F3b lifts the Rust ban (§53).*
 
 ## 5. Language limits
 
@@ -70,9 +71,10 @@ During MVP the AI inside the sandbox may only generate:
 
 Forbidden: C++, Rust, Zig, Python.
 
-*MVP ended at v0.8.0, so the time condition above no longer holds: **Zig is lifted** — v0.9 F3a,
-see [decisions.md](docs/decisions.md) §47. **C++, Rust and Python stay forbidden**: Rust waits for
-F3b, Python for a Linux sandbox (v1.x), and C++ is still out of scope.*
+*MVP ended at v0.8.0, so the time condition above no longer holds: **Zig is lifted** (v0.9 F3a,
+see [decisions.md](docs/decisions.md) §47) and **Rust is lifted** (v0.9 F3b, §53). **C++ and
+Python stay forbidden**: Python waits for a Linux sandbox (v1.x), and C++ is still out of scope.
+The sentence above is the MVP-era record and stays as written.*
 
 ## 6. Audit event types
 

@@ -13,6 +13,16 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The constitution no longer disagrees with the compiler about Rust either — the F line is closed**
+  (v0.9 multi-language batch F3b-3). `PROJECT_CONSTITUTION.md` forbids Rust in §3.6 (inside the
+  `non-negotiable` list), §4.6 and §5 — and §47 had annotated the Zig half of those three while
+  leaving Rust to "wait for F3b". Each annotation now carries the Rust sentence as well
+  (`v0.9 F3b lifts the Rust ban — see §53`), and §5's spells out what remains: **C++ and Python are
+  still forbidden** — Python for a Linux sandbox (v1.x), C++ still out of scope. Every original
+  sentence and the `non-negotiable` heading are untouched, and §9 — the v0.1 status list — is not
+  touched either: it is history, and in v0.1 only C was supported. The sandbox's languages are now
+  C / Zig / Rust. Decision §53; no code changed (this batch was documentation only).
+
 - **Rust's sysroot is one click away now — and the one pin whose product is version-coupled**
   (v0.9 multi-language batch F3b-2). `Toolchain` gained `Rust`, so `LABELS` is `c` / `zig` /
   `rust` and the Tauri command, the HTTP body and the CLI all accept `--toolchain rust` from the
