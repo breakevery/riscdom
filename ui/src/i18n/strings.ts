@@ -263,6 +263,34 @@ const EN = {
   "audit.export_done": "Exported {lines} lines of {runId} to {target}",
   "audit.export_failed":
     "Could not export {runId}: {reason} (exports must stay inside the workspace)",
+
+  // The Web client's front door and its first page (v0.9 D2b-2).
+  "login.heading": "Sign in",
+  "login.token_label": "Access token",
+  "login.token_hint":
+    "Read it from <data-dir>/token on the machine running the control plane. It is never shown here again.",
+  "login.remember": "Remember this device",
+  "login.submit": "Sign in",
+  "login.unauthorized": "That token was refused. Check it and try again.",
+  "login.unreachable": "The control plane did not answer. Is the server running, and at this address?",
+  "login.other": "The server answered something unexpected. See the server's log.",
+  "status.heading": "Status",
+  "status.node": "This node",
+  "status.counters": "Control plane",
+  "status.version": "Version",
+  "status.uptime": "Uptime",
+  "status.uptime_seconds": "{n} s",
+  "status.uptime_minutes": "{n} min",
+  "status.uptime_hours": "{n} h",
+  "status.connections": "Connections",
+  "status.subscribers": "Event subscribers",
+  "status.agents": "Agents",
+  "status.agents_hint":
+    "This node counts itself, and one is what a node with no executor roster reports (v0.9).",
+  "status.agent_id": "Agent id",
+  "status.refresh": "Refresh",
+  "status.loading": "Reading…",
+  "status.unreachable": "Could not read the node's status",
 } as const;
 
 /** A key of the registry. */
@@ -497,6 +525,33 @@ const ZH: Record<StringKey, string> = {
   "toolchain.pick_qemu_title": "选择 qemu-system-riscv64",
   "audit.export_done": "已导出 {runId} 的 {lines} 行记录：{target}",
   "audit.export_failed": "导出 {runId} 失败：{reason}（只能导出到工作区内）",
+
+  // 管理界面的入口与首屏（v0.9 D2b-2）。
+  "login.heading": "登录",
+  "login.token_label": "访问令牌",
+  "login.token_hint":
+    "在运行控制平面的机器上从 <data-dir>/token 读取。此处不会再次显示它。",
+  "login.remember": "记住此设备",
+  "login.submit": "登录",
+  "login.unauthorized": "令牌被拒。请核对后重试。",
+  "login.unreachable": "控制平面没有应答。服务在运行吗？地址对吗？",
+  "login.other": "服务端返回了意外应答。请查看服务端日志。",
+  "status.heading": "状态",
+  "status.node": "本节点",
+  "status.counters": "控制平面",
+  "status.version": "版本",
+  "status.uptime": "运行时长",
+  "status.uptime_seconds": "{n} 秒",
+  "status.uptime_minutes": "{n} 分钟",
+  "status.uptime_hours": "{n} 小时",
+  "status.connections": "连接数",
+  "status.subscribers": "事件订阅者",
+  "status.agents": "Agent 数",
+  "status.agents_hint": "本节点把自己算作 1；尚未接入执行者名册的节点报的就是这个数（v0.9）。",
+  "status.agent_id": "Agent 标识",
+  "status.refresh": "刷新",
+  "status.loading": "读取中……",
+  "status.unreachable": "读不到节点状态",
 };
 
 /** The registry itself: language -> key -> template. */

@@ -11,6 +11,8 @@ import {
 import CanvasPanel from "../panels/CanvasPanel";
 import ChatPanel from "../panels/ChatPanel";
 import SettingsPanel from "../panels/SettingsPanel";
+import StatusPanel from "../panels/StatusPanel";
+import { isTauriRuntime } from "../api";
 
 /** Only a non-sensitive layout preference is stored here. */
 const CHAT_WIDTH_KEY = "riscdom.layout.chatWidth";
@@ -18,7 +20,7 @@ const DEFAULT_CHAT_W = 380;
 const MIN_CHAT_W = 240;
 const MAX_CHAT_W = 900;
 
-type View = "main" | "settings";
+type View = "main" | "settings" | "status";
 
 function readChatWidth(): number {
   try {
@@ -111,10 +113,14 @@ export default function AppShell() {
     if (d) writeChatWidth(d.width);
   };
 
+  // The status page is the Web client's: the desktop is in the same process as its
+  // host, so it has nothing to ask `/v0/status` and does not offer the page.
+  const webClient = !isTauriRuntime();
+
   return (
     <div className="app-root">
       <header className="topbar">
-        {view === "settings" ? (
+        {view === "settings" || view === "status" ? (
           <>
             <button className="ghost tiny" onClick={() => setView("main")}>
               {t("app.back")}
@@ -140,6 +146,15 @@ export default function AppShell() {
                 <span className={`dot ${store.vmStatus.running ? "ok" : "off"}`} />
                 {store.vmStatus.running ? t("app.vm.running") : t("app.vm.stopped")}
               </span>
+            ) : null}
+            {webClient ? (
+              <button
+                className="ghost tiny"
+                title={t("status.heading")}
+                onClick={() => setView("status")}
+              >
+                {t("status.heading")}
+              </button>
             ) : null}
             <button
               className="ghost tiny gear"
@@ -191,6 +206,13 @@ export default function AppShell() {
           style={{ display: view === "settings" ? "flex" : "none" }}
         >
           <SettingsPanel store={store} />
+        </div>
+
+        <div
+          className="status-page"
+          style={{ display: view === "status" ? "flex" : "none" }}
+        >
+          <StatusPanel store={store} />
         </div>
       </div>
     </div>

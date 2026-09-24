@@ -25,6 +25,7 @@ import type {
   AuditEvent,
   AuditStatus,
   FingerprintFieldDiff,
+  HealthView,
   LlmReadiness,
   LlmStatus,
   LocalProbeResult,
@@ -35,6 +36,7 @@ import type {
   SessionDetail,
   SessionMeta,
   SnapshotMeta,
+  StatusView,
   ToolchainDownloadEvent,
   ToolchainDownloadStatus,
   ToolchainView,
@@ -49,6 +51,7 @@ export type {
   AuditStatus,
   ChainStatus,
   FingerprintFieldDiff,
+  HealthView,
   HostEnvelope,
   LlmReadiness,
   LlmStatus,
@@ -63,6 +66,7 @@ export type {
   SessionMessage,
   SessionMeta,
   SnapshotMeta,
+  StatusView,
   ToolchainDownloadEvent,
   ToolchainDownloadStatus,
   ToolchainView,
@@ -82,18 +86,76 @@ export function setApiBase(next: string): void {
 }
 
 /**
- * The bearer token this client presents, or `""`.
+ * Where the Web client keeps its token.
  *
- * In memory only, and deliberately: D2b-2 adds the login form and decides where a
- * token survives a reload. Nothing reads it before then, so a request made today
- * is simply the unauthenticated one the server refuses with `401`.
+ * One key, in one of two stores: `sessionStorage` by default (it survives a
+ * reload, and is gone when the tab is), or `localStorage` when the operator ticked
+ * "remember this device". Never in the URL, and never anywhere the server could
+ * log it.
  */
-let token = "";
+const TOKEN_KEY = "riscdom.web.token";
 
-export function setToken(next: string): void {
-  token = next;
+/**
+ * The token this client presents, or `""`.
+ *
+ * Read from storage at module load — and storage can be *denied* (private
+ * browsing, a locked-down webview) as well as absent (Node, in the probe), so both
+ * the writes and this read are guarded: no token is a working state, not a crash.
+ */
+let token = readStoredToken();
+
+function stores(): { local?: Storage; session?: Storage } {
+  const scope = globalThis as { localStorage?: Storage; sessionStorage?: Storage };
+  return { local: scope.localStorage, session: scope.sessionStorage };
 }
 
+function readStoredToken(): string {
+  const { local, session } = stores();
+  try {
+    const remembered = local?.getItem(TOKEN_KEY);
+    if (remembered) return remembered;
+    return session?.getItem(TOKEN_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Install a token for every later request.
+ *
+ * `remember` is the "remember this device" choice, and the two stores are kept
+ * exclusive: a remembered token is not also left in the session store, and a
+ * session token is not left behind in the persistent one.
+ */
+export function setToken(next: string, remember = false): void {
+  token = next;
+  const { local, session } = stores();
+  try {
+    if (remember) {
+      local?.setItem(TOKEN_KEY, next);
+      session?.removeItem(TOKEN_KEY);
+    } else {
+      session?.setItem(TOKEN_KEY, next);
+      local?.removeItem(TOKEN_KEY);
+    }
+  } catch {
+    /* storage denied: the token still works for this page's lifetime */
+  }
+}
+
+/** Forget the token, in memory and in both stores (the log-out path). */
+export function clearToken(): void {
+  token = "";
+  const { local, session } = stores();
+  try {
+    local?.removeItem(TOKEN_KEY);
+    session?.removeItem(TOKEN_KEY);
+  } catch {
+    /* nothing to clear */
+  }
+}
+
+/** The token in force right now. */
 export function currentToken(): string {
   return token;
 }
@@ -133,6 +195,52 @@ async function failure(response: Response): Promise<string> {
 }
 
 /**
+ * What a token check found.
+ *
+ * Four outcomes on purpose: "the token is wrong", "the server is not answering"
+ * and "the server answered something else" are three different things a person
+ * has to fix differently, and collapsing them into one "login failed" is what
+ * sends someone to re-read a token that was never the problem.
+ */
+export type TokenCheck =
+  | { kind: "ok"; version: string }
+  | { kind: "unauthorized" }
+  | { kind: "unreachable"; detail: string }
+  | { kind: "other"; status: number };
+
+/**
+ * Is `candidate` the token this control plane wants?
+ *
+ * The candidate rides this one request rather than being installed first, so a
+ * rejected attempt cannot leave a bad token behind for the next call. The endpoint
+ * is `/v0/health` because it is the cheapest authenticated one; the classification
+ * is done here rather than through [`get`], which reports every failure as the
+ * host's sentence and would lose the distinction above.
+ */
+export async function verifyToken(candidate: string): Promise<TokenCheck> {
+  let response: Response;
+  try {
+    // The scheme word is spelled once, in a variable, for the reason the server's
+    // own tests do it: a literal "Bearer <value>" span in a source file is a shape
+    // that secret scanners and editors both like to rewrite.
+    const scheme = "Bearer";
+    response = await fetch(`${base}/v0/health`, {
+      headers: { Authorization: `${scheme} ${candidate}` },
+    });
+  } catch (e) {
+    return { kind: "unreachable", detail: String(e) };
+  }
+  if (response.ok) {
+    const health = (await response.json()) as HealthView;
+    return { kind: "ok", version: health.version };
+  }
+  if (response.status === 401 || response.status === 403) {
+    return { kind: "unauthorized" };
+  }
+  return { kind: "other", status: response.status };
+}
+
+/**
  * One request, answered as JSON (or nothing at all for a `204`).
  *
  * Rejects with a **string**, because that is what the desktop's `invoke` rejects
@@ -146,7 +254,11 @@ async function request<T>(
   body?: unknown,
 ): Promise<T> {
   const headers: Record<string, string> = {};
-  if (token !== "") headers.Authorization = `Bearer ${token}`;
+  if (token !== "") {
+    // Spelled once, in a variable: see the note in `verifyToken`.
+    const scheme = "Bearer";
+    headers.Authorization = `${scheme} ${token}`;
+  }
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
   let response: Response;
@@ -169,6 +281,17 @@ const get = <T>(path: string, query?: Query): Promise<T> =>
   request<T>("GET", path, query);
 
 // ----- Reads (v0.9 D2b serves these) ----------------------------------------
+
+/**
+ * The cheapest authenticated call, and the one a token is checked with.
+ *
+ * The desktop has no such command: its host is in the same process, so "is it
+ * reachable and am I allowed" is not a question there.
+ */
+export const getHealth = () => get<HealthView>("/v0/health");
+
+/** What this node is doing. Web-only, like [`getHealth`]. */
+export const getStatus = () => get<StatusView>("/v0/status");
 
 export const getAuditStatus = () => get<AuditStatus>("/v0/audit/status");
 

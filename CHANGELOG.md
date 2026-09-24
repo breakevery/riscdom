@@ -138,6 +138,17 @@ four subscriptions return a no-op unsubscribe rather than rejecting. A refusal i
 paths, so an error message reads the same in the shell and in the browser. Login, the new pages and
 the live stream are the next D2b batches.
 
+**The Web client can be opened, signed into, and read.** `App.tsx` became a **gate**: with no token it
+renders the login screen and nothing else, so the shell — and with it every read the store makes on
+mount — waits until there is one. The token is proven with one `GET /v0/health` **before** it is
+installed, kept in `sessionStorage` by default (or `localStorage` when "remember this device" is
+ticked, and never in a URL), and a failed attempt is answered in four different ways: wrong token,
+server not answering, another status, or success. Behind the gate is the status page — the shell's
+third view, offered only in the Web client, because the desktop has no such endpoint to ask — showing
+what the node says about itself, with the honest note that the `agents` count is 1 until the executor
+roster is wired. Twenty-four registry keys were added (both languages), and a probe now checks that
+the gate stays outside the store and that every key these screens use exists in both languages.
+
 ### Added
 
 - **Zig compiles (v0.9 F3a)**: `compile` dispatches on the source extension — `.c` /

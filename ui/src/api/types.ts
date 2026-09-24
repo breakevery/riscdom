@@ -213,4 +213,33 @@ export interface SessionDetail {
 }
 
 /** The host event envelope — re-exported so `api.HostEnvelope` keeps working. */
-export type { HostEnvelope } from "./envelope";
+export type { HostEnvelope } from "./envelope.ts";
+
+/**
+ * `/v0/health` — the cheapest authenticated call (v0.9 D2b-2).
+ *
+ * The desktop never asks: its host is in the same process, so "is it reachable and
+ * am I allowed" is not a question there. The Web client uses it to check a token.
+ */
+export interface HealthView {
+  status: string;
+  version: string;
+  uptime_ms: number;
+}
+
+/**
+ * `/v0/status` — what this node is doing (v0.9 D2b-2).
+ *
+ * `agents` is `1` on purpose today: the host instance answering *is* the only agent
+ * the control plane knows until the executor roster is wired, so the panel says
+ * exactly that rather than leaving the number to be misread.
+ */
+export interface StatusView {
+  status: string;
+  version: string;
+  uptime_ms: number;
+  connections: number;
+  sse_subscribers: number;
+  agents: number;
+  agent_id: string;
+}

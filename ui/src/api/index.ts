@@ -51,7 +51,16 @@ export function isTauriRuntime(): boolean {
  * assigning the Tauri module to this type is what makes a name that only exists in
  * one of the two 鈥?or a signature that drifted 鈥?a compile error right here.
  */
-type SharedApi = Omit<typeof http, "setApiBase" | "setToken" | "currentToken">;
+type SharedApi = Omit<
+  typeof http,
+  | "setApiBase"
+  | "setToken"
+  | "currentToken"
+  | "clearToken"
+  | "verifyToken"
+  | "getHealth"
+  | "getStatus"
+>;
 
 /**
  * Whichever implementation this runtime has.
@@ -62,9 +71,24 @@ const impl: SharedApi = isTauriRuntime() ? tauri : http;
  * Token plumbing, and it is the Web client's alone.
  *
  * On the desktop these do nothing that matters 鈥?the shell's `invoke` is
- * authenticated by being in the same process. D2b-2 wires the login form to them.
+ * authenticated by being in the same process.
+ *
+ * They are named **outside** the shared list below rather than added to it: that
+ * list is the check that the two *transports* agree with each other, and none of
+ * these is a transport call. `getHealth` / `getStatus` are the local endpoints the
+ * Web client asks about the node; the desktop answers those questions through the
+ * store instead.
  */
-export { currentToken, setApiBase, setToken } from "./http.ts";
+export {
+  clearToken,
+  currentToken,
+  getHealth,
+  getStatus,
+  setApiBase,
+  setToken,
+  verifyToken,
+} from "./http.ts";
+export type { TokenCheck } from "./http.ts";
 
 // ----- Reads -----------------------------------------------------------------
 

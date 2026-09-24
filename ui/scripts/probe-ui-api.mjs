@@ -43,10 +43,31 @@ function check(name, ok, detail) {
   }
 }
 
-/** The names a module exports as `export const x`. */
+/** The names a module exports as `export const x` or `export function x`. */
 function exportedNames(source) {
-  return [...source.matchAll(/^export const (\w+)/gm)].map((m) => m[1]).sort();
+  return [...source.matchAll(/^export (?:const|(?:async )?function) (\w+)/gm)]
+    .map((m) => m[1])
+    .sort();
 }
+
+/**
+ * The names only the Web implementation carries.
+ *
+ * Every one of them is a **client** concern — where a token is kept, whether a
+ * typed token is accepted, what the node says about itself — and the desktop has no
+ * use for any: it is in the same process as its host, always authenticated by being
+ * so. They are listed here, and in `api/index.ts`'s `SharedApi`, so the two lists
+ * have to agree.
+ */
+const WEB_ONLY = [
+  "clearToken",
+  "currentToken",
+  "getHealth",
+  "getStatus",
+  "setApiBase",
+  "setToken",
+  "verifyToken",
+].sort();
 
 // ----- the two implementations carry the same names --------------------------
 
@@ -56,10 +77,17 @@ const indexSource = readFileSync(INDEX, "utf8");
 
 const httpNames = exportedNames(httpSource);
 const tauriNames = exportedNames(tauriSource);
+const onlyHttp = httpNames.filter((name) => !tauriNames.includes(name));
+const onlyTauri = tauriNames.filter((name) => !httpNames.includes(name));
 check(
-  "both implementations export the same names",
-  JSON.stringify(httpNames) === JSON.stringify(tauriNames),
-  `${httpNames.length} vs ${tauriNames.length}; only-http: ${httpNames.filter((n) => !tauriNames.includes(n)).join(",") || "none"}; only-tauri: ${tauriNames.filter((n) => !httpNames.includes(n)).join(",") || "none"}`,
+  "every name the desktop carries is carried by the Web client too",
+  onlyTauri.length === 0,
+  onlyTauri.join(",") || `${tauriNames.length} shared names`,
+);
+check(
+  "the Web client's own names are exactly the declared list",
+  JSON.stringify(onlyHttp) === JSON.stringify(WEB_ONLY),
+  `only-http: ${onlyHttp.join(",") || "none"}; declared: ${WEB_ONLY.join(",")}`,
 );
 
 const READS = [
@@ -132,9 +160,9 @@ check(
 );
 check(
   "the controls and the subscriptions are accounted for",
-  [...CONTROLS, ...EVENTS].every((name) => httpNames.includes(name)) &&
-    CONTROLS.length + EVENTS.length + READS.length === httpNames.length,
-  `${CONTROLS.length} controls + ${EVENTS.length} subscriptions + ${READS.length} reads = ${httpNames.length}`,
+  [...CONTROLS, ...EVENTS].every((name) => tauriNames.includes(name)) &&
+    CONTROLS.length + EVENTS.length + READS.length === tauriNames.length,
+  `${CONTROLS.length} controls + ${EVENTS.length} subscriptions + ${READS.length} reads = ${tauriNames.length}`,
 );
 
 // ----- `fetch` replaced by a stand-in ----------------------------------------
@@ -344,8 +372,9 @@ check(
   "",
 );
 check(
-  "the adapter takes every name from whichever implementation is live",
-  exportedNames(indexSource).length === READS.length + CONTROLS.length + EVENTS.length,
+  "the adapter takes every shared name from whichever implementation is live",
+  JSON.stringify(exportedNames(indexSource)) ===
+    JSON.stringify([...READS, ...CONTROLS, ...EVENTS, "isTauriRuntime"].sort()),
   `${exportedNames(indexSource).length} names`,
 );
 
@@ -356,6 +385,91 @@ check(
   "the shared envelope rule is re-exported by all three modules",
   httpSource.includes(SHARED) && tauriSource.includes(SHARED) && indexSource.includes(SHARED),
   `${httpNames.length} transport names + 1 shared rule`,
+);
+
+// ----- the token: where it lives, and how a candidate is checked ----------------
+
+/** A stand-in `Storage`, the way a browser would provide one. */
+function fakeStorage() {
+  const values = new Map();
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => void values.set(key, String(value)),
+    removeItem: (key) => void values.delete(key),
+    has: (key) => values.has(key),
+  };
+}
+
+const session = fakeStorage();
+const local = fakeStorage();
+globalThis.sessionStorage = session;
+globalThis.localStorage = local;
+const KEY = "riscdom.web.token";
+
+http.setToken("a-session-token", false);
+check(
+  "a token is kept for the session by default",
+  session.has(KEY) && !local.has(KEY),
+  `session=${session.has(KEY)} local=${local.has(KEY)}`,
+);
+http.setToken("a-remembered-token", true);
+check(
+  "a remembered token moves to the persistent store and leaves the other",
+  local.has(KEY) && !session.has(KEY),
+  `session=${session.has(KEY)} local=${local.has(KEY)}`,
+);
+check("the token in force is the remembered one", http.currentToken() === "a-remembered-token");
+http.clearToken();
+check(
+  "log-out empties both stores",
+  !session.has(KEY) && !local.has(KEY) && http.currentToken() === "",
+  `session=${session.has(KEY)} local=${local.has(KEY)}`,
+);
+
+/** One `/v0/health` answer, as `verifyToken` sees it. */
+async function checkToken(status, body, throws = false) {
+  seen.length = 0;
+  reply = { status, body, throw: throws };
+  return http.verifyToken("candidate");
+}
+
+globalThis.fetch = async (url, init) => {
+  seen.push({ url, init });
+  if (reply.throw) throw new Error("connect ECONNREFUSED");
+  return {
+    ok: reply.status >= 200 && reply.status < 300,
+    status: reply.status,
+    statusText: "OK",
+    json: async () => JSON.parse(JSON.stringify(reply.body)),
+  };
+};
+
+const accepted = await checkToken(200, { status: "ok", version: "0.8.0", uptime_ms: 1234 });
+check(
+  "a good token comes back as ok, with the version",
+  accepted.kind === "ok" && accepted.version === "0.8.0",
+  JSON.stringify(accepted),
+);
+check(
+  "the candidate rides the check and is not installed by it",
+  seen[0].url === "/v0/health" &&
+    seen[0].init.headers.Authorization === "Bearer candidate" &&
+    http.currentToken() === "",
+  `${seen[0].init.headers.Authorization}; current=${http.currentToken() || "(empty)"}`,
+);
+check(
+  "a refused token is its own answer",
+  (await checkToken(401, { code: "unauthorized", message: "nope" })).kind === "unauthorized",
+);
+check(
+  "another status is its own answer",
+  (await checkToken(400, { code: "bad_request", message: "nope" })).kind === "other",
+);
+const unreachable = await checkToken(200, {}, true);
+check(
+  "a server that does not answer is its own answer too",
+  unreachable.kind === "unreachable",
+  JSON.stringify(unreachable),
 );
 
 console.log(`\n${failures === 0 ? "OK" : `${failures} failing check(s)`}`);

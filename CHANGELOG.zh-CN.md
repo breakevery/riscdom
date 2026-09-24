@@ -45,6 +45,8 @@
 
 **一份构建产物现在同时服务桌面外壳与浏览器。** `ui/src/api/` 为自己的面长了第二个实现：`tauri.ts` 保留外壳的 `invoke` / `listen`，`http.ts` 调控制平面的 HTTP 端点，`index.ts` 依 Tauri 2 自己的全局量**在运行时选一次**——构建不用改，一份 `dist/` 同时服务外壳与服务端的 `--web-root`。**形状**搬到 `api/types.ts`（它们是宿主的，不是某个传输的），envelope 规则搬到 `api/envelope.ts`（一份拷贝、一条规则）。四个消费者现在都 import `../api`，而两份实现既由类型检查互相锁住，又由一个新探针锁住。26 个只读端点已实现——包括那 8 个以单字段包装应答的——而 26 个控制以一句话拒绝（「desktop control … arrive with D4」），四个订阅则返回空的退订函数而不是 reject。两条路径上的拒绝都是字符串，所以外壳与浏览器里的报错读起来一致。登录、新页面与实时流是接下来的 D2b 批次。
 
+**Web 客户端能打开、能登录、能看。** `App.tsx` 变成了一道**门**：没有 token 时它只渲染登录页，别的什么都不渲染，所以外壳——以及外壳挂载时商店发出的每一个读——都等到有 token 才发生。token 在**装入之前**先用一次 `GET /v0/health` 证明，默认存放于 `sessionStorage`（勾选「记住此设备」时改存 `localStorage`，**绝不进 URL**），而一次失败会被分成四种不同的回答：令牌不对、服务没应答、其它状态、或成功。门后面是状态页——外壳的第三个视图，且只在 Web 端提供，因为桌面端没有可问的这个端点——它显示节点对自己的说法，并诚实地注明 `agents` 在执行者名册接入前就是 1。本次新增 24 个注册表键（两个语言），并加了一个探针：它检查这道门始终在外壳之外、且这两个屏幕用到的每个键在两个语言里都存在。
+
 ### 新增
 
 - **Zig 可编译（v0.9 F3a）**：`compile` 按源扩展名分派——`.c` / `.h` / `.S` / `.s` 走 GCC，`.zig` 走 `zig build-exe -target riscv64-freestanding`。Zig 不注入任何东西：源自己写 `_start`（`-bios none` 的客机跳到载入地址，所以启动代码必须排最前），生成的 `link.ld` 原样复用。`ZigConfig` 负责探测（`RISCDOM_ZIG` → 已知路径 → `PATH`），`settings.json` 新增 `zig_path`，由 `AppState::set_zig_path` / `clear_zig_path` 固定与清除。Zig 归档**不**在本批下载：其 macOS/Linux 构建是 `.tar.xz`，现有下载器无法解包（独立批次，与 Rust 共用）。

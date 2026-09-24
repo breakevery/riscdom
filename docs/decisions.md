@@ -1279,3 +1279,37 @@ source texts and exercises the HTTP implementation against a stand-in `fetch`. A
 **string** on both paths, because the desktop's commands are `Result<_, String>` and the store renders
 `String(e)`. Anything that later needs a genuinely different bundle (a mobile shell, a different
 protocol) reopens this entry rather than forking the build.
+
+## 57. The Web client's own names are declared, and its gate is the application's front door
+
+**Date**: 2026-09-24 ｜ **Status**: Decided; landed with the v0.9 D2b-2 batch
+
+**Decision**: two related rules from the management program's second step. (a) The API surface has a
+**shared** part — the names both transports carry — and a **declared Web-only** part
+(`setApiBase` / `setToken` / `currentToken` / `clearToken` / `verifyToken` / `getHealth` /
+`getStatus`). The shared part is held by `api/index.ts`'s `SharedApi` (one implementation's shape,
+which the other must satisfy to compile) and by `ui/scripts/probe-ui-api.mjs` (the two source texts,
+name by name); the Web-only part is an explicit list in **both** places, and the probe asserts the
+extra names are **exactly** that list. (b) The login screen is a **gate in `App.tsx`**, not a route and
+not a branch inside `AppShell`: no token means `<Login>` and nothing else.
+
+**Why**: (a) The names are not symmetric and should not pretend to be. The desktop **is** its host —
+same process, authenticated by being so — so "is this token accepted", "where is it kept" and "what
+does `/v0/status` say" are not questions it has. Making them shared would mean inventing desktop
+commands that return something plausible, or an interface that lies. Declaring them Web-only keeps
+the shared list honest, and putting the list in two places (the type and the probe) means a name added
+to one implementation without the other is caught by the compiler *and* by the gate. (b) `AppShell` is
+where `useAppStore()` is called, and the store reads a dozen things on mount. A gate **inside** the
+shell would have to mount the store first, which means every one of those reads runs unauthenticated
+and fills the error state before the user has typed anything — a shell that looks broken at the exact
+moment it is being introduced. Gating outside also keeps `AppShell` unchanged in the one respect that
+matters (it still takes no props and still owns the store), so the desktop path is untouched: on the
+desktop the gate is satisfied by the absence of the question.
+
+**Impact**: the token lives in `sessionStorage`, or in `localStorage` when "remember this device" is
+ticked, and never in a URL; a rejected candidate is never installed, because the check runs before
+the install. `verifyToken` reports four outcomes rather than one, so "wrong token" and "server not
+answering" stay distinguishable to the person who has to fix one of them. The status page is the
+shell's third view and is offered only where it can work (`isTauriRuntime()`), since `/v0/status` is
+a control-plane endpoint the desktop never calls. A future page that the desktop cannot serve belongs
+in the same declared list, with the same probe assertion — not in the shared one.

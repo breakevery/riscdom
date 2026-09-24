@@ -13,6 +13,23 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **The Web client can be opened, signed into, and read** (v0.9 D2b-2). `App.tsx` is now a **gate,
+  not a route**: with no token it renders `<Login>` and nothing else, and the shell — where
+  `useAppStore()` lives — mounts only once there is one, which is also what keeps a screenful of
+  unauthenticated requests from firing before anyone can type. The token is checked with one
+  `GET /v0/health` **before** it is installed, kept in `sessionStorage` (or `localStorage` when
+  "remember this device" is ticked; never in a URL), and `verifyToken` answers **four** ways —
+  `ok` / `unauthorized` / `unreachable` / `other` — because "that token is wrong" and "the server is
+  not answering" are different sentences to fix. The status page (`panels/StatusPanel.tsx`) is the
+  shell's **third view** (`main | settings | status`), offered **only in the Web client**
+  (`isTauriRuntime()`) because the desktop has no `/v0/status` to ask; its wording lives in the pure
+  `lib/statusView.ts`, and the `agents` count carries the honest note that a node with no executor
+  roster reports 1. **+24 i18n keys** (8 login + 16 status; 193 → **217**, both languages identical)
+  and **+1 probe** (`probe-ui-login.mjs` — 10 ui probes now). The Web-only API names
+  (`clearToken` / `verifyToken` / `getHealth` / `getStatus`) are declared in `api/index.ts`'s `Omit`
+  list and asserted by `probe-ui-api.mjs` (decision §57). Bundle **630,388 → 637,030 bytes
+  (+6,642)**. SSE and the remaining read-only pages are D2b-3 / D2b-4.
+
 - **One built UI now serves both the desktop shell and the browser** (v0.9 D2b-1 — the
   management-program line's adapter). `ui/src/api/` has two implementations of one surface:
   `tauri.ts` (the shell's `invoke` / `listen`) and `http.ts` (the control plane's endpoints), with

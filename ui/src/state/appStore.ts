@@ -131,6 +131,14 @@ export interface AppStore {
   refreshVmState: () => Promise<void>;
   saveSnapshot: (name: string) => Promise<void>;
   resumeSnapshot: (name: string) => Promise<void>;
+  // the node's own status (v0.9 D2b-2): the Web client's first page, and read-only
+  /** `/v0/status` — what this node is doing. */
+  status: api.StatusView | null;
+  /** `/v0/health` — the node answering at all, with its version. */
+  health: api.HealthView | null;
+  /** Why the last status read failed, in the client's own words (null when fine). */
+  statusError: string | null;
+  refreshStatus: () => Promise<void>;
   // RISC-V toolchain (stage 24b)
   toolchain: api.ToolchainView | null;
   toolchainMissing: boolean;
@@ -255,6 +263,9 @@ export function useAppStore(): AppStore {
   });
   const [vmSeen, setVmSeen] = useState(false);
   const [toolchain, setToolchain] = useState<api.ToolchainView | null>(null);
+  const [status, setStatus] = useState<api.StatusView | null>(null);
+  const [health, setHealth] = useState<api.HealthView | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [qemu, setQemu] = useState<api.QemuView | null>(null);
   const [toolchainDownload, setToolchainDownload] = useState<{
     in_progress: boolean;
@@ -687,6 +698,20 @@ export function useAppStore(): AppStore {
     }
   }, []);
 
+  // The node's own status (v0.9 D2b-2). Both reads are asked for together and the
+  // page shows whichever arrived: `/v0/health` proves the node answers at all, and
+  // `/v0/status` says what it is doing. Only the status page calls this — every other
+  // page would pay for a call it does not show.
+  const refreshStatus = useCallback(async () => {
+    try {
+      setHealth(await api.getHealth());
+      setStatus(await api.getStatus());
+      setStatusError(null);
+    } catch (e) {
+      setStatusError(String(e));
+    }
+  }, []);
+
   const setQemuPath = useCallback(
     async (path: string) => {
       try {
@@ -980,6 +1005,10 @@ export function useAppStore(): AppStore {
     newSession,
     renameSession,
     deleteSession,
+    status,
+    health,
+    statusError,
+    refreshStatus,
     lastError,
   };
 }
