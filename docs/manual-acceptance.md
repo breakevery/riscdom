@@ -98,8 +98,8 @@ The full record goes in [golden-path-checklist.md](golden-path-checklist.md); th
 ## Layer 6 — the board on a phone
 
 - [ ] Serve the built front end on the LAN: `riscdom-server --workspace <dir> --bind 0.0.0.0:7821
-      --web-root ui/dist` (the build is `npm run build` in `ui/`; the server serves `index.html` at
-      `/` and hashed assets at `/assets/*`).
+      --web-root ui/dist/app` (the build is `npm run build` in `ui/`, which writes `ui/dist/app/`;
+      the server serves `index.html` at `/` and hashed assets at `/assets/*`).
 - [ ] Open `http://<this machine's LAN address>:7821` on the phone. The **login gate** appears.
 - [ ] Sign in with the token from `<data-dir>/token` (that file is also on this machine). The node page
       opens with its three tabs: **Status / Executors / Sandboxes**.

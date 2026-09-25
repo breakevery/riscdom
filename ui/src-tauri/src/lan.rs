@@ -144,14 +144,15 @@ fn lan_address() -> Option<String> {
 /// and `tauri dev` resolve the same way without the caller knowing which it is.
 pub fn resolve_web_root(app: &AppHandle) -> Option<PathBuf> {
     if let Ok(dir) = app.path().resource_dir() {
-        let bundled = dir.join("dist");
+        let bundled = dir.join("dist").join("app");
         if bundled.join("index.html").is_file() {
             return Some(bundled);
         }
     }
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
-        .join("dist");
+        .join("dist")
+        .join("app");
     if dev.join("index.html").is_file() {
         return Some(dev);
     }

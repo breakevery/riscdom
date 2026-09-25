@@ -88,7 +88,7 @@
 ## 层次 6 —— 手机上的看板
 
 - [ ] 在局域网上提供构建好的前端：`riscdom-server --workspace <dir> --bind 0.0.0.0:7821
-      --web-root ui/dist`（构建是 `ui/` 下 `npm run build`；服务端把 `index.html` 挂在 `/`、hash 资源
+      --web-root ui/dist/app`（构建是 `ui/` 下 `npm run build`，它写进 `ui/dist/app/`；服务端把 `index.html` 挂在 `/`、hash 资源
       挂在 `/assets/*`）。
 - [ ] 在手机上打开 `http://<本机局域网地址>:7821`。出现**登录门**。
 - [ ] 用 `<data-dir>/token` 里的 token 登录（那个文件也在这台机器上）。节点页打开，带三个子 tab：

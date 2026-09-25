@@ -28,6 +28,7 @@ const SHELL_MANIFEST = path.join(REPO, "ui", "src-tauri", "Cargo.toml");
 const SHELL_LIB = path.join(REPO, "ui", "src-tauri", "src", "lib.rs");
 const SHELL_LAN = path.join(REPO, "ui", "src-tauri", "src", "lan.rs");
 const CONF = path.join(REPO, "ui", "src-tauri", "tauri.conf.json");
+const VITE = path.join(REPO, "ui", "vite.config.ts");
 const COMMANDS = path.join(REPO, "host-tauri", "src", "commands.rs");
 const SETTINGS = path.join(REPO, "host-core", "src", "settings.rs");
 const SRC_SETTINGS = path.join(REPO, "host-core", "src", "settings.rs");
@@ -115,7 +116,14 @@ check(
   /fn resolve_web_root/.test(lan) &&
     /resource_dir\(\)/.test(lan) &&
     /CARGO_MANIFEST_DIR/.test(lan) &&
+    /join\("dist"\)\s*\.join\("app"\)/.test(lan.replace(/\s+/g, "")) &&
     /join\("index\.html"\)/.test(lan),
+);
+check(
+  "...and the build writes into the subdirectory, under a parent that is not emptied",
+  /outDir: "dist\/app"/.test(code(read(VITE))) &&
+    /emptyOutDir: true/.test(code(read(VITE))) &&
+    /"frontendDist": "\.\.\/dist\/app"/.test(read(CONF)),
 );
 
 // ----- the bundle ships the board ---------------------------------------------

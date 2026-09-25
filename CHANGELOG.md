@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   end as a bundle resource, rebinds when any network setting changes, and aborts the server when the
   app exits. The network tab now shows the board's real state and the address a phone has to type.
 
+### Fixed
+
+- **The built front end moved under `ui/dist/app`, so `cargo clippy` works again on a fresh checkout**
+  (v0.9.9 3/N-fix2): `bundle.resources` is a compile-time path to `tauri-build`, and `ui/dist` is a
+  build artifact — so the tracked `ui/dist/.gitkeep` (which Vite's `emptyOutDir` used to delete) now
+  sits in the **parent** that Vite never empties, while the output lives under `app/`. `frontendDist`,
+  `resolve_web_root` and the `--web-root` recipes all name `ui/dist/app`.
+
 ## [0.9.1] - 2026-09-25
 
 ### Fixed

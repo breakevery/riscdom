@@ -15,6 +15,10 @@
 
 - **桌面端可以把自己的看板开放到网络**（v0.9.9 内网接入 第 3 批）：外壳在应用自己的 `Arc<AppState>` 之上启动内嵌控制平面——于是一部手机看到的就是这个窗口正在跑的那个节点，绝不是副本——除非打开「允许其它设备」只绑回环；构建好的前端作为 bundle resource 随包分发；任何网络设置变化都重绑；应用退出时 abort 掉 server。网络 tab 现在显示看板的真实状态与手机需要输入的地址。
 
+### 修复
+
+- **构建产物挪到 `ui/dist/app`，于是全新 checkout 上 `cargo clippy` 又能跑了**（v0.9.9 3/N-fix2）：`bundle.resources` 对 `tauri-build` 是一条**编译期路径**，而 `ui/dist` 是构建产物——所以被跟踪的 `ui/dist/.gitkeep`（Vite 的 `emptyOutDir` 以前会删掉它）现在待在 **Vite 永不清空的父目录**里，产物则在 `app/` 下。`frontendDist`、`resolve_web_root` 与 `--web-root` 配方都指 `ui/dist/app`。
+
 ## [0.9.1] - 2026-09-25
 
 ### 修复

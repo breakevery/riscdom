@@ -13,6 +13,21 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.1` is the newest release (update this section when the next release ships)
 
+- **The built front end moved under a stable parent, and a red commit on `main` is fixed**
+  (v0.9.9 3/N-fix2). Batch 3/N declared `bundle.resources` as `{"../dist": "dist"}`, and
+  `tauri-build` checks those paths with `Path::exists()` — so a **fresh checkout, where `ui/dist` is a
+  gitignored build artifact, could no longer run `cargo clippy ui/src-tauri`**: `resource path
+  '../dist' doesn't exist`. The obvious repair — a tracked `ui/dist/.gitkeep` — hit the next wall:
+  **Vite's `emptyOutDir` (on by default) deletes it** on every `npm run build`, which would leave the
+  tree permanently dirty. The answer is structural: the front end now builds into **`ui/dist/app/`**,
+  the parent `ui/dist/` holds the tracked `.gitkeep` that keeps the directory in a fresh checkout, and
+  `emptyOutDir` keeps its default — it only clears the subdirectory. `frontendDist`, both branches of
+  `resolve_web_root` and the `--web-root` recipes follow. Verified: `npm run build` leaves `.gitkeep`
+  in place, and `cargo check` passes **with and without** `dist/app/index.html`, so the property B-2
+  recorded — `ui/dist` is not a compile prerequisite — holds again. This is the fifth “local green, CI
+  red” mechanism (decision §69), and the first one our own change introduced rather than the
+  environment.
+
 - **The desktop can serve its own board to the network** (v0.9.9 内网接入 batch 3). The shell starts
 the embedded control plane over **the app's own state** — it now manages an `Arc<AppState>` and
   `host-tauri`'s **68** commands take that same handle (a copy would have its own VM slot, and a board

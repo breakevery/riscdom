@@ -725,3 +725,13 @@
 **理由**：另一条路——给 server 一个**克隆体**——被拒，而拒的理由值得写下来：`AppState` 把 VM 槽、settings 缓存与 run 记账都留在**内存**里，所以克隆体不是同一个节点。一台机器上能开出第二个 QEMU 的看板，比没有看板更坏，而任何测试都拦不住它。68 个签名就是让这个错误变不可能付出的代价；它们是机械的（函数体未动，因为 `Arc<AppState>` 会自动 deref 到 `AppState`），且 `probe-ui-lan.mjs` 会数它们。resource 之所以存在，是因为 `frontendDist` 把前端**编进二进制**、磁盘上不留任何可服务的目录；回落之所以存在，是因为 `tauri dev` 根本没有 resource bundle。
 
 **影响**：一个 `Arc`、一个节点，窗口与手机看到的是同一个。除非打开 `lan_allow_lan`，只绑回环——那正是那个开关带警示的原因。手机要输的 token，就是 server 在 `<data-dir>/token` 里生成的那一个——也正是上一批那条只读命令读的同一个文件——因此凭据没有任何一部分挪进 `settings.json`。
+
+## 69. 构建产物住在稳定的父目录下
+
+**日期**：2026-09-25 ｜ **状态**：已定；随 v0.9.9 3/N-fix2 批落地
+
+**决策**：前端构建进 `ui/dist/app/`，父目录 `ui/dist/` 里放**一个被跟踪的文件**（`.gitkeep`），它唯一的工作是让该目录在全新 checkout 上存在——因为 `tauri-build` 用 `Path::exists()` 校验 `bundle.resources` 的路径。`emptyOutDir` 保留默认：它清的是 `app/`，永远不会碰父目录。
+
+**理由**：3/N 把 `"resources": {"../dist": "dist"}` 写进配置，于是把一个**构建产物变成了编译期前置条件**：在全新 checkout（CI）上 `ui/dist` 不存在，`cargo clippy ui/src-tauri` 就以 `resource path '../dist' doesn't exist` 失败。这是本仓账本里**第五个**「本地绿、CI 红」机制——前四个是缺系统包、缺环境能力、SIGPIPE 与 `ETXTBSY`——而它与前四个有一处值得记下的不同：**它由我们自己的变更引入，而不是环境**。最直觉的修法——在 `ui/dist` 里放被跟踪的 `.gitkeep`——已被尝试并证伪：Vite 的 `emptyOutDir` 每次构建都会删掉它，工作树会永远脏着（3/N-fix 批就停在这道安全阀上）。关掉 `emptyOutDir` 也被否决——那样本地 `tauri build` 会把每一份陈旧的 hash 资产都打进安装包。稳定父目录 + 被清空的子目录，一次满足全部三条。
+
+**影响**：`--web-root`、`frontendDist` 与 `resolve_web_root` 的两个分支都指 `ui/dist/app`，`docs/manual-acceptance.md` 的局域网配方随之跟上。B-2 批当时记载的性质——`ui/dist` **不是** `cargo check` / `clippy` 的前置条件——恢复成立，已在有与没有 `dist/app/index.html` 两种情形下实测。今后的规矩：构建工具要求「编译期必须存在」的路径，应当放在**稳定的父目录**上，生成的内容放在该工具可以清空的子目录里。
