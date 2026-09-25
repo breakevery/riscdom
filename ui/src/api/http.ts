@@ -29,6 +29,7 @@ import type {
   LlmReadiness,
   LlmStatus,
   LocalProbeResult,
+  NetworkSettings,
   CandidateView,
   CurrentSandboxResponse,
   ExecutorListResponse,
@@ -64,6 +65,7 @@ export type {
   LlmReadiness,
   LlmStatus,
   LocalProbeResult,
+  NetworkSettings,
   LocalProviderInfo,
   PreflightRow,
   PreflightView,
@@ -425,6 +427,28 @@ export const setTheme = (theme: string): Promise<void> =>
 
 export const setLanguage = (language: string): Promise<void> =>
   request<void>("POST", "/v0/settings/language", undefined, { language });
+
+// ----- The network face (v0.9.9 内网接入) ------------------------------------
+
+/**
+ * Wiring this node's own network is the desktop shell's, and there is no endpoint
+ * for it: the browser can look at a node, it cannot rewire one. These reject with
+ * a sentence rather than pretending, exactly like the controls above — and they
+ * say "desktop control" because that is what they are.
+ */
+function desktopNetwork(what: string): Promise<never> {
+  return Promise.reject(
+    `${what} is a desktop control: the network face belongs to the shell that owns the embedded host, and a browser cannot reach it`,
+  );
+}
+
+export const getNetwork = (): Promise<NetworkSettings | null> =>
+  desktopNetwork("get_network");
+
+export const setNetwork = (_network: NetworkSettings): Promise<void> =>
+  desktopNetwork("set_network");
+
+export const readLanToken = (): Promise<string> => desktopNetwork("read_lan_token");
 
 export const setAuditAlert = (_enabled: boolean): Promise<void> =>
   desktopOnly("set_audit_alert");

@@ -108,6 +108,15 @@ export interface AppStore {
   languageChoice: LanguageChoice;
   language: Language;
   setLanguage: (choice: LanguageChoice) => Promise<void>;
+  /**
+   * The node's network wiring (v0.9.9 内网接入). `null` is "nothing configured",
+   * which is every release before this one.
+   */
+  network: api.NetworkSettings | null;
+  refreshNetwork: () => Promise<void>;
+  setNetwork: (next: Partial<api.NetworkSettings>) => Promise<void>;
+  /** Read the LAN token a started server would require. Desktop-only. */
+  readLanToken: () => Promise<string>;
   workspaceFiles: string[];
   refreshWorkspace: () => Promise<void>;
   // serial / vm (consumed by the canvas in stage 6c)
@@ -255,6 +264,9 @@ export function useAppStore(): AppStore {
   // in the old language.
   const [languageChoice, setLanguageChoice] = useState<LanguageChoice>("system");
   const language = useSyncExternalStore(subscribeLanguage, getLanguage);
+  // The node's network wiring (v0.9.9 内网接入); `null` until read, and `null` is
+  // also what a node that never configured one answers.
+  const [network, setNetworkState] = useState<api.NetworkSettings | null>(null);
   const languageChoiceRef = useRef<LanguageChoice>(languageChoice);
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
   const [serial, setSerial] = useState("");
@@ -510,6 +522,45 @@ export function useAppStore(): AppStore {
   const cycleTheme = useCallback(async () => {
     await setTheme(nextTheme(theme));
   }, [setTheme, theme]);
+
+  // ----- The network face (v0.9.9 内网接入) ----------------------------------
+  //
+  // Three actions, all desktop-only: the Web client's copies of these names
+  // reject with a sentence, which is why the network tab is not offered there.
+  // Nothing here starts or stops anything — the settings decide, and batch 3 is
+  // what binds a socket when `lan_enabled` says so.
+  const refreshNetwork = useCallback(async () => {
+    try {
+      setNetworkState(await api.getNetwork());
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
+
+  const setNetwork = useCallback(
+    async (next: Partial<api.NetworkSettings>) => {
+      // Whole-object writes with the fields that exist today as the floor: the
+      // shape on disk is one struct, so a partial edit has to carry the rest.
+      const merged: api.NetworkSettings = {
+        remote_url: null,
+        remote_token: null,
+        lan_enabled: false,
+        lan_bind: null,
+        lan_allow_lan: false,
+        ...(network ?? {}),
+        ...next,
+      };
+      setNetworkState(merged);
+      try {
+        await api.setNetwork(merged);
+      } catch (e) {
+        setLastError(String(e));
+      }
+    },
+    [network],
+  );
+
+  const readLanToken = useCallback(async () => api.readLanToken(), []);
 
   // The settings page's language choice (v0.7 batch 2): apply it first, then
   // store it, then persist it, so the visible language never waits on disk.
@@ -1069,6 +1120,10 @@ export function useAppStore(): AppStore {
     languageChoice,
     language,
     setLanguage,
+    network,
+    refreshNetwork,
+    setNetwork,
+    readLanToken,
     clearToolchain,
     qemu,
     refreshQemu,

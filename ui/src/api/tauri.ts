@@ -15,6 +15,7 @@ import type {
   LlmReadiness,
   LlmStatus,
   LocalProbeResult,
+  NetworkSettings,
   ProviderPreset,
   PreflightView,
   QemuView,
@@ -279,3 +280,28 @@ export const onHostEvent = (
     p.then((f) => f()).catch(() => {});
   };
 };
+
+// ----- The network face (v0.9.9 内网接入) ------------------------------------
+
+/**
+ * The node's network wiring; `null` when nothing was ever configured.
+ *
+ * Desktop-only by nature: the browser looks at a node, it does not rewire one.
+ * `http.ts` carries the same names as rejections so the two implementations keep
+ * the same surface (the rule `api/index.ts` states).
+ */
+export const getNetwork = (): Promise<NetworkSettings | null> =>
+  invoke<NetworkSettings | null>("get_network");
+
+/** Store the node's network wiring. Starts and stops nothing (batch 3 does that). */
+export const setNetwork = (network: NetworkSettings): Promise<void> =>
+  invoke<void>("set_network", { network });
+
+/**
+ * Read the token a started server would require.
+ *
+ * **Read-only**: the command never creates the file — the settings screen must
+ * not bring a credential into existence by being opened — and the value is
+ * neither logged nor stored on this side.
+ */
+export const readLanToken = (): Promise<string> => invoke<string>("read_lan_token");

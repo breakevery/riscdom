@@ -151,6 +151,11 @@ const CONTROLS = [
   "renameSession",
   "deleteSession",
   "clearAllSessions",
+  // The network face (v0.9.9 内网接入) is the desktop's: the browser can look at a
+  // node, it cannot rewire one. They reject with a sentence like the controls.
+  "getNetwork",
+  "setNetwork",
+  "readLanToken",
 ];
 const EVENTS = [
   "onHostEvent",

@@ -222,3 +222,16 @@ export const onToolchainDownload = impl.onToolchainDownload;
 export const onAgentStreamDelta = impl.onAgentStreamDelta;
 
 export const onAgentStreamDone = impl.onAgentStreamDone;
+
+// ----- The network face (v0.9.9 内网接入) -------------------------------------
+//
+// Shared names, so the two implementations are held to each other here like every
+// other row: `tauri.ts` calls the shell's commands, and `http.ts` rejects with a
+// sentence — the browser can look at a node, it cannot rewire one. Nothing about
+// the `Omit` list above changes: these exist in both.
+
+export const getNetwork = impl.getNetwork;
+
+export const setNetwork = impl.setNetwork;
+
+export const readLanToken = impl.readLanToken;

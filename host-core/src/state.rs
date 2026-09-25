@@ -15,7 +15,7 @@ use crate::sandbox_request::{
     SandboxAction, SandboxRequestService, SandboxRequestStatus, SandboxRequestView, SandboxRequests,
 };
 use crate::session::{SessionMessage, SessionMeta, SessionStore};
-use crate::settings::LocalSettings;
+use crate::settings::{LocalSettings, NetworkSettings};
 use crate::toolchain_download::DownloadEvent;
 use agent::llm::{DeepSeekClient, LlmClient};
 use agent::message::{ChatMessage, ChatRequest, ChatResponse, StreamEvent};
@@ -3565,6 +3565,31 @@ impl AppState {
             "host.language.set",
             serde_json::json!({ "language": language }),
         );
+        Ok(())
+    }
+
+    /// The node's network wiring (v0.9.9 内网接入); `None` when nothing was ever
+    /// configured, which is what every release before this one did: the desktop
+    /// runs its embedded node and serves nobody.
+    pub fn network(&self) -> Option<NetworkSettings> {
+        self.settings
+            .lock()
+            .ok()
+            .and_then(|settings| settings.network.clone())
+    }
+
+    /// Store the node's network wiring.
+    ///
+    /// Nothing is started or stopped here: the settings decide and the wiring
+    /// acts on them (batch 2 is the configuration face; batch 3 starts the
+    /// embedded server). The change goes through the same cached settings every
+    /// other preference uses, so a later write cannot resurrect a stale copy.
+    pub fn set_network(&self, next: NetworkSettings) -> Result<(), HostError> {
+        if let Ok(mut settings) = self.settings.lock() {
+            settings.network = Some(next.clone());
+        }
+        self.save_settings();
+        self.emit_host("host.network.set", serde_json::json!({ "network": next }));
         Ok(())
     }
 

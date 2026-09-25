@@ -13,6 +13,20 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.1` is the newest release (update this section when the next release ships)
 
+- **The network face has its configuration page, and the token is readable without being created**
+  (v0.9.9 内网接入 batch 2). A new *Settings → Network* tab holds both directions in one place:
+  **connect out** (a server address and a token, with the button disabled and saying why — the
+  connection itself is the next batch) and **serve in** (a switch, a bind address defaulting to
+  `127.0.0.1:7821`, and an *allow other devices* switch that raises its warning the moment it is
+  ticked). `settings.json` gains `network: Option<NetworkSettings>` **additively** — five fields,
+  and `SETTINGS_VERSION` does not move. Three commands live in the shell crate (`ui/src-tauri`, not
+  `host-tauri`: the network face is the desktop's own), and `read_lan_token` **reads the file and
+  never creates it**: minting a token stays the server's job, so opening a settings page cannot
+  bring a credential into existence (decision §67). The token is shown **only when asked for**, lives
+  in that one component's state, and is written nowhere. The browser gets none of it — the tab is
+  filtered out like the model form, and the three names reject with a sentence in `http.ts`. A
+  fourteenth UI probe (`probe-ui-network-tab.mjs`) pins all of it.
+
 - **`v0.9.1` is the release** (2026-09-25): a **fix release** for the one thing that made v0.9.0's
   desktop application unusable — it opened on a login screen no input could pass, because `App.tsx`
   asked every runtime for a token while the desktop (whose host runs in its own process) holds none and

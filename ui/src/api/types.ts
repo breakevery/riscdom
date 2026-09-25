@@ -303,3 +303,24 @@ export interface CandidateView {
   /** Does it run (`--version` exits 0)? */
   runnable: boolean;
 }
+
+/**
+ * The node's network wiring (v0.9.9 内网接入).
+ *
+ * Two directions, one shape, because they are configured on one screen: **out**
+ * (this desktop connects to an in-network RiscDom server) and **in** (this
+ * desktop serves its own board to the network). Mirrors
+ * `host_core::settings::NetworkSettings`.
+ */
+export interface NetworkSettings {
+  /** The server to connect to (`"out"`); `null` keeps the embedded host. */
+  remote_url: string | null;
+  /** The remote server's bearer token (`"out"`). Not written yet — where a credential lives is that batch's decision. */
+  remote_token: string | null;
+  /** Serve this node's board to the network (`"in"`). Off keeps it in this window. */
+  lan_enabled: boolean;
+  /** Where the embedded server binds; `null` means loopback (`127.0.0.1:7821`). */
+  lan_bind: string | null;
+  /** Bind on every interface rather than loopback — the switch that reaches a phone. */
+  lan_allow_lan: boolean;
+}

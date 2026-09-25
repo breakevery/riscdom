@@ -46,6 +46,7 @@ fn save_then_load_round_trips() {
         default_sandbox: None,
         sandboxes: Vec::new(),
         executors: Vec::new(),
+        network: None,
     };
     settings.save(&path).expect("save");
     assert!(path.is_file(), "{path:?}");

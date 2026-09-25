@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The network face's configuration page** (v0.9.9 内网接入, batch 2): *Settings → Network* holds
+  the two directions in one place — connecting out to an in-network server (address and token; the
+  connection itself is the next batch) and serving this node's board to the network (a switch, a bind
+  address, and an allow-lan switch that warns as soon as it is ticked). `settings.json` gains
+  `network` additively, the shell crate gains `get_network` / `set_network` / `read_lan_token` — the
+  last one **reads the token file and never creates it** — and the browser is offered none of it.
+
 ## [0.9.1] - 2026-09-25
 
 ### Fixed

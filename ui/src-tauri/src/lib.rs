@@ -3,6 +3,60 @@
 //! Registers `host-tauri`'s commands. No business logic lives here.
 
 use tauri::Manager;
+use host_tauri::settings::NetworkSettings;
+
+/// The node's network wiring, as this instance holds it (v0.9.9 内网接入).
+///
+/// `None` means nothing has ever been configured — the embedded host and nobody
+/// served, which is what every release before this one did. Reading it here and
+/// not in `host-tauri` is deliberate: the network face is the desktop shell's own
+/// (the browser has no network to wire), and the shell is the crate that will
+/// start the embedded server in the next batch.
+#[tauri::command]
+fn get_network(state: tauri::State<'_, host_tauri::AppState>) -> Result<Option<NetworkSettings>, String> {
+    Ok(state.network())
+}
+
+/// Store the node's network wiring. **Nothing is started or stopped here.**
+///
+/// The settings decide and the wiring acts on them: batch 2 is the configuration
+/// face, batch 3 is what binds a socket when `lan_enabled` says so.
+#[tauri::command]
+fn set_network(
+    state: tauri::State<'_, host_tauri::AppState>,
+    network: NetworkSettings,
+) -> Result<(), String> {
+    state.set_network(network).map_err(|e| e.user_message())
+}
+
+/// Read the token a started server would require, or say why there is none yet.
+///
+/// **Read-only on purpose.** The file is read and never created: minting a token
+/// is the server's job when it first starts (batch 3), and a settings screen must
+/// not bring a credential into existence merely by being opened. The file name is
+/// the one `server::token::TOKEN_FILE` declares — `probe-ui-network-tab.mjs`
+/// asserts the two agree, so a rename there cannot make this read the wrong file
+/// in silence. Nothing is logged, cached or sent anywhere: the value goes to the
+/// caller and stops there.
+#[tauri::command]
+fn read_lan_token(state: tauri::State<'_, host_tauri::AppState>) -> Result<String, String> {
+    let path = state.data_dir().join("token");
+    match std::fs::read_to_string(&path) {
+        Ok(raw) => {
+            let value = raw.trim().to_string();
+            if value.is_empty() {
+                return Err(format!("the token file is empty: {}", path.display()));
+            }
+            Ok(value)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(format!(
+            "no token yet: {} does not exist. One is created when a server first \
+             starts (switch the LAN board on, then it will be there).",
+            path.display()
+        )),
+        Err(e) => Err(format!("cannot read {}: {e}", path.display())),
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -105,6 +159,9 @@ pub fn run() {
             host_tauri::commands::compare_run_fingerprints,
             host_tauri::commands::list_executors,
             host_tauri::commands::dispatch_task,
+            get_network,
+            set_network,
+            read_lan_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

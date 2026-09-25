@@ -79,6 +79,51 @@ pub struct LocalSettings {
     /// uses `POST /v0/agent/run`.
     #[serde(default)]
     pub executors: Vec<ExecutorSpecSettings>,
+    /// How this node talks to the network (v0.9.9 内网接入).
+    ///
+    /// Additive like every field above: a file written before it existed loads
+    /// with `None` and `SETTINGS_VERSION` does not move. `None` means "no
+    /// network wiring has been configured", which is exactly the behaviour of
+    /// every version before this one: the desktop runs its embedded node and
+    /// serves nobody.
+    #[serde(default)]
+    pub network: Option<NetworkSettings>,
+}
+
+/// The node's network wiring (v0.9.9).
+///
+/// Two directions, one struct, because they are configured on one screen:
+/// **out** — this desktop connects to an in-network RiscDom server; **in** —
+/// this desktop serves its own board to the network. Nothing here starts
+/// anything by itself: the settings decide, and the wiring acts on them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct NetworkSettings {
+    /// The in-network server to connect **to** (`"out"`); `None` keeps the
+    /// embedded host, which is what every version before this one did.
+    #[serde(default)]
+    pub remote_url: Option<String>,
+    /// The remote server's bearer token.
+    ///
+    /// **Placed here, deliberately not written by this batch**: whether a
+    /// credential belongs in `settings.json` at all is the `"out"` batch's
+    /// decision, and `LocalSettings`' own rule is that no secret lives here.
+    /// Until that decision is made, this field stays `None`.
+    #[serde(default)]
+    pub remote_token: Option<String>,
+    /// Serve this node's board to the network (`"in"`).
+    #[serde(default)]
+    pub lan_enabled: bool,
+    /// Where the embedded server binds. `None` means loopback
+    /// (`127.0.0.1:7821`, the same default `riscdom-server` uses).
+    #[serde(default)]
+    pub lan_bind: Option<String>,
+    /// Bind on every interface rather than loopback.
+    ///
+    /// The switch that makes the board reachable from a phone — and therefore
+    /// the switch the interface has to warn about, since anyone on the network
+    /// can then reach the node and only the token stands in the way.
+    #[serde(default)]
+    pub lan_allow_lan: bool,
 }
 
 /// One executor the node can dispatch a task to (v0.9 interface E0).
@@ -124,6 +169,7 @@ impl Default for LocalSettings {
             sandboxes: Vec::new(),
             default_sandbox: None,
             executors: Vec::new(),
+            network: None,
         }
     }
 }

@@ -51,6 +51,31 @@ const EN = {
   "settings.tab.audit": "Audit",
   "settings.tab.plugin": "Plugins",
   "settings.tab.appearance": "Appearance",
+  "settings.tab.network": "Network",
+  // The network face (v0.9.9 内网接入): two directions on one page — "out" points
+  // this desktop at an in-network server, "in" serves this node to the network.
+  "network.out_heading": "Connect out",
+  "network.out_hint":
+    "Point this desktop at an in-network RiscDom server, so one board can oversee several nodes. The connection itself arrives in the next batch.",
+  "network.remote_url": "Server address",
+  "network.remote_token": "Token",
+  "network.connect": "Connect",
+  "network.in_heading": "Serve in",
+  "network.lan_enabled": "Serve this node's board on the network",
+  "network.lan_bind": "Bind address",
+  "network.lan_bind_hint":
+    "Loopback only, until the switch below opens it to the network.",
+  "network.allow_lan": "Allow other devices on this network",
+  "network.allow_lan_warning":
+    "Anyone on this network will be able to reach this node, and only the token stands in the way — keep it to yourself.",
+  "network.lan_url": "Board address",
+  "network.lan_url_pending": "not serving yet",
+  "network.token_show": "Show token",
+  "network.token_copy": "Copy",
+  "network.token_path":
+    "The token lives in <data-dir>/token, inside this node's data directory.",
+  "network.save": "Save",
+  "network.saved": "Saved",
   "appearance.theme": "Theme",
   "appearance.cycle": "Cycle",
   "appearance.hint":
@@ -354,6 +379,28 @@ const ZH: Record<StringKey, string> = {
   "settings.tab.audit": "审计",
   "settings.tab.plugin": "插件",
   "settings.tab.appearance": "外观",
+  "settings.tab.network": "网络",
+  // 网络接入（v0.9.9）。同一页两个方向：「连出去」把本桌面端指向内网服务器，「服务进来」把本节点开放给网络。
+  "network.out_heading": "连出去",
+  "network.out_hint":
+    "让本桌面端连上一台内网的 RiscDom 服务器，于是一块看板可以统管多个节点。连接本身在下一批实现。",
+  "network.remote_url": "服务器地址",
+  "network.remote_token": "令牌",
+  "network.connect": "连接",
+  "network.in_heading": "服务进来",
+  "network.lan_enabled": "把本节点的看板开放到网络",
+  "network.lan_bind": "绑定地址",
+  "network.lan_bind_hint": "在上面的开关打开之前，只绑回环地址。",
+  "network.allow_lan": "允许同网段的其它设备访问",
+  "network.allow_lan_warning":
+    "同网段的任何人都能访问本节点，唯一拦着他们的就是 token —— 请保管好它。",
+  "network.lan_url": "看板地址",
+  "network.lan_url_pending": "尚未启用",
+  "network.token_show": "显示 token",
+  "network.token_copy": "复制",
+  "network.token_path": "token 位于本节点的数据目录下的 <data-dir>/token。",
+  "network.save": "保存",
+  "network.saved": "已保存",
   "appearance.theme": "主题",
   "appearance.cycle": "循环切换",
   "appearance.hint": "选择会写入 settings.json，重启后继续生效。",

@@ -1509,3 +1509,13 @@ this, and the probe's list checks did not move.
 **Why**: the two runtimes answer "is there a token?" differently — the Web client has one to demand, while the desktop has none to hold and no `/v0/health` to check one against, because its host lives in the same process. v0.9.0 shipped a gate that never asked, and every desktop user was stopped at a login screen no input could pass: the desktop was unusable. The ordering **is** the fix — a shortcut placed after the token read would still have read the token, and a single component holding both would still have drawn the login screen.
 
 **Impact**: `SharedApi` and its `Omit` list are untouched (the fix lives inside `App`), so no name becomes Web-only and the adapter's shape does not move. `probe-ui-login.mjs` pins the ordering — the desktop is let in before any token is read, and the login screen is only on the Web side — which is the half a Node probe can see at all: probes run without a `window`, so every probe exercises the Web branch and the desktop branch is verified by hand.
+
+## 67. A settings page may show the token, but never mint one
+
+**Date**: 2026-09-25 ｜ **Status**: Decided; landed with the v0.9.9 network batch 2
+
+**Decision**: the desktop's network tab may show the LAN token, through a shell-local command (`read_lan_token`) that **reads `<data-dir>/token` and never creates it**. Opening a settings page must not bring a credential into existence; minting a token stays the job of the server that actually starts.
+
+**Why**: the token has to reach a person — a phone on the same network needs to be given it — and until this batch the only reader was `riscdom-server`, which *generates* the file when it is missing. A command that reused `load_or_create` would have written a token merely because somebody looked at a settings screen: a credential appearing as a side effect of navigation. Reading the file and refusing cleanly (`no token yet: …`) leaves the act of creation where it belongs.
+
+**Impact**: the value goes to the caller and nowhere else — not to the log, not to disk, not over the wire — and the page shows it only when its button is pressed. The file name is `server`'s own constant (`TOKEN_FILE`); `probe-ui-network-tab.mjs` asserts the two agree, so a rename there cannot make this read the wrong file in silence. `settings.json`'s own rule stands: a **token** that belongs to somebody else's node is not stored by this batch (the field exists and stays `None`).

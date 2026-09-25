@@ -32,7 +32,7 @@ const WRAPS = [
   ["settings/AuditTab.tsx", 2],
   ["settings/ToolchainTab.tsx", 5],
   ["settings/SnapshotTab.tsx", 2],
-  ["settings/SettingsTabs.tsx", 1],
+  ["settings/SettingsTabs.tsx", 2],
   ["panels/ChatPanel.tsx", 1],
   ["panels/CanvasPanel.tsx", 1],
 ];
@@ -101,6 +101,10 @@ const tabs = read("settings/SettingsTabs.tsx");
 check(
   "SettingsTabs filters the model tab out for the browser",
   /entry\.id !== "model"/.test(tabs) && /isTauriRuntime\(\)/.test(tabs),
+);
+check(
+  "…and the network tab too: the browser cannot rewire a node",
+  /entry\.id !== "network"/.test(tabs) && /TabId =[\s\S]{0,220}"network"/.test(tabs.replace(/\s+/g, " ")),
 );
 check(
   "…and does not open on the model tab there",
