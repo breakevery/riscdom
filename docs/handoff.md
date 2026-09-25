@@ -11,7 +11,21 @@ branch `main`. The close-out of every batch is the same: gate green → `scripts
 (which runs the gate itself) → push — and none of those remote-facing steps happens without the
 current request authorising it (§2).
 
-## 1. Snapshot — `v0.9.0` is the newest release (update this section when the next release ships)
+## 1. Snapshot — `v0.9.1` is the newest release (update this section when the next release ships)
+
+- **`v0.9.1` is the release** (2026-09-25): a **fix release** for the one thing that made v0.9.0's
+  desktop application unusable — it opened on a login screen no input could pass, because `App.tsx`
+  asked every runtime for a token while the desktop (whose host runs in its own process) holds none and
+  serves no `/v0/health`. The version is bumped to `0.9.1` (7 files: `Cargo.toml`, the two
+  `Cargo.lock`s, `ui/package.json`, `ui/package-lock.json`, `ui/src-tauri/Cargo.toml`,
+  `ui/src-tauri/tauri.conf.json` — the wix guard requires no `bundle.windows.wix.version` on a numeric
+  release, and there is none), `CHANGELOG`'s `[Unreleased]` is folded into `[0.9.1] - 2026-09-25`, and
+  [RELEASE_NOTES.md](../RELEASE_NOTES.md) is rewritten as the release text — **the GitHub release body
+  is that file verbatim** (v0.7.0 through v0.9.0 worked that way). **This bullet is written by the
+  local preparation batch**: the push, the `v0.9.1` tag, the GitHub release and the asset upload are
+  the release batch's own steps — so **`v0.9.1` is not tagged yet**. The same batch put
+  [manual-acceptance.md](manual-acceptance.md) on disk: v0.9.0's P0 was found by a person opening the
+  app, and the walk this repository relies on had never been written down.
 
 - **The desktop no longer stops at the login screen** (v0.9.1 fix 1/N — v0.9.0's one P0). `App.tsx`
   gated on `api.currentToken() !== ""` for **every** runtime, so a shipped desktop build rendered
@@ -1067,8 +1081,9 @@ current request authorising it (§2).
   `extract_zip` stub) ← `344fd2b` (rpm for the Linux bundle) ← `0633bdc` (the macOS/Linux bundle CI
   job) ← `833f9c3` (platform-aware QEMU guidance, icon.icns, Unix QMP arg test) ← `06fef0a` (the
   language switch) ← `6abcb44` (the i18n pilot) ← `b0efeb8` (the v0.6.0-preview.1 release).
-- Tags: `v0.9.0` is the newest tag and the release **holding the Latest marker** (confirmed with
-  `gh release list`: 2026-09-25T02:21:11Z, annotated tag object
+- Tags: **`v0.9.1` is not tagged yet** — the release batch does that, and this local preparation batch
+  neither pushes nor tags. `v0.9.0` is the newest tag and the release **holding the Latest marker**
+  (confirmed with `gh release list`: 2026-09-25T02:21:11Z, annotated tag object
   `fe4e0bc4411792a064945d8a5ec2c2e9add8bbe7` → `8bc77196bd4ac3cd03da7581214aea193a839b51`); `v0.8.0` =
   annotated tag object `0b018081de1a4e89e04e7bc1570d595d38ab4b4b` →
   `8a5381436b62fa84b4f4a972a630061ce2203373` (it held the Latest marker until this release, which moved

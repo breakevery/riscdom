@@ -49,6 +49,7 @@ together, why it is that way, and what was settled.
 | [qemu-distribution.md](qemu-distribution.md) — [中文](qemu-distribution.zh-CN.md) | Bundle QEMU or download it: the decision, and why no release is pinned. | snapshot (v0.4 #4) |
 | [golden-path.md](golden-path.md) — [中文](golden-path.zh-CN.md) | The v0.5 design proposal for the manual release walk. | snapshot (v0.5) |
 | [golden-path-checklist.md](golden-path-checklist.md) — [中文](golden-path-checklist.zh-CN.md) | The checklist a walker fills in, step by step. | living |
+| [manual-acceptance.md](manual-acceptance.md) — [中文](manual-acceptance.zh-CN.md) | The order of work for a manual acceptance walk: install, launch, drive, verify, and what to send back. | living |
 | [sandbox/docs/snapshot-experiment.md](../sandbox/docs/snapshot-experiment.md) — [中文](../sandbox/docs/snapshot-experiment.zh-CN.md) | The snapshot feasibility experiment and what it measured. | snapshot (stage 18a) |
 
 ### 2.3 The crates

@@ -38,6 +38,7 @@
 | [qemu-distribution.md](qemu-distribution.md) — [中文](qemu-distribution.zh-CN.md) | 捆绑 QEMU 还是一次下载：这个决定，以及为什么不 pin 版本。 | 快照（v0.4 #4） |
 | [golden-path.md](golden-path.md) — [中文](golden-path.zh-CN.md) | v0.5 人工发布走查的设计提案。 | 快照（v0.5） |
 | [golden-path-checklist.md](golden-path-checklist.md) — [中文](golden-path-checklist.zh-CN.md) | 走查者逐步填写的清单。 | 活跃 |
+| [manual-acceptance.md](manual-acceptance.md) — [中文](manual-acceptance.zh-CN.md) | 人工验收走查的工作顺序：装、起、驱动、核对，以及出问题时回传什么。 | 活跃 |
 | [sandbox/docs/snapshot-experiment.md](../sandbox/docs/snapshot-experiment.md) — [中文](../sandbox/docs/snapshot-experiment.zh-CN.md) | 快照可行性实验，以及它测到了什么。 | 快照（阶段 18a） |
 
 ### 2.3 各 crate

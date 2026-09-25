@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-25
+
 ### Fixed
 
 - **The desktop stopped at the login screen** (v0.9.1): `App.tsx` asked every runtime for a token, and
@@ -1820,7 +1822,8 @@ locally only. (An earlier draft was deleted; the `v0.1.0` tag remains.)
 - Real DeepSeek API end-to-end: **executed and passing** (2026-09-14, `iterations = 6`,
   serial captured `HELLO RISCV`; see `host/README.md`).
 
-[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/breakevery/riscdom/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/breakevery/riscdom/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/breakevery/riscdom/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/breakevery/riscdom/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/breakevery/riscdom/compare/v0.6.0-preview.1...v0.7.0

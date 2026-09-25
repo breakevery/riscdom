@@ -9,6 +9,8 @@
 
 ## [未发布]
 
+## [0.9.1] - 2026-09-25
+
 ### 修复
 
 - **桌面端停在登录页**（v0.9.1）：`App.tsx` 对所有运行时都要 token，而桌面端既没有 token、也没有可用来校验的 `/v0/health`，于是 v0.9.0 的桌面构建完全不可用。现在**先**回答桌面端，token 门住在一个它永不进入的组件里。
@@ -1079,7 +1081,8 @@ optional），以及子进程自己的 agent 身份是经**事件**回来的，�
   `agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
 - 真实 DeepSeek API 端到端：**已执行通过**（2026-09-14，`iterations = 6`，串口捕获 `HELLO RISCV`；结果见 `host/README.md`）。
 
-[未发布]: https://github.com/breakevery/riscdom/compare/v0.9.0...HEAD
+[未发布]: https://github.com/breakevery/riscdom/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/breakevery/riscdom/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/breakevery/riscdom/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/breakevery/riscdom/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/breakevery/riscdom/compare/v0.6.0-preview.1...v0.7.0
