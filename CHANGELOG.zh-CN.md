@@ -9,6 +9,8 @@
 
 ## [未发布]
 
+## [0.9.9] - 2026-09-25
+
 ### 新增
 
 - **桌面端可以「连出去」，连到内网节点上**（v0.9.9 内网接入 第 4 批）：*设置 → 网络*的「连出去」组现在真的能用——地址存 `settings.json`，token 存 **OS 钥匙串**（`remote-token:<host>`），`NetworkSettings` 的 `remote_token` 字段**整个删除**，于是凭据永远不会写进设置文件。`api/index.ts` 的实现变成由模式定下的变量（每个数据面名字都经由它转发），而八个给节点接线的名字在任何模式下都作用于本机。壳新增 `save_remote_token` / `read_remote_token` / `clear_remote_token` / `restart_app`；登录门新增**「改用本机」**逃逸口（忘掉服务器、清空地址、重启）；顶栏写明在看哪个节点；设置页按**模式**而不是按运行时过滤 tab。
@@ -1094,6 +1096,7 @@ optional），以及子进程自己的 agent 身份是经**事件**回来的，�
 - 真实 DeepSeek API 端到端：**已执行通过**（2026-09-14，`iterations = 6`，串口捕获 `HELLO RISCV`；结果见 `host/README.md`）。
 
 [未发布]: https://github.com/breakevery/riscdom/compare/v0.9.1...HEAD
+[0.9.9]: https://github.com/breakevery/riscdom/compare/v0.9.1...v0.9.9
 [0.9.1]: https://github.com/breakevery/riscdom/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/breakevery/riscdom/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/breakevery/riscdom/compare/v0.7.0...v0.8.0

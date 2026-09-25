@@ -1,6 +1,6 @@
 [package]
 name = "ui"
-version = "0.9.1"
+version = "0.9.9"
 description = "RiscDom desktop shell (Tauri 2)"
 edition = "2021"
 

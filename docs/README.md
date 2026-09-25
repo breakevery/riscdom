@@ -100,7 +100,7 @@ Whoever just wants to run the thing.
 | [cli/README.md](../cli/README.md) — [中文](../cli/README.zh-CN.md) | The `riscdom` command line: every command, the two modes, the token, output, exit codes. | living |
 | [ui/README.md](../ui/README.md) — [中文](../ui/README.zh-CN.md) | The desktop app: layout, auto-scroll, how to run it, the snapshot panel and the audit tab. | living |
 | [CHANGELOG.md](../CHANGELOG.md) — [中文](../CHANGELOG.zh-CN.md) | What changed, release by release, and in the unreleased line. | history (append-only) |
-| [RELEASE_NOTES.md](../RELEASE_NOTES.md) — [中文](../RELEASE_NOTES.zh-CN.md) | The released text for the newest release (v0.8.0), including its known limitations. | history (per release) |
+| [RELEASE_NOTES.md](../RELEASE_NOTES.md) — [中文](../RELEASE_NOTES.zh-CN.md) | The released text for the newest release (v0.9.9), including its known limitations. | history (per release) |
 
 ## 6. Contributors
 

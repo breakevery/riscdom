@@ -11,7 +11,27 @@ branch `main`. The close-out of every batch is the same: gate green → `scripts
 (which runs the gate itself) → push — and none of those remote-facing steps happens without the
 current request authorising it (§2).
 
-## 1. Snapshot — `v0.9.1` is the newest release (update this section when the next release ships)
+## 1. Snapshot — `v0.9.9` is prepared as the next release (update this section when a release ships)
+
+- **`v0.9.9` is prepared** (2026-09-25, the local-preparation batch): the version is bumped to `0.9.9`
+  (7 files: `Cargo.toml`, the two `Cargo.lock`s — **8** workspace entries in the root lock and **7** in
+  the shell's, with `hashlink` / `memoffset` / `miniz_oxide` left at `0.9.1` because they are other
+  people's crates — `ui/package.json`, `ui/package-lock.json`, `ui/src-tauri/Cargo.toml`,
+  `ui/src-tauri/tauri.conf.json`; the wix guard requires no `bundle.windows.wix.version` on a numeric
+  release, and there is none), `CHANGELOG`'s `[Unreleased]` is folded into `[0.9.9] - 2026-09-25`, and
+  [RELEASE_NOTES.md](../RELEASE_NOTES.md) is rewritten as the **functional** release text — the GitHub
+  release body is that file verbatim. **Nothing is pushed and nothing is tagged yet**: pushing `main`,
+  tagging and creating the release are that batch's own steps. Three things the release carries:
+  **connect out** (a desktop joins an in-network node), **serve in** (the desktop's own board on the
+  LAN), and the **fifth “green locally, red in CI” mechanism** fixed at the root (`ui/dist/app`).
+  Scale: **688 tests / 118 suites**, **16** UI probes, an **18-step** gate.
+
+- **One observation is recorded and unexplained — layer 9 is what settles it.** During 4/N's
+  real-machine walk, a first relaunch after the remote address was written came up on the **local**
+  board with the address gone from `settings.json`; once stale `tauri dev` processes were cleared, the
+  same steps reproduced exactly as designed (login gate → escape → back to the local board), and no code
+  path is known that explains the first outcome. It is written down rather than explained, and
+  [manual-acceptance.md](manual-acceptance.md)'s **layer 9** carries a step written to settle it.
 
 - **The desktop can connect out to an in-network node** (v0.9.9 内网接入 batch 4). *Settings → Network*'s
   "connect out" group is live: the address goes to `settings.json` (it is not a secret) and the token
@@ -84,7 +104,8 @@ the embedded control plane over **the app's own state** — it now manages an `A
   this machine plus the macOS `.dmg` and the Linux `.deb` / `.rpm` / `.AppImage` from the CI `bundle`
   job. The Latest marker moved to it. The same batch put
   [manual-acceptance.md](manual-acceptance.md) on disk: v0.9.0's P0 was found by a person opening the
-  app, and the walk this repository relies on had never been written down.
+  app, and the walk this repository relies on had never been written down. **`v0.9.9` has no tag yet**
+  — it is prepared locally, and the newest tag and the Latest marker are still `v0.9.1`.
 
 - **The desktop no longer stops at the login screen** (v0.9.1 fix 1/N — v0.9.0's one P0). `App.tsx`
   gated on `api.currentToken() !== ""` for **every** runtime, so a shipped desktop build rendered

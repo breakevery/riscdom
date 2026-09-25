@@ -87,7 +87,7 @@
 | [cli/README.md](../cli/README.md) — [中文](../cli/README.zh-CN.md) | `riscdom` 命令行：每条命令、两种模式、token、输出、退出码。 | 活跃 |
 | [ui/README.md](../ui/README.md) — [中文](../ui/README.zh-CN.md) | 桌面应用：布局、自动滚动、怎么运行、快照面板与审计页。 | 活跃 |
 | [CHANGELOG.md](../CHANGELOG.md) — [中文](../CHANGELOG.zh-CN.md) | 逐版本改了什么，以及未发布的那一行。 | 历史（只追加） |
-| [RELEASE_NOTES.md](../RELEASE_NOTES.md) — [中文](../RELEASE_NOTES.zh-CN.md) | 最新发行版（v0.8.0）的正文，含它的已知限制。 | 历史（逐发行版） |
+| [RELEASE_NOTES.md](../RELEASE_NOTES.md) — [中文](../RELEASE_NOTES.zh-CN.md) | 最新发行版（v0.9.9）的正文，含它的已知限制。 | 历史（逐发行版） |
 
 ## 6. 贡献者
 
