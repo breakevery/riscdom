@@ -485,10 +485,10 @@ globalThis.fetch = async (url, init) => {
   };
 };
 
-const accepted = await checkToken(200, { status: "ok", version: "0.8.0", uptime_ms: 1234 });
+const accepted = await checkToken(200, { status: "ok", version: "0.9.0", uptime_ms: 1234 });
 check(
   "a good token comes back as ok, with the version",
-  accepted.kind === "ok" && accepted.version === "0.8.0",
+  accepted.kind === "ok" && accepted.version === "0.9.0",
   JSON.stringify(accepted),
 );
 check(

@@ -170,10 +170,10 @@ check(
 
 // ----- the status rule, as shipped ---------------------------------------------
 
-const node = statusRule.nodeFields({ status: "ok", version: "0.8.0", uptime_ms: 5000 });
+const node = statusRule.nodeFields({ status: "ok", version: "0.9.0", uptime_ms: 5000 });
 check(
   "the node card prints the version it was handed",
-  node.some((f) => f.value === "0.8.0"),
+  node.some((f) => f.value === "0.9.0"),
   node.map((f) => `${f.label}=${f.value}`).join(" "),
 );
 check(
@@ -183,7 +183,7 @@ check(
 );
 const counters = statusRule.counterFields({
   status: "ok",
-  version: "0.8.0",
+  version: "0.9.0",
   uptime_ms: 1,
   connections: 3,
   sse_subscribers: 0,

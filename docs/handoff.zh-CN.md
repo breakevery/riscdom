@@ -16,8 +16,10 @@
   —— wix 守卫要求纯数字正式版不带 `bundle.windows.wix.version`，当前确实没有），`CHANGELOG` 的
   `[Unreleased]` 归入 `[0.9.0] - 2026-09-25`，[RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) 按正式发布
   重写 —— **GitHub Release 的正文就是该文件（英文版 `RELEASE_NOTES.md`）的逐字拷贝**（v0.7.0 与 v0.8.0 的
-  发布都是这么做的）。**本条目由本地准备批次写下**：push、`v0.9.0` tag、GitHub Release 与附件上传是发布批次
-  自己的步骤，这一行描述的正是它们要完成的那次发布 —— 因此**`v0.9.0` 尚未打 tag**。v0.9 是什么：项目变得
+  发布都是这么做的）。发布当日即成：annotated tag `v0.9.0`（对象 `fe4e0bc4411792a064945d8a5ec2c2e9add8bbe7`
+  → `8bc7719`）、正文为该文件逐字拷贝的 GitHub Release，以及 **6 个附件**（本机构建的两个 Windows 安装包 + CI
+  `bundle` job 产出的 macOS `.dmg` 与 Linux `.deb` / `.rpm` / `.AppImage`），Latest 标记也随之移过来。
+  v0.9 是什么：项目变得
   可驱动、可见（带真实鉴权与实时事件流的控制平面、能说它的 CLI、能读它的浏览器看板），沙箱在 C 之外多了
   两种语言（Zig 与 Rust）；多 Agent 部分交付的是**接口** —— 名册、派发端点、远程句柄 —— 还不是协作策略。
 
@@ -174,12 +176,13 @@
   快照）← `202dd75`（非 Windows 的 `extract_zip` 存根）← `344fd2b`（Linux 包需要的 rpm）← `0633bdc`
   （macOS/Linux 的 bundle CI job）← `833f9c3`（随平台变化的 QEMU 指引、icon.icns、Unix QMP 单测）←
   `06fef0a`（语言切换）← `6abcb44`（i18n 试点）← `b0efeb8`（v0.6.0-preview.1 发布）。
-- tag：**`v0.9.0` 尚未打 tag** —— 由发布批次完成，本地准备批次既不 push 也不打 tag。`v0.8.0` 是最新的 tag，
-  也是**持有 Latest 标记**的那次发布（已用 `gh release list` 确认：
-  2026-09-22T07:37:50Z，annotated tag 对象 `0b018081de1a4e89e04e7bc1570d595d38ab4b4b` →
-  `8a5381436b62fa84b4f4a972a630061ce2203373`）；`v0.7.0` = annotated tag 对象
-  `f267f13dc6f8df9a3ff196b05d3bb9b7724f2d60` → `2bddae6b0897bb5fe262af2b7e4bf4b3733ec7eb`（Latest
-  标记原在它身上，本次发布接管）；`v0.6.0-preview.1` 与 `v0.5.0-preview.1` 为预发布版；
+- tag：`v0.9.0` 是最新的 tag，也是**持有 Latest 标记**的那次发布（已用 `gh release list` 确认：
+  2026-09-25T02:21:11Z，annotated tag 对象 `fe4e0bc4411792a064945d8a5ec2c2e9add8bbe7` →
+  `8bc77196bd4ac3cd03da7581214aea193a839b51`）；`v0.8.0` = annotated tag 对象
+  `0b018081de1a4e89e04e7bc1570d595d38ab4b4b` → `8a5381436b62fa84b4f4a972a630061ce2203373`（Latest
+  标记原在它身上，本次发布接管）；`v0.7.0` = annotated tag 对象
+  `f267f13dc6f8df9a3ff196b05d3bb9b7724f2d60` → `2bddae6b0897bb5fe262af2b7e4bf4b3733ec7eb`；
+  `v0.6.0-preview.1` 与 `v0.5.0-preview.1` 为预发布版；
   `v0.5.0` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`；
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`；
