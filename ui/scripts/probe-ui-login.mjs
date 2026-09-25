@@ -60,6 +60,32 @@ const statusRuleSource = readFileSync(STATUS_RULE, "utf8");
 // ----- the gate --------------------------------------------------------------
 
 check(
+  "the gate is settled by the mode, not by the runtime",
+  /api\.isLocalHost\(\)/.test(app) && app.indexOf("api.isLocalHost()") > app.indexOf("isTauriRuntime()"),
+  "v0.9.9: a desktop in remote mode is a Tauri runtime that is not the local host",
+);
+check(
+  "the mode is read before the gate is asked",
+  /api\.setImpl\("remote"/.test(app) && /api\.getNetwork\(\)/.test(app),
+);
+check(
+  "the way out of remote mode acts on this machine",
+  /api\.clearRemoteToken\(/.test(app) &&
+    /api\.setNetwork\(/.test(app) &&
+    /api\.restartApp\(\)/.test(app) &&
+    /onUseLocal=\{api\.isTauriRuntime\(\) \?/.test(app),
+);
+check(
+  "...and is offered only where it can work",
+  /onUseLocal=\{api\.isTauriRuntime\(\) \? \(\) => void useLocal\(\) : undefined\}/.test(app),
+);
+
+check(
+  "the login page offers the way back",
+  /onUseLocal\?: \(\) => void;/.test(login) && /t\("login.use_local"\)/.test(login),
+);
+
+check(
   "the gate is in App, on the token the API already holds",
   /api\.currentToken\(\)/.test(app) && /<Login\b/.test(app) && /<AppShell\b/.test(app),
 );
@@ -134,7 +160,8 @@ const shellHasView =
 check("the status page is a third view of the same shell", shellHasView);
 check(
   "the status entry is offered only where it can work",
-  /const webClient = !isTauriRuntime\(\)/.test(shell) && /\{webClient \? \(/.test(shell),
+  /const webClient = !isLocalHost\(\)/.test(shell) && /\{webClient \? \(/.test(shell),
+  "the browser and a remote window both read over HTTP (v0.9.9)",
 );
 
 // ----- the wording --------------------------------------------------------------

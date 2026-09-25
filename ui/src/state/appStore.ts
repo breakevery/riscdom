@@ -117,6 +117,16 @@ export interface AppStore {
   setNetwork: (next: Partial<api.NetworkSettings>) => Promise<void>;
   /** Read the LAN token a started server would require. Desktop-only. */
   readLanToken: () => Promise<string>;
+  /**
+   * The remote server's token, filed in the OS keyring under its address
+   * (v0.9.9 `"out"`). Nothing here puts it in `settings.json`, and nothing here
+   * renders it: the page asks whether one exists, not what it is.
+   */
+  saveRemoteToken: (host: string, token: string) => Promise<void>;
+  readRemoteToken: (host: string) => Promise<string | null>;
+  clearRemoteToken: (host: string) => Promise<void>;
+  /** Start the app again — how a mode change takes effect. Desktop-only. */
+  restartApp: () => Promise<void>;
   /** What the board is doing right now (v0.9.9), read on demand. */
   lan: api.LanStatus | null;
   refreshLan: () => Promise<void>;
@@ -549,7 +559,6 @@ export function useAppStore(): AppStore {
       // shape on disk is one struct, so a partial edit has to carry the rest.
       const merged: api.NetworkSettings = {
         remote_url: null,
-        remote_token: null,
         lan_enabled: false,
         lan_bind: null,
         lan_allow_lan: false,
@@ -567,6 +576,21 @@ export function useAppStore(): AppStore {
   );
 
   const readLanToken = useCallback(async () => api.readLanToken(), []);
+
+  // The remote token's home is the OS keyring, and these three forward to it
+  // without swallowing anything: the page that called them has to be able to say
+  // what the keyring answered (an unwritable keyring is a real outcome).
+  const saveRemoteToken = useCallback(async (host: string, value: string) => {
+    await api.saveRemoteToken(host, value);
+  }, []);
+
+  const readRemoteToken = useCallback(async (host: string) => api.readRemoteToken(host), []);
+
+  const clearRemoteToken = useCallback(async (host: string) => {
+    await api.clearRemoteToken(host);
+  }, []);
+
+  const restartApp = useCallback(async () => api.restartApp(), []);
 
   const refreshLan = useCallback(async () => {
     try {
@@ -1039,11 +1063,12 @@ export function useAppStore(): AppStore {
     return () => offs.forEach((f) => f());
   }, [push, refreshAudit, refreshRuns, refreshPreflight, refreshWorkspace]);
 
-  // Lost frames are the Web client's problem alone: the desktop is in the same process
-  // as its host and cannot lag behind it, so `api`'s stream — and this subscription —
-  // are the browser's (v0.9 D2b-3).
+  // Lost frames are the Web client's problem and a remote window's: both read over
+  // HTTP and can lag behind a server, so both take the stream. Only the desktop
+  // **talking to its own host** is in the same process as the node it shows, and
+  // cannot lag behind it — that is what `isLocalHost()` says (v0.9.9).
   useEffect(() => {
-    if (api.isTauriRuntime()) return;
+    if (api.isLocalHost()) return;
     return api.onGap(() => {
       void refreshAll();
     });
@@ -1138,6 +1163,10 @@ export function useAppStore(): AppStore {
     refreshNetwork,
     setNetwork,
     readLanToken,
+    saveRemoteToken,
+    readRemoteToken,
+    clearRemoteToken,
+    restartApp,
     lan,
     refreshLan,
     clearToolchain,

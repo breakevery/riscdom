@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The desktop can connect out to an in-network node** (v0.9.9 内网接入, batch 4): *Settings → Network*'s
+  "connect out" group is live — the address is stored in `settings.json` and the token in the **OS
+  keyring** under `remote-token:<host>` (`NetworkSettings` loses its `remote_token` field entirely), so
+  no credential is ever written to a settings file. `api/index.ts`'s implementation became a variable
+  the mode settles (every data-plane name forwards to it), while the eight names that wire a node act
+  on this machine in every mode. The shell gains `save_remote_token` / `read_remote_token` /
+  `clear_remote_token` / `restart_app`; the gate grows a **"use this machine"** escape that forgets the
+  server, clears the address and restarts; the top bar says which node is on screen; and the settings
+  page filters its tabs by mode instead of by runtime.
+
 - **The network face's configuration page** (v0.9.9 内网接入, batch 2): *Settings → Network* holds
   the two directions in one place — connecting out to an in-network server (address and token; the
   connection itself is the next batch) and serving this node's board to the network (a switch, a bind

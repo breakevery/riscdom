@@ -14,8 +14,11 @@
  * - **the token is read, never created**: the command must not reach for
  *   `load_or_create`, which would mint a credential merely because a settings page
  *   was opened, and the file name it reads has to be the server's own constant;
- * - **settings.json gains the field additively** — the same five fields on both
- *   sides of the boundary, and no `SETTINGS_VERSION` move.
+ * - **settings.json gains the field additively** — the same four fields on both
+ *   sides of the boundary, and no `SETTINGS_VERSION` move;
+ * - **the credential is not in that file** (v0.9.9 `"out"`): the remote token goes
+ *   to the OS keyring under `remote-token:<host>`, and the command that files it
+ *   names the account with the keyring crate's own helper.
  */
 
 import { readFileSync } from "node:fs";
@@ -34,6 +37,7 @@ const TAURI = path.join(SRC, "api", "tauri.ts");
 const HTTP = path.join(SRC, "api", "http.ts");
 const SHELL = path.join(REPO, "ui", "src-tauri", "src", "lib.rs");
 const SETTINGS = path.join(REPO, "host-core", "src", "settings.rs");
+const KEYRING = path.join(REPO, "host-core", "src", "keyring.rs");
 const SERVER_TOKEN = path.join(REPO, "server", "src", "token.rs");
 const STRINGS = path.join(SRC, "i18n", "strings.ts");
 const GATE = path.join(REPO, "scripts", "gate.sh");
@@ -72,8 +76,26 @@ check(
     /onClick=\{\(\) => void showToken\(\)\}/.test(tab),
 );
 check(
-  "the connect button is disabled: the next batches implement it",
-  /className="primary" disabled/.test(tab),
+  "the connect button is live, and an empty box keeps what is filed",
+  /onClick=\{\(\) => void connect\(\)\}/.test(tab) &&
+    /onClick=\{\(\) => void disconnect\(\)\}/.test(tab) &&
+    /typed !== "" \? typed : \(\(await store\.readRemoteToken\(url\)\) \?\? ""\)/.test(
+      tab,
+    ),
+);
+check(
+  "the out group files the address and the token separately",
+  /store\.setNetwork\(\{ remote_url: url \}\)/.test(tab) &&
+    /store\.saveRemoteToken\(url, typed\)/.test(tab) &&
+    /store\.readRemoteToken\(url\)/.test(tab) &&
+    /store\.clearRemoteToken\(url\)/.test(tab) &&
+    /store\.restartApp\(\)/.test(tab),
+);
+check(
+  "the outcome is read in the login page's four kinds",
+  ["ok", "unauthorized", "unreachable", "other"].every((kind) =>
+    tab.includes(`network.check_${kind}`),
+  ),
 );
 check(
   "the allow-LAN switch carries its warning",
@@ -88,9 +110,9 @@ check(
   /id: "network"/.test(tabs) && /settings\.tab\.network/.test(tabs),
 );
 check(
-  "the browser is not offered it",
-  /entry\.id !== "network"/.test(tabs) &&
-    /TabId =[\s\S]{0,220}"network"/.test(tabs.replace(/\s+/g, " ")),
+  "the browser is not offered it, and a remote window still is",
+  /const WEB_TABS: TabId\[\] = \["audit", "appearance"\];/.test(tabs) &&
+    /const REMOTE_TABS: TabId\[\] = \["audit", "appearance", "network"\];/.test(tabs),
 );
 check(
   "its body is wrapped like the model form",
@@ -122,17 +144,19 @@ check(
 
 // ----- the shape, on both sides -----------------------------------------------
 
-const FIELDS = ["remote_url", "remote_token", "lan_enabled", "lan_bind", "lan_allow_lan"];
+const FIELDS = ["remote_url", "lan_enabled", "lan_bind", "lan_allow_lan"];
 const types = read(TYPES);
 check(
-  "the browser's shape carries the five fields",
-  FIELDS.every((field) => types.includes(`${field}:`)),
+  "the browser's shape carries the four fields",
+  FIELDS.every((field) => types.includes(`${field}:`)) &&
+    !types.includes("remote_token:"),
   FIELDS.join(", "),
 );
 const settings = read(SETTINGS);
 check(
-  "the host's struct carries the same five",
-  FIELDS.every((field) => settings.includes(`pub ${field}:`)),
+  "the host's struct carries the same four",
+  FIELDS.every((field) => settings.includes(`pub ${field}:`)) &&
+    !settings.includes("pub remote_token:"),
   FIELDS.join(", "),
 );
 check(
@@ -150,12 +174,26 @@ check(
     /invoke<void>\("set_network"/.test(tauri) &&
     /invoke<string>\("read_lan_token"\)/.test(tauri),
 );
+check(
+  "...and the keyring's three, and the restart",
+  /invoke<void>\("save_remote_token", \{ host, token \}\)/.test(tauri) &&
+    /invoke<string \| null>\("read_remote_token", \{ host \}\)/.test(tauri) &&
+    /invoke<void>\("clear_remote_token", \{ host \}\)/.test(tauri) &&
+    /invoke<void>\("restart_app"\)/.test(tauri),
+);
 const http = code(read(HTTP));
 check(
   "the Web implementation rejects with a sentence",
   /export const readLanToken = \(\): Promise<string> => desktopNetwork\("read_lan_token"\)/.test(
     http,
   ) && /desktopNetwork\("get_network"\)/.test(http) && /desktopNetwork\("set_network"\)/.test(http),
+);
+check(
+  "...including the keyring's three and the restart",
+  /desktopNetwork\("save_remote_token"\)/.test(http) &&
+    /desktopNetwork\("read_remote_token"\)/.test(http) &&
+    /desktopNetwork\("clear_remote_token"\)/.test(http) &&
+    /restart_app is a desktop control/.test(http),
 );
 
 // ----- the shell's three commands ---------------------------------------------
@@ -165,6 +203,23 @@ check(
   "the shell defines and registers three commands",
   ["fn get_network(", "fn set_network(", "fn read_lan_token("].every((f) => shell.includes(f)) &&
     ["get_network,", "set_network,", "read_lan_token,"].every((n) => shell.includes(n)),
+);
+check(
+  "...and the keyring's three, plus the restart",
+  ["fn save_remote_token(", "fn read_remote_token(", "fn clear_remote_token(", "fn restart_app("].every(
+    (f) => shell.includes(f),
+  ) &&
+    ["save_remote_token,", "read_remote_token,", "clear_remote_token,", "restart_app,"].every(
+      (n) => shell.includes(n),
+    ) &&
+    /user_for_remote\(host\)/.test(shell),
+);
+check(
+  "the keyring account name is declared once, beside the provider one",
+  /pub fn user_for_remote\(host: &str\) -> String \{\s*format!\("remote-token:\{host\}"\)/.test(
+    read(KEYRING),
+  ) &&
+    /pub const SERVICE: &str = "com\.breakevery\.riscdom";/.test(read(KEYRING)),
 );
 check(
   "the token is read, never created",
@@ -200,6 +255,13 @@ const KEYS = [
   "network.token_path",
   "network.save",
   "network.saved",
+  "network.token_saved",
+  "network.restart_needed",
+  "network.disconnect",
+  "network.check_ok",
+  "network.check_unauthorized",
+  "network.check_unreachable",
+  "network.check_other",
 ];
 const registry = await import(pathToFileURL(STRINGS).href);
 const missing = KEYS.filter((key) => {

@@ -128,11 +128,39 @@ The full record goes in [golden-path-checklist.md](golden-path-checklist.md); th
 - [ ] Close the app and open it again: the board comes back on its own (the settings remember it) — or
       stays off, if you switched it off.
 
+## Layer 9 — out: the desktop connected to another node (v0.9.9)
+
+Two processes on one machine are enough; a second machine is better. The two nodes must have
+**different data directories** — same directory means the same `token` file, and the check would then
+pass with any token at all.
+
+- [ ] Start a second node with its own data directory: `riscdom-server --bind 127.0.0.1:7822
+      --data-dir <dir-A> --workspace <dir-A/ws> --web-root ui/dist/app` (`ui/dist/app` is what
+      `npm run build` writes). Note the port — **7822**, because the desktop serves its own board on
+      7821 by default.
+- [ ] Take that node's token from `<dir-A>/token`.
+- [ ] In the desktop: *Settings → Network*, the **connect out** group — the server address
+      (`http://127.0.0.1:7822`) and the token, then **Connect**. The page answers with the server's
+      version, or with the reason it could not reach it. Nothing is switched yet.
+- [ ] **Restart the app** (the page says so). It comes back **showing the other node**: the top bar
+      carries a *Remote* badge naming the address, and the status page reports the other node's
+      `agent_id` — that is the proof the numbers on screen are not this machine's.
+- [ ] Settings offers only **Audit**, **Appearance** and **Network**: the screens that configure *this*
+      node are gone, because this window is not talking to it.
+- [ ] Stop the second node. The board does not crash: reads fail with a sentence, and the window keeps
+      showing what it last read.
+- [ ] **Get back**: on the login screen (or *Settings → Network*) press **"Disconnect and use this
+      machine"**. The address is cleared, the keyring entry is deleted, the app restarts, and the local
+      node's own board is back.
+- [ ] Close the app on the remote node and open it again: it returns to the remote node on its own
+      (the settings remember the address, and the keyring remembers the token).
+
 ## Pass criteria
 
-**Layers 1–7 must pass** for a release to be walked successfully. **Layer 8 is the newest one**, and a
-phone is the only thing that can check it — walk it when you have one, but a release is not failed for
-its absence.
+**Layers 1–7 must pass** for a release to be walked successfully. **Layers 8 and 9 are the newest**, and
+neither can be walked here: layer 8 needs a phone, and layer 9 needs a second node (a second process
+with its own data directory will do). Walk them when you can — a release is not failed for their
+absence.
 
 ## Reporting back
 

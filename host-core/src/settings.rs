@@ -100,16 +100,14 @@ pub struct LocalSettings {
 pub struct NetworkSettings {
     /// The in-network server to connect **to** (`"out"`); `None` keeps the
     /// embedded host, which is what every version before this one did.
+    ///
+    /// **The token is not here.** A remote server's bearer token is a
+    /// credential, and this file's own rule is that no secret lives in it: it
+    /// goes to the OS keyring under `remote-token:<host>` (v0.9.9 `"out"`), so a
+    /// settings file can be read, copied or backed up without leaking access to
+    /// another machine.
     #[serde(default)]
     pub remote_url: Option<String>,
-    /// The remote server's bearer token.
-    ///
-    /// **Placed here, deliberately not written by this batch**: whether a
-    /// credential belongs in `settings.json` at all is the `"out"` batch's
-    /// decision, and `LocalSettings`' own rule is that no secret lives here.
-    /// Until that decision is made, this field stays `None`.
-    #[serde(default)]
-    pub remote_token: Option<String>,
     /// Serve this node's board to the network (`"in"`).
     #[serde(default)]
     pub lan_enabled: bool,

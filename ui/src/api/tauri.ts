@@ -314,3 +314,30 @@ export const readLanToken = (): Promise<string> => invoke<string>("read_lan_toke
  * address a phone has to type.
  */
 export const lanStatus = (): Promise<LanStatus> => invoke<LanStatus>("lan_status");
+
+/**
+ * File a remote server's token in the OS keyring, under its address.
+ *
+ * The field this used to write (`NetworkSettings.remote_token`) is gone: a
+ * credential does not belong in `settings.json`, and the key is per host, so two
+ * servers are two entries.
+ */
+export const saveRemoteToken = (host: string, token: string): Promise<void> =>
+  invoke<void>("save_remote_token", { host, token });
+
+/** The token filed for `host`, or `null`. Read-only; the command never invents one. */
+export const readRemoteToken = (host: string): Promise<string | null> =>
+  invoke<string | null>("read_remote_token", { host });
+
+/** Forget the token filed for `host`. Deleting what is not there is not an error. */
+export const clearRemoteToken = (host: string): Promise<void> =>
+  invoke<void>("clear_remote_token", { host });
+
+/**
+ * Start the application again, which is how a mode change takes effect.
+ *
+ * The command never returns: the process is replaced before it could. It is the
+ * escape hatch's last step — leave the remote node, and this window comes back as
+ * the embedded host it started as.
+ */
+export const restartApp = (): Promise<void> => invoke<void>("restart_app");

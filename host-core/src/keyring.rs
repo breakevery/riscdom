@@ -17,6 +17,17 @@ pub fn user_for_provider(provider_id: &str) -> String {
     format!("llm-api-key:{provider_id}")
 }
 
+/// Keyring account name for an in-network server's token, e.g.
+/// `"remote-token:192.168.1.10:7821"` (v0.9.9 内网接入 4/N).
+///
+/// Keyed by the address the operator typed, so two servers are two entries and
+/// connecting to a second node does not overwrite the first one's token. It is a
+/// **credential**, which is why it is here and not in `settings.json` — the same
+/// reason the provider key above is.
+pub fn user_for_remote(host: &str) -> String {
+    format!("remote-token:{host}")
+}
+
 /// A minimal keyring abstraction so tests can swap out the OS store.
 pub trait KeyringBackend: Send + Sync {
     fn set(&self, service: &str, user: &str, password: &str) -> Result<(), String>;

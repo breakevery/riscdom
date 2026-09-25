@@ -12,7 +12,7 @@ import CanvasPanel from "../panels/CanvasPanel";
 import ChatPanel from "../panels/ChatPanel";
 import SettingsPanel from "../panels/SettingsPanel";
 import StatusPanel from "../panels/StatusPanel";
-import { isTauriRuntime } from "../api";
+import { getApiBase, isLocalHost, isRemote } from "../api";
 
 /** Only a non-sensitive layout preference is stored here. */
 const CHAT_WIDTH_KEY = "riscdom.layout.chatWidth";
@@ -113,9 +113,14 @@ export default function AppShell() {
     if (d) writeChatWidth(d.width);
   };
 
-  // The status page is the Web client's: the desktop is in the same process as its
-  // host, so it has nothing to ask `/v0/status` and does not offer the page.
-  const webClient = !isTauriRuntime();
+  // The status page is the Web client's, and a remote window's: the desktop is in the
+  // same process as its host, so it has nothing to ask `/v0/status` and does not offer
+  // the page — but a desktop that connected to another machine's node is not in that
+  // position, and reads over HTTP exactly like the browser does (v0.9.9).
+  const webClient = !isLocalHost();
+  // Which node is on screen. A remote window and a local one look identical
+  // otherwise, and confusing the two is the one mistake this face can make.
+  const remote = isRemote();
 
   return (
     <div className="app-root">
@@ -145,6 +150,15 @@ export default function AppShell() {
               >
                 <span className={`dot ${store.vmStatus.running ? "ok" : "off"}`} />
                 {store.vmStatus.running ? t("app.vm.running") : t("app.vm.stopped")}
+              </span>
+            ) : null}
+            {remote ? (
+              <span
+                className="vm-badge"
+                title={t("app.remote_badge_title", { host: getApiBase() })}
+              >
+                <span className="dot ok" />
+                {t("app.remote_badge")}
               </span>
             ) : null}
             {webClient ? (

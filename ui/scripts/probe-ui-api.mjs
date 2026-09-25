@@ -63,6 +63,7 @@ function exportedNames(source) {
 const WEB_ONLY = [
   "clearToken",
   "currentToken",
+  "getApiBase",
   "getHealth",
   "getStatus",
   "onGap",
@@ -157,6 +158,13 @@ const CONTROLS = [
   "setNetwork",
   "readLanToken",
   "lanStatus",
+  // The remote credential and the restart (v0.9.9 `"out"`): the keyring belongs to
+  // the machine the shell runs on, and a page cannot restart the process that serves
+  // it. Both are desktop-only, and both reject with a sentence in `http.ts`.
+  "saveRemoteToken",
+  "readRemoteToken",
+  "clearRemoteToken",
+  "restartApp",
 ];
 const EVENTS = [
   "onHostEvent",
@@ -421,8 +429,18 @@ check(
 check(
   "the adapter takes every shared name from whichever implementation is live",
   JSON.stringify(exportedNames(indexSource)) ===
-    JSON.stringify([...READS, ...CONTROLS, ...EVENTS, "isTauriRuntime"].sort()),
+    JSON.stringify(
+      [...READS, ...CONTROLS, ...EVENTS, "setImpl", "isRemote", "isLocalHost", "isTauriRuntime"].sort(),
+    ),
   `${exportedNames(indexSource).length} names`,
+);
+
+check(
+  "the adapter's exports are forwarders, not a load-time copy",
+  /let current: SharedApi = isTauriRuntime\(\) \? tauri : http;/.test(indexSource) &&
+    /current\.getAuditStatus\(\.\.\.args\)/.test(indexSource) &&
+    /export function setImpl\(/.test(indexSource),
+  "the mode is settled by code, not by the environment",
 );
 
 // The one rule that is not a transport call, so it has one implementation instead

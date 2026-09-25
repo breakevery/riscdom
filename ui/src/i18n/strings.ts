@@ -79,6 +79,15 @@ const EN = {
     "The token lives in <data-dir>/token, inside this node's data directory.",
   "network.save": "Save",
   "network.saved": "Saved",
+  // The "out" group (v0.9.9): the address is a setting, the token is a credential
+  // in the OS keyring, and connecting takes effect at startup.
+  "network.token_saved": "A token is saved for this address.",
+  "network.restart_needed": "Saved. Restart the app to connect to it.",
+  "network.disconnect": "Disconnect and use this machine",
+  "network.check_ok": "The server answered: version {version}",
+  "network.check_unauthorized": "The server refused that token.",
+  "network.check_unreachable": "The server did not answer. Is it running, at this address?",
+  "network.check_other": "The server answered something unexpected (HTTP {status}).",
   "appearance.theme": "Theme",
   "appearance.cycle": "Cycle",
   "appearance.hint":
@@ -283,6 +292,9 @@ const EN = {
   "app.vm.uptime.seconds": "running {n} s",
   "app.vm.uptime.minutes": "running {n} min",
   "app.vm.uptime.hours": "running {n} h",
+  "app.booting": "Starting…",
+  "app.remote_badge": "Remote",
+  "app.remote_badge_title": "Showing {host}: not this machine's node",
   "app.settings_title": "Settings (Esc closes)",
 
   // File pickers and run-export notes (v0.8, 2/2).
@@ -302,6 +314,9 @@ const EN = {
   "login.unauthorized": "That token was refused. Check it and try again.",
   "login.unreachable": "The control plane did not answer. Is the server running, and at this address?",
   "login.other": "The server answered something unexpected. See the server's log.",
+  "login.use_local": "Use this machine instead",
+  "login.use_local_hint":
+    "Forgets the saved server address and its token, then restarts this app.",
   "status.heading": "Status",
   "status.node": "This node",
   "status.counters": "Control plane",
@@ -407,6 +422,13 @@ const ZH: Record<StringKey, string> = {
   "network.token_path": "token 位于本节点的数据目录下的 <data-dir>/token。",
   "network.save": "保存",
   "network.saved": "已保存",
+  "network.token_saved": "已为该地址保存了令牌。",
+  "network.restart_needed": "已保存。重启应用即可连接。",
+  "network.disconnect": "断开并改用本机",
+  "network.check_ok": "服务器已应答：版本 {version}",
+  "network.check_unauthorized": "服务器拒绝了这个令牌。",
+  "network.check_unreachable": "服务器没有应答。它在运行吗？地址对吗？",
+  "network.check_other": "服务器返回了意外应答（HTTP {status}）。",
   "appearance.theme": "主题",
   "appearance.cycle": "循环切换",
   "appearance.hint": "选择会写入 settings.json，重启后继续生效。",
@@ -601,6 +623,9 @@ const ZH: Record<StringKey, string> = {
   "app.vm.uptime.seconds": "运行 {n} 秒",
   "app.vm.uptime.minutes": "运行 {n} 分钟",
   "app.vm.uptime.hours": "运行 {n} 小时",
+  "app.booting": "正在启动…",
+  "app.remote_badge": "远程",
+  "app.remote_badge_title": "正在显示 {host}：不是本机节点",
   "app.settings_title": "设置（Esc 关闭）",
 
   // File pickers and run-export notes (v0.8, 2/2).
@@ -619,6 +644,8 @@ const ZH: Record<StringKey, string> = {
   "login.unauthorized": "令牌被拒。请核对后重试。",
   "login.unreachable": "控制平面没有应答。服务在运行吗？地址对吗？",
   "login.other": "服务端返回了意外应答。请查看服务端日志。",
+  "login.use_local": "改用本机节点",
+  "login.use_local_hint": "清除已保存的服务器地址与令牌，然后重启本应用。",
   "status.heading": "状态",
   "status.node": "本节点",
   "status.counters": "控制平面",

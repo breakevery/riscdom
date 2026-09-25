@@ -100,13 +100,15 @@ const index = read("api/index.ts");
 check(
   "the adapter takes all four from whichever implementation is live",
   ["listExecutors", "listSandboxes", "currentSandbox", "sandboxCandidates"].every((fn) =>
-    new RegExp(`export const ${fn} = impl\\.${fn};`).test(index),
+    new RegExp(
+      `export const ${fn}: SharedApi\\["${fn}"\\] = \\(\\.\\.\\.args\\) =>\\s*current\\.${fn}\\(\\.\\.\\.args\\);`,
+    ).test(index),
   ),
 );
 check(
   "they are shared names, not Web-only ones",
   !/listExecutors|listSandboxes|currentSandbox|sandboxCandidates/.test(
-    index.slice(index.indexOf("type SharedApi"), index.indexOf("const impl")),
+    index.slice(index.indexOf("type SharedApi"), index.indexOf("let current")),
   ),
 );
 

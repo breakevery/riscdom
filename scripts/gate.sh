@@ -117,6 +117,7 @@ node ui/scripts/probe-ui-web-readonly.mjs || fail "ui probe (read-only board)"
 node ui/scripts/probe-ui-node-panel.mjs || fail "ui probe (node page)"
 node ui/scripts/probe-ui-network-tab.mjs || fail "ui probe (network tab)"
 node ui/scripts/probe-ui-lan.mjs || fail "ui probe (LAN board)"
+node ui/scripts/probe-ui-remote.mjs || fail "ui probe (remote node)"
 
 echo "==> mirrored constants (host-core/src + host-tauri/src)"
 node scripts/check-mirrored-constants.mjs || fail "mirrored constants"

@@ -823,3 +823,21 @@ Executors (`GET /v0/executors`, whose capability is `agent.run`) and Sandboxes (
 plus `/v0/sandboxes/current` and `/v0/sandboxes/candidates`) — and they are tabs rather than views on
 purpose (decision §63). Everything the board shows is read-only; the list of things it can change is
 in §11 above.
+
+### The desktop pointed at a node on the network (v0.9.9)
+
+The desktop shell can be pointed at **another** node instead of the one in its own process, and what it
+becomes is exactly the client described above: the same screens, the same adapter, HTTP instead of the
+Tauri IPC. Two things are worth knowing before writing anything against it:
+
+- **The mode is settled at startup.** The address is a preference in `settings.json`; the token is a
+  credential in the **OS keyring**, under `remote-token:<host>` — the same home as the provider key,
+  because no secret belongs in a settings file. Changing either changes *which host this window talks
+  to*, so it takes effect when the app starts again rather than on the keystroke.
+- **A remote window is read-only for the same reason a browser is**, and it keeps one page a browser
+  does not: the *Network* tab, which is where "disconnect and use this machine" lives. That button —
+  and the four commands behind it — act on **the machine the window runs on** in every mode, because a
+  client whose server is unreachable still has to be able to stop being that client.
+
+The step-by-step walk, including the two-process recipe, is layer 9 of
+[manual-acceptance.md](manual-acceptance.md).

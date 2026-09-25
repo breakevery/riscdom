@@ -16,7 +16,24 @@ import { t } from "./i18n/index.ts";
  * kept after that is `api`'s business (`sessionStorage`, or `localStorage` when the
  * box below is ticked) — never the URL.
  */
-export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
+export default function Login({
+  onLoggedIn,
+  onUseLocal,
+  useLocalBusy = false,
+  useLocalProblem = null,
+}: {
+  onLoggedIn: () => void;
+  /**
+   * Leave a remote server and come back as the embedded host (v0.9.9 `"out"`).
+   *
+   * Offered **only by a Tauri runtime**, because it is the one control on this page
+   * that acts on the machine the page is running on rather than on the server it is
+   * failing to reach. In a browser it is `undefined` and nothing is rendered.
+   */
+  onUseLocal?: () => void;
+  useLocalBusy?: boolean;
+  useLocalProblem?: string | null;
+}) {
   const [candidate, setCandidate] = useState("");
   const [remember, setRemember] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -92,6 +109,22 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => void }) {
         >
           {t("login.submit")}
         </button>
+
+        {onUseLocal === undefined ? null : (
+          <>
+            <div className="muted small">{t("login.use_local_hint")}</div>
+            <button
+              className="ghost"
+              disabled={busy || useLocalBusy}
+              onClick={onUseLocal}
+            >
+              {t("login.use_local")}
+            </button>
+          </>
+        )}
+        {useLocalProblem === null ? null : (
+          <div className="field-error">{useLocalProblem}</div>
+        )}
       </section>
     </div>
   );

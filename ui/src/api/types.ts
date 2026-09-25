@@ -315,8 +315,14 @@ export interface CandidateView {
 export interface NetworkSettings {
   /** The server to connect to (`"out"`); `null` keeps the embedded host. */
   remote_url: string | null;
-  /** The remote server's bearer token (`"out"`). Not written yet — where a credential lives is that batch's decision. */
-  remote_token: string | null;
+  /**
+   * No token here — deliberately (v0.9.9 `"out"`). A remote server's bearer token
+   * is a credential and lives in the OS keyring under `remote-token:<host>`; a
+   * settings file stays readable without handing anyone access to another node.
+   *
+   * The input on the network page is that write, and `save_remote_token` performs
+   * it — this shape has no field for it to land in.
+   */
   /** Serve this node's board to the network (`"in"`). Off keeps it in this window. */
   lan_enabled: boolean;
   /** Where the embedded server binds; `null` means loopback (`127.0.0.1:7821`). */

@@ -99,16 +99,18 @@ for (const file of [
 
 const tabs = read("settings/SettingsTabs.tsx");
 check(
-  "SettingsTabs filters the model tab out for the browser",
-  /entry\.id !== "model"/.test(tabs) && /isTauriRuntime\(\)/.test(tabs),
+  "SettingsTabs gives the browser the two tabs it can use",
+  /const WEB_TABS: TabId\[\] = \["audit", "appearance"\]/.test(tabs) &&
+    /isLocalHost\(\)/.test(tabs),
 );
 check(
-  "…and the network tab too: the browser cannot rewire a node",
-  /entry\.id !== "network"/.test(tabs) && /TabId =[\s\S]{0,220}"network"/.test(tabs.replace(/\s+/g, " ")),
+  "…and a remote window the network face too: that page is its way back",
+  /const REMOTE_TABS: TabId\[\] = \["audit", "appearance", "network"\]/.test(tabs) &&
+    /isRemote\(\)/.test(tabs),
 );
 check(
-  "…and does not open on the model tab there",
-  /useState<TabId>\(desktop \? "model" : "toolchain"\)/.test(tabs),
+  "…and a window never opens on a tab it does not have",
+  /useState<TabId>\(keep === null \? "model" : keep\[0\]\)/.test(tabs),
 );
 
 // ----- the two controls the browser does implement ----------------------------

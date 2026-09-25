@@ -13,6 +13,21 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.1` is the newest release (update this section when the next release ships)
 
+- **The desktop can connect out to an in-network node** (v0.9.9 内网接入 batch 4). *Settings → Network*'s
+  "connect out" group is live: the address goes to `settings.json` (it is not a secret) and the token
+  goes to the **OS keyring** under `remote-token:<host>` — `NetworkSettings` has **no token field at
+  all** (decision §70). `api/index.ts`'s implementation is no longer a load-time constant but a
+  variable the mode settles, with every data-plane export a one-line forwarder — and the **eight names
+  that wire a node** (`get_network`, `set_network`, `read_lan_token`, `lan_status`, the three keyring
+  commands and `restart_app`) keep acting on *this* machine in **every** mode (decision §71), which is
+  the only reason the way back can work. `App.tsx` reads the settings once, installs the mode and the
+  token, and only then asks `isLocalHost()`: a desktop in remote mode goes through the same gate a
+  browser does, and the gate carries a **"use this machine"** button that deletes the keyring entry,
+  clears the address and restarts the app. `restart_app` is Tauri's own `AppHandle::restart` — no
+  plugin, no new dependency. A sixteenth UI probe (`probe-ui-remote.mjs`) pins the mode, the credential
+  and the screens that now have to ask *whose node is this*: the top bar says so, and the settings page
+  keeps *Audit + Appearance + Network* for a remote window (this batch's filter table).
+
 - **The built front end moved under a stable parent, and a red commit on `main` is fixed**
   (v0.9.9 3/N-fix2). Batch 3/N declared `bundle.resources` as `{"../dist": "dist"}`, and
   `tauri-build` checks those paths with `Path::exists()` — so a **fresh checkout, where `ui/dist` is a

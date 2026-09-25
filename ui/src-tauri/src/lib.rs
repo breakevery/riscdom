@@ -79,6 +79,81 @@ fn read_lan_token(state: tauri::State<'_, Arc<host_tauri::AppState>>) -> Result<
     }
 }
 
+/// Where a remote server's token lives: the OS keyring, keyed by the address the
+/// operator typed (v0.9.9 内网接入 4/N `"out"`).
+///
+/// The token is a **credential**, so it is not written to `settings.json` — that
+/// file's own rule is that no secret lives in it. The account name is
+/// `host_tauri::keyring::user_for_remote`, so the shape is declared once, in the
+/// crate that owns the keyring, and a probe can hold these commands to it.
+///
+/// **Silent-failure caveat, inherited from `keyring.rs`**: a keyring that will not
+/// answer degrades to in-memory storage, so a "remembered" token can be forgotten
+/// by the next restart. The caller is told what the keyring said, not what it
+/// hoped for.
+#[tauri::command]
+fn save_remote_token(
+    state: tauri::State<'_, Arc<host_tauri::AppState>>,
+    host: String,
+    token: String,
+) -> Result<(), String> {
+    let host = host.trim();
+    if host.is_empty() {
+        return Err("no server address to file the token under".to_string());
+    }
+    state
+        .keyring
+        .set(host_tauri::keyring::SERVICE, &host_tauri::keyring::user_for_remote(host), &token)
+        .map_err(|e| format!("the OS keyring refused to store it: {e}"))
+}
+
+/// The token filed for `host`, or `None`.
+///
+/// Never logged, never cached, never put anywhere but the caller's hands — the
+/// same rule `read_lan_token` above keeps for the local token.
+#[tauri::command]
+fn read_remote_token(
+    state: tauri::State<'_, Arc<host_tauri::AppState>>,
+    host: String,
+) -> Result<Option<String>, String> {
+    let host = host.trim();
+    if host.is_empty() {
+        return Ok(None);
+    }
+    state
+        .keyring
+        .get(host_tauri::keyring::SERVICE, &host_tauri::keyring::user_for_remote(host))
+        .map_err(|e| format!("the OS keyring could not be read: {e}"))
+}
+
+/// Forget the token filed for `host`. Deleting what is not there is not an error.
+#[tauri::command]
+fn clear_remote_token(
+    state: tauri::State<'_, Arc<host_tauri::AppState>>,
+    host: String,
+) -> Result<(), String> {
+    let host = host.trim();
+    if host.is_empty() {
+        return Ok(());
+    }
+    state
+        .keyring
+        .delete(host_tauri::keyring::SERVICE, &host_tauri::keyring::user_for_remote(host))
+        .map_err(|e| format!("the OS keyring refused to forget it: {e}"))
+}
+
+/// Start the application again from scratch.
+///
+/// The one way out of a mode that takes effect at startup: leaving the remote
+/// node, or entering it, is a change to *which host this window talks to*, so the
+/// honest way to apply it is the same way the process began. `AppHandle::restart`
+/// is Tauri's own (no plugin, no extra dependency): it closes this instance and
+/// starts a new one.
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
+    app.restart()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -197,6 +272,10 @@ pub fn run() {
             set_network,
             lan_status,
             read_lan_token,
+            save_remote_token,
+            read_remote_token,
+            clear_remote_token,
+            restart_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

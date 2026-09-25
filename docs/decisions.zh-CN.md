@@ -735,3 +735,23 @@
 **理由**：3/N 把 `"resources": {"../dist": "dist"}` 写进配置，于是把一个**构建产物变成了编译期前置条件**：在全新 checkout（CI）上 `ui/dist` 不存在，`cargo clippy ui/src-tauri` 就以 `resource path '../dist' doesn't exist` 失败。这是本仓账本里**第五个**「本地绿、CI 红」机制——前四个是缺系统包、缺环境能力、SIGPIPE 与 `ETXTBSY`——而它与前四个有一处值得记下的不同：**它由我们自己的变更引入，而不是环境**。最直觉的修法——在 `ui/dist` 里放被跟踪的 `.gitkeep`——已被尝试并证伪：Vite 的 `emptyOutDir` 每次构建都会删掉它，工作树会永远脏着（3/N-fix 批就停在这道安全阀上）。关掉 `emptyOutDir` 也被否决——那样本地 `tauri build` 会把每一份陈旧的 hash 资产都打进安装包。稳定父目录 + 被清空的子目录，一次满足全部三条。
 
 **影响**：`--web-root`、`frontendDist` 与 `resolve_web_root` 的两个分支都指 `ui/dist/app`，`docs/manual-acceptance.md` 的局域网配方随之跟上。B-2 批当时记载的性质——`ui/dist` **不是** `cargo check` / `clippy` 的前置条件——恢复成立，已在有与没有 `dist/app/index.html` 两种情形下实测。今后的规矩：构建工具要求「编译期必须存在」的路径，应当放在**稳定的父目录**上，生成的内容放在该工具可以清空的子目录里。
+
+## 70. 内网节点的凭据住在 OS 钥匙串里，不在设置文件里
+
+**日期**：2026-09-25 ｜ **状态**：已定；随 v0.9.9「出」批落地
+
+**决策**：桌面端连内网服务器时，**地址**存 `settings.json`（`network.remote_url`，一个偏好），**令牌**存 OS 钥匙串，账户名 `remote-token:<host>`（`host_core::keyring::user_for_remote`）。第 2 批留下的占位字段 `NetworkSettings.remote_token` **删除**，而不是填上。
+
+**理由**：`settings.json` 自己的第一句话就是「这里只放非机密偏好」——v0.4 把 API key 送进钥匙串以来一直如此。远端 token 是本应用接触过的最强的凭据：它是另一台机器的 owner token，而那个文件是纯 JSON，它所在的目录正是备份、支持包和截图会顺手收走的东西。钥匙串本来就是 provider key 的家，形状已经存在；账户名**按 host** 命名，于是连第二台节点不会静默覆盖第一台的 token。
+
+**影响**：JS 读不到钥匙串，所以三个壳命令（`save_remote_token`、`read_remote_token`、`clear_remote_token`）是那座桥，而它们**在任何模式下都作用于本机**——远端窗口想出来时，要动手的是这台机器。`read_remote_token` 与 `read_lan_token` 一样只读：这里不会凭空造出凭据。**继承自 `keyring.rs` 的注意点**：钥匙串拒绝时会退化为内存存储，所以「记住」的 token 可能在重启后不在；调用方拿到的是钥匙串的回答，而不是期望。
+
+## 71. host 模式是一个值，而八个接线命令无视它
+
+**日期**：2026-09-25 ｜ **状态**：已定；随 v0.9.9「出」批落地
+
+**决策**：`api/index.ts` 把实现存在**变量**里（`let current: SharedApi`），由新的 `setImpl(mode, url)` 在启动时定一次；每个数据面导出都是经由它的一行转发。**八个名字例外，永远指向本机**：`getNetwork`、`setNetwork`、`readLanToken`、`lanStatus`、`saveRemoteToken`、`readRemoteToken`、`clearRemoteToken`、`restartApp`。第二个谓词与第一个并列：`isTauriRuntime()`（我跑在什么里面）与 `isLocalHost()`（屏幕上的节点是不是本进程自己的）。
+
+**理由**：4/N 已经清楚，加载时的 `const impl` 答不了「跟哪个 host 说话」——那是**配置**事实，不是环境事实。转发保住了 `const` 买来的性质：一个 `SharedApi` 类型在编译期把两个实现互相对钉，而某个实现缺某个名字时，它的转发根本编译不过（`probe-ui-remote.mjs` 数出 68 个转发，其中 60 个走模式）。真正承重的是那条例外：在远端模式下，被转发的 `getNetwork` 会去要求**远端服务器**改自己的接线——那正是没有、也永远不会有端点的东西——于是服务器不可达的窗口就再也回不来。给节点接线是本地行为；这就是为什么只有这八个名字无视模式。
+
+**影响**：模式在**外壳挂载之前**定好（`App.tsx`），所以 store 现有的挂载拉取**就是**那次重读，会话中途无需重拉；改模式是一次**重启**，这也是 `restart_app` 存在的原因。凡是本意是 `isLocalHost()` 的地方，界面都不能再问 `isTauriRuntime()`：门、设置页的 tab 表和顶栏徽标；`DesktopOnly` / `WebOnly` 刻意保持旧义（「这个构建里有没有 Tauri 运行时」）。远端窗口走 HTTP，因此和浏览器一样是只读的——远端服务器自己那份控制实现也是一句话拒绝。

@@ -105,6 +105,17 @@ export function setApiBase(next: string): void {
 }
 
 /**
+ * The address in force. `""` means same origin.
+ *
+ * Read by the startup path rather than remembered anywhere else: which host a
+ * remote-mode window is showing is a fact about this client, and one place that
+ * knows it is one place that can be wrong.
+ */
+export function getApiBase(): string {
+  return base;
+}
+
+/**
  * Where the Web client keeps its token.
  *
  * One key, in one of two stores: `sessionStorage` by default (it survives a
@@ -230,20 +241,24 @@ export type TokenCheck =
 /**
  * Is `candidate` the token this control plane wants?
  *
+ * `url` defaults to the address in force. The network page passes a **candidate**
+ * address it has not switched to yet, so checking one server does not retarget
+ * this client at another one.
+ *
  * The candidate rides this one request rather than being installed first, so a
  * rejected attempt cannot leave a bad token behind for the next call. The endpoint
  * is `/v0/health` because it is the cheapest authenticated one; the classification
  * is done here rather than through [`get`], which reports every failure as the
  * host's sentence and would lose the distinction above.
  */
-export async function verifyToken(candidate: string): Promise<TokenCheck> {
+export async function verifyToken(candidate: string, url = base): Promise<TokenCheck> {
   let response: Response;
   try {
     // The scheme word is spelled once, in a variable, for the reason the server's
     // own tests do it: a literal "Bearer <value>" span in a source file is a shape
     // that secret scanners and editors both like to rewrite.
     const scheme = "Bearer";
-    response = await fetch(`${base}/v0/health`, {
+    response = await fetch(`${url}/v0/health`, {
       headers: { Authorization: `${scheme} ${candidate}` },
     });
   } catch (e) {
@@ -451,6 +466,34 @@ export const setNetwork = (_network: NetworkSettings): Promise<void> =>
   desktopNetwork("set_network");
 
 export const readLanToken = (): Promise<string> => desktopNetwork("read_lan_token");
+
+/**
+ * The OS keyring, where a remote server's token lives (v0.9.9 `"out"`).
+ *
+ * Desktop-only like the four above, and for the same reason: the keyring belongs
+ * to the machine the shell runs on, and a browser has none. The token is a
+ * credential, so it is never put in `settings.json` — see
+ * `host_core::settings::NetworkSettings`.
+ */
+export const saveRemoteToken = (_host: string, _token: string): Promise<void> =>
+  desktopNetwork("save_remote_token");
+
+export const readRemoteToken = (_host: string): Promise<string | null> =>
+  desktopNetwork("read_remote_token");
+
+export const clearRemoteToken = (_host: string): Promise<void> =>
+  desktopNetwork("clear_remote_token");
+
+/**
+ * Start the desktop application again.
+ *
+ * A separate refusal rather than `desktopOnly`: the reason is not that the Web
+ * client is read-only, it is that a page cannot restart the process serving it.
+ */
+export const restartApp = (): Promise<void> =>
+  Promise.reject(
+    "restart_app is a desktop control: a browser page cannot restart the application that serves it",
+  );
 
 export const lanStatus = (): Promise<LanStatus> => desktopNetwork("lan_status");
 
