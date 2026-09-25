@@ -56,8 +56,6 @@ pub struct QemuDownloadSpec {
     /// Lowercase hex SHA-256 of the archive, as published by the vendor.
     pub sha256: String,
     pub archive_kind: ArchiveKind,
-    /// Directory (under the install root) the archive is extracted into.
-    pub install_subdir: String,
 }
 
 impl QemuDownloadSpec {

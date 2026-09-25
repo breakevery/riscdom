@@ -159,10 +159,6 @@ pub fn spec_for(
         sha256,
         archive_kind: platform_archive_kind(),
         toolchain: host_core::toolchain_download::Toolchain::C,
-        install_subdir: format!(
-            "xpack-riscv-none-elf-gcc-{}",
-            host_core::toolchain_download::XPACK_RISCV_GCC_VERSION
-        ),
     }
 }
 
@@ -233,7 +229,6 @@ pub fn zig_spec_for(
         sha256,
         archive_kind: zig_archive_kind(),
         toolchain: host_core::toolchain_download::Toolchain::Zig,
-        install_subdir: zig_stem(),
     }
 }
 
@@ -304,7 +299,6 @@ pub fn rust_spec_for(
         sha256,
         archive_kind: ArchiveKind::TarXz,
         toolchain: host_core::toolchain_download::Toolchain::Rust,
-        install_subdir: format!("rust-std-{version}-{}", agent::RUST_TARGET),
     }
 }
 
@@ -385,10 +379,6 @@ pub fn spec_for_tar_xz(
         sha256,
         archive_kind: ArchiveKind::TarXz,
         toolchain: host_core::toolchain_download::Toolchain::C,
-        install_subdir: format!(
-            "xpack-riscv-none-elf-gcc-{}",
-            host_core::toolchain_download::XPACK_RISCV_GCC_VERSION
-        ),
     }
 }
 
@@ -423,7 +413,6 @@ pub fn qemu_spec_for(
         url: server.url(name),
         sha256,
         archive_kind: qemu_archive_kind(),
-        install_subdir: format!("qemu-{}", host_core::qemu_download::QEMU_VERSION),
     }
 }
 

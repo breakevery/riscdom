@@ -1479,3 +1479,23 @@ rather than the view union, and `probe-ui-node-panel.mjs` asserts both halves of
 tabs in the page, and the shell's union unchanged. The four reads the new tabs need are **shared**
 names in the adapter — the desktop had the commands all along — so no name is declared Web-only for
 this, and the probe's list checks did not move.
+
+## 64. A field no one reads is deleted, not kept as a note
+
+**Date**: 2026-09-25 ｜ **Status**: Decided; updates §49
+
+**Decision**: `DownloadSpec` and `QemuDownloadSpec` no longer carry `install_subdir`. §49 recorded that the field "stays as it is and remains dead" and left the removal to a later batch; that later batch is this one, and the answer is deletion.
+
+**Why**: a dead field is not a note — it is a promise someone will misread. §49's own reason for keeping it was that the next batch should not rediscover why it was dead, and this entry *is* that record, which removes the reason to keep the field. Nothing in production read it (what the module actually needed was the locator, `product_locator`), one test asserted its value, and so the field made ten construction sites pass an argument for nothing. That test now asserts what the spec is for — the pinned URL, the checksum's shape, the platform-following archive kind.
+
+**Impact**: both `spec_for_current_platform` functions and `begin_toolchain_download`'s callers behave exactly as before; the two spec structs are one field smaller and their `Debug` output one line shorter. §49 stays as it is, as history.
+
+## 65. The migration relay holds its port as a lease, like every other bind
+
+**Date**: 2026-09-25 ｜ **Status**: Decided; extends §35
+
+**Decision**: `MigrationRelay::bind_local_with_timeout` reserves the loopback port it binds in the process-wide registry (`reserve`) and keeps the resulting `PortLease` as its listener, so the number stays held for as long as the relay lives. Until now the registry was fed only by `lease_local_ports` / `lease_local_port`.
+
+**Why**: §35's contract is about *live* leases — two leases alive at once never carry the same number — and the relay was the one bind that did not take part. The OS already refuses to hand out a port that is bound right now, so the practical gap was small: what was missing is the weaker half of the rule, that this process will not hand the number to a second holder the moment it lets go. The fix stays internal — the lease owns the listener, `addr()` is unchanged, the constructors keep their signatures — so the public API does not move.
+
+**Impact**: a relay's port appears in `leased_ports()` while it is alive and leaves it when it is dropped (pinned by a new unit test); the exhaustion path reports `SandboxError::PortLease`, the same shape `lease_local_ports` uses. `send_file_to` is unaffected: it connects to a peer that is already listening and never binds.

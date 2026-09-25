@@ -234,8 +234,13 @@ pub fn send_file_to(addr: SocketAddr, path: &Path, timeout: Duration) -> Result<
 }
 
 /// A one-shot TCP relay bound to a loopback port.
+///
+/// The port is held as a [`PortLease`], so the number is reserved in this
+/// process's registry for as long as the relay lives — the same guarantee
+/// [`lease_local_ports`] gives, applied to this bind (v0.9 pre-release small
+/// fixes). The lease owns the listener, so the OS holds the port too.
 pub struct MigrationRelay {
-    listener: TcpListener,
+    lease: PortLease,
     addr: SocketAddr,
     timeout: Duration,
 }
@@ -247,17 +252,34 @@ impl MigrationRelay {
     }
 
     /// Bind with an explicit timeout (tests use a short one).
+    ///
+    /// The port is reserved in this process's registry (v0.9 pre-release small
+    /// fixes): the OS will not hand out a port that is *bound* right now, but it
+    /// can hand out one this very process released a moment ago, which is the
+    /// window [`lease_local_ports`] closes for its own binds.
     pub fn bind_local_with_timeout(timeout: Duration) -> Result<Self, SandboxError> {
-        let listener =
-            TcpListener::bind("127.0.0.1:0").map_err(|e| SandboxError::Relay(e.to_string()))?;
-        let addr = listener
-            .local_addr()
-            .map_err(|e| SandboxError::Relay(e.to_string()))?;
-        Ok(Self {
-            listener,
-            addr,
-            timeout,
-        })
+        for _ in 0..MAX_LEASE_ATTEMPTS {
+            let listener =
+                TcpListener::bind("127.0.0.1:0").map_err(|e| SandboxError::Relay(e.to_string()))?;
+            let addr = listener
+                .local_addr()
+                .map_err(|e| SandboxError::Relay(e.to_string()))?;
+            if reserve(addr.port()) {
+                return Ok(Self {
+                    lease: PortLease {
+                        port: addr.port(),
+                        listener: Some(listener),
+                    },
+                    addr,
+                    timeout,
+                });
+            }
+        }
+        Err(SandboxError::PortLease(format!(
+            "no free loopback port after {MAX_LEASE_ATTEMPTS} attempts \
+             ({} already reserved by this process)",
+            leased_ports().len()
+        )))
     }
 
     /// The address QEMU should migrate to / come from.
@@ -373,12 +395,17 @@ impl MigrationRelay {
 
     /// Accept one connection, honouring this relay's timeout.
     fn accept(&self) -> Result<TcpStream, SandboxError> {
-        self.listener
+        let listener = self
+            .lease
+            .listener
+            .as_ref()
+            .expect("a relay holds its listener until it is dropped");
+        listener
             .set_nonblocking(true)
             .map_err(|e| SandboxError::Relay(e.to_string()))?;
         let deadline = Instant::now() + self.timeout;
         loop {
-            match self.listener.accept() {
+            match listener.accept() {
                 Ok((stream, _peer)) => {
                     stream
                         .set_nonblocking(false)
@@ -409,5 +436,21 @@ mod lease_tests {
         let text = error.to_string();
         assert!(text.contains("no free loopback port"), "{text}");
         assert!(text.contains("already reserved by this process"), "{text}");
+    }
+
+    #[test]
+    fn a_relay_holds_its_port_in_this_process_registry() {
+        let relay = MigrationRelay::bind_local().expect("bind");
+        let port = relay.addr().port();
+        assert!(
+            leased_ports().contains(&port),
+            "a relay's port must be reserved in this process's registry"
+        );
+        // The registry is what `reserve` answers from: a port already held comes
+        // back `false`, which is the property `lease_local_ports` retries on.
+        assert!(
+            !reserve(port),
+            "the registry must already hold the relay's port"
+        );
     }
 }

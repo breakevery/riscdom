@@ -104,8 +104,6 @@ pub struct DownloadSpec {
     /// the module cannot guess: which locator finds the product inside the archive, and which
     /// "adopt" call the host makes once it is installed.
     pub toolchain: Toolchain,
-    /// Directory (under the install root) the archive is extracted into.
-    pub install_subdir: String,
 }
 
 impl DownloadSpec {
@@ -228,7 +226,6 @@ pub fn spec_for_current_platform() -> Result<DownloadSpec, ToolchainDownloadErro
         sha256: sha256.to_string(),
         archive_kind,
         toolchain: Toolchain::C,
-        install_subdir: format!("xpack-riscv-none-elf-gcc-{XPACK_RISCV_GCC_VERSION}"),
     })
 }
 
@@ -352,14 +349,12 @@ pub fn rust_spec_for_current_platform() -> Result<DownloadSpec, ToolchainDownloa
     let asset = rust_asset();
     let sha256 = sha256_for_rust_asset(&asset)?;
     let version = RUST_VERSION.to_string();
-    let stem = asset.strip_suffix(".tar.xz").unwrap_or(&asset).to_string();
     Ok(DownloadSpec {
         url: format!("{RUST_RELEASE_BASE}/{asset}"),
         version,
         sha256: sha256.to_string(),
         archive_kind: ArchiveKind::TarXz,
         toolchain: Toolchain::Rust,
-        install_subdir: stem,
     })
 }
 
@@ -372,20 +367,12 @@ pub fn zig_spec_for_current_platform() -> Result<DownloadSpec, ToolchainDownload
     let (asset, archive_kind) = zig_asset_for(std::env::consts::OS, std::env::consts::ARCH)?;
     let sha256 = sha256_for_zig_asset(&asset)?;
     let version = ZIG_VERSION.to_string();
-    // The field is dead this batch (decision §49); naming the archive's own top directory is
-    // the least surprising thing to leave in it.
-    let stem = asset
-        .strip_suffix(".tar.xz")
-        .or_else(|| asset.strip_suffix(".zip"))
-        .unwrap_or(&asset)
-        .to_string();
     Ok(DownloadSpec {
         url: format!("{ZIG_RELEASE_BASE}/{version}/{asset}"),
         version,
         sha256: sha256.to_string(),
         archive_kind,
         toolchain: Toolchain::Zig,
-        install_subdir: stem,
     })
 }
 

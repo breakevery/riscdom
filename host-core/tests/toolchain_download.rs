@@ -26,10 +26,6 @@ fn the_pinned_spec_matches_this_platform() {
         "a real SHA-256 must be pinned (no skip-verification mode)"
     );
     assert!(spec.sha256.chars().all(|c| c.is_ascii_hexdigit()));
-    assert_eq!(
-        spec.install_subdir,
-        format!("xpack-riscv-none-elf-gcc-{XPACK_RISCV_GCC_VERSION}")
-    );
 
     let name = spec.file_name();
     assert!(
@@ -57,7 +53,6 @@ fn the_asset_name_is_the_last_url_segment() {
         sha256: "00".into(),
         archive_kind: ArchiveKind::TarGz,
         toolchain: Toolchain::C,
-        install_subdir: "toolchain-x".into(),
     };
     assert_eq!(spec.file_name(), "toolchain-x.tar.gz");
 }

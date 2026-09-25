@@ -187,6 +187,14 @@ the gate stays outside the store and that every key these screens use exists in 
 
 ### Fixed
 
+- **A dead spec field is removed, and the migration relay reserves its port** (v0.9 pre-release
+  small fixes). `DownloadSpec` and `QemuDownloadSpec` no longer carry `install_subdir` — nothing
+  in production read it and one test asserted it, so §49's "remains dead" is superseded
+  (decision §64) — and `MigrationRelay::bind_local_with_timeout` now reserves its loopback port
+  in this process's registry and holds a `PortLease` for as long as the relay lives (decision
+  §65), the guarantee `lease_local_ports` already gives, with no change to the public
+  constructors. The §1 notes that still read "Still open" about the gate's test coverage and the
+  logging batch's root-cause question now record what closed them. No behaviour change.
 - **`server/tests/logging.rs` reads the server's stdout to the end** (v0.9 logging root-cause
   batch): `read_banner` dropped the child's stdout as soon as it had the banner, and the server's
   three following `println!`s then hit a closed pipe — on Unix that is SIGPIPE, which kills the

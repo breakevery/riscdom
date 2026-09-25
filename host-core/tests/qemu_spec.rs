@@ -114,7 +114,6 @@ fn a_spec_names_the_archive_after_the_last_url_segment() {
         url: "https://example.invalid/releases/v1.2.3/qemu-1.2.3-win64.zip".into(),
         sha256: "00".into(),
         archive_kind: host_core::qemu_download::ArchiveKind::Zip,
-        install_subdir: "qemu-1.2.3".into(),
     };
     assert_eq!(spec.file_name(), "qemu-1.2.3-win64.zip");
 }

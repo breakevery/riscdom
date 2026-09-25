@@ -13,6 +13,20 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
 
+- **A dead field is gone, the migration relay holds its port, and the §1 notes that read
+  "still open" about the gate are closed** (v0.9 pre-release small fixes). `DownloadSpec` and
+  `QemuDownloadSpec` no longer carry `install_subdir`: nothing in production read it, one test
+  asserted its value, and §49's "the field stays as it is and remains dead" is superseded
+  (decision §64) — ten construction sites lost the field (three in `toolchain_download.rs`,
+  five in `host-core/tests/common/mod.rs`, two in the crates' own tests) and one assertion with
+  it. `MigrationRelay::bind_local_with_timeout` now **reserves its loopback port in this
+  process's registry** and holds a `PortLease` for as long as the relay lives, so the number
+  cannot be handed to a second holder while the relay is alive — the contract
+  `lease_local_ports` states, applied to this bind (decision §65); the public constructors are
+  unchanged. And the four §1 notes that still read "Still open" — the gate's off-Windows
+  coverage (closed by B-2 / B-3a / B-3b) and the logging batch's "is this the CI root
+  cause" — now say what closed them, in both languages. One new test (683). No behaviour
+  change, no API change.
 - **The Web board's node page has three tabs** (v0.9 D2b-4b — the D2b line's last batch).
   `StatusPanel` is now a container (three tabs held as local `useState`, rendered with the same
   `.settings-tabs` / `.tab-btn` row the settings page uses, so no new CSS) over
@@ -251,7 +265,9 @@ current request authorising it (§2).
   reading (`InvalidData` / any other I/O error counted, `Interrupted` retried, EOF ends it), and
   `wait_for_line`'s failure message prints the reader's state — lines captured, unreadable lines,
   still reading or stopped — so the next red run answers "the line never came" versus "the reader
-  had already stopped". **What is still open:** whether this *is* the CI root cause. Our change
+  had already stopped". **Closed** by the two logging batches above: the root cause was
+  `read_banner` dropping the child's stdout (EPIPE, and SIGPIPE on Unix), not this reader loop —
+  and the D2b-2 red had a separate cause (`ETXTBSY`, decision §58). Our change
   cannot have caused the failure (the only `server` change in `789f196` was the
   `Action::ToolchainDownloadStart` arm, `+11/-1`, and the health path does not move), yet the same
   test was green on the two Linux runs before it. The 5 s timeout and the 25 ms poll are
@@ -357,9 +373,11 @@ current request authorising it (§2).
   `agent`, `host-core`, `cli`, `server`, `worker` and the audit/sandbox `tests/` directories had
   no coverage at all off Windows. It is `cargo test --workspace --lib` now: **204** unit tests,
   no QEMU risk (they are all pure logic; the only platform-gated ones are
-  `sandbox/src/platform.rs` (unix) and `server/src/token.rs` (unix + windows)). Still open:
-  the guest-booting integration tests are not separated from the portable ones yet, and the
-  portable **integration** tests (`tests/*.rs`) still do not run off Windows (B-3b).
+  `sandbox/src/platform.rs` (unix) and `server/src/token.rs` (unix + windows)). **Closed** by
+  B-3b (see that entry above): the guest-booting tests carry `#[ignore]` markers that name
+  their prerequisite, so a machine without the tools runs the portable **integration** tests
+  as well — `cargo test --workspace --no-fail-fast`, **588** tests where this series started
+  at 10.
 - **The gate lints and checks every workspace crate on every platform now** (v0.9
   gate-consistency batch B-2). The last two skips are gone — `host-tauri` and `ui/src-tauri` are
   linted on Linux as well — and `worker`, which no clippy list on either platform mentioned,
@@ -368,8 +386,11 @@ current request authorising it (§2).
   the `libdbus-1-dev` it already had. `ui/dist` turned out **not** to be a prerequisite for
   `cargo check` / `clippy`: `tauri::generate_context!()` takes the dev branch unless the
   `custom-protocol` feature is on (`tauri-macros/src/context.rs`), which is true for a plain
-  `cargo check`; verified by moving `ui/dist` aside and checking the crate. Still open: a
-  non-Windows gate runs `cargo test -p audit -p sandbox --lib` — 10 tests of 638 (B-3).
+  `cargo check`; verified by moving `ui/dist` aside and checking the crate. **Closed** by
+  B-3a / B-3b (see those entries above): the gate runs `cargo test --workspace --lib`
+  (**204** unit tests) where it has no tools, and `cargo test --no-fail-fast --
+  --include-ignored` (**643** passed, 0 ignored) where it has them — no longer
+  `-p audit -p sandbox --lib`, 10 of 638.
 - **B-1's follow-up: the lint it surfaced is fixed** (v0.9 gate-consistency batch B-1-fix).
   Un-skipping `cli` on Linux failed there immediately: `cli/tests/control.rs`'s
   `write_executor_settings` was called only from a `#[cfg(windows)]` dispatch test but carried
@@ -384,9 +405,9 @@ current request authorising it (§2).
   system package was needed: `libdbus-1-dev` + `pkg-config`, which CI already installs, are what
   `host-core`'s `keyring` backend needs on Linux. The gap this closes was found the hard way —
   E4's `worker` example step was the first Linux gate step to compile `host-core`, and it went
-  red for four commits. `ci.yml` is unchanged. Still open: the two Tauri crates (B-2) and the
-  fact that a non-Windows gate runs `cargo test -p audit -p sandbox --lib` — 10 tests of 638
-  (B-3).
+  red for four commits. `ci.yml` is unchanged. **Both closed since**: B-2 lints the two Tauri
+  crates on every platform, and the per-platform test branch is gone with B-3a / B-3b (see
+  those entries above).
 - **The crate examples are documented, and the contributor templates exist** (v0.9
   small-changes batch). `agent/README` and `audit/README`, both languages, gained an `## Example`
   section for `examples/audit_demo.rs` and `examples/chain_demo.rs` — the two examples that were
