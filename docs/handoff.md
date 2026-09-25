@@ -11,7 +11,20 @@ branch `main`. The close-out of every batch is the same: gate green → `scripts
 (which runs the gate itself) → push — and none of those remote-facing steps happens without the
 current request authorising it (§2).
 
-## 1. Snapshot — `v0.8.0` is the newest release (update this section when the next release ships)
+## 1. Snapshot — `v0.9.0` is the newest release (update this section when the next release ships)
+
+- **`v0.9.0` is the release** (2026-09-25): the version is bumped to `0.9.0` (7 files: `Cargo.toml`, the two
+  `Cargo.lock`s, `ui/package.json`, `ui/package-lock.json`, `ui/src-tauri/Cargo.toml`,
+  `ui/src-tauri/tauri.conf.json` — the wix guard requires no `bundle.windows.wix.version` on a numeric
+  release, and there is none), `CHANGELOG`'s `[Unreleased]` is folded into `[0.9.0] - 2026-09-25`, and
+  [RELEASE_NOTES.md](../RELEASE_NOTES.md) is rewritten as the release text — **the GitHub release body is
+  that file verbatim** (the v0.7.0 and v0.8.0 releases worked that way). **This bullet is written by the
+  local preparation batch**: the push, the `v0.9.0` tag, the GitHub release and the asset upload are the
+  release batch's own steps, which this line describes — so **`v0.9.0` is not tagged yet**. What v0.9 is:
+  the project becomes drivable and visible (a control plane with real authentication and a live event
+  stream, a CLI that speaks it, a browser board that reads it), and the sandbox gains two languages (Zig
+  and Rust) beside C; the multi-agent work arrives as an **interface** — a roster, a dispatch endpoint, a
+  remote handle — not yet as a collaboration strategy.
 
 - **A dead field is gone, the migration relay holds its port, and the §1 notes that read
   "still open" about the gate are closed** (v0.9 pre-release small fixes). `DownloadSpec` and
@@ -1038,8 +1051,9 @@ current request authorising it (§2).
   `extract_zip` stub) ← `344fd2b` (rpm for the Linux bundle) ← `0633bdc` (the macOS/Linux bundle CI
   job) ← `833f9c3` (platform-aware QEMU guidance, icon.icns, Unix QMP arg test) ← `06fef0a` (the
   language switch) ← `6abcb44` (the i18n pilot) ← `b0efeb8` (the v0.6.0-preview.1 release).
-- Tags: `v0.8.0` is the newest tag and the release **holding the Latest marker** (confirmed with
-  `gh release list`: 2026-09-22T07:37:50Z, annotated tag object
+- Tags: **`v0.9.0` is not tagged yet** — the release batch does that, and this local preparation batch
+  neither pushes nor tags. `v0.8.0` is the newest tag and the release **holding the Latest marker**
+  (confirmed with `gh release list`: 2026-09-22T07:37:50Z, annotated tag object
   `0b018081de1a4e89e04e7bc1570d595d38ab4b4b` → `8a5381436b62fa84b4f4a972a630061ce2203373`);
   `v0.7.0` = annotated tag object `f267f13dc6f8df9a3ff196b05d3bb9b7724f2d60` →
   `2bddae6b0897bb5fe262af2b7e4bf4b3733ec7eb` (it held the Latest marker until this release, which moved
@@ -1047,11 +1061,12 @@ current request authorising it (§2).
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`;
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`;
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`.
-- Test totals at `main` (this release, `602f402`): **330 passed / 0 failed / 8 ignored / 90 suites** —
-  324 / 0 / 8 / 87 before the supervisor batch, 295 / 0 / 8 / 80 at the `v0.7.0` release commit,
-  291 / 0 / 8 / 80 at `v0.6.0-preview.1`, and 281 / 0 / 8 / 79 at `v0.5.0`. The gate is 13 steps (v0.7
-  batch 1 added the UI string registry), green locally and in CI (`scripts/gate.sh` on `ubuntu-latest`
-  plus gitleaks).
+- Test totals at `main` (this release): **688 tests in 118 suites** — where the guest tools are absent
+  the gate runs **625 passed / 0 failed / 63 ignored** (every ignored test names the prerequisite it
+  lacks), and a machine that has QEMU and a RISC-V GCC runs the ignored set too, minus the three that
+  need an API key or the OS keyring (**685**). The gate is seventeen steps (two optional: the Python
+  supervisor self-test needs a Python on `PATH`), green locally and in CI (`scripts/gate.sh` on
+  `ubuntu-latest` plus gitleaks).
 - **The architecture-evolution note is finalized and on disk**: [architecture-evolution.md](architecture-evolution.md)
   (bilingual, paired with [architecture-evolution.zh-CN.md](architecture-evolution.zh-CN.md)) records the
   architecture re-assessment done after v0.7.0 — the four layers and the syscall-layer mechanism/policy

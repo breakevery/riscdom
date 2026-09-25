@@ -4,5 +4,5 @@ members = ["cli", "host-core", "host-tauri", "sandbox", "audit", "agent", "worke
 exclude = ["ui"]
 
 [workspace.package]
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"

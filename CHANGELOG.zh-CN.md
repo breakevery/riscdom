@@ -9,6 +9,8 @@
 
 ## [未发布]
 
+## [0.9.0] - 2026-09-25
+
 **控制平面能被驱动了，而且有门禁。** `docs/control-plane-api.zh-CN.md` §5.2 的 27 个控制端点已可用——跑 agent、管会话、存/恢复快照、停 VM、设置工具链与 QEMU 路径、跑预检、配置 LLM、导出审计——并且除非以 `--no-auth` 启动，服务端现在要求每个请求都出示 bearer token。事件流补上了 `Last-Event-ID` 补发与 `gap` 帧。
 
 **现在每个端点都检查权限，且两种传输对身份一致。** 控制平面不再只是标注每条路由需要什么：服务端拿它与 `Authn` 钩子返回的 actor 比对，不持有即 `403`。sink 打的身份改从**来源**取，一个事件不可能看起来像两个 agent。
@@ -1073,7 +1075,8 @@ optional），以及子进程自己的 agent 身份是经**事件**回来的，�
   `agent:final` 到达、`serial:chunk` 含 `HELLO RISCV`、`verify_chain` 为 Intact。
 - 真实 DeepSeek API 端到端：**已执行通过**（2026-09-14，`iterations = 6`，串口捕获 `HELLO RISCV`；结果见 `host/README.md`）。
 
-[未发布]: https://github.com/breakevery/riscdom/compare/v0.8.0...HEAD
+[未发布]: https://github.com/breakevery/riscdom/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/breakevery/riscdom/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/breakevery/riscdom/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/breakevery/riscdom/compare/v0.6.0-preview.1...v0.7.0
 [0.5.0]: https://github.com/breakevery/riscdom/compare/v0.5.0-preview.1...v0.5.0

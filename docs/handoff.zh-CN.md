@@ -9,7 +9,17 @@
 `main`。每个批次的收尾流程一致：gate 全绿 → `scripts\commit.ps1 "<msg>"`（它自己会跑 gate）→ push ——
 而这些面向远端的动作，只在当轮请求明确授权时才做（见 §2）。
 
-## 1. 快照 —— `v0.8.0` 是最新的发行版（下次正式发布时更新本节）
+## 1. 快照 —— `v0.9.0` 是最新的发行版（下次正式发布时更新本节）
+
+- **`v0.9.0` 是本次发布**（2026-09-25）：版本 bump 到 `0.9.0`（7 个文件：`Cargo.toml`、两个 `Cargo.lock`、
+  `ui/package.json`、`ui/package-lock.json`、`ui/src-tauri/Cargo.toml`、`ui/src-tauri/tauri.conf.json`
+  —— wix 守卫要求纯数字正式版不带 `bundle.windows.wix.version`，当前确实没有），`CHANGELOG` 的
+  `[Unreleased]` 归入 `[0.9.0] - 2026-09-25`，[RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) 按正式发布
+  重写 —— **GitHub Release 的正文就是该文件（英文版 `RELEASE_NOTES.md`）的逐字拷贝**（v0.7.0 与 v0.8.0 的
+  发布都是这么做的）。**本条目由本地准备批次写下**：push、`v0.9.0` tag、GitHub Release 与附件上传是发布批次
+  自己的步骤，这一行描述的正是它们要完成的那次发布 —— 因此**`v0.9.0` 尚未打 tag**。v0.9 是什么：项目变得
+  可驱动、可见（带真实鉴权与实时事件流的控制平面、能说它的 CLI、能读它的浏览器看板），沙箱在 C 之外多了
+  两种语言（Zig 与 Rust）；多 Agent 部分交付的是**接口** —— 名册、派发端点、远程句柄 —— 还不是协作策略。
 
 - **一个死字段没了，迁移 relay 现在持有它的端口，而 §1 里那些仍写着「仍开着」的注记也关闭了**（v0.9 发布前小修）。`DownloadSpec` 与 `QemuDownloadSpec` 不再携带 `install_subdir`：生产代码从不读它、只有一个测试断言过它的值，而 §49 那句「字段维持原样、继续是死的」已被取代（决策 §64）——**10 个构造点**移除了该字段（`toolchain_download.rs` 3 处、`host-core/tests/common/mod.rs` 5 处、crate 自己的测试 2 处），并连带去掉一条断言。`MigrationRelay::bind_local_with_timeout` 现在会**在本进程的登记表里预留它的回环端口**，并持有一个与 relay 同寿的 `PortLease`，于是 relay 活着时这个号不会被交给第二个持有者——这正是 `lease_local_ports` 立下的契约，如今也覆盖这次 bind（决策 §65）；公开构造函数未变。另外 §1 里四处仍写着「仍开着」的注记——gate 非 Windows 覆盖（由 B-2 / B-3a / B-3b 关闭）与 logging 批次的「这是否就是 CI 的根因」——现在都写明了是什么关闭了它们，两个语言同步。新增 1 个测试（683）。行为未变、接口未变。
 
@@ -164,7 +174,8 @@
   快照）← `202dd75`（非 Windows 的 `extract_zip` 存根）← `344fd2b`（Linux 包需要的 rpm）← `0633bdc`
   （macOS/Linux 的 bundle CI job）← `833f9c3`（随平台变化的 QEMU 指引、icon.icns、Unix QMP 单测）←
   `06fef0a`（语言切换）← `6abcb44`（i18n 试点）← `b0efeb8`（v0.6.0-preview.1 发布）。
-- tag：`v0.8.0` 是最新的 tag，也是**持有 Latest 标记**的那次发布（已用 `gh release list` 确认：
+- tag：**`v0.9.0` 尚未打 tag** —— 由发布批次完成，本地准备批次既不 push 也不打 tag。`v0.8.0` 是最新的 tag，
+  也是**持有 Latest 标记**的那次发布（已用 `gh release list` 确认：
   2026-09-22T07:37:50Z，annotated tag 对象 `0b018081de1a4e89e04e7bc1570d595d38ab4b4b` →
   `8a5381436b62fa84b4f4a972a630061ce2203373`）；`v0.7.0` = annotated tag 对象
   `f267f13dc6f8df9a3ff196b05d3bb9b7724f2d60` → `2bddae6b0897bb5fe262af2b7e4bf4b3733ec7eb`（Latest
@@ -173,10 +184,11 @@
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`；
   `v0.4.0` = `25bd3da3c31c1d1ec7e163f3835b0c2bbb74546d` → `15fda1f6d76d53a4ff1b621c2d3d91f0b4b87311`；
   `v0.3.1` = `d8fdba66a366632ca569d8db2657ab5a566b991c` → `b9be9111c620faad686c7a9d095e0ebc04b31225`。
-- `main`（本次发布，`602f402`）处的测试总况：**330 passed / 0 failed / 8 ignored / 90 suites**
-  —— 监工批次之前为 324 / 0 / 8 / 87，`v0.7.0` 发布提交处为 295 / 0 / 8 / 80，`v0.6.0-preview.1` 处为
-  291 / 0 / 8 / 80，`v0.5.0` 处为 281 / 0 / 8 / 79。gate 共 13 步（v0.7 批次 1 新增了 UI 字符串注册表），
-  本地与 CI 均全绿（`ubuntu-latest` 上跑 `scripts/gate.sh`，另加 gitleaks）。
+- `main`（本次发布）处的测试总况：**688 个测试 / 118 个套件** —— 没有 guest 工具时 gate 跑出
+  **625 passed / 0 failed / 63 ignored**（每个被忽略的测试都写明了它缺什么前提），有 QEMU 与 RISC-V GCC
+  的机器会连被忽略的那批一起跑，只跳过三个需要 API key 或会写 OS 钥匙串的（**685**）。gate 共 17 步
+  （其中两步可选：Python 监工自测需要有 Python 在 `PATH` 上），本地与 CI 均全绿（`ubuntu-latest` 上跑
+  `scripts/gate.sh`，另加 gitleaks）。
 - **架构演进文档已定稿并落盘**：[architecture-evolution.md](architecture-evolution.md)（双语，与
   [architecture-evolution.zh-CN.md](architecture-evolution.zh-CN.md) 成对）记录了 v0.7.0 之后做的架构重估 ——
   四层分层与 syscall 层的「机制/策略」划分、已定决策（Tauri 解耦 A3 → A1、B2 多进程模型、审计单链 +
