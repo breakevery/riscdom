@@ -193,6 +193,8 @@ const KEYS = [
   "network.allow_lan_warning",
   "network.lan_url",
   "network.lan_url_pending",
+  "network.lan_state_running",
+  "network.firewall_hint",
   "network.token_show",
   "network.token_copy",
   "network.token_path",

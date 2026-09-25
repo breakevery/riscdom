@@ -113,10 +113,26 @@ The full record goes in [golden-path-checklist.md](golden-path-checklist.md); th
 - [ ] *Settings → Toolchain*: install **Zig**, then ask the agent for a Zig hello that boots.
 - [ ] *Settings → Toolchain*: install the **Rust** sysroot, then ask for a Rust hello that boots.
 
+## Layer 8 — the board on the network (v0.9.9)
+
+- [ ] *Settings → Network*: switch **serve this node's board on the network** on, and **allow other
+      devices on this network** (the warning appears — read it, and keep the token to yourself).
+- [ ] Save. **Windows may ask whether to let the app use the network — choose Allow**, or nothing on
+      the LAN will reach it. macOS may ask through its own firewall; Linux has no prompt here.
+- [ ] The page now shows a **board address** (`http://<this machine's address>:7821`) with the state
+      **serving**, and the bound address in brackets (`0.0.0.0:7821`).
+- [ ] On a **phone on the same network**: open that address. The **login gate** appears; take the token
+      from *Show token → Copy* and sign in. The node page opens with its three tabs.
+- [ ] Start something on the desktop while the phone watches: the board refreshes by itself.
+- [ ] Switch the board **off** and save: the phone's connection stops working within a few seconds.
+- [ ] Close the app and open it again: the board comes back on its own (the settings remember it) — or
+      stays off, if you switched it off.
+
 ## Pass criteria
 
-**Layers 1–6 must pass** for a release to be walked successfully. **Layer 7 is a bonus** — report it,
-but its absence is not a failure.
+**Layers 1–7 must pass** for a release to be walked successfully. **Layer 8 is the newest one**, and a
+phone is the only thing that can check it — walk it when you have one, but a release is not failed for
+its absence.
 
 ## Reporting back
 

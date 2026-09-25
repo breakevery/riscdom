@@ -13,6 +13,19 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.1` is the newest release (update this section when the next release ships)
 
+- **The desktop can serve its own board to the network** (v0.9.9 内网接入 batch 3). The shell starts
+the embedded control plane over **the app's own state** — it now manages an `Arc<AppState>` and
+  `host-tauri`'s **68** commands take that same handle (a copy would have its own VM slot, and a board
+  that can start a second QEMU is worse than no board) — binds **loopback unless `lan_allow_lan`** is
+  on, and mints its token through `server::token` on first start, so the *Network* tab's “show token”
+  finally has a real one to show. The built front end ships as a Tauri **resource**
+  (`"resources": {"../dist": "dist"}`), resolved by one helper that tries the resource directory
+  and falls back to the source tree, so a packaged app has a `web_root` and `tauri dev` resolves the
+  same way. A change to any network setting **rebinds** (stop, then start), and `RunEvent::ExitRequested`
+  aborts the server so no socket outlives the window. A fifteenth UI probe (`probe-ui-lan.mjs`) pins the
+  wiring, and [manual-acceptance.md](manual-acceptance.md) gained **layer 8** for the part only a person
+  can walk: a phone on the same network.
+
 - **The network face has its configuration page, and the token is readable without being created**
   (v0.9.9 内网接入 batch 2). A new *Settings → Network* tab holds both directions in one place:
   **connect out** (a server address and a token, with the button disabled and saying why — the

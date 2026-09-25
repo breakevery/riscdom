@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `network` additively, the shell crate gains `get_network` / `set_network` / `read_lan_token` — the
   last one **reads the token file and never creates it** — and the browser is offered none of it.
 
+- **The desktop can serve its own board to the network** (v0.9.9 内网接入, batch 3): the shell starts
+  the embedded control plane over the app's own `Arc<AppState>` — so a phone sees the node this window
+  is running, never a copy — binds loopback unless “allow other devices” is on, ships the built front
+  end as a bundle resource, rebinds when any network setting changes, and aborts the server when the
+  app exits. The network tab now shows the board's real state and the address a phone has to type.
+
 ## [0.9.1] - 2026-09-25
 
 ### Fixed

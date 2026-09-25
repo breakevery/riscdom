@@ -44,6 +44,7 @@ export default function NetworkTab({ store }: { store: AppStore }) {
   // edited and saved it again (found by walking this page, v0.9.9 batch 2).
   useEffect(() => {
     void store.refreshNetwork();
+    void store.refreshLan();
   }, [store]);
 
   // The form follows the store's answer. It cannot clobber typing: `network` only
@@ -61,6 +62,9 @@ export default function NetworkTab({ store }: { store: AppStore }) {
   const save = async () => {
     setBusy(true);
     await store.setNetwork(form);
+    // The board follows the settings, so the state it reports is read again
+    // rather than guessed: a port already in use is answered here.
+    await store.refreshLan();
     setBusy(false);
     setSaved(true);
   };
@@ -90,6 +94,7 @@ export default function NetworkTab({ store }: { store: AppStore }) {
 
   const bind = form.lan_bind ?? DEFAULT_BIND;
   const port = bind.includes(":") ? bind.split(":").pop() : bind;
+  const lan = store.lan;
 
   return (
     <>
@@ -159,9 +164,19 @@ export default function NetworkTab({ store }: { store: AppStore }) {
           </div>
         ) : null}
         <div className="muted small">
-          {t("network.lan_url")}: <code>{`http://<this machine>:${port}`}</code> —{" "}
-          {t("network.lan_url_pending")}
+          {t("network.lan_url")}:{" "}
+          {lan?.running ? (
+            <code>{`http://${lan.address ?? "<this machine>"}:${port}`}</code>
+          ) : (
+            <span>{t("network.lan_url_pending")}</span>
+          )}{" "}
+          <span className={lan?.running ? "ok" : "muted"}>
+            {lan?.running ? t("network.lan_state_running") : t("network.lan_url_pending")}
+          </span>
+          {lan?.bound ? <span className="muted"> ({lan.bound})</span> : null}
         </div>
+        <div className="muted small">{t("network.firewall_hint")}</div>
+        {lan?.problem ? <div className="field-error">{lan.problem}</div> : null}
         <div className="muted small">{t("network.token_path")}</div>
         <div>
           <button className="ghost" onClick={() => void showToken()} disabled={busy}>

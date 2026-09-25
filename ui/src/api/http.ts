@@ -30,6 +30,7 @@ import type {
   LlmStatus,
   LocalProbeResult,
   NetworkSettings,
+  LanStatus,
   CandidateView,
   CurrentSandboxResponse,
   ExecutorListResponse,
@@ -66,6 +67,7 @@ export type {
   LlmStatus,
   LocalProbeResult,
   NetworkSettings,
+  LanStatus,
   LocalProviderInfo,
   PreflightRow,
   PreflightView,
@@ -449,6 +451,8 @@ export const setNetwork = (_network: NetworkSettings): Promise<void> =>
   desktopNetwork("set_network");
 
 export const readLanToken = (): Promise<string> => desktopNetwork("read_lan_token");
+
+export const lanStatus = (): Promise<LanStatus> => desktopNetwork("lan_status");
 
 export const setAuditAlert = (_enabled: boolean): Promise<void> =>
   desktopOnly("set_audit_alert");

@@ -70,6 +70,9 @@ const EN = {
     "Anyone on this network will be able to reach this node, and only the token stands in the way — keep it to yourself.",
   "network.lan_url": "Board address",
   "network.lan_url_pending": "not serving yet",
+  "network.lan_state_running": "serving",
+  "network.firewall_hint":
+    "Windows may ask whether to let this app use the network the first time — choose Allow, or a phone cannot get through.",
   "network.token_show": "Show token",
   "network.token_copy": "Copy",
   "network.token_path":
@@ -396,6 +399,9 @@ const ZH: Record<StringKey, string> = {
     "同网段的任何人都能访问本节点，唯一拦着他们的就是 token —— 请保管好它。",
   "network.lan_url": "看板地址",
   "network.lan_url_pending": "尚未启用",
+  "network.lan_state_running": "正在服务",
+  "network.firewall_hint":
+    "Windows 首次可能弹窗问是否允许本应用访问网络 —— 请选「允许」，否则手机连不上。",
   "network.token_show": "显示 token",
   "network.token_copy": "复制",
   "network.token_path": "token 位于本节点的数据目录下的 <data-dir>/token。",

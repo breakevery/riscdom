@@ -117,6 +117,9 @@ export interface AppStore {
   setNetwork: (next: Partial<api.NetworkSettings>) => Promise<void>;
   /** Read the LAN token a started server would require. Desktop-only. */
   readLanToken: () => Promise<string>;
+  /** What the board is doing right now (v0.9.9), read on demand. */
+  lan: api.LanStatus | null;
+  refreshLan: () => Promise<void>;
   workspaceFiles: string[];
   refreshWorkspace: () => Promise<void>;
   // serial / vm (consumed by the canvas in stage 6c)
@@ -267,6 +270,9 @@ export function useAppStore(): AppStore {
   // The node's network wiring (v0.9.9 内网接入); `null` until read, and `null` is
   // also what a node that never configured one answers.
   const [network, setNetworkState] = useState<api.NetworkSettings | null>(null);
+  // What the embedded server is doing (v0.9.9 batch 3): null until read, and the
+  // shell is the only thing that knows.
+  const [lan, setLan] = useState<api.LanStatus | null>(null);
   const languageChoiceRef = useRef<LanguageChoice>(languageChoice);
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
   const [serial, setSerial] = useState("");
@@ -561,6 +567,14 @@ export function useAppStore(): AppStore {
   );
 
   const readLanToken = useCallback(async () => api.readLanToken(), []);
+
+  const refreshLan = useCallback(async () => {
+    try {
+      setLan(await api.lanStatus());
+    } catch (e) {
+      setLastError(String(e));
+    }
+  }, []);
 
   // The settings page's language choice (v0.7 batch 2): apply it first, then
   // store it, then persist it, so the visible language never waits on disk.
@@ -1124,6 +1138,8 @@ export function useAppStore(): AppStore {
     refreshNetwork,
     setNetwork,
     readLanToken,
+    lan,
+    refreshLan,
     clearToolchain,
     qemu,
     refreshQemu,

@@ -16,6 +16,7 @@ import type {
   LlmStatus,
   LocalProbeResult,
   NetworkSettings,
+  LanStatus,
   ProviderPreset,
   PreflightView,
   QemuView,
@@ -48,6 +49,8 @@ export type {
   LlmStatus,
   LocalProbeResult,
   LocalProviderInfo,
+  NetworkSettings,
+  LanStatus,
   PreflightRow,
   PreflightView,
   ProviderPreset,
@@ -305,3 +308,9 @@ export const setNetwork = (network: NetworkSettings): Promise<void> =>
  * neither logged nor stored on this side.
  */
 export const readLanToken = (): Promise<string> => invoke<string>("read_lan_token");
+
+/**
+ * What the board is doing right now (v0.9.9): running, where it bound, and the
+ * address a phone has to type.
+ */
+export const lanStatus = (): Promise<LanStatus> => invoke<LanStatus>("lan_status");

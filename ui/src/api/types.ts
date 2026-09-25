@@ -324,3 +324,15 @@ export interface NetworkSettings {
   /** Bind on every interface rather than loopback — the switch that reaches a phone. */
   lan_allow_lan: boolean;
 }
+
+/** What the node's board is doing right now (v0.9.9 内网接入). */
+export interface LanStatus {
+  /** Is the embedded server running? */
+  running: boolean;
+  /** The address it bound, when it is running (`0.0.0.0:7821` for a LAN board). */
+  bound: string | null;
+  /** This machine's own address on the network — what a phone has to type. */
+  address: string | null;
+  /** Why it is not running, when the settings asked for it and it would not start. */
+  problem: string | null;
+}

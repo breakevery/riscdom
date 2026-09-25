@@ -235,3 +235,5 @@ export const getNetwork = impl.getNetwork;
 export const setNetwork = impl.setNetwork;
 
 export const readLanToken = impl.readLanToken;
+
+export const lanStatus = impl.lanStatus;

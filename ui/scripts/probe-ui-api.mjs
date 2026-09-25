@@ -156,6 +156,7 @@ const CONTROLS = [
   "getNetwork",
   "setNetwork",
   "readLanToken",
+  "lanStatus",
 ];
 const EVENTS = [
   "onHostEvent",
