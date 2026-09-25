@@ -21,9 +21,11 @@ current request authorising it (§2).
   `ui/src-tauri/tauri.conf.json` — the wix guard requires no `bundle.windows.wix.version` on a numeric
   release, and there is none), `CHANGELOG`'s `[Unreleased]` is folded into `[0.9.1] - 2026-09-25`, and
   [RELEASE_NOTES.md](../RELEASE_NOTES.md) is rewritten as the release text — **the GitHub release body
-  is that file verbatim** (v0.7.0 through v0.9.0 worked that way). **This bullet is written by the
-  local preparation batch**: the push, the `v0.9.1` tag, the GitHub release and the asset upload are
-  the release batch's own steps — so **`v0.9.1` is not tagged yet**. The same batch put
+  is that file verbatim** (v0.7.0 through v0.9.0 worked that way). The release was cut the same day:
+  annotated tag `v0.9.1` (object `25957bcf1d11432986356617f2dfc27243a342d9` → `39ff71d`), a GitHub
+  release whose body is that file verbatim, and **six assets** — the two Windows installers built on
+  this machine plus the macOS `.dmg` and the Linux `.deb` / `.rpm` / `.AppImage` from the CI `bundle`
+  job. The Latest marker moved to it. The same batch put
   [manual-acceptance.md](manual-acceptance.md) on disk: v0.9.0's P0 was found by a person opening the
   app, and the walk this repository relies on had never been written down.
 
@@ -1081,13 +1083,13 @@ current request authorising it (§2).
   `extract_zip` stub) ← `344fd2b` (rpm for the Linux bundle) ← `0633bdc` (the macOS/Linux bundle CI
   job) ← `833f9c3` (platform-aware QEMU guidance, icon.icns, Unix QMP arg test) ← `06fef0a` (the
   language switch) ← `6abcb44` (the i18n pilot) ← `b0efeb8` (the v0.6.0-preview.1 release).
-- Tags: **`v0.9.1` is not tagged yet** — the release batch does that, and this local preparation batch
-  neither pushes nor tags. `v0.9.0` is the newest tag and the release **holding the Latest marker**
-  (confirmed with `gh release list`: 2026-09-25T02:21:11Z, annotated tag object
-  `fe4e0bc4411792a064945d8a5ec2c2e9add8bbe7` → `8bc77196bd4ac3cd03da7581214aea193a839b51`); `v0.8.0` =
-  annotated tag object `0b018081de1a4e89e04e7bc1570d595d38ab4b4b` →
-  `8a5381436b62fa84b4f4a972a630061ce2203373` (it held the Latest marker until this release, which moved
-  it); `v0.7.0` = annotated tag object `f267f13dc6f8df9a3ff196b05d3bb9b7724f2d60` →
+- Tags: `v0.9.1` is the newest tag and the release **holding the Latest marker** (confirmed with
+  `gh release list`: 2026-09-25T08:01:34Z, annotated tag object
+  `25957bcf1d11432986356617f2dfc27243a342d9` → `39ff71dc2fcee0316f3c146014d867e55f633367`); `v0.9.0` =
+  annotated tag object `fe4e0bc4411792a064945d8a5ec2c2e9add8bbe7` →
+  `8bc77196bd4ac3cd03da7581214aea193a839b51` (it held the Latest marker until this release, which moved
+  it); `v0.8.0` = annotated tag object `0b018081de1a4e89e04e7bc1570d595d38ab4b4b` →
+  `8a5381436b62fa84b4f4a972a630061ce2203373`; `v0.7.0` = annotated tag object `f267f13dc6f8df9a3ff196b05d3bb9b7724f2d60` →
   `2bddae6b0897bb5fe262af2b7e4bf4b3733ec7eb`; `v0.6.0-preview.1` and `v0.5.0-preview.1` are pre-releases;
   `v0.5.0` =
   `cea44f7b9920a079422217f811afb49350e08477` → `287ffdb095e1659b89a8cafe040647ada64d0026`;

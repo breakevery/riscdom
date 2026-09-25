@@ -11,7 +11,7 @@
 
 ## 1. 快照 —— `v0.9.1` 是最新的发行版（下次正式发布时更新本节）
 
-- **`v0.9.1` 是本次发布**（2026-09-25）：一个**修复版**，针对唯一让 v0.9.0 桌面版不可用的那件事 —— 打开即停在一个怎么输都过不去的登录页，因为 `App.tsx` 对所有运行时都索要 token，而桌面端（宿主就在自己进程里）既没有 token、也不提供 `/v0/health`。版本 bump 到 `0.9.1`（7 个文件：`Cargo.toml`、两个 `Cargo.lock`、`ui/package.json`、`ui/package-lock.json`、`ui/src-tauri/Cargo.toml`、`ui/src-tauri/tauri.conf.json` —— wix 守卫要求纯数字正式版不带 `bundle.windows.wix.version`，当前确实没有），`CHANGELOG` 的 `[Unreleased]` 归入 `[0.9.1] - 2026-09-25`，[RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) 按正式发布重写 —— **GitHub Release 的正文就是该文件（英文版 `RELEASE_NOTES.md`）的逐字拷贝**（v0.7.0 到 v0.9.0 都是这么做的）。**本条目由本地准备批次写下**：push、`v0.9.1` tag、GitHub Release 与附件上传是发布批次自己的步骤 —— 因此**`v0.9.1` 尚未打 tag**。同一批还把 [manual-acceptance.md](manual-acceptance.md) 落盘：v0.9.0 的 P0 是有人打开应用才发现的，而本仓依赖的那次走查从来没有被写下来。
+- **`v0.9.1` 是本次发布**（2026-09-25）：一个**修复版**，针对唯一让 v0.9.0 桌面版不可用的那件事 —— 打开即停在一个怎么输都过不去的登录页，因为 `App.tsx` 对所有运行时都索要 token，而桌面端（宿主就在自己进程里）既没有 token、也不提供 `/v0/health`。版本 bump 到 `0.9.1`（7 个文件：`Cargo.toml`、两个 `Cargo.lock`、`ui/package.json`、`ui/package-lock.json`、`ui/src-tauri/Cargo.toml`、`ui/src-tauri/tauri.conf.json` —— wix 守卫要求纯数字正式版不带 `bundle.windows.wix.version`，当前确实没有），`CHANGELOG` 的 `[Unreleased]` 归入 `[0.9.1] - 2026-09-25`，[RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) 按正式发布重写 —— **GitHub Release 的正文就是该文件（英文版 `RELEASE_NOTES.md`）的逐字拷贝**（v0.7.0 到 v0.9.0 都是这么做的）。发布当日即成：annotated tag `v0.9.1`（对象 `25957bcf1d11432986356617f2dfc27243a342d9` → `39ff71d`）、正文为该文件逐字拷贝的 GitHub Release，以及 **6 个附件**（本机构建的两个 Windows 安装包 + CI `bundle` job 产出的 macOS `.dmg` 与 Linux `.deb` / `.rpm` / `.AppImage`），Latest 标记也随之移过来。同一批还把 [manual-acceptance.md](manual-acceptance.md) 落盘：v0.9.0 的 P0 是有人打开应用才发现的，而本仓依赖的那次走查从来没有被写下来。
 
 - **桌面端不再停在登录页**（v0.9.1 修复 1/N —— v0.9.0 唯一一个 P0）。`App.tsx` 对**所有**运行时都按 `api.currentToken() !== ""` 判定，于是发出去的桌面构建渲染出 `<Login>` 且永远进不去：桌面端没有 token（它从不与控制平面通话——宿主就在同一个进程里），而 `verifyToken` 会去打一个桌面端根本没有的 `/v0/health`。现在 `App` **先**回答桌面端（`if (api.isTauriRuntime()) return <AppShell />`），token 判定搬进桌面端永不进入的 `WebGate` 子组件——于是那里既不读 token、也不画登录页、更不会去问 `/v0/health`；`SharedApi` 与它的 `Omit` 名单一字未动。`probe-ui-login.mjs` 新增两条断言（桌面端在任何 token 之前就被放行；登录页只在 Web 侧），原先那条「shell 索引」断言按双面门重写。**本机真机验证**（`tauri dev`）：外壳直接起来、六个设置 tab 全可切、聊天框与串口面板俱在、审计页列出 **223 条事件（链完整）**、外观页的语言（English）与主题（Dark）都即时生效。
 
@@ -180,12 +180,13 @@
   快照）← `202dd75`（非 Windows 的 `extract_zip` 存根）← `344fd2b`（Linux 包需要的 rpm）← `0633bdc`
   （macOS/Linux 的 bundle CI job）← `833f9c3`（随平台变化的 QEMU 指引、icon.icns、Unix QMP 单测）←
   `06fef0a`（语言切换）← `6abcb44`（i18n 试点）← `b0efeb8`（v0.6.0-preview.1 发布）。
-- tag：**`v0.9.1` 尚未打 tag** —— 由发布批次完成，本地准备批次既不 push 也不打 tag。`v0.9.0` 是最新的 tag，
-  也是**持有 Latest 标记**的那次发布（已用 `gh release list` 确认：
-  2026-09-25T02:21:11Z，annotated tag 对象 `fe4e0bc4411792a064945d8a5ec2c2e9add8bbe7` →
-  `8bc77196bd4ac3cd03da7581214aea193a839b51`）；`v0.8.0` = annotated tag 对象
-  `0b018081de1a4e89e04e7bc1570d595d38ab4b4b` → `8a5381436b62fa84b4f4a972a630061ce2203373`（Latest
-  标记原在它身上，本次发布接管）；`v0.7.0` = annotated tag 对象
+- tag：`v0.9.1` 是最新的 tag，也是**持有 Latest 标记**的那次发布（已用 `gh release list` 确认：
+  2026-09-25T08:01:34Z，annotated tag 对象 `25957bcf1d11432986356617f2dfc27243a342d9` →
+  `39ff71dc2fcee0316f3c146014d867e55f633367`）；`v0.9.0` = annotated tag 对象
+  `fe4e0bc4411792a064945d8a5ec2c2e9add8bbe7` → `8bc77196bd4ac3cd03da7581214aea193a839b51`（Latest
+  标记原在它身上，本次发布接管）；`v0.8.0` = annotated tag 对象
+  `0b018081de1a4e89e04e7bc1570d595d38ab4b4b` → `8a5381436b62fa84b4f4a972a630061ce2203373`；
+  `v0.7.0` = annotated tag 对象
   `f267f13dc6f8df9a3ff196b05d3bb9b7724f2d60` → `2bddae6b0897bb5fe262af2b7e4bf4b3733ec7eb`；
   `v0.6.0-preview.1` 与 `v0.5.0-preview.1` 为预发布版；
   `v0.5.0` =
