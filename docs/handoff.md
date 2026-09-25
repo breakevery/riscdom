@@ -13,6 +13,20 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.0` is the newest release (update this section when the next release ships)
 
+- **The desktop no longer stops at the login screen** (v0.9.1 fix 1/N — v0.9.0's one P0). `App.tsx`
+  gated on `api.currentToken() !== ""` for **every** runtime, so a shipped desktop build rendered
+  `<Login>` and could never get past it: the desktop holds no token (it never speaks to the control
+  plane — its host is in the same process) and `verifyToken` would call a `/v0/health` no desktop
+  process serves. `App` now answers the desktop **first** (`if (api.isTauriRuntime()) return
+  <AppShell />`) and the token check moved into a separate `WebGate` component the desktop never
+  reaches, so no token is read, no login screen is drawn and no `/v0/health` is asked for there;
+  `SharedApi` and its `Omit` list are unchanged. `probe-ui-login.mjs` gained two assertions (the
+  desktop is let in before any token is read; the login screen is only on the Web side) and its
+  shell-index assertion was rewritten for the two-sided gate. Verified by hand on this machine
+  (`tauri dev`): the shell comes up, all six settings tabs switch, the chat box and the serial panel
+  are there, the audit view lists **223 events (chain intact)** and the appearance tab's language
+  (English) and theme (Dark) both took effect at once.
+
 - **`v0.9.0` is the release** (2026-09-25): the version is bumped to `0.9.0` (7 files: `Cargo.toml`, the two
   `Cargo.lock`s, `ui/package.json`, `ui/package-lock.json`, `ui/src-tauri/Cargo.toml`,
   `ui/src-tauri/tauri.conf.json` — the wix guard requires no `bundle.windows.wix.version` on a numeric

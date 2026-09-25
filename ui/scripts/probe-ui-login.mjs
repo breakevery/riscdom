@@ -64,12 +64,27 @@ check(
   /api\.currentToken\(\)/.test(app) && /<Login\b/.test(app) && /<AppShell\b/.test(app),
 );
 
-const gateIndex = app.indexOf("<Login");
+// v0.9.1 (P0): the desktop is let in **before** any token is read. A released build
+// that asked the desktop for a token stopped at the login screen — the desktop has no
+// token, and no `/v0/health` to verify one against.
+const tauriIndex = app.indexOf("isTauriRuntime()");
+const tokenIndex = app.indexOf("currentToken()");
+const loginIndex = app.indexOf("<Login");
 const shellIndex = app.indexOf("<AppShell");
 check(
-  "the shell is rendered only on the other side of the gate",
-  gateIndex > 0 && shellIndex > gateIndex,
-  `Login@${gateIndex} AppShell@${shellIndex}`,
+  "the desktop is let in before any token is read",
+  tauriIndex > 0 && tokenIndex > tauriIndex,
+  `isTauriRuntime@${tauriIndex} currentToken@${tokenIndex}`,
+);
+check(
+  "the shell is rendered on the desktop side of the gate",
+  shellIndex > 0 && shellIndex < tokenIndex,
+  `AppShell@${shellIndex} currentToken@${tokenIndex}`,
+);
+check(
+  "the login screen is only on the Web side of the gate",
+  loginIndex > tauriIndex,
+  `isTauriRuntime@${tauriIndex} Login@${loginIndex}`,
 );
 check(
   "the store is not mounted by the gate",

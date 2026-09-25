@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The desktop stopped at the login screen** (v0.9.1): `App.tsx` asked every runtime for a token, and
+  the desktop has none — nor a `/v0/health` to check one against — so a v0.9.0 desktop build was
+  unusable. The desktop is now answered **first**, and the token gate lives in a component it never
+  reaches.
+
 ## [0.9.0] - 2026-09-25
 
 **The control plane can be driven, and it is guarded.** The 27 control endpoints of

@@ -1499,3 +1499,13 @@ this, and the probe's list checks did not move.
 **Why**: §35's contract is about *live* leases — two leases alive at once never carry the same number — and the relay was the one bind that did not take part. The OS already refuses to hand out a port that is bound right now, so the practical gap was small: what was missing is the weaker half of the rule, that this process will not hand the number to a second holder the moment it lets go. The fix stays internal — the lease owns the listener, `addr()` is unchanged, the constructors keep their signatures — so the public API does not move.
 
 **Impact**: a relay's port appears in `leased_ports()` while it is alive and leaves it when it is dropped (pinned by a new unit test); the exhaustion path reports `SandboxError::PortLease`, the same shape `lease_local_ports` uses. `send_file_to` is unaffected: it connects to a peer that is already listening and never binds.
+
+## 66. The desktop is answered before any token is read
+
+**Date**: 2026-09-25 ｜ **Status**: Decided; landed with the v0.9.1 fix
+
+**Decision**: the front door asks **which runtime it is** *before* it asks for a token. The desktop short-circuits straight to the shell; the token gate is a separate component that the desktop never reaches.
+
+**Why**: the two runtimes answer "is there a token?" differently — the Web client has one to demand, while the desktop has none to hold and no `/v0/health` to check one against, because its host lives in the same process. v0.9.0 shipped a gate that never asked, and every desktop user was stopped at a login screen no input could pass: the desktop was unusable. The ordering **is** the fix — a shortcut placed after the token read would still have read the token, and a single component holding both would still have drawn the login screen.
+
+**Impact**: `SharedApi` and its `Omit` list are untouched (the fix lives inside `App`), so no name becomes Web-only and the adapter's shape does not move. `probe-ui-login.mjs` pins the ordering — the desktop is let in before any token is read, and the login screen is only on the Web side — which is the half a Node probe can see at all: probes run without a `window`, so every probe exercises the Web branch and the desktop branch is verified by hand.

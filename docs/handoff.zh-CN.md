@@ -11,6 +11,8 @@
 
 ## 1. 快照 —— `v0.9.0` 是最新的发行版（下次正式发布时更新本节）
 
+- **桌面端不再停在登录页**（v0.9.1 修复 1/N —— v0.9.0 唯一一个 P0）。`App.tsx` 对**所有**运行时都按 `api.currentToken() !== ""` 判定，于是发出去的桌面构建渲染出 `<Login>` 且永远进不去：桌面端没有 token（它从不与控制平面通话——宿主就在同一个进程里），而 `verifyToken` 会去打一个桌面端根本没有的 `/v0/health`。现在 `App` **先**回答桌面端（`if (api.isTauriRuntime()) return <AppShell />`），token 判定搬进桌面端永不进入的 `WebGate` 子组件——于是那里既不读 token、也不画登录页、更不会去问 `/v0/health`；`SharedApi` 与它的 `Omit` 名单一字未动。`probe-ui-login.mjs` 新增两条断言（桌面端在任何 token 之前就被放行；登录页只在 Web 侧），原先那条「shell 索引」断言按双面门重写。**本机真机验证**（`tauri dev`）：外壳直接起来、六个设置 tab 全可切、聊天框与串口面板俱在、审计页列出 **223 条事件（链完整）**、外观页的语言（English）与主题（Dark）都即时生效。
+
 - **`v0.9.0` 是本次发布**（2026-09-25）：版本 bump 到 `0.9.0`（7 个文件：`Cargo.toml`、两个 `Cargo.lock`、
   `ui/package.json`、`ui/package-lock.json`、`ui/src-tauri/Cargo.toml`、`ui/src-tauri/tauri.conf.json`
   —— wix 守卫要求纯数字正式版不带 `bundle.windows.wix.version`，当前确实没有），`CHANGELOG` 的
