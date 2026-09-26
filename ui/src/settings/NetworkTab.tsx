@@ -82,11 +82,17 @@ export default function NetworkTab({ store }: { store: AppStore }) {
   useEffect(() => {
     void store.refreshNetwork();
     void store.refreshLan();
-  }, [store]);
+    // **The functions, never the store object.** `useAppStore()` returns a fresh object on
+    // every render, so a dependency on `store` itself re-runs this effect after every
+    // render — which turned this mount read into a refresh loop, and the effect below
+    // then rebuilt the form from the store on every pass, so nothing on this page could
+    // be edited (found on v0.9.9; the store's functions are `useCallback`-stable).
+  }, [store.refreshNetwork, store.refreshLan]);
 
-  // The form follows the store's answer. It cannot clobber typing: `network` only
-  // changes on that mount read and on a save, and a save carries exactly what the
-  // form already holds.
+  // The form follows the store's answer, and it cannot clobber typing **as long as the
+  // effect above is not re-running**: `network` changes on that mount read, on a save,
+  // and on nothing else. Depending on the store *object* here — or letting the read loop
+  // — is what made every control on this page dead in v0.9.9.
   useEffect(() => {
     if (store.network !== null) setForm({ ...EMPTY, ...store.network });
   }, [store.network]);
@@ -112,7 +118,7 @@ export default function NetworkTab({ store }: { store: AppStore }) {
     return () => {
       cancelled = true;
     };
-  }, [store, url]);
+  }, [store.readRemoteToken, url]);
 
   const edit = (next: Partial<NetworkSettings>) => {
     setSaved(false);
@@ -194,7 +200,7 @@ export default function NetworkTab({ store }: { store: AppStore }) {
     } finally {
       setBusy(false);
     }
-  }, [store]);
+  }, [store.readLanToken]);
 
   const copyToken = () => {
     if (lanToken === null) return;

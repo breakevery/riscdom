@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The network page keeps what you type and what you switch — and stops burning CPU** (found on
+  v0.9.9). The page's three effects depended on the **whole store object**, which `useAppStore()`
+  recreates on every render: the mount read therefore re-ran after every render, each read replaced
+  `store.network`, and the effect that copies the store into the form rebuilt the form on every pass.
+  Both switches and both address fields were reverted within milliseconds and looked dead, and the
+  page held ~32 % of a core at idle. The effects now depend on the store's `useCallback` functions,
+  which are stable, and `probe-ui-network-tab.mjs` refuses a dependency on the bare object.
+
 ## [0.9.9] - 2026-09-25
 
 ### Added

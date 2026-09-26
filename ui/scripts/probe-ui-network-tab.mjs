@@ -142,6 +142,23 @@ check(
   ),
 );
 
+// The page's effects must never depend on the store **object**: `useAppStore()` returns a
+// fresh object on every render, so such an effect re-runs forever — and the effect that
+// copies the store into the form then rebuilds the form on every pass, which is exactly
+// how every control on this page came to be dead in v0.9.9 (found by walking the page).
+// `store.network` and the store's `useCallback` functions are stable and allowed.
+check(
+  "no effect depends on the whole store object",
+  !/\[\s*store\s*\]|\[\s*store\s*,|,\s*store\s*\]/.test(tab),
+  "a dependency on `store` itself re-runs after every render",
+);
+check(
+  "...they depend on the store's stable callbacks instead",
+  /\}, \[store\.refreshNetwork, store\.refreshLan\]\)/.test(tab) &&
+    /\}, \[store\.readRemoteToken, url\]\)/.test(tab) &&
+    /\}, \[store\.readLanToken\]\)/.test(tab),
+);
+
 // ----- the shape, on both sides -----------------------------------------------
 
 const FIELDS = ["remote_url", "lan_enabled", "lan_bind", "lan_allow_lan"];
