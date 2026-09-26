@@ -145,6 +145,8 @@ pass with any token at all.
 - [ ] **Restart the app** (the page says so). It comes back **showing the other node**: the top bar
       carries a *Remote* badge naming the address, and the status page reports the other node's
       `agent_id` — that is the proof the numbers on screen are not this machine's.
+      **If the app comes back to the local board instead of the login gate, record it as a failure —
+      this is the unexplained observation from v0.9.9 4/N (see the handoff).**
 - [ ] Settings offers only **Audit**, **Appearance** and **Network**: the screens that configure *this*
       node are gone, because this window is not talking to it.
 - [ ] Stop the second node. The board does not crash: reads fail with a sentence, and the window keeps
