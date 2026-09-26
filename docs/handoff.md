@@ -13,15 +13,23 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is prepared as the next release (update this section when a release ships)
 
-- **`v0.9.9` is prepared** (2026-09-25, the local-preparation batch): the version is bumped to `0.9.9`
+- **`v0.9.9` is released** (prepared 2026-09-25 by the local-preparation batch; cut 2026-09-26): the
+  version is bumped to `0.9.9`
   (7 files: `Cargo.toml`, the two `Cargo.lock`s — **8** workspace entries in the root lock and **7** in
   the shell's, with `hashlink` / `memoffset` / `miniz_oxide` left at `0.9.1` because they are other
   people's crates — `ui/package.json`, `ui/package-lock.json`, `ui/src-tauri/Cargo.toml`,
   `ui/src-tauri/tauri.conf.json`; the wix guard requires no `bundle.windows.wix.version` on a numeric
-  release, and there is none), `CHANGELOG`'s `[Unreleased]` is folded into `[0.9.9] - 2026-09-25`, and
+  release, and there is none), `CHANGELOG`'s `[Unreleased]` is folded into `[0.9.9] - 2026-09-25`
+  (**deliberately** the day the change set was frozen, one day before the release was cut), and
   [RELEASE_NOTES.md](../RELEASE_NOTES.md) is rewritten as the **functional** release text — the GitHub
-  release body is that file verbatim. **Nothing is pushed and nothing is tagged yet**: pushing `main`,
-  tagging and creating the release are that batch's own steps. Three things the release carries:
+  release body is that file verbatim (12,254 characters, checked against the file). **The release was
+  cut on 2026-09-26**: annotated tag `v0.9.9` (object
+  `6357f43c60848541c3259eca351110b11b3e3f46` → `b1dc2fb`), a GitHub release whose body is that file
+  verbatim, **seven assets** — the two Windows installers built on this machine, the macOS `.dmg` and
+  the Linux `.deb` / `.rpm` / `.AppImage` from the CI `bundle` job, and
+  **`riscdom-server-0.9.9-win-x64.zip`** (the release server binary plus the built front end, as
+  `dist/`) — and **the Latest marker moved to it**, with `v0.9.1` becoming its predecessor. Three things
+  the release carries:
   **connect out** (a desktop joins an in-network node), **serve in** (the desktop's own board on the
   LAN), and the **fifth “green locally, red in CI” mechanism** fixed at the root (`ui/dist/app`).
   Scale: **688 tests / 118 suites**, **16** UI probes, an **18-step** gate.
@@ -104,8 +112,8 @@ the embedded control plane over **the app's own state** — it now manages an `A
   this machine plus the macOS `.dmg` and the Linux `.deb` / `.rpm` / `.AppImage` from the CI `bundle`
   job. The Latest marker moved to it. The same batch put
   [manual-acceptance.md](manual-acceptance.md) on disk: v0.9.0's P0 was found by a person opening the
-  app, and the walk this repository relies on had never been written down. **`v0.9.9` has no tag yet**
-  — it is prepared locally, and the newest tag and the Latest marker are still `v0.9.1`.
+  app, and the walk this repository relies on had never been written down. **`v0.9.9` is the newest
+  tag and the Latest holder** (released 2026-09-26); `v0.9.1` is now its predecessor.
 
 - **The desktop no longer stops at the login screen** (v0.9.1 fix 1/N — v0.9.0's one P0). `App.tsx`
   gated on `api.currentToken() !== ""` for **every** runtime, so a shipped desktop build rendered
