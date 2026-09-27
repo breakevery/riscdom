@@ -2288,18 +2288,15 @@ fn the_five_instance_endpoints_answer() {
     let (status, raw) = get(addr, "/v0/capabilities");
     assert_eq!(status, 200, "{raw}");
     let capabilities = raw["capabilities"].as_array().expect("an array");
-    assert_eq!(capabilities.len(), 38, "{raw}");
-    for name in [
-        "sandbox.instantiate",
-        "task.dispatch",
-        "request.approve",
-        "audit.read.remote",
-    ] {
-        assert!(
-            capabilities.iter().any(|c| c.as_str() == Some(name)),
-            "{name} in {raw}"
-        );
-    }
+    // 33 since the v1.0 gap 3/N clean-up removed the five names no route required
+    // (decisions §83); the one M2a-1 name a route still asks for is asserted below.
+    assert_eq!(capabilities.len(), 33, "{raw}");
+    assert!(
+        capabilities
+            .iter()
+            .any(|c| c.as_str() == Some("sandbox.instantiate")),
+        "sandbox.instantiate in {raw}"
+    );
 
     // ② GET /v0/sandboxes/{name}/capabilities — the definition's own answer.
     let (status, raw) = get(addr, "/v0/sandboxes/blink/capabilities");

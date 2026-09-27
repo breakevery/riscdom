@@ -155,6 +155,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   page held ~32 % of a core at idle. The effects now depend on the store's `useCallback` functions,
   which are stable, and `probe-ui-network-tab.mjs` refuses a dependency on the bare object.
 
+### Removed
+
+- **Five capability names nobody required** (v1.0 gap 3/N clean-up): `task.dispatch`,
+  `task.dispatch.remote`, `sandbox.instantiate.remote`, `audit.read.remote` and
+  `request.approve` are gone from `Capability` (38 → 33). No route ever declared them, so they
+  granted nothing: a dispatch asks for `agent.run`, a derive for `sandbox.instantiate`, and a
+  request decision for `sandbox.read` plus the action's own implication. The `.remote` invariant
+  (every `.remote` needs its local half) makes keeping the remote names without `task.dispatch`
+  incoherent, so all five went together. The `m.*` chain actions that carry similar names are
+  untouched.
+
 ## [0.9.9] - 2026-09-25
 
 ### Added

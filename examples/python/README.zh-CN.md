@@ -120,7 +120,7 @@ self-test 会起一个假节点**和一个假模型**：一个按脚本作答的
 - **一次决定不写进链。** `approve` / `reject` 只发一条 `sandbox:request` 事件，不耐久地记任何东西。
 - **实例表与待批槽是内存里的。** 节点重启两者都丢；审计链是唯一的耐久源。
 - **审计读取没有窗口也没有分页。** `GET /v0/audit/events` 只收 `limit`（必填）、`actor`、`action_prefix`，所以「从 X 以后的一切」是一次导出，不是一次查询。
-- **五个能力名只是词汇**（`task.dispatch`、`task.dispatch.remote`、`sandbox.instantiate.remote`、`audit.read.remote`、`request.approve`）：没有任何路由要求它们。派发要 `agent.run`；派生实例要 `sandbox.instantiate`；决定一个请求要 `sandbox.read` **加上**该请求自己的动作所隐含的那个能力。
+- **五个能力名曾只是词汇。** 没有任何路由要求它们，故 v1.0 缺口 3/N 的清理已删除，词汇表落在 33 个（决策 §83）。派发要 `agent.run`；派生实例要 `sandbox.instantiate`；决定一个请求要 `sandbox.read` **加上**该请求自己的动作所隐含的那个能力。
 - **工具清单不是新文档。** M 的工具就是 [`docs/tool-schema-control-plane.zh-CN.md`](../../docs/tool-schema-control-plane.zh-CN.md)——与客户指南 §8 交给监工的是同一份「每个端点一个函数」的清单。
 
 | | `dispatch.py` | `supervisor.py` |

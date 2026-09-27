@@ -1914,3 +1914,37 @@ four fields `EventFilter` has always applied in SQL are now reachable over HTTP,
 pair refused as `400` and the `cause` naming the lower bound. **No table, no schema and no chain
 structure changed**, and the reference dispatcher now declares its name — `--agent-id` is
 required, because an unnamed dispatcher is what §81 went and fixed.
+
+## 83. A capability name no route requires is not a capability
+
+**Date**: 2026-09-27 ｜ **Status**: Decided; landed with the v1.0 gap 3/N clean-up (batch C)
+
+**Decision**: The vocabulary loses the five names no route required: `task.dispatch`,
+`task.dispatch.remote`, `sandbox.instantiate.remote`, `audit.read.remote` and
+`request.approve`. `Capability` goes from 38 variants to 33, and the guard in `auth.rs` and the
+endpoint's own answer move with it. The one M2a-1 name a route still asks for,
+`sandbox.instantiate`, stays: the instance endpoints derive under it.
+
+**Why**: A capability is **a typed column of the route table** — the thing that makes "an
+undeclared route cannot be written down" true (the API document's §3). A name no route declares
+has no such column, so it grants nothing and forbids nothing: it is vocabulary, and vocabulary
+that says a power exists when no endpoint can exercise it is exactly the kind of drift the
+document exists to prevent. The five were added in M2a-1 ahead of their endpoints; when the
+endpoints arrived (`agent.run` for a dispatch, `sandbox.instantiate` for a derive, `sandbox.read`
+plus the action's own implication for a decision) the five were left behind. Removing them now,
+before M3 freezes the plugin interface, is the point: **the freeze should freeze 33 real powers,
+not 38 with five placeholders**. The `.remote` invariant (a `.remote` name must have its local
+half) makes "keep the three `.remote` halves, drop only `task.dispatch`" incoherent — a remote
+half without a local one is refused by the test — so the clean-up removes all five and the
+invariant holds vacuously.
+
+**Impact**: `server/src/auth.rs` (five enum variants, five `ALL` entries, five `as_str` arms, the
+`MUST_HAVE` list 14 → 9, the guard `>= 38` → `>= 33`); `server/tests/smoke.rs` (`33`, and the one
+name a route still asks for); the count in both languages of `docs/control-plane-api.md`,
+`docs/handoff.md` and `server/README.md`, plus the boundary note in `examples/python` (README ×2
+and the dispatcher's docstring). The handoff's §1 keeps its M2a-1 record and gains an appended
+correction — the same way that section already appends "gap 2/N took that list to 21". **No route
+definition, no hash formula, no audit event constant and no `m.*` action name changes** — the
+five were vocabulary, and the actions they were once confused with (`m.task.dispatch`,
+`m.request.approve`) keep their rows. The historical CHANGELOG entries that recorded "grew to
+38" stay as written: a changelog records what happened.

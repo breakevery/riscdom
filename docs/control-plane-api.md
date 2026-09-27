@@ -108,10 +108,11 @@ pub struct Actor {
   its capability, so there is no route that silently skips the check.
 - **Default deny.** An actor is refused unless it positively holds what the route asks for;
   an actor with an empty set can reach nothing. "No capability" is not expressible.
-- **The vocabulary is 38 names** — the ones the §5 tables use (`agent.run`, `audit.read`,
-  `runs.control`, `settings.write`, …) plus the six the instance model added in v1.0 M2a-1
-  (`sandbox.instantiate`, `task.dispatch`, `request.approve`, and their three `.remote`
-  halves), whose endpoints arrive with M2a-2. v0.9 ships two actor shapes: the token holder
+- **The vocabulary is 33 names** — the ones the §5 tables use (`agent.run`, `audit.read`,
+  `runs.control`, `settings.write`, …) plus `sandbox.instantiate`, the one instance-model name a
+  route still asks for (v1.0 M2a-1). The other five M2a-1 names — `task.dispatch`,
+  `request.approve` and the three `.remote` halves — no route required, so the v1.0 gap 3/N
+  clean-up removed them (decisions §83). v0.9 ships two actor shapes: the token holder
   (`operator`, `human`) holds the whole vocabulary, and the `--no-auth` default holds the same
   set, so both behave identically once past the hook. A `403` therefore only comes from a hook
   that returns a narrower actor. Per-capability tokens are v1.0 work; the set is the shape
@@ -447,8 +448,8 @@ the tables above. They are part of this document's surface all the same.
 - **Capabilities are declared and enforced.** Every route names its capability in the
   route table and the server checks it against the actor the hook returned before the
   handler runs; a missing capability is `403 forbidden` with `cause: "capability"` (§3).
-  Under the v0.9 default every actor holds the whole vocabulary (38 names since v1.0
-  M2a-1), so a `403` can only come from a hook
+  Under the v0.9 default every actor holds the whole vocabulary (33 names since the v1.0 gap
+  3/N clean-up), so a `403` can only come from a hook
   that returns a narrower actor — or from the two request decisions, which check the
   capability the request's `action` implies after the route's own gate has passed.
 - **Parameters.** A required parameter that is missing or unparsable is `400 bad_request`

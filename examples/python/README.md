@@ -198,9 +198,9 @@ kernel batch, not this file:
 - **The audit read has no window and no pagination.** `GET /v0/audit/events` takes `limit`
   (required), `actor` and `action_prefix`, so "everything since X" is an export, not a
   query.
-- **Five capability names are vocabulary only** (`task.dispatch`, `task.dispatch.remote`,
-  `sandbox.instantiate.remote`, `audit.read.remote`, `request.approve`): no route requires
-  them. A dispatch needs `agent.run`; deriving an instance needs `sandbox.instantiate`;
+- **Five capability names were vocabulary only.** No route required them, so the v1.0 gap 3/N
+  clean-up removed them, leaving the vocabulary at 33 (decisions §83). A dispatch needs
+  `agent.run`; deriving an instance needs `sandbox.instantiate`;
   deciding a request needs `sandbox.read` **and** whatever the request's own action implies.
 - **The tool list is not a new document.** M's tools are
   [`docs/tool-schema-control-plane.md`](../../docs/tool-schema-control-plane.md) — the same

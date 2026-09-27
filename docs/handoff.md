@@ -192,12 +192,13 @@ current request authorising it (§2).
   Snapshots move to `snapshots/<device>/<instance_id>` with the two older layouts still read;
   `SandboxDef` gains `supports_multiplexing` (default false, and both constructors the host builds
   say false); the capability vocabulary grows to **38** (+6: three local, three `.remote`), whose
-  endpoints are M2a-2; and the dispatcher's three events (`m:sandbox:spawn`, `m:sandbox:reap`,
+  endpoints are M2a-2 — the v1.0 gap 3/N clean-up then removed the five of those that no route
+  required, leaving **33** (§83); and the dispatcher's three events (`m:sandbox:spawn`, `m:sandbox:reap`,
   `m:request:approve`) join the stream's list of **17** — the first two written to the chain as
   `m.sandbox.spawn` / `m.sandbox.reap` with the instance's identity in `detail` (no new column, no
   change to the hash formula); v1.0 gap 2/N took that list to **21**. **`Capability::ALL.len() == 32`
   is no longer pinned**: the guard now
-  checks that a known set is present and that the count is at least 38, because a guard that has to be
+  checks that a known set is present and that the count is at least 33, because a guard that has to be
   edited for the expected case is a guard that hides the unexpected one. **Decision §72.**
 
 - **M1's first three specifications are on disk** (v1.0 M1, 2026-09-27). [api-compatibility.md](api-compatibility.md),

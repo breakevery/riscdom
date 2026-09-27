@@ -146,9 +146,10 @@ ones (delete a session, stop the VM, change the LLM configuration).
 hook says *who* the caller is, and the server decides what that actor may do. Every route
 declares exactly one capability, named in the API document's §5 tables — and the
 server checks it before the handler runs, answering `403 forbidden` with
-`cause: "capability"` when the actor does not hold it. The vocabulary is **38** names since
-v1.0 M2a-1: the 32 the route table uses, plus the six the instance model added, whose
-endpoints arrive with M2a-2. Default deny: an actor with an empty set can reach nothing. The
+`cause: "capability"` when the actor does not hold it. The vocabulary is **33** names since
+the v1.0 gap 3/N clean-up: the 32 the route table uses, plus `sandbox.instantiate`, the one
+instance-model name a route still asks for (the other five names M2a-1 added were required by
+no route and were removed — decisions §83). Default deny: an actor with an empty set can reach nothing. The
 token holder holds the whole vocabulary, and so does `--no-auth`, so in v0.9 a
 `403` only comes from a custom hook that returns a narrower actor — or from the two request
 decisions, which check the capability the request's `action` implies after their own gate.

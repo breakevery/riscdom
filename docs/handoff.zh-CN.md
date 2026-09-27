@@ -90,10 +90,11 @@
   空间不会铸出同一个字符串 —— 而三段不是路径语法，要从右往左读（`rsplitn(3, '-')`），因为 device
   名字里可能带 `-`。快照挪到 `snapshots/<device>/<instance_id>`，两种更旧的布局仍可读；`SandboxDef`
   新增 `supports_multiplexing`（默认 false，宿主自己造的两个构造器都给 false）；capability 词汇表升到
-  **38**（+6：三个本地，三个 `.remote`），其端点属 M2a-2；而调度员的三个事件（`m:sandbox:spawn`、
+  **38**（+6：三个本地，三个 `.remote`），其端点属 M2a-2 —— v1.0 缺口 3/N 的清理随后删去其中没有任何
+  路由要求的五个，落定 **33**（决策 §83）；而调度员的三个事件（`m:sandbox:spawn`、
   `m:sandbox:reap`、`m:request:approve`）加入事件流的 **17** 个名单 —— 前两个以 `m.sandbox.spawn` /
   `m.sandbox.reap` 写进链，实例身份走 `detail`（不加列、不改哈希公式）；v1.0 缺口 2/N 后该名单为 **21**。
-  **`Capability::ALL.len() == 32` 不再被钉死**：守卫改为「已知集合必须在、且数量 ≥38」，因为一条
+  **`Capability::ALL.len() == 32` 不再被钉死**：守卫改为「已知集合必须在、且数量 ≥33」，因为一条
   为预期情况就得改的守卫，是会藏住非预期情况的守卫。**决策 §72。**
 
 - **M1 的头三份规范已落盘**（v1.0 M1，2026-09-27）。[api-compatibility.zh-CN.md](api-compatibility.zh-CN.md)、
