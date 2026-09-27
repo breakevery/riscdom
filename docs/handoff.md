@@ -13,6 +13,19 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **Every act an AI supervisor takes leaves a row that names it** (v1.0 gap 2/N, 2026-09-27). A
+  client may name itself with the optional **`X-RiscDom-Agent`** header; the `Actor` it is
+  served as then carries that name and `ActorKind::Supervisor`, and the **seven acts a
+  dispatcher can take** write chain rows that name it — `m.sandbox.spawn`, `m.sandbox.reap`,
+  `m.sandbox.switch`, `m.request.ask`, `m.request.approve`, `m.request.reject`,
+  `m.task.dispatch` — and the three acts that had no frame of their own gain one, so the
+  stream shows the act and the chain says who asked. The identity rides in
+  `AuditEvent.agent_id`, the field deliberately outside the hash formula: attribution arrived
+  without moving one historical row, and the forty-odd node events still name the node. No
+  header = the credential's own identity (`operator`), i.e. every release before this one. The
+  event vocabulary grew **17 → 20**, and `docs/control-plane-events.md` §3 — which still listed
+  fourteen while the code defined seventeen — is back in step. **Decision §81.**
+
 - **M's decision layer, and M2c is complete** (v1.0 M2c-2, 2026-09-27).
   `examples/python/supervisor.py` now decides: a **bounded tool-calling loop**
   (`LLMDecider`, `--max-rounds`, default 6) over the node's state, offering the model
@@ -168,7 +181,8 @@ current request authorising it (§2).
   endpoints are M2a-2; and the dispatcher's three events (`m:sandbox:spawn`, `m:sandbox:reap`,
   `m:request:approve`) join the stream's list of **17** — the first two written to the chain as
   `m.sandbox.spawn` / `m.sandbox.reap` with the instance's identity in `detail` (no new column, no
-  change to the hash formula). **`Capability::ALL.len() == 32` is no longer pinned**: the guard now
+  change to the hash formula); v1.0 gap 2/N took that list to **21**. **`Capability::ALL.len() == 32`
+  is no longer pinned**: the guard now
   checks that a known set is present and that the count is at least 38, because a guard that has to be
   edited for the expected case is a guard that hides the unexpected one. **Decision §72.**
 

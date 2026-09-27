@@ -177,8 +177,10 @@ pub async fn switch_sandbox(
 ) -> Result<(), String> {
     let emitter: Arc<dyn crate::events::EventSink> =
         Arc::new(TauriEventSink::new(app.clone(), state.agent_id()));
+    // No `X-RiscDom-Agent` here: this command **is** the desktop's own host, so the row
+    // names the node (v1.0 gap 2/N) — that is what it did before the caller existed.
     state
-        .switch_sandbox(&name, emitter)
+        .switch_sandbox(&name, None, emitter)
         .map_err(|e| e.user_message())
 }
 
@@ -804,6 +806,7 @@ pub async fn list_executors(state: State<'_, Arc<AppState>>) -> Result<Vec<Strin
 /// Not wired to the interface in this batch.
 #[tauri::command]
 pub async fn dispatch_task(
+    app: tauri::AppHandle,
     state: State<'_, Arc<AppState>>,
     target: String,
     input: String,
@@ -811,6 +814,8 @@ pub async fn dispatch_task(
     instance: Option<String>,
     id: Option<String>,
 ) -> Result<host_core::TaskOutcome, String> {
+    let emitter: Arc<dyn crate::events::EventSink> =
+        Arc::new(TauriEventSink::new(app, state.agent_id()));
     state
         .dispatch_task(
             &target,
@@ -818,6 +823,8 @@ pub async fn dispatch_task(
             sandbox.as_deref(),
             instance.as_deref(),
             id.as_deref(),
+            None,
+            emitter,
         )
         .map_err(|e| e.user_message())
 }

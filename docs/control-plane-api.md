@@ -62,6 +62,14 @@ capability its request's `action` implies, and the handler is where the request 
 ## 3. Authentication and capabilities
 
 - Clients send `Authorization: Bearer <token>`.
+- **A client may also name itself: `X-RiscDom-Agent`** (optional, v1.0 gap 2/N). With it the
+  returned actor's `agent_id` is that name and its kind is `supervisor`, so every audit row
+  the request writes says *an AI dispatcher did this* rather than leaving it to be guessed.
+  Without it nothing changes: the identity is the credential's own (`operator`), which is what
+  every release before this one assumed. The name is bounded (128 characters) and free of
+  control characters; a value that fails either check is **ignored**, not refused — a bad name
+  is not a bad request. The header is the same on every route; the CLI, the management program
+  and the Web client simply do not send it yet.
 - **Out of the box the token is a file.** The served program installs `TokenAuth` unless it
   is started with `--no-auth`: on first start it generates 32 random bytes into
   `<data-dir>/token`, owner-readable only, and every request must present that value. The

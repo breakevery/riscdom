@@ -1841,3 +1841,43 @@ reached a real worker (which wrote a bare-metal guest and booted it in QEMU), `i
 and `instance_delete` derived and reaped a real instance, a dead model left the chain
 byte-unchanged (53 rows before and after), and a restarted M rebuilt its context from the node
 — with the audit chain as the evidence for each.
+
+## 81. Every act an AI supervisor takes leaves a row that names it
+
+**Date**: 2026-09-27 ｜ **Status**: Decided; landed with the v1.0 gap 2/N batch
+
+**Decision**: A client may name itself with the optional **`X-RiscDom-Agent`** header. When it
+does, the `Actor` the request is served as carries that name as its `agent_id` and
+[`ActorKind::Supervisor`] as its kind — and the **seven acts a dispatcher can take** write
+chain rows that name it: `m.sandbox.spawn`, `m.sandbox.reap`, `m.sandbox.switch`,
+`m.request.ask`, `m.request.approve`, `m.request.reject`, `m.task.dispatch`. The three acts that
+had no frame of their own also gain one, so a watcher on `/v0/events` sees them; a **switch**
+keeps its single `sandbox:switch` frame (F2b-2's "one frame per attempt, either way" — a
+second frame for one attempt would be a second thing to count) and a decision keeps
+`sandbox:request`, and what a request adds for both is the row. The identity travels in
+`AuditEvent.agent_id` — the field that is deliberately **outside the hash
+formula** — so attribution arrives without moving a single historical row. No header means the
+credential's own identity (`operator`), which is what every release before this one assumed;
+and the forty-odd **node** events (`host.theme.set`, …) keep using `emit_host` and keep naming
+the node, because a caller header has nothing to say about a theme change.
+
+**Why**: The M2c real-machine run showed the chain was **blind to AI decisions**: of the seven
+acts M can take, `spawn`/`reap` had a row (attributed to `host`), and switch, ask, approve and
+reject had **none** — a switch announced a frame and recorded nothing, and a decision was
+durable only in a queue that lives in memory. `docs/roadmap-v1.0.md` §9 assumes the opposite
+("M's state lives outside M"), and §36's own text says a decision "changes the record and
+nothing else" — true, and exactly why the record has to live somewhere that survives a
+restart. Two smaller decisions fall out of it: the name is **bounded and validated** (128
+characters, no control characters) and a bad value is *ignored rather than refused*, because a
+bad name is not a bad request; and the `.remote` names keep their local halves (the invariant
+in `auth.rs`), so the cross-node contract of roadmap §5 has somewhere to land.
+
+**Impact**: `ReqMeta` gains `caller`; `Actor::named_caller` is the one place that turns it into
+an identity; `AppState::emit_m_action` is the one place the seven rows are written;
+`host-core/src/events.rs`'s vocabulary goes **17 → 20** (`m:request:ask`, `m:request:reject` and
+`m:task:dispatch` are new, and the three M2a-1 names that were declared and never emitted now
+are). `docs/control-plane-events.md` §3's table is brought back in step with
+the code — it had listed fourteen while the code defined seventeen, a drift this batch closes.
+The API document's §3 documents the header. Nothing else on the surface moves: **no new route,
+no new capability, no change to the hash formula, the triggers or a historical row**, and a
+chain containing the new rows verifies intact.

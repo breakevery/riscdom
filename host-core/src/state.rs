@@ -1089,6 +1089,11 @@ impl AppState {
     /// `500 cause "task"` for a dispatch that broke — two different things, and a
     /// run that merely *failed* is neither (it comes back as an `Ok` outcome whose
     /// `outcome` is `failed`).
+    /// The arguments are the wire's: one per `Task` field, plus the caller that must be named
+    /// in the row and the sink its frame goes to. Grouping them into a struct would be a
+    /// second description of `Task` — and that description already exists
+    /// ([`Self::dispatch_task_value`] takes the built task).
+    #[allow(clippy::too_many_arguments)]
     pub fn dispatch_task(
         &self,
         target: &str,
@@ -1096,6 +1101,8 @@ impl AppState {
         sandbox: Option<&str>,
         instance: Option<&str>,
         id: Option<&str>,
+        caller: Option<&str>,
+        emitter: Arc<dyn EventSink>,
     ) -> Result<TaskOutcome, HostError> {
         let task = Task {
             id: id.map(TaskId::new).unwrap_or_else(TaskId::next),
@@ -1107,7 +1114,31 @@ impl AppState {
             // stdio executor's instances belong to *its* table, not ours.
             instance: instance.map(InstanceId::new),
         };
-        self.dispatch_task_value(task)
+        let task_id = task.id.as_str().to_string();
+        let answer = self.dispatch_task_value(task)?;
+        // The dispatch is the caller's act, and until this batch it left **no row on this
+        // node**: the only trace was the worker's own chain, which exists when the two
+        // processes share a workspace and nowhere else (v1.0 gap 2/N).
+        let kind = match &answer.outcome {
+            AgentOutcome::Final { .. } => "Final",
+            AgentOutcome::MaxIterations { .. } => "MaxIterations",
+            AgentOutcome::Failed { .. } => "Failed",
+        };
+        self.emit_m_action(
+            caller,
+            "m.task.dispatch",
+            serde_json::json!({
+                "task_id": task_id,
+                "target": target,
+                "executor": answer.agent_id.as_str(),
+                "outcome": kind,
+            }),
+        );
+        emitter.emit(
+            crate::events::EV_M_TASK_DISPATCH,
+            crate::events::task_dispatch_payload(&task_id, target, kind),
+        );
+        Ok(answer)
     }
 
     /// [`dispatch_task`](Self::dispatch_task) for a task a caller already built.
@@ -2545,7 +2576,12 @@ impl AppState {
     ///
     /// On failure the instance is forgotten: the table keeps no trace of a VM that
     /// never ran, and the reason comes back to the caller.
-    pub fn spawn_instance(&self, name: &str) -> Result<InstanceId, HostError> {
+    pub fn spawn_instance(
+        &self,
+        name: &str,
+        caller: Option<&str>,
+        emitter: Arc<dyn EventSink>,
+    ) -> Result<InstanceId, HostError> {
         let def = self
             .sandbox_def_by_name(name)
             .ok_or_else(|| HostError::SandboxNotFound(name.to_string()))?;
@@ -2601,13 +2637,20 @@ impl AppState {
                     }
                     // An instance's identity rides in `detail` (v1.0 M2a-1): no new
                     // column, no change to the hash formula — the same way the
-                    // agent's identity was added (audit/src/event.rs).
-                    self.emit_host(
+                    // agent's identity was added (audit/src/event.rs). The **caller**
+                    // names the row (v1.0 gap 2/N), and the stream hears the act the
+                    // constants in `events.rs` have declared since M2a-1.
+                    self.emit_m_action(
+                        caller,
                         "m.sandbox.spawn",
                         serde_json::json!({
                             "instance_id": instance.id.as_str(),
                             "definition": name,
                         }),
+                    );
+                    emitter.emit(
+                        crate::events::EV_M_SANDBOX_SPAWN,
+                        crate::events::instance_payload(instance.id.as_str(), name),
                     );
                     return Ok(instance.id);
                 }
@@ -2628,7 +2671,12 @@ impl AppState {
     /// The node's own instance is **not removable**: it is the slot a switch and a
     /// plain run act on, so stopping it leaves the entry where it is with an empty
     /// slot — exactly what [`Self::stop_current_vm`] has always done.
-    pub fn stop_instance(&self, id: &InstanceId) -> Result<(), HostError> {
+    pub fn stop_instance(
+        &self,
+        id: &InstanceId,
+        caller: Option<&str>,
+        emitter: Arc<dyn EventSink>,
+    ) -> Result<(), HostError> {
         let Some(instance) = self.instance(id) else {
             return Err(HostError::Other(format!("no instance {id}")));
         };
@@ -2646,12 +2694,17 @@ impl AppState {
         if id != &self.own_instance {
             self.forget_instance(id);
         }
-        self.emit_host(
+        self.emit_m_action(
+            caller,
             "m.sandbox.reap",
             serde_json::json!({
                 "instance_id": id.as_str(),
                 "definition": instance.definition,
             }),
+        );
+        emitter.emit(
+            crate::events::EV_M_SANDBOX_REAP,
+            crate::events::instance_payload(id.as_str(), &instance.definition),
         );
         Ok(())
     }
@@ -2870,13 +2923,29 @@ impl AppState {
         reason: Option<String>,
         emitter: Arc<dyn EventSink>,
     ) -> Result<SandboxRequestView, HostError> {
-        self.sandbox_request_service(emitter).request(
+        let view = self.sandbox_request_service(Arc::clone(&emitter)).request(
             requester_agent_id,
             action,
             sandbox,
             definition,
             reason,
-        )
+        )?;
+        // The ask names the actor that left it (v1.0 gap 2/N): `requester_agent_id` **is**
+        // the caller here, which is why this path needs no new parameter.
+        self.emit_m_action(
+            Some(requester_agent_id),
+            "m.request.ask",
+            serde_json::json!({
+                "id": view.id,
+                "action": view.action,
+                "sandbox": view.sandbox,
+            }),
+        );
+        emitter.emit(
+            crate::events::EV_M_REQUEST_ASK,
+            crate::events::m_request_payload(&view.id, "pending", None),
+        );
+        Ok(view)
     }
 
     /// The queue, newest first, optionally filtered by status.
@@ -2894,25 +2963,67 @@ impl AppState {
     }
 
     /// Approve a pending request. Changes the record and nothing else.
+    ///
+    /// Since v1.0 gap 2/N it also **records the decision**: the row names the actor that
+    /// made it, which is exactly what `decided_by` already was.
     pub fn approve_sandbox_request(
         &self,
         id: &str,
         decided_by: &str,
         emitter: Arc<dyn EventSink>,
     ) -> Result<SandboxRequestView, HostError> {
-        self.sandbox_request_service(emitter)
-            .decide(id, SandboxRequestStatus::Approved, decided_by)
+        let view = self.sandbox_request_service(Arc::clone(&emitter)).decide(
+            id,
+            SandboxRequestStatus::Approved,
+            decided_by,
+        )?;
+        self.emit_m_action(
+            Some(decided_by),
+            "m.request.approve",
+            serde_json::json!({
+                "id": view.id,
+                "action": view.action,
+                "sandbox": view.sandbox,
+                "decided_by": decided_by,
+            }),
+        );
+        emitter.emit(
+            crate::events::EV_M_REQUEST_APPROVE,
+            crate::events::m_request_payload(&view.id, "approved", Some(decided_by)),
+        );
+        Ok(view)
     }
 
     /// Reject a pending request.
+    ///
+    /// The mirror of [`Self::approve_sandbox_request`], and it records the decision the
+    /// same way (v1.0 gap 2/N).
     pub fn reject_sandbox_request(
         &self,
         id: &str,
         decided_by: &str,
         emitter: Arc<dyn EventSink>,
     ) -> Result<SandboxRequestView, HostError> {
-        self.sandbox_request_service(emitter)
-            .decide(id, SandboxRequestStatus::Rejected, decided_by)
+        let view = self.sandbox_request_service(Arc::clone(&emitter)).decide(
+            id,
+            SandboxRequestStatus::Rejected,
+            decided_by,
+        )?;
+        self.emit_m_action(
+            Some(decided_by),
+            "m.request.reject",
+            serde_json::json!({
+                "id": view.id,
+                "action": view.action,
+                "sandbox": view.sandbox,
+                "decided_by": decided_by,
+            }),
+        );
+        emitter.emit(
+            crate::events::EV_M_REQUEST_REJECT,
+            crate::events::m_request_payload(&view.id, "rejected", Some(decided_by)),
+        );
+        Ok(view)
     }
 
     /// Switch this node to the sandbox `name` (v0.9 sandbox F2b).
@@ -2932,7 +3043,12 @@ impl AppState {
     /// a new sandbox running, or with `ok: false` and the reason it did not. The
     /// VM's own `vm.stop` / `vm.start` audit rows are the sandbox's, and they
     /// arrive as they always did.
-    pub fn switch_sandbox(&self, name: &str, emitter: Arc<dyn EventSink>) -> Result<(), HostError> {
+    pub fn switch_sandbox(
+        &self,
+        name: &str,
+        caller: Option<&str>,
+        emitter: Arc<dyn EventSink>,
+    ) -> Result<(), HostError> {
         // What was current before, for the event's `from` (F2b-2).
         let from = self.current_sandbox();
         let outcome = (|| -> Result<(), HostError> {
@@ -3028,6 +3144,19 @@ impl AppState {
                             // is what a later task-declared run is compared against
                             // (v0.9 sandbox F2d).
                             self.mark_active_sandbox(Some(name));
+                            // …and the act is recorded, naming the caller (v1.0 gap 2/N).
+                            // **Only when the node really moved**: like the derive and the
+                            // reap, the row says what happened rather than what was asked,
+                            // so a refusal stays what it always was — one `ok: false`
+                            // frame on the stream, and nothing else touched (F2b-2).
+                            self.emit_m_action(
+                                caller,
+                                "m.sandbox.switch",
+                                serde_json::json!({
+                                    "name": name,
+                                    "from": from,
+                                }),
+                            );
                             return Ok(());
                         }
                         Err(e) => {
@@ -3059,6 +3188,8 @@ impl AppState {
                 reason.as_deref(),
             ),
         );
+        // The **stream** keeps one frame per attempt, however it ended (F2b-2); what this
+        // batch adds for a switch is the **chain row**, written above and only on success.
         outcome
     }
 
@@ -3961,6 +4092,25 @@ impl AppState {
         if let Ok(mut sink) = self.sink.lock() {
             let _ = sink
                 .record(audit::AuditEvent::new("host", action, detail).with_agent(&self.agent_id));
+        }
+    }
+
+    /// Record an act a **caller** asked for, naming it (v1.0 gap 2/N).
+    ///
+    /// The same row [`Self::emit_host`] writes, with one difference: `agent_id` is the
+    /// caller's identity when it declared one, and this node's own id when it did not —
+    /// which is what every path here did before the caller existed. `agent_id` is
+    /// deliberately outside the hash formula (`audit/src/event.rs`), so naming the caller
+    /// adds attribution without moving a single historical row.
+    ///
+    /// Only the acts an outside dispatcher can take call this. The forty-odd node events
+    /// keep using [`Self::emit_host`]: a theme change or a toolchain probe is the node's
+    /// own doing, and a caller header has nothing to say about it.
+    fn emit_m_action(&self, caller: Option<&str>, action: &str, detail: serde_json::Value) {
+        if let Ok(mut sink) = self.sink.lock() {
+            let agent_id = caller.unwrap_or(self.agent_id.as_str());
+            let _ =
+                sink.record(audit::AuditEvent::new("host", action, detail).with_agent(agent_id));
         }
     }
 

@@ -417,6 +417,15 @@ async fn serve(stream: TcpStream, shared: Arc<Shared>) -> Result<(), hyper::Erro
     http1::Builder::new().serve_connection(io, service).await
 }
 
+/// The longest caller name `X-RiscDom-Agent` may carry (v1.0 gap 2/N).
+///
+/// The value is not a secret, but it is written into every audit row the request
+/// leaves, so it is bounded and free of control characters: a name with a newline in it
+/// would be a name that breaks a JSONL export's lines. An unusable value is **not** an
+/// error — it is treated as "no name declared", which is the behaviour every caller
+/// had before this batch.
+const CALLER_MAX_CHARS: usize = 128;
+
 /// Authenticate, then route. Auth runs first and for every request.
 async fn handle(
     request: Request<hyper::body::Incoming>,
@@ -430,6 +439,18 @@ async fn handle(
         .headers()
         .get("last-event-id")
         .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    // Who says it is asking (v1.0 gap 2/N). HTTP header names are case-insensitive, so
+    // the lowercase spelling here matches whatever the client sent.
+    let caller = request
+        .headers()
+        .get("x-riscdom-agent")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .filter(|name| {
+            name.chars().count() <= CALLER_MAX_CHARS && !name.chars().any(char::is_control)
+        })
         .map(str::to_string);
 
     // The built Web UI comes **before** the route table and before `Authn` (v0.9
@@ -453,6 +474,7 @@ async fn handle(
         method: method.clone(),
         path: path.clone(),
         token: presented,
+        caller,
         capability,
     };
     let actor = match shared.authn.authorise(&meta) {

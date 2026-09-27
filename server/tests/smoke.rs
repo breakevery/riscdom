@@ -204,6 +204,57 @@ fn call_with(
     (status, body)
 }
 
+/// The same, but with a caller name in `X-RiscDom-Agent` (v1.0 gap 2/N).
+///
+/// The caller is a header, so a test that wants to prove the row names it has to send one:
+/// this spells the request out the same way [`call_with`] does, with one more line.
+fn call_as(
+    addr: SocketAddr,
+    method: &str,
+    path: &str,
+    credential: &str,
+    caller: &str,
+    body: Option<&str>,
+) -> (u16, String) {
+    let mut stream = TcpStream::connect(addr).expect("connect");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(20)))
+        .expect("read timeout");
+    let auth = if credential.is_empty() {
+        String::new()
+    } else {
+        format!("Authorization: {} {}\r\n", SCHEME, credential)
+    };
+    // The caller rides in `caller`, so a body that needs one sends it there — which is
+    // also what the endpoint reads.
+    let caller_header = format!("X-RiscDom-Agent: {caller}\r\n");
+    let content = match body {
+        Some(body) => format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            body.len()
+        ),
+        None => String::new(),
+    };
+    let request = format!(
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\n{auth}{caller_header}{content}Connection: close\r\n\r\n{}",
+        body.unwrap_or("")
+    );
+    stream.write_all(request.as_bytes()).expect("write request");
+    let mut raw = Vec::new();
+    let _ = stream.read_to_end(&mut raw);
+    let text = String::from_utf8_lossy(&raw).to_string();
+    let status = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let body = text
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body.to_string())
+        .unwrap_or_default();
+    (status, body)
+}
+
 /// One request whose body is bytes, answered as bytes (v0.9 project in/out).
 ///
 /// The JSON helpers cannot carry an archive: their body is a `&str` and their
@@ -1737,6 +1788,137 @@ fn the_sessions_wildcard_lists_every_executor() {
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
+
+#[test]
+fn a_caller_that_names_itself_lands_in_the_chain() {
+    // v1.0 gap 2/N. `X-RiscDom-Agent` names the actor, and the acts a dispatcher can take
+    // leave rows that name it. The ask is the cheapest act that proves the whole path —
+    // header → `Actor` → audit row — because the route already passes the actor through.
+    let (addr, _app) = serve_with_state(temp_workspace("caller"), Arc::new(NoAuth));
+
+    let (status, body) = call_as(
+        addr,
+        "POST",
+        "/v0/sandboxes/requests",
+        "",
+        "m-1",
+        Some(r#"{"action":"switch","sandbox":"blink","reason":"because"}"#),
+    );
+    assert_eq!(status, 201, "{body}");
+    let id = serde_json::from_str::<serde_json::Value>(&body).expect("json")["id"]
+        .as_str()
+        .expect("id")
+        .to_string();
+
+    let ask = |events: &serde_json::Value| -> serde_json::Value {
+        events
+            .as_array()
+            .expect("rows")
+            .iter()
+            .find(|row| row["action"] == "m.request.ask")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null)
+    };
+    let (_, events) = get(addr, "/v0/audit/events?limit=50&action_prefix=m.");
+    let row = ask(&events);
+    assert_eq!(row["agent_id"], "m-1", "the row names the caller: {row}");
+    assert_eq!(row["actor"], "host", "the node still acted: {row}");
+    assert_eq!(row["detail"]["sandbox"], "blink", "{row}");
+
+    // A decision is recorded too — the gap this batch closes (before it, approving
+    // announced a frame and wrote nothing durable).
+    let (status, body) = call_as(
+        addr,
+        "POST",
+        &format!("/v0/sandboxes/requests/{id}/approve"),
+        "",
+        "m-2",
+        Some("{}"),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (_, events) = get(addr, "/v0/audit/events?limit=50&action_prefix=m.");
+    let row = events
+        .as_array()
+        .expect("rows")
+        .iter()
+        .find(|row| row["action"] == "m.request.approve")
+        .expect("the decision is in the chain")
+        .clone();
+    assert_eq!(row["agent_id"], "m-2", "{row}");
+    assert_eq!(row["detail"]["decided_by"], "m-2", "{row}");
+
+    // A switch the node refuses (no definition called `blink` here) touches nothing — no VM,
+    // no current definition, **and no row** (F2b-2's promise, kept): what this batch adds to a
+    // switch is the row a *successful* one leaves, and a refusal still shows on the stream as
+    // its single `ok: false` frame.
+    let (status, body) = call_as(
+        addr,
+        "POST",
+        "/v0/sandboxes/switch",
+        "",
+        "m-3",
+        Some(r#"{"name":"blink"}"#),
+    );
+    assert_eq!(status, 404, "{body}");
+    let (_, events) = get(
+        addr,
+        "/v0/audit/events?limit=50&action_prefix=m.sandbox.switch",
+    );
+    assert_eq!(
+        events.as_array().expect("rows").len(),
+        0,
+        "a refused switch writes no row: {events}"
+    );
+
+    // No header is the behaviour every release before this one had: the token's own
+    // identity, `owner` under `--no-auth`.
+    let (status, _) = post(
+        addr,
+        "/v0/sandboxes/requests",
+        r#"{"action":"switch","sandbox":"blink"}"#,
+    );
+    assert_eq!(status, 201);
+    let (_, events) = get(
+        addr,
+        "/v0/audit/events?limit=50&action_prefix=m.request.ask",
+    );
+    assert_eq!(ask(&events)["agent_id"], "owner", "{events}");
+
+    // A value that cannot be a name is **ignored**, not obeyed: the row falls back to the
+    // actor's own identity, so a caller cannot smuggle control characters into the chain.
+    let too_long = "x".repeat(300);
+    let (status, _) = call_as(
+        addr,
+        "POST",
+        "/v0/sandboxes/requests",
+        "",
+        &too_long,
+        Some(r#"{"action":"switch"}"#),
+    );
+    assert_eq!(status, 201);
+    let (_, events) = get(
+        addr,
+        "/v0/audit/events?limit=50&action_prefix=m.request.ask",
+    );
+    assert_eq!(ask(&events)["agent_id"], "owner", "{events}");
+
+    // …and the boundary is a boundary: exactly the cap is a name, one over is not.
+    let at_cap = "y".repeat(128);
+    let (status, _) = call_as(
+        addr,
+        "POST",
+        "/v0/sandboxes/requests",
+        "",
+        &at_cap,
+        Some(r#"{"action":"switch"}"#),
+    );
+    assert_eq!(status, 201);
+    let (_, events) = get(
+        addr,
+        "/v0/audit/events?limit=50&action_prefix=m.request.ask",
+    );
+    assert_eq!(ask(&events)["agent_id"], at_cap, "{events}");
+}
 
 #[test]
 fn a_missing_required_parameter_is_400() {

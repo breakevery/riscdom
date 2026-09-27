@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A caller can name itself, and every act an AI supervisor takes leaves a row naming it**
+  (v1.0 gap 2/N): the optional `X-RiscDom-Agent` header turns the token's actor into a named
+  `Supervisor`, and the seven acts a dispatcher can take — derive, reap, switch, ask,
+  approve, reject, dispatch — write chain rows (`m.sandbox.spawn`, `m.sandbox.reap`,
+  `m.sandbox.switch`, `m.request.ask`, `m.request.approve`, `m.request.reject`,
+  `m.task.dispatch`) plus a matching event frame for the three acts that had none. Before this,
+  a switch, an ask and a decision wrote nothing durable at all, and a derive was attributed to
+  `host`. The identity rides in `AuditEvent.agent_id`, outside the hash formula, so no
+  historical row moves. No header means the old behaviour (`operator`). The event vocabulary
+  grew 17 → 20, and the events document's table is back in step with the code.
+
 - **The dispatcher's decision layer** (v1.0 M2c-2): `examples/python/supervisor.py` now asks a
   model what to do — a bounded tool-calling loop (`--max-rounds`, default 6) over the node's
   state, offering **eighteen** tools read from `docs/tool-schema-control-plane.md` and filtered

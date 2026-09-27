@@ -106,6 +106,29 @@ pub const EV_M_SANDBOX_REAP: &str = "m:sandbox:reap";
 /// own approval arrives with M itself (M2c).
 pub const EV_M_REQUEST_APPROVE: &str = "m:request:approve";
 
+// ---- M's remaining acts (v1.0 gap 2/N) ----------------------------------
+//
+// M2c found that most of what a dispatcher does left **no row at all**: a switch,
+// an ask and a decision announced a stream frame and recorded nothing, and a
+// dispatch was visible only through the worker's own chain. The three names below
+// complete the act vocabulary, and the paths that carry the acts now emit them.
+// The audit spelling is the same name with dots, as it is for the three above.
+//
+// A **switch** is the one act with no new name here: it already had a frame
+// (`sandbox:switch`, F2b-2) whose contract is "one frame per attempt, either way" —
+// adding a second one for the same attempt would be a second thing to count. What
+// this batch adds for a switch is the **chain row** (`m.sandbox.switch`), written
+// when the node really moved.
+
+/// M rejected a pending request: the mirror of [`EV_M_REQUEST_APPROVE`].
+pub const EV_M_REQUEST_REJECT: &str = "m:request:reject";
+/// M left a sandbox request (the ask half of the approval slot; the audit action is
+/// `m.request.ask`, in the same family as its approve and reject).
+pub const EV_M_REQUEST_ASK: &str = "m:request:ask";
+/// M dispatched a task to an executor. Until this batch the only trace was the
+/// worker's own chain rows, which exist only when both processes share a workspace.
+pub const EV_M_TASK_DISPATCH: &str = "m:task:dispatch";
+
 /// The envelope schema version (v0.9 line). A payload field added later does not
 /// bump it; a change to a field's meaning, type, or presence does.
 pub const ENVELOPE_VERSION: u32 = 1;
@@ -247,6 +270,30 @@ pub fn sandbox_request_payload(id: &str, status: &str, requester: &str, action: 
 /// The `audit:failed` payload. The key is `message`, matching the API error model.
 pub fn audit_failed_payload(message: &str) -> Value {
     serde_json::json!({ "message": message })
+}
+
+/// The `m:sandbox:spawn` / `m:sandbox:reap` payload: which instance, from which
+/// definition (v1.0 gap 2/N).
+pub fn instance_payload(instance_id: &str, definition: &str) -> Value {
+    serde_json::json!({ "instance_id": instance_id, "definition": definition })
+}
+
+/// The `m:request:ask` / `m:request:approve` / `m:request:reject` payload: the id,
+/// where the ask now stands, and who decided it (v1.0 gap 2/N).
+///
+/// `decided_by` is `null` while the ask is still pending, so one shape serves the ask
+/// and its two decisions.
+pub fn m_request_payload(id: &str, status: &str, decided_by: Option<&str>) -> Value {
+    serde_json::json!({ "id": id, "status": status, "decided_by": decided_by })
+}
+
+/// The `m:task:dispatch` payload: the task the node handed to an executor, and how
+/// the dispatch ended (v1.0 gap 2/N).
+///
+/// `outcome` is the `TaskOutcome`'s kind (`Final` / `MaxIterations` / `Failed`), the same
+/// word the answer carries, so a watcher can branch on it without reading the whole body.
+pub fn task_dispatch_payload(task_id: &str, target: &str, outcome: &str) -> Value {
+    serde_json::json!({ "task_id": task_id, "target": target, "outcome": outcome })
 }
 
 /// Anything that can deliver an event to the frontend.
@@ -464,10 +511,11 @@ mod tests {
 
     #[test]
     fn all_events_are_named() {
-        // A guard against a name drifting: the doc lists seventeen. The list was
+        // The doc lists twenty. The list was
         // eleven while `qemu:download` (F1) was missing from it, thirteen before
-        // `sandbox:request` (F2c) and fourteen before the dispatcher's three
-        // (v1.0 M2a-1) — a guard that misses an event is not a guard.
+        // `sandbox:request` (F2c), fourteen before the dispatcher's three
+        // (v1.0 M2a-1) and seventeen before M's remaining three acts
+        // (v1.0 gap 2/N) — a guard that misses an event is not a guard.
         let names = [
             EV_AGENT_ITERATION,
             EV_AGENT_TOOL_CALL,
@@ -486,16 +534,26 @@ mod tests {
             EV_M_SANDBOX_SPAWN,
             EV_M_SANDBOX_REAP,
             EV_M_REQUEST_APPROVE,
+            EV_M_REQUEST_REJECT,
+            EV_M_REQUEST_ASK,
+            EV_M_TASK_DISPATCH,
         ];
-        assert_eq!(names.len(), 17);
+        assert_eq!(names.len(), 20);
         // Every name is unique, so a copy-paste cannot hide a missing one.
         let mut sorted = names.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
         assert_eq!(sorted.len(), names.len(), "{names:?}");
-        // The dispatcher's three follow the event stream's colon spelling, and
-        // their audit actions are the same names with dots (v1.0 M2a-1).
-        for name in [EV_M_SANDBOX_SPAWN, EV_M_SANDBOX_REAP, EV_M_REQUEST_APPROVE] {
+        // The dispatcher's six follow the event stream's colon spelling, and
+        // their audit actions are the same names with dots (v1.0 M2a-1, gap 2/N).
+        for name in [
+            EV_M_SANDBOX_SPAWN,
+            EV_M_SANDBOX_REAP,
+            EV_M_REQUEST_APPROVE,
+            EV_M_REQUEST_REJECT,
+            EV_M_REQUEST_ASK,
+            EV_M_TASK_DISPATCH,
+        ] {
             assert!(name.starts_with("m:"), "{name}");
             assert_eq!(name.matches(':').count(), 2, "{name}");
         }

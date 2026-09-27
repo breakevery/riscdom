@@ -1124,20 +1124,26 @@ pub(crate) fn dispatch(
             Err(response) => *response,
         },
         Action::SandboxInstanceCreate => match params.required("name") {
-            Ok(name) => match app.spawn_instance(name) {
-                // `201`: an instance came into being, and the answer names it.
-                Ok(id) => {
-                    let started = app
-                        .instance_view(&id)
-                        .and_then(|view| view.vm_started_at_ms);
-                    created_json(&serde_json::json!({
-                        "instance_id": id.as_str(),
-                        "definition": name,
-                        "vm_started_at_ms": started,
-                    }))
+            Ok(name) => {
+                // The caller names the row this act leaves (v1.0 gap 2/N), and the
+                // stream hears it on the event M2a-1 declared for exactly this path.
+                let emitter: Arc<dyn host_core::EventSink> =
+                    Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
+                match app.spawn_instance(name, Some(&actor.agent_id), emitter) {
+                    // `201`: an instance came into being, and the answer names it.
+                    Ok(id) => {
+                        let started = app
+                            .instance_view(&id)
+                            .and_then(|view| view.vm_started_at_ms);
+                        created_json(&serde_json::json!({
+                            "instance_id": id.as_str(),
+                            "definition": name,
+                            "vm_started_at_ms": started,
+                        }))
+                    }
+                    Err(e) => sandbox_instance_error(e, "sandbox_start_failed"),
                 }
-                Err(e) => sandbox_instance_error(e, "sandbox_start_failed"),
-            },
+            }
             Err(response) => *response,
         },
         Action::SandboxInstanceDelete => {
@@ -1164,7 +1170,9 @@ pub(crate) fn dispatch(
                     Some("instance"),
                 );
             }
-            match app.stop_instance(&id) {
+            let emitter: Arc<dyn host_core::EventSink> =
+                Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
+            match app.stop_instance(&id, Some(&actor.agent_id), emitter) {
                 Ok(()) => no_content(),
                 Err(e) => sandbox_instance_error(e, "sandbox_stop_failed"),
             }
@@ -1222,7 +1230,7 @@ pub(crate) fn dispatch(
             let from = app.current_sandbox();
             let emitter: Arc<dyn host_core::EventSink> =
                 Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
-            match app.switch_sandbox(name, emitter) {
+            match app.switch_sandbox(name, Some(&actor.agent_id), emitter) {
                 // 200 with the two ends, not an empty `204`: a switch has something
                 // to say, and a client that only reads the answer should not have
                 // to subscribe to the stream to learn what changed.
@@ -1436,7 +1444,17 @@ pub(crate) fn dispatch(
             // the id travels with the task and is checked where it arrives.
             let instance = params.get("instance");
             let id = params.get("id");
-            match app.dispatch_task(target, input, sandbox, instance, id) {
+            let emitter: Arc<dyn host_core::EventSink> =
+                Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
+            match app.dispatch_task(
+                target,
+                input,
+                sandbox,
+                instance,
+                id,
+                Some(&actor.agent_id),
+                emitter,
+            ) {
                 Ok(outcome) => ok_json(&outcome),
                 Err(e) => task_error(e),
             }

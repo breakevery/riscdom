@@ -18,6 +18,13 @@ pub struct ReqMeta {
     pub path: String,
     /// The bearer token from `Authorization`, when one was sent.
     pub token: Option<String>,
+    /// The identity the caller claims for itself, from `X-RiscDom-Agent` (v1.0 gap 2/N).
+    ///
+    /// Optional, and absent means "the token's own identity" — which is what every
+    /// release before this one assumed. An **AI supervisor** sends it so the rows its
+    /// acts leave name it rather than the node: without it M's work is attributed to
+    /// `operator` at best, and to `host` at worst.
+    pub caller: Option<String>,
     /// The capability this endpoint requires, read from the route table.
     ///
     /// The hook sees it so a hook *may* reason about it, but the check itself is
@@ -37,6 +44,7 @@ impl fmt::Debug for ReqMeta {
                 "token",
                 &self.token.as_ref().map(|_| "<redacted>").unwrap_or("none"),
             )
+            .field("caller", &self.caller)
             .field("capability", &self.capability)
             .finish()
     }
@@ -83,6 +91,24 @@ impl Actor {
             agent_id: agent_id.into(),
             kind: ActorKind::Human,
             capabilities: Capability::ALL.iter().copied().collect(),
+        }
+    }
+
+    /// The token holder, acting **as the caller that named itself**, when one did.
+    ///
+    /// `X-RiscDom-Agent` (v1.0 gap 2/N) turns the same credential into a named actor: the
+    /// identity travels into every row the request writes, and the kind becomes
+    /// [`ActorKind::Supervisor`] so the audit narrative says *an AI dispatcher did this*
+    /// rather than leaving it to be guessed from an id. The **capabilities are unchanged**
+    /// — a caller names itself, it does not widen what the token may do.
+    pub fn named_caller(caller: Option<&str>, default_id: impl Into<String>) -> Self {
+        match caller {
+            Some(id) => Self {
+                agent_id: id.to_string(),
+                kind: ActorKind::Supervisor,
+                capabilities: Capability::ALL.iter().copied().collect(),
+            },
+            None => Self::named_owner(default_id),
         }
     }
 
@@ -323,11 +349,12 @@ pub trait Authn: Send + Sync {
 pub struct NoAuth;
 
 impl Authn for NoAuth {
-    fn authorise(&self, _meta: &ReqMeta) -> Result<Actor, AuthError> {
+    fn authorise(&self, meta: &ReqMeta) -> Result<Actor, AuthError> {
         // Explicitly the holder of every capability: `--no-auth` means "run
         // everything", not "run the anonymous actor", so the endpoints behave
-        // exactly as they do with a token.
-        Ok(Actor::owner())
+        // exactly as they do with a token. A caller that named itself is still named
+        // (v1.0 gap 2/N): `--no-auth` decides what is *allowed*, not who is asking.
+        Ok(Actor::named_caller(meta.caller.as_deref(), "owner"))
     }
 }
 
@@ -354,7 +381,9 @@ impl Authn for TokenAuth {
         if presented.as_bytes().ct_eq(self.token.as_bytes()).into() {
             // One token, full power (v0.9). The capability check itself lives in
             // the request path, so a finer-grained hook needs no new plumbing.
-            Ok(Actor::named_owner("operator"))
+            // `X-RiscDom-Agent` names the caller without changing that power
+            // (v1.0 gap 2/N).
+            Ok(Actor::named_caller(meta.caller.as_deref(), "operator"))
         } else {
             Err(AuthError::Unauthorized)
         }
@@ -370,8 +399,41 @@ mod tests {
             method: "GET".into(),
             path: "/v0/health".into(),
             token: token.map(str::to_string),
+            caller: None,
             capability: Some(Capability::HealthRead),
         }
+    }
+
+    fn meta_as(token: Option<&str>, caller: &str) -> ReqMeta {
+        ReqMeta {
+            caller: Some(caller.to_string()),
+            ..meta(token)
+        }
+    }
+
+    #[test]
+    fn a_caller_that_names_itself_becomes_a_supervisor() {
+        // v1.0 gap 2/N: `X-RiscDom-Agent` names the actor without widening its power.
+        let token = TokenAuth::new("the-token");
+        let named = token
+            .authorise(&meta_as(Some("the-token"), "m-1"))
+            .expect("allowed");
+        assert_eq!(named.agent_id, "m-1");
+        assert_eq!(named.kind, ActorKind::Supervisor);
+        assert_eq!(named.capabilities.len(), Capability::ALL.len());
+
+        // …and without it the identity is the token's own, exactly as before.
+        let anonymous_caller = token.authorise(&meta(Some("the-token"))).expect("allowed");
+        assert_eq!(anonymous_caller.agent_id, "operator");
+        assert_eq!(anonymous_caller.kind, ActorKind::Human);
+
+        // `--no-auth` decides what is allowed, not who is asking.
+        let named = NoAuth
+            .authorise(&meta_as(Some("anything"), "m-2"))
+            .expect("allowed");
+        assert_eq!(named.agent_id, "m-2");
+        assert_eq!(named.kind, ActorKind::Supervisor);
+        assert_eq!(named.capabilities.len(), Capability::ALL.len());
     }
 
     #[test]

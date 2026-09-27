@@ -25,6 +25,11 @@ use host_core::{EventSink, HostError};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// The sink an instance act's own event lands in (v1.0 gap 2/N).
+fn event_sink() -> Arc<dyn EventSink> {
+    Arc::new(RecordingEventSink::new())
+}
+
 fn unique_dir(tag: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -184,7 +189,7 @@ fn deriving_an_instance_does_not_change_what_the_node_runs() {
     // A spawn that cannot start changes nothing either: the definition is looked
     // up (and missing), so no instance is registered and the current pointer —
     // which `spawn_instance` never touches — is where it was.
-    let refused = app.spawn_instance("no-such-definition");
+    let refused = app.spawn_instance("no-such-definition", None, event_sink());
     assert!(refused.is_err(), "{refused:?}");
     assert_eq!(app.instance_ids().len(), 2, "the derived one, and the own");
     assert_eq!(app.current_instance_id(), own);
@@ -197,7 +202,8 @@ fn stopping_an_instance_forgets_it_and_keeps_the_nodes_own() {
     let own = app.own_instance_id().clone();
     let derived = app.register_instance("scratch");
 
-    app.stop_instance(&derived.id).expect("stop");
+    app.stop_instance(&derived.id, None, event_sink())
+        .expect("stop");
     assert!(
         app.instance(&derived.id).is_none(),
         "a stopped instance leaves the table"
@@ -206,12 +212,16 @@ fn stopping_an_instance_forgets_it_and_keeps_the_nodes_own() {
 
     // The node's own instance is not removable: it is the slot a switch and a run
     // act on, so stopping it empties the slot and keeps the entry.
-    app.stop_instance(&own).expect("stop the node's own");
+    app.stop_instance(&own, None, event_sink())
+        .expect("stop the node's own");
     assert!(app.instance(&own).is_some(), "the own instance stays");
     assert!(!app.vm_is_running());
 
     let unknown = InstanceId::new("not-an-instance");
-    assert!(app.stop_instance(&unknown).is_err(), "no such instance");
+    assert!(
+        app.stop_instance(&unknown, None, event_sink()).is_err(),
+        "no such instance"
+    );
 }
 
 #[test]
@@ -277,7 +287,7 @@ fn a_derive_that_cannot_start_leaves_no_trace() {
 
     let app = AppState::with_data_dir(&workspace, &data_dir).expect("state");
     let before = app.instance_ids();
-    let refused = app.spawn_instance("blink");
+    let refused = app.spawn_instance("blink", None, event_sink());
     assert!(refused.is_err(), "a stand-in is not a QEMU: {refused:?}");
     assert_eq!(app.instance_ids(), before, "the table is where it was");
     assert!(!app.vm_is_running(), "nothing is running");

@@ -13,7 +13,7 @@ watching executors.
 This document covers the push side: SSE framing, one common envelope for all events, the
 per-event payloads, and filtering.
 
-**Where the events come from.** `host-core/src/events.rs` defines fourteen event names and an
+**Where the events come from.** `host-core/src/events.rs` defines twenty event names and an
 `EventSink` trait (`emit(&self, event: &str, payload: serde_json::Value)`). Three
 implementations exist today: `TauriEventSink` (to the webview), `RecordingEventSink`
 (tests), and `LineEventSink` (`worker`, JSON lines on stderr). **Every transport wraps what it
@@ -32,7 +32,7 @@ as the host emits them.
   until the client closes it or the server stops.
 - **Frames use `id:` and `data:` only — no `event:` field.** *Decision and rationale:*
   setting SSE's `event` field would make the browser's `EventSource` dispatch to a named
-  listener and stop firing `onmessage`, forcing a client to register fourteen listeners.
+  listener and stop firing `onmessage`, forcing a client to register twenty listeners.
   Leaving it unset delivers every frame to one `onmessage` handler, and the envelope's
   `event` field does the routing. One handler, one router.
 - **Heartbeat.** A comment line (starting with `:`) every 15 seconds keeps intermediaries
@@ -77,7 +77,7 @@ data: {"version":1,"kind":"hello","event":null,"agent_id":"server","task_id":nul
 
 ## 2. The unified envelope
 
-Every frame carries the same object. This is the batch's core deliverable: the fourteen
+Every frame carries the same object. This is the batch's core deliverable: the twenty
 events keep their own payloads, but they all travel inside one envelope whose fields have
 one meaning each.
 
@@ -97,7 +97,7 @@ one meaning each.
 |---|---|---|---|
 | `version` | integer | yes | Envelope schema version. `1` in v0.9. |
 | `kind` | string | yes | Frame kind: `event` / `hello` / `gap` (see below). |
-| `event` | string \| null | yes | One of the fourteen names, or `null` for `hello` / `gap`. |
+| `event` | string \| null | yes | One of the twenty names, or `null` for `hello` / `gap`. |
 | `agent_id` | string | yes | The agent that caused the event, `<device>-<pid>-<seq>`. |
 | `task_id` | string \| null | yes | The dispatched task it belongs to; `null` when not tied to one. |
 | `ts` | integer | yes | Epoch milliseconds. |
@@ -105,7 +105,7 @@ one meaning each.
 
 `kind` values in v0.9:
 
-- `event` — one of the fourteen events; `event` names it.
+- `event` — one of the twenty events; `event` names it.
 - `hello` — the stream opened; `payload.buffer` and `payload.filters` describe it.
 - `gap` — the requested replay id was too old to replay; `payload.lost_after` is the
   oldest id the server still holds. A client that sees a `gap` must re-sync from a
@@ -123,7 +123,7 @@ one meaning each.
 - The envelope's top-level fields are frozen for v0.9: a new one would be a `version`
   bump, because a client validating the envelope would have to change.
 
-## 3. The fourteen events, normalised
+## 3. The twenty events, normalised
 
 The payload keys are unified here so a client written against this document keeps working
 after the emit sites are normalised (a later batch). "Changed" means the mapping from
@@ -145,10 +145,25 @@ today's payload is not the identity; the rest keep their keys and are merely wra
 | 12 | `qemu:download` (v0.9 sandbox F1) | internally tagged enum: `{"kind":"progress",…}`, … | `{state, ...}` — the same fields under the tag `state`, the toolchain's shape | **yes** |
 | 13 | `sandbox:switch` (v0.9 sandbox F2b-2) | — (new in v0.9) | `{from, to, ok, reason}` — `from` is the definition that was current (`null` when none was), `to` the one asked for, `reason` the code when `ok` is `false` | **new** |
 | 14 | `sandbox:request` (v0.9 sandbox F2c) | — (new in v0.9) | `{id, status, requester, action}` — one frame per change: `pending` when an ask lands, then `approved` / `rejected` when somebody decides; `approving performs nothing` | **new** |
+| 15 | `m:sandbox:spawn` (v1.0 M2a-1; emitted v1.0 gap 2/N) | — (new in v1.0) | `{instance_id, definition}` — the dispatcher derived one | **new** |
+| 16 | `m:sandbox:reap` (v1.0 M2a-1; emitted v1.0 gap 2/N) | — (new in v1.0) | `{instance_id, definition}` — the dispatcher destroyed one | **new** |
+| 17 | `m:request:ask` (v1.0 gap 2/N) | — (new in v1.0) | `{id, status, decided_by}` — `status` is `pending` and `decided_by` is `null` until somebody decides | **new** |
+| 18 | `m:request:approve` (v1.0 M2a-1; emitted v1.0 gap 2/N) | — (new in v1.0) | `{id, status, decided_by}` | **new** |
+| 19 | `m:request:reject` (v1.0 gap 2/N) | — (new in v1.0) | `{id, status, decided_by}` | **new** |
+| 20 | `m:task:dispatch` (v1.0 gap 2/N) | — (new in v1.0) | `{task_id, target, outcome}` — `outcome` is the `TaskOutcome`'s kind (`Final` / `MaxIterations` / `Failed`) | **new** |
 
-**Four** of the fourteen change shape, **eight** are the identity mapping, and the last two
-(`sandbox:switch`, F2b-2; `sandbox:request`, F2c) are new in v0.9 — they have no v0.8
-payload to map from.
+**Four** of the twenty change shape, **eight** are the identity mapping, and the last eight
+— `sandbox:switch` (F2b-2), `sandbox:request` (F2c) and the dispatcher's six — are new: they
+have no v0.8 payload to map from.
+
+The dispatcher's six are the acts an **AI supervisor** takes (v1.0 M2a-1; emitted since
+v1.0 gap 2/N). Their audit rows spell the same names with dots (`m.sandbox.spawn`), and the
+row's `agent_id` names the caller when the request declared one — `X-RiscDom-Agent`
+(`docs/control-plane-api.md` §3). Two acts carry **no name of their own here**: a switch
+keeps its single `sandbox:switch` frame, whose contract is "one frame per attempt, either
+way" (F2b-2) — a second frame for the same attempt would be a second thing to count — and a
+decision on a request keeps `sandbox:request`, one frame per change. What the batch adds for
+both is the **chain row** (`m.sandbox.switch`, `m.request.approve`, `m.request.reject`).
 **All three landed in v0.9 batch 3** (the fourth in the F1 batch — see below), at the emit
 sites: the envelope wraps them, and the keys below are what a client sees in `payload`
 today.
@@ -193,7 +208,7 @@ built in the implementation batch.
 
 - **Query parameters, repeatable:**
   `GET /v0/events?event=agent:tool_call&event=vm:state&agent_id=dev-12345-1&task_id=task-12345-1`
-  - `event` — any of the fourteen names; repeat to select several. Absent means all.
+  - `event` — any of the twenty names; repeat to select several. Absent means all.
   - `agent_id` — select one agent's events.
   - `task_id` — select one task's events.
 - **Server-side filter.** The server drops non-matching frames before they are written,

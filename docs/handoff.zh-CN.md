@@ -11,6 +11,8 @@
 
 ## 1. 快照 —— `v0.9.9` 已发布（正式发布时更新本节）
 
+- **每个 AI 监督者做的动作都留下一行、并写下它自己的名字**（v1.0 缺口 2/N，2026-09-27）。客户端可以用可选的 **`X-RiscDom-Agent`** header 给自己命名；服务它的 `Actor` 便以那个名字与 `ActorKind::Supervisor` 出场，而**调度员能做的七个动作**写下指名它的链行 —— `m.sandbox.spawn`、`m.sandbox.reap`、`m.sandbox.switch`、`m.request.ask`、`m.request.approve`、`m.request.reject`、`m.task.dispatch` —— 而其中三个原本没有自己帧的动作各获得一帧，于是流里看得到动作、链上说得出是谁要的。身份走在 `AuditEvent.agent_id` —— 那个刻意不在哈希公式里的字段：归因到位的代价是零行历史被移动，而四十多个节点事件仍写节点。不带 header = 凭据自己的身份（`operator`），即本批之前每个版本的行为。事件词汇 **17 → 20**，而 `docs/control-plane-events.md` §3（此前代码 17 而文档只列 14）已拉回同步。**决策 §81。**
+
 - **M 的决策层，以及 M2c 全线完成**（v1.0 M2c-2，2026-09-27）。`examples/python/supervisor.py` 现在会决策了：一个在节点状态上的**有上限工具调用循环**（`LLMDecider`，`--max-rounds` 默认 6），提供给模型 **十八个**工具 —— 启动时从 `docs/tool-schema-control-plane.md` 读出并过滤成「调度员应有」的那一批 —— 其中 `agent_run`（执行者的循环）与 `events`（客户指南 §8 明说它不是工具）被点名排除。M 的模型是 M 自己的（`--llm-base-url` / `--llm-model` / `--llm-api-key-file`，从不取自节点的 `llm_configs`），而不配模型就什么都不决定 —— 保守默认，不是坏掉的状态。**策略**刻意没给：system prompt 是骨架，而 self-test 用一个**假模型**（按脚本作答的 `http.server`）驱动循环，断言快照与工具真的出行、工具调用被执行并回喂、未提供的工具**不会**被执行、模型失败或不可达会以**零**控制请求结束该轮、以及轮次上限生效。**真机、两个进程**：一个全新的 `riscdom-server` 加带脚本模型的 M —— M 读到了状态，它的工具调用真的到达了节点：一次派发跑了一个**真实**的 worker 回合（写了一个裸机 guest 并把它在 QEMU 里启动）、`instance_create` 派生出一个真实实例（`m.sandbox.spawn`）、`instance_delete` 回收了它（`vm.stop`、`m.sandbox.reap`）、模型死掉时链**一字未变**（前后均 53 行）、而重启后的 M 从节点重建了上下文。**决策 §80。**
 
 - **一个跑得起来的调度员，决策层仍然是空的**（v1.0 M2c-1，2026-09-27）。`examples/python/supervisor.py` 是 M 的骨架。它 **import** `dispatch.py` 的传输、token 规矩与错误分类，而不是抄一份；用**一次快照**读完节点的状态（`status`、`capabilities`、队伍、每个定义的实例、待批请求），决策，行动 —— 而 `decide()` 是**桩**，返回 `None`，所以空闲的一轮**一个控制请求都不发**。保守态是循环的**起点**而不是错误路径：读失败会在写下任何东西之前终止这一轮，而下一轮无需重启就会恢复。`--events` 用 `Last-Event-ID` 续订事件流，这是 E3 的读取器刻意不做的。文件的 docstring 与 `examples/python/README.md` 写下侦察找到的**五条已知边界**（M 在链上没有自己的身份；沙箱请求的决定不写进链；实例表与待批槽住在内存里；审计读取没有窗口也没有分页；五个能力名只是词汇）。两件值得复用的事：`import dispatch` 需要显式告诉 `sys.path` —— 本项目这个解释器跑在 `sys.flags.safe_path` 打开的状态下 —— 以及 gate 多了第二个 Python 步骤（15 → 16 步）。
@@ -88,7 +90,7 @@
   新增 `supports_multiplexing`（默认 false，宿主自己造的两个构造器都给 false）；capability 词汇表升到
   **38**（+6：三个本地，三个 `.remote`），其端点属 M2a-2；而调度员的三个事件（`m:sandbox:spawn`、
   `m:sandbox:reap`、`m:request:approve`）加入事件流的 **17** 个名单 —— 前两个以 `m.sandbox.spawn` /
-  `m.sandbox.reap` 写进链，实例身份走 `detail`（不加列、不改哈希公式）。
+  `m.sandbox.reap` 写进链，实例身份走 `detail`（不加列、不改哈希公式）；v1.0 缺口 2/N 后该名单为 **21**。
   **`Capability::ALL.len() == 32` 不再被钉死**：守卫改为「已知集合必须在、且数量 ≥38」，因为一条
   为预期情况就得改的守卫，是会藏住非预期情况的守卫。**决策 §72。**
 

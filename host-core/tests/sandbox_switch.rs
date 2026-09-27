@@ -119,7 +119,7 @@ fn switch_event(sink: &RecordingEventSink) -> Value {
 fn switch(state: &AppState, name: &str, sink: &Arc<RecordingEventSink>) -> Result<(), String> {
     let emitter: Arc<dyn EventSink> = sink.clone();
     state
-        .switch_sandbox(name, emitter)
+        .switch_sandbox(name, None, emitter)
         .map_err(|e| e.to_string())
 }
 
