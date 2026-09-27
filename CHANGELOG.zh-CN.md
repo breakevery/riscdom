@@ -17,6 +17,19 @@
   全走 HTTP 的设置统一，以及生态起步。十四条待决被记成可改的默认值，而每条决策都带三个标签之一：
   已定 / 默认 / 待定。
 
+- **API 兼容与数据迁移政策**（v1.0 M1）：[docs/api-compatibility.md](docs/api-compatibility.md) 说明
+  v1.0 冻结覆盖什么（控制平面 HTTP 协议、可观察面，以及各 crate 的 `pub use` 清单 —— Rust 内部不冻）、
+  小版本里什么可改、什么需要大版本、弃用怎么公告，以及数据规矩：每种持久化格式带版本标记、打开即迁移、
+  旧读方遇到较新文件得到 `Err(DataTooNew)` 而不是部分读、写任何东西前先留 `.bak` 副本。
+- **错误模型**（v1.0 M1）：[docs/error-model.md](docs/error-model.md) 定下六个 `DispatchError` 变体 ——
+  自 v0.8 保留的 `NoSuchAgent`，加上 network / refused / crashed / partial / invalid —— 各自的重试判定、
+  cause 链、错误在审计链里出现在哪，以及每个分类到 HTTP 状态码的映射。兜底的 `Failed(String)` 是被替换，
+  不是被保留。
+- **安全模型**（v1.0 M1）：[docs/security-model.md](docs/security-model.md) 说明每份机密住在哪（节点身份、
+  API token、LLM key、远端 token，以及其中哪些绝不进设置文件）、一个 capability 值多少、威胁模型边界
+  （内核对什么负责、不负责）、作为信任根基的审计链，以及带时限的披露政策。
+  [SECURITY.md](SECURITY.md) 补上了它缺的报告时限。
+
 ### 修复
 
 - **网络页现在能留住你输入与切换的东西，也不再空转 CPU**（在 v0.9.9 上发现）。该页的三个 effect 依赖了**整个 store 对象**，而 `useAppStore()` 每次渲染都返回新对象：挂载读取因此每次渲染后重跑一次，每次读取都替换 `store.network`，而「把 store 拷进表单」的 effect 于是每次把表单重建一遍。两个开关与两个地址框都在毫秒内被回退、看上去 「点不动」，且空转时占用约 **32% 单核**。现在这些 effect 依赖 store 的 `useCallback` 函数（引用稳定），`probe-ui-network-tab.mjs` 也会拒绝依赖裸对象的写法。

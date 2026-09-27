@@ -13,6 +13,16 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **M1's first three specifications are on disk** (v1.0 M1, 2026-09-27). [api-compatibility.md](api-compatibility.md),
+  [error-model.md](error-model.md) and [security-model.md](security-model.md) turn the
+  [v1.0 roadmap](roadmap-v1.0.md) §6's six directions into rules a batch can be held to: what the freeze
+  covers and what may change without one (with the version marker of every persisted format, migrate-on-
+  open, `Err(DataTooNew)` for an old reader meeting a new file, and a `.bak` before any write); the six
+  `DispatchError` variants with a retry verdict for each and the wire mapping; and where every secret
+  lives plus a disclosure policy with timelines. All three are bilingual and tagged settled / default /
+  open, and each writes down what it does *not* settle. `SECURITY.md` gained the reporting timeline it
+  was missing. No code, no CI, no gate: M1 is a milestone about writing down what is already true.
+
 - **The v1.0 roadmap is on disk, and the network page's dead-switch fix is pushed** (v1.0 纲领落盘,
   2026-09-27). [roadmap-v1.0.md](roadmap-v1.0.md) records the discussion that converged over several
   conversations so that it does not have to be held again: the **three layers** (one device → connection

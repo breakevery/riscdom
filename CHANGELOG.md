@@ -19,6 +19,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings over HTTP, and the start of the ecosystem. Fourteen open questions are recorded as defaults
   that may change, and every decision carries one of three tags: settled / default / open.
 
+- **The API compatibility and data-migration policy** (v1.0 M1): [docs/api-compatibility.md](docs/api-compatibility.md)
+  says what the v1.0 freeze covers (the control-plane HTTP protocol, the observable surface and the
+  crates' `pub use` list — Rust internals are not frozen), what may change in a minor release and what
+  needs a major one, how a deprecation is announced, and the data rules: a version marker in every
+  persisted format, migration when the file is opened, an old reader meeting a newer file gets
+  `Err(DataTooNew)` rather than a partial read, and a `.bak` copy is left before anything is written.
+- **The error model** (v1.0 M1): [docs/error-model.md](docs/error-model.md) fixes the six `DispatchError`
+  variants — `NoSuchAgent` kept from v0.8, plus network/refused/crashed/partial/invalid — with a retry
+  verdict for each, the cause chain, where errors appear in the audit chain, and the mapping from each
+  category to an HTTP status. The catch-all `Failed(String)` is replaced, not kept.
+- **The security model** (v1.0 M1): [docs/security-model.md](docs/security-model.md) states where each
+  secret lives (node key, API token, LLM key, remote token, and which of them is never in a settings
+  file), what a capability is worth, the threat-model boundary (what the kernel does and does not answer
+  for), the audit chain as the root of trust, and the disclosure policy with its timelines.
+  [SECURITY.md](SECURITY.md) gains the reporting timeline it was missing.
+
 ### Fixed
 
 - **The network page keeps what you type and what you switch — and stops burning CPU** (found on

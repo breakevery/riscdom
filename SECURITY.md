@@ -12,6 +12,20 @@ Please report privately through a **GitHub Security Advisory**; do not open a pu
 
 Never attach a real API key to a report. If you need a demo, use a revocable temporary key.
 
+### What happens after you report
+
+- **48 hours** — acknowledgement that the report has been received and is being read.
+- **7 days** — a first assessment: severity, affected versions, and whether a fix is being written.
+- **90 days** — the coordinated-disclosure horizon. The advisory is published after 90 days or when a
+  fix ships, whichever comes first; if a fix cannot land within 90 days, the report is published anyway
+  and the mitigations are stated.
+- A CVE identifier is requested by the maintainers for a confirmed, exploitable vulnerability.
+- There is **no bug bounty**: this is a non-profit, Apache-2.0 project, and saying so is kinder than
+  letting a reporter infer it.
+- A reporter is named in the advisory unless they ask not to be.
+
+The full policy is in [docs/security-model.md](docs/security-model.md) §5.
+
 ## Key handling conventions
 
 - This project **provides no** API key; all model access is bring-your-own-key (BYOK).

@@ -11,6 +11,14 @@
 
 ## 1. 快照 —— `v0.9.9` 已发布（正式发布时更新本节）
 
+- **M1 的头三份规范已落盘**（v1.0 M1，2026-09-27）。[api-compatibility.zh-CN.md](api-compatibility.zh-CN.md)、
+  [error-model.zh-CN.md](error-model.zh-CN.md) 与 [security-model.zh-CN.md](security-model.zh-CN.md) 把
+  [v1.0 纲领](roadmap-v1.0.zh-CN.md) §6 的六个方向变成可以拿来验收的规矩：冻结覆盖什么、什么可改而不需
+  冻结（含每种持久化格式的版本标记、打开即迁移、旧读新遇到新文件时 `Err(DataTooNew)`、写前先留 `.bak`）；
+  六个 `DispatchError` 变体，各自的重试判定与线上映射；以及每份机密住在哪，加上带时限的披露政策。三份都
+  双语、都带已定 / 默认 / 待定标签，且各自写下自己**不**定下的东西。`SECURITY.md` 补上了它缺的报告时限。
+  无代码、无 CI、无门禁变化：M1 是一个「把已经成立的写下来」的里程碑。
+
 - **v1.0 纲领已落盘，网络页「开关点不动」的修复也已推送**（v1.0 纲领落盘，2026-09-27）。
   [roadmap-v1.0.zh-CN.md](roadmap-v1.0.zh-CN.md) 把花了好几个对话才收敛的讨论记了下来，以免再讨论一次：
   **三层**（单设备 → 连接 → 跨设备派发）、连接层（workgroup 加一台**专用**的跨区域服务器，四个角色 ——
