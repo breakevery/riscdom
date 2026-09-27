@@ -91,6 +91,52 @@ fn list_respects_limit() {
 }
 
 #[test]
+fn list_returns_the_other_end_when_descending() {
+    // v1.0 gap 3/N, batch E: the pagination cursor asks for the rows nearest the window's
+    // **upper** bound, which an ascending scan cannot answer — `LIMIT` would cut off the
+    // oldest end. `descending` is the same query from the other end, and `false` (the
+    // derived default) is the behaviour every existing caller had.
+    let store = seeded();
+
+    let newest = store
+        .list(
+            EventFilter {
+                descending: true,
+                ..Default::default()
+            },
+            2,
+        )
+        .expect("list");
+    assert_eq!(ids(&newest), vec![4, 3]);
+
+    // The cursor shape itself: everything strictly older than id 3, newest first.
+    let page = store
+        .list(
+            EventFilter {
+                to_id: Some(2),
+                descending: true,
+                ..Default::default()
+            },
+            2,
+        )
+        .expect("list");
+    assert_eq!(ids(&page), vec![2, 1]);
+
+    // The same window ascending is the *oldest* rows, which is exactly the trap the
+    // cursor exists to avoid: the same filter, the other end of `LIMIT`.
+    let ascending = store
+        .list(
+            EventFilter {
+                to_id: Some(2),
+                ..Default::default()
+            },
+            2,
+        )
+        .expect("list");
+    assert_eq!(ids(&ascending), vec![1, 2]);
+}
+
+#[test]
 fn get_by_id_and_count() {
     let store = seeded();
     assert_eq!(store.count().expect("count"), 4);

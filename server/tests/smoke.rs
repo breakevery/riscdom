@@ -2027,6 +2027,71 @@ fn the_audit_read_takes_a_window() {
 }
 
 #[test]
+fn the_audit_read_takes_a_cursor() {
+    // v1.0 gap 3/N, batch E. The endpoint answers newest first, so "the next page" is the
+    // rows just *older* than the last one seen: `before_id`. It is not `to_id` — that only
+    // says which rows may come back, and the order then decides which end `limit` keeps.
+    let (addr, _app) = serve_with_state(temp_workspace("cursor"), Arc::new(NoAuth));
+    // Twelve rows to page through: six asks, each decided.
+    for _ in 0..6 {
+        let (status, body) = post(
+            addr,
+            "/v0/sandboxes/requests",
+            r#"{"action":"switch","sandbox":"blink"}"#,
+        );
+        assert_eq!(status, 201, "{body}");
+        let id = body["id"].as_str().expect("an id").to_string();
+        let (status, _) = post(addr, &format!("/v0/sandboxes/requests/{id}/approve"), "{}");
+        assert_eq!(status, 200);
+    }
+
+    let (status, all) = get(addr, "/v0/audit/events?limit=100");
+    assert_eq!(status, 200, "{all}");
+    let all_ids: Vec<i64> = all
+        .as_array()
+        .expect("an array")
+        .iter()
+        .map(|row| row["id"].as_i64().expect("an id"))
+        .collect();
+    assert!(all_ids.len() >= 12, "{all_ids:?}");
+    // Newest first, as the endpoint has always answered.
+    assert!(
+        all_ids.windows(2).all(|pair| pair[0] > pair[1]),
+        "{all_ids:?}"
+    );
+
+    // Page two: strictly older than the third row, at most three rows, newest first.
+    let cursor = all_ids[2];
+    let (status, page) = get(
+        addr,
+        &format!("/v0/audit/events?limit=3&before_id={cursor}"),
+    );
+    assert_eq!(status, 200, "{page}");
+    let page_ids: Vec<i64> = page
+        .as_array()
+        .expect("an array")
+        .iter()
+        .map(|row| row["id"].as_i64().expect("an id"))
+        .collect();
+    assert_eq!(
+        page_ids,
+        vec![all_ids[3], all_ids[4], all_ids[5]],
+        "the page after the cursor: {page}"
+    );
+
+    // The two ways to say where the slice ends are mutually exclusive, and neither is
+    // silently preferred.
+    let (status, body) = get(addr, "/v0/audit/events?limit=3&before_id=10&to_id=5");
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["cause"], "before_id", "{body}");
+
+    // A cursor that is not a number is the caller's parameter, like every other number.
+    let (status, body) = get(addr, "/v0/audit/events?limit=3&before_id=soon");
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["cause"], "before_id", "{body}");
+}
+
+#[test]
 fn the_instance_history_endpoint_answers_what_the_chain_says() {
     // v1.0 gap 3/N: `.../instances` is the live table, `.../instances/history` is the chain.
     let workspace = temp_workspace("history");

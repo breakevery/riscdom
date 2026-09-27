@@ -118,6 +118,14 @@ pub struct EventFilter {
     pub from_id: Option<i64>,
     /// Inclusive upper bound on the event id (v0.5 batch 1).
     pub to_id: Option<i64>,
+    /// Newest first instead of oldest first (v1.0 gap 3/N, batch E).
+    ///
+    /// The store has always answered in the chain's own order (`ORDER BY id ASC`), and
+    /// `LIMIT` therefore cuts off the **oldest** end: "the N rows just before id X" is not
+    /// something an ascending scan can answer. The pagination cursor asks for the other
+    /// end, so the order becomes a property of the filter. `false` (the derived default)
+    /// is the behaviour every caller had, which is why this is an additive field.
+    pub descending: bool,
 }
 
 /// A raw row straight from SQLite (keeps `detail_json` verbatim so the hash can
@@ -555,7 +563,15 @@ impl AuditStore {
             sql.push_str(" WHERE ");
             sql.push_str(&clauses.join(" AND "));
         }
-        sql.push_str(" ORDER BY id ASC LIMIT ?");
+        // Oldest first by default — the chain's own order, and the order every caller had
+        // before the pagination cursor existed. `descending` is the other end: with it,
+        // `LIMIT` keeps the rows nearest the window's upper bound, which is the page a
+        // newest-first reader asks for next.
+        sql.push_str(if filter.descending {
+            " ORDER BY id DESC LIMIT ?"
+        } else {
+            " ORDER BY id ASC LIMIT ?"
+        });
         args.push(Value::Integer(limit as i64));
 
         let mut stmt = self.conn.prepare(&sql)?;

@@ -352,7 +352,10 @@ curl -sS 'http://127.0.0.1:7821/v0/resources'
 
 - `limit` is required where the host command requires it: `/v0/audit/events` and
   `/v0/sessions`. `/v0/runs` accepts it optionally and defaults to 20.
-- There is no offset or cursor anywhere in v0.9: raise `limit` and filter client-side.
+- The audit read has one cursor: **`before_id`** (v1.0 gap 3/N batch E). The answer is newest
+  first, so the page after the one you just read is the rows strictly older than its last
+  row — pass that id and the same `limit`. `to_id` is not the cursor (it says which rows may
+  come back, and `limit` then keeps the oldest of them), and sending both is a `400`.
 
 ## 4. Handling errors
 

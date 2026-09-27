@@ -34,7 +34,10 @@ current request authorising it (§2).
   `GET /v0/audit/events` gained the four window parameters the store has always applied in SQL
   (`from_ms` / `to_ms` / `from_id` / `to_id`; a reversed pair is a `400` naming the lower bound)
   — §5.1's table gained a row (a **pattern**, so its heading — the static rows' count — does not
-  move). And `examples/python/supervisor.py` **names itself**:
+  move). Since batch E the read also pages with a **cursor** (`before_id` — the newest `limit`
+  rows strictly older than that id — backed by the additive `EventFilter.descending`), because
+  the answer is newest-first while the store scans ascending; `before_id` with `to_id` is a
+  `400`. And `examples/python/supervisor.py` **names itself**:
   `--agent-id` (required, or `$RISCDOM_AGENT_ID`) travels as `X-RiscDom-Agent` on every request,
   so the rows the dispatcher causes say who asked. **Decision §82.**
 

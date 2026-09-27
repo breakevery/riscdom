@@ -213,7 +213,12 @@ fn a_worker_that_cannot_start_is_reported_as_a_failure_not_a_hang() {
         .expect_err("a worker that answers nothing is a failure");
     match error {
         DispatchError::Failed(message) => assert!(
-            message.contains("without an outcome"),
+            // Two failure wordings are both correct here, and which one arrives is a race: the
+            // child can exit before the task line is written (`cannot send the task`, from
+            // `host-core/src/executor.rs`'s write) or after it (`the executor closed stdout
+            // without an outcome`, its read). The crate's own prefixes are matched rather than
+            // the OS text — `Broken pipe (os error 32)` is platform-specific.
+            message.contains("without an outcome") || message.contains("cannot send the task"),
             "the failure must say the executor answered nothing: {message}"
         ),
         other => panic!("expected a transport failure, got {other:?}"),

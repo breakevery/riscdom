@@ -68,7 +68,7 @@ Tool names are unique across the whole set (checked).
 | Tool | Method | Path | Capability | Arguments |
 |---|---|---|---|---|
 | `audit_status` | GET | `/v0/audit/status` | `audit.read` | — |
-| `audit_events` | GET | `/v0/audit/events` | `audit.read` | `limit` (int, required), `actor` (str), `action_prefix` (str), `from_ms` (int), `to_ms` (int), `from_id` (int), `to_id` (int) |
+| `audit_events` | GET | `/v0/audit/events` | `audit.read` | `limit` (int, required), `actor` (str), `action_prefix` (str), `from_ms` (int), `to_ms` (int), `from_id` (int), `to_id` (int), `before_id` (int) |
 | `runs` | GET | `/v0/runs` | `runs.read` | `limit` (int, default 20) |
 | `runs_diff` | GET | `/v0/runs/diff` | `runs.read` | `run_a` (str), `run_b` (str) |
 | `llm_provider_presets` | GET | `/v0/llm/provider-presets` | `llm.read` | — |
@@ -182,7 +182,7 @@ say what the model may ask for.
 ```json
 [
 {"type":"function","function":{"name":"audit_status","description":"The audit chain's verdict: how many events it holds and whether it verifies.","parameters":{"type":"object","properties":{},"required":[]}}}
-{"type":"function","function":{"name":"audit_events","description":"Recent audit events, newest first, optionally windowed by time or chain id.","parameters":{"type":"object","properties":{"limit":{"type":"integer"},"actor":{"type":"string"},"action_prefix":{"type":"string"},"from_ms":{"type":"integer"},"to_ms":{"type":"integer"},"from_id":{"type":"integer"},"to_id":{"type":"integer"}},"required":["limit"]}}}
+{"type":"function","function":{"name":"audit_events","description":"Recent audit events, newest first, optionally windowed by time or chain id, or paged with the `before_id` cursor (strictly older than that id).","parameters":{"type":"object","properties":{"limit":{"type":"integer"},"actor":{"type":"string"},"action_prefix":{"type":"string"},"from_ms":{"type":"integer"},"to_ms":{"type":"integer"},"from_id":{"type":"integer"},"to_id":{"type":"integer"},"before_id":{"type":"integer"}},"required":["limit"]}}}
 {"type":"function","function":{"name":"runs","description":"The run index, newest first.","parameters":{"type":"object","properties":{"limit":{"type":"integer"}},"required":[]}}}
 {"type":"function","function":{"name":"runs_diff","description":"Two runs' configuration fingerprints, field by field.","parameters":{"type":"object","properties":{"run_a":{"type":"string"},"run_b":{"type":"string"}},"required":["run_a","run_b"]}}}
 {"type":"function","function":{"name":"llm_provider_presets","description":"The built-in model provider presets.","parameters":{"type":"object","properties":{},"required":[]}}}

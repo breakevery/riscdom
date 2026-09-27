@@ -1990,3 +1990,39 @@ pattern matched before a definition name can see it, and the first `DELETE` ther
 (`sandbox_request_delete`) all follow. **No hash formula, no audit event constant, no `m.*`
 action name and no existing route changed**; the queue's stream has no "removed" frame,
 because inventing one would be a new event for a caller that can simply re-read the queue.
+
+## 85. The audit read pages with a cursor, and the order is the filter's
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; landed with the v1.0 gap 3/N batch E
+
+**Decision**: `GET /v0/audit/events` gains one optional parameter, **`before_id`** — the newest
+`limit` rows **strictly** older than the id it names — and `EventFilter` gains one **additive**
+field, `descending: bool` (default `false`), which flips the store's `ORDER BY id ASC` to
+`DESC`. `limit` stays required and unchanged, and `before_id` together with `to_id` is a `400`
+naming `before_id` rather than a silent preference for one of them.
+
+**Why**: The endpoint answers **newest first** (`AppState::list_events` reverses the store's
+chain order), so "the next page" is *older* rows — but `LIMIT` applies to the scan, and an
+ascending scan keeps the **oldest** rows of the window. That is the whole gap: `to_id` +
+`limit` cannot express "the rows just before X", whatever the caller does with the answer, and
+raising `limit` only widens the oldest end. So the order had to become something the caller
+chooses. Two shapes were possible: `after_id` (which the ascending order already serves) or
+`before_id` (which needs the other end). `after_id` was rejected as `from_id` under another
+name — and `from_id` is already there, inclusive, for a reader that must not miss anything.
+The cursor direction follows the surface's own order, not the store's. On the mechanism: the
+flip went into `EventFilter` as an additive field rather than a second method, because one
+field carries the whole meaning ("which end does `LIMIT` keep") and the derived `Default`
+leaves every existing caller byte-identical; a `list_desc` would be a second name for one
+query. The `before_id` + `to_id` refusal is deliberate: they are the two ends of the same
+question, so a request that sends both has contradicted itself, and quietly picking one would
+make an ambiguous read look like a successful one.
+
+**Impact**: `audit/src/store.rs` (`EventFilter.descending`, `list`'s `ORDER BY`);
+`host-core/src/state.rs` (`list_events` reverses only when the caller did not ask for the other
+end); `server/src/routes.rs` (`audit_window` reads `before_id`, maps it to
+`to_id = before_id - 1` with `descending`, and refuses the conflict). `docs/control-plane-api.md`
+§5.1 and §5.4, `docs/control-plane-client-guide.md` (its "there is no offset or cursor anywhere
+in v0.9" sentence was true when written and is not any more), `docs/tool-schema-control-plane.md`
+and its definitions block all follow. **No hash formula, no audit event constant, no `m.*`
+action name, no other route and no `limit` semantics changed** — `limit=0` still answers an
+empty array, and `limit` is still required.

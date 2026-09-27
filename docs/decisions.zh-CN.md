@@ -883,3 +883,13 @@
 **理由**：§9 说 M 的状态住在 M 之外——审计链、实例表与待批槽才是真相所在，M 的内存只是一份缓存。§82 已经用「推导」回答了实例表，因为活句柄无法持久化；队列是同一类问题而另有一个答案可选，而选**同一个**答案保住了同一条规矩：**这东西为什么能活过重启？因为链这么说**。写第二个文件会在链旁边放第二个真相源，正是 §82 要避免的那种漂移，而且它还得为自己的版本常量、自己的迁移、自己的「更新的文件」故事操心——就为一个链已经描述得清清楚楚的 `Vec`。链唯一不携带的是 `reason`（ask 行的 detail 一直是 `{id, action, sandbox}`），这一点被接受而不是打补丁：reason 是人的备注，不是一次决策所需的状态，而把它塞进 `m.request.ask` 的 detail 会往哈希公式覆盖的行里加一个字段——为一句话备注不值得冒这个险。关于 TTL：§36 说没有，本批保持。它加的是 §36 留下的**另一半**——显式清理——而区别在**机制**：没有任何东西会自己过期（无清扫器、无时钟），而一个用完一条申请的调用方自己把它拿走。这与「无 TTL」相容，不是推翻它。
 
 **影响**：`host-core` 多出 `ReconciledRequest` 与纯函数 `derive_requests_from`、`SandboxRequests::restore`（对冲撞是**报告**而不是解决）与 `SandboxRequests::remove`；`AppState` 在构造器里给队列打底，尽力而为，且**只在真的恢复了东西或发生 id 冲撞时**写一行 `host.sandbox_request.restore`。`server` 多出一条路由——`/v0/sandboxes/requests/` 下的第三条路径，一个在定义名看见它之前就被匹配的**模式**，也是那里第一个 `DELETE`——加上 `Action::SandboxRequestDelete` 与一个分发分支。`docs/control-plane-api.zh-CN.md` §5.2 与 §5.4、`docs/tool-schema-control-plane.zh-CN.md` §2 与 §3.3 及其检查器的命名表（`sandbox_request_delete`）都跟着改。**没有哈希公式、审计事件常量、`m.*` 动作名或既有路由发生变化**；队列的流里没有「已移除」这种帧，因为为一个能直接重读队列的调用方发明新事件并不值得。
+
+## 85. 审计读用一个游标翻页，而顺序是过滤器的一部分
+
+**日期**：2026-09-28 ｜ **状态**：已定；随 v1.0 缺口 3/N 批 E 落地
+
+**决策**：`GET /v0/audit/events` 多出一个可选参数 **`before_id`** —— 比它点名的 id **严格**更早的、最新的 `limit` 行 —— 而 `EventFilter` 多出一个**加法式**字段 `descending: bool`（默认 `false`），把存储的 `ORDER BY id ASC` 翻成 `DESC`。`limit` 保持必填、不变；`before_id` 与 `to_id` 同传是 `400` 且点名 `before_id`，而不是静默偏向其中一个。
+
+**理由**：这个端点答的是 **newest-first**（`AppState::list_events` 把存储的链序反转），所以「下一页」是**更早**的行 —— 但 `LIMIT` 作用在扫描上，而升序扫描保留的是窗口里**最旧**的行。这就是缺口本身：`to_id` + `limit` 无论如何都表达不出「紧邻 X 之前那几行」，而调大 `limit` 只会把最旧那一端放宽。于是顺序必须成为调用方可以选择的东西。形状本有两个：`after_id`（升序已经能服务）或 `before_id`（需要另一端）。`after_id` 被否，因为它就是 `from_id` 换个名字 —— 而 `from_id` 已经在那儿、且是含下界，供「不能漏读」的读取方使用。游标的方向跟的是这个表面自己的顺序，不是存储的。机制上：翻序做成 `EventFilter` 的加法式字段，而不是第二个方法，因为一个字段就承载了全部含义（「`LIMIT` 保留哪一端」），而派生的 `Default` 让每个既有调用方逐字节不变；另加一个 `list_desc` 只会给同一条查询起第二个名字。`before_id` + `to_id` 的拒绝是刻意的：它们是同一个问题的两端，同时传就是自相矛盾，而静默选一个会把一次含糊的读取装作成功。
+
+**影响**：`audit/src/store.rs`（`EventFilter.descending`、`list` 的 `ORDER BY`）；`host-core/src/state.rs`（`list_events` 只在调用方**没有**要另一端时才反转）；`server/src/routes.rs`（`audit_window` 读 `before_id`，映射为 `to_id = before_id - 1` + `descending`，并拒绝冲突）。`docs/control-plane-api.zh-CN.md` §5.1 与 §5.4、`docs/control-plane-client-guide.zh-CN.md`（它那句「v0.9 没有任何 offset 或游标」在写下时是真的，现在不再是）、`docs/tool-schema-control-plane.zh-CN.md` 与其定义块都跟着改。**没有哈希公式、审计事件常量、`m.*` 动作名、其他路由或 `limit` 语义发生变化** —— `limit=0` 仍然答空数组，`limit` 仍然必填。

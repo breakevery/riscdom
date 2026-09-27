@@ -4979,6 +4979,11 @@ impl AppState {
     /// window fields it carries were always applied in SQL, and only this surface was
     /// missing them. Taking the type rather than six loose arguments keeps one description of
     /// "which slice of the chain" instead of two.
+    ///
+    /// The answer is **newest first** — the order an interface reads. The store answers in
+    /// chain order, so the flip happens here; a caller that asked for the other end already
+    /// (`filter.descending`, the pagination cursor, v1.0 gap 3/N batch E) gets its page in
+    /// that order and it is not flipped back.
     pub fn list_events(
         &self,
         limit: usize,
@@ -4988,8 +4993,11 @@ impl AppState {
             .audit
             .lock()
             .map_err(|_| HostError::Other("audit store lock poisoned".into()))?;
+        let descending = filter.descending;
         let mut events = store.list(filter, limit)?;
-        events.reverse(); // newest first for the UI
+        if !descending {
+            events.reverse(); // newest first for the UI
+        }
         Ok(events.into_iter().map(StoredEventView::from).collect())
     }
 

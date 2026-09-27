@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **审计读用游标翻页**（v1.0 缺口 3/N 批 E）：`GET /v0/audit/events` 接受可选的 `before_id` —— 比那个 id **严格**更早的最新 `limit` 行 —— 因为这个答案是 newest-first 而存储是升序扫描，所以 `to_id` + `limit` 说不出「紧邻 X 之前那几行」。`EventFilter` 多出游标所需的加法式 `descending` 标志（默认 `false`，其他调用方不动）；`before_id` 与 `to_id` 同传是 `400`。`limit` 仍然必填，`limit=0` 仍然答空数组。参考调度员的 `worker` 测试也不再死守两种同样正确的失败措辞之一 —— 那在负载高的机器上是一次竞态。
+
 - **等待队列能活过重启，而申请可以被移出队列**（v1.0 缺口 3/N 批 D）：`derive_requests_from` 折叠链上的 `m.request.ask` / `m.request.approve` / `m.request.reject` 行，而刚启动的宿主用仍然 **pending** 的申请给队列打底 —— 于是重启之后决策照样能做，而已决的申请只留在链上。`DELETE /v0/sandboxes/requests/{id}`（`sandbox.read`）移出一条并答 `200` 带被移除的记录，什么都不写：队列是运行时状态，链才是记录。`reason` 不被重建 —— 链从未携带它。
 
 - **实例的历史从链推导，而审计读取接受一个窗口**（v1.0 缺口 3/N）：`GET /v0/sandboxes/{name}/instances/history` 报出一个定义曾经有过什么，从它的 `m.sandbox.spawn` / `m.sandbox.reap` 行推导 —— 实例表是运行时状态、不持久化，而 `running` 从活表读出，所以重启后为 false。`history` 是这条路径上的保留字面量（对它发成员动作是 `405`）。`GET /v0/audit/events` 多出 `from_ms`、`to_ms`、`from_id`、`to_id`。而参考调度员给自己命名：`--agent-id`（必填）以 `X-RiscDom-Agent` 发出。

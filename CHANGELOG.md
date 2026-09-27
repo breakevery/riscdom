@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The audit read pages with a cursor** (v1.0 gap 3/N batch E): `GET /v0/audit/events` takes an
+  optional `before_id` — the newest `limit` rows *strictly* older than that id — because the
+  answer is newest-first while the store scans ascending, so `to_id` + `limit` cannot say "the
+  rows just before X". `EventFilter` gains the additive `descending` flag that cursor needs
+  (default `false`, so no other caller moves); `before_id` together with `to_id` is a `400`.
+  `limit` is still required, and `limit=0` still answers an empty array. The reference
+  dispatcher's `worker` test also stops insisting on one of two equally-correct failure
+  wordings, which was a race on a loaded runner.
+
 - **The waiting queue survives a restart, and a request can be taken out of it** (v1.0 gap
   3/N batch D): `derive_requests_from` folds the chain's `m.request.ask` / `m.request.approve`
   / `m.request.reject` rows, and a freshly started host seeds its queue with the asks still

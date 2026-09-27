@@ -185,7 +185,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
 | `/v0/audit/status` | GET | `audit.read` | — | `AuditStatusView` | `get_audit_status` |
-| `/v0/audit/events` | GET | `audit.read` | query: `limit`, `actor`, `action_prefix`, `from_ms`, `to_ms`, `from_id`, `to_id` | `[StoredEventView]` | `list_audit_events` |
+| `/v0/audit/events` | GET | `audit.read` | query: `limit`, `actor`, `action_prefix`, `from_ms`, `to_ms`, `from_id`, `to_id`, `before_id` | `[StoredEventView]` | `list_audit_events` |
 | `/v0/runs` | GET | `runs.read` | query: `limit` (default 20) | `[RunView]` | `list_runs` |
 | `/v0/runs/{run_id}` | GET | `runs.read` | path: `run_id` | `RunView` or `null` | `get_run` |
 | `/v0/runs/diff` | GET | `runs.read` | query: `run_a`, `run_b` | `[FingerprintFieldDiff]` | `compare_run_fingerprints` |
@@ -376,9 +376,14 @@ the tables above. They are part of this document's surface all the same.
   (required) plus `actor` and `action_prefix` as it always did, and now also `from_ms`,
   `to_ms`, `from_id` and `to_id` — inclusive at both ends, applied by the store exactly as
   before. `limit` keeps meaning **how many rows come back**; a reader that must not miss
-  anything pages forward with `from_id` rather than asking for a huge limit, because the read
-  has no cursor of its own. A pair the wrong way round is the caller's parameter: `400`,
-  `cause: "from_ms"` (or `"from_id"`).
+  anything pages forward with `from_id`. The answer is **newest first**, so the page after the
+  one you just read is the rows *older* than its last row: `before_id` (v1.0 gap 3/N batch E)
+  is that cursor — the newest `limit` rows **strictly** older than the id it names. It is not
+  the same question as `to_id`: `to_id` only says which rows may come back, and the order then
+  decides which end `limit` keeps, so `to_id` + `limit` answers on the oldest rows of the
+  window. Sending both `before_id` and `to_id` is a `400` naming `before_id` — they say two
+  things about where the slice stops, and neither is silently preferred. A pair the wrong way
+  round is the caller's parameter too: `400`, `cause: "from_ms"` (or `"from_id"`).
 - **A sandbox request is an ask, not a command** (v0.9 sandbox F2c). `POST
   /v0/sandboxes/requests` needs `agent.run` — the actor that may run an agent is the actor
   that may say what it wants — and answers `201` with the new id. `GET

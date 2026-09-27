@@ -1083,9 +1083,10 @@ pub(crate) fn dispatch(
                 Err(response) => return *response,
             };
             // The window (v1.0 gap 3/N): the four fields the store has always applied in
-            // SQL, now reachable. `limit` keeps meaning "how many rows come back", and the
-            // window says *which* rows — a reader that must not miss anything pages forward
-            // with `from_id` rather than asking for a huge limit.
+            // SQL, now reachable — plus `before_id`, the cursor (batch E). `limit` keeps
+            // meaning "how many rows come back"; the window says *which* rows. A reader
+            // that must not miss anything pages forward with `from_id`; one that reads
+            // newest-first pages back with `before_id`.
             let filter = match audit_window(params) {
                 Ok(filter) => filter,
                 Err(response) => return *response,
@@ -2226,15 +2227,38 @@ fn sandbox_switch_error(error: HostError) -> Response<RespBody> {
 /// milliseconds or by chain id, inclusive at both ends, exactly as `EventFilter` applies them
 /// in SQL. A pair that is the wrong way round is the caller's parameter, so it is a `400`
 /// naming the lower bound rather than an empty answer nobody can explain.
+///
+/// `before_id` is the **cursor** (v1.0 gap 3/N, batch E): "the newest `limit` rows strictly
+/// older than this id". It is the same question `to_id` asks at the other end — `to_id` says
+/// which rows may come back, and the order then decides *which end* `limit` keeps — so a
+/// caller that sends both has said two things about where the slice stops. That is refused
+/// rather than silently resolved.
 fn audit_window(params: &Params) -> Result<host_core::EventFilter, Box<Response<RespBody>>> {
-    let filter = host_core::EventFilter {
+    let before_id = params.i64_opt("before_id")?;
+    let mut filter = host_core::EventFilter {
         actor: params.get("actor").map(str::to_string),
         action_prefix: params.get("action_prefix").map(str::to_string),
         from_ms: params.i64_opt("from_ms")?,
         to_ms: params.i64_opt("to_ms")?,
         from_id: params.i64_opt("from_id")?,
         to_id: params.i64_opt("to_id")?,
+        descending: false,
     };
+    if let Some(before) = before_id {
+        if params.get("to_id").is_some() {
+            return Err(Box::new(error_response(
+                400,
+                "bad_request",
+                "`before_id` is a cursor and `to_id` is an upper bound; both say where the \
+                 slice ends, so send one",
+                Some("before_id"),
+            )));
+        }
+        // Strictly older: the cursor row itself was the last row of the previous page.
+        // `saturating_sub` keeps `i64::MIN` an answer (an empty page) instead of a panic.
+        filter.to_id = Some(before.saturating_sub(1));
+        filter.descending = true;
+    }
     if let (Some(from), Some(to)) = (filter.from_ms, filter.to_ms) {
         if from > to {
             return Err(Box::new(error_response(
