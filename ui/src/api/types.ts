@@ -194,6 +194,13 @@ export interface SessionMeta {
   created_at_ms: number;
   updated_at_ms: number;
   message_count: number;
+  /**
+   * Which executor this session belongs to (v1.0 M2b-2).
+   *
+   * `null` means the row predates the column: it belongs to the **node itself**,
+   * which is what every session was before this batch.
+   */
+  executor_id: string | null;
 }
 
 /** One persisted message. */

@@ -73,8 +73,8 @@
 ## 6. 数据迁移
 
 **规矩。** **[已定]** 每一种持久化格式都把**版本标记放在它的首字段**，于是读方在读别的东西之前就知道
-自己手上是什么。做不到这一点的格式（SQLite 数据库）把标记放在自己的元数据表里一行，与 schema 在同一个
-事务里写下。
+自己手上是什么。做不到这一点的格式（SQLite）把标记放在 **`PRAGMA user_version`** —— 这正是 SQLite 为它保留
+的头字段，先于一切被读出，并由赢得它的那次迁移写回。
 
 - **[已定]** **打开即迁移。** 没有需要记住的工具、没有要传的旗标：在新版本上启动的节点会打开旧数据并
   迁移它。这就是 [decisions.zh-CN.md §14](decisions.zh-CN.md) 那句「数据迁移是自动的」的意思 —— 另一条路
@@ -94,7 +94,7 @@
 | `settings.json` | `<data-dir>/settings.json` | `version` = `SETTINGS_VERSION`（自 v1.0 M2b-1 起为 **2**） | **第一次真迁移发生在 v1.0 M2b-1**：v1 文件（LLM 配置当时根本不落盘）在打开时迁移为 **2**，并带一张空的 per-executor `llm_configs` 表 —— 不猜任何东西 —— 迁移前的字节留作 `settings.json.bak`；而**更新的**文件以 `data_too_new` 被拒绝（不应用、不写入） |
 | run 指纹 | 每条 run 记录之内 | `FINGERPRINT_SCHEMA_V1` = `riscdom.run.fingerprint.v1`（[`audit/src/run.rs`](../audit/src/run.rs)） | v2 指纹是一个新的标记值，绝不是改写 v1 记录 |
 | 审计库 | `<data-dir>/audit.db`（SQLite） | 只有 schema DDL —— **尚无显式版本行** | 标记行随 §6 的迁移工作落地，在冻结之前 |
-| 会话库 | `<data-dir>/sessions.db`（SQLite） | 只有 schema DDL —— **尚无显式版本行** | 同上 |
+| 会话库 | `<data-dir>/sessions.db`（SQLite） | `PRAGMA user_version` = **1**（v1.0 M2b-2） | 早于该列的文件在**打开时**迁移（幂等加 `executor_id` 列；已有行保持**未命名**，即属于本节点），迁移前的字节留作 `sessions.db.bak`；更新的文件以 `data_too_new` 被拒绝 —— 不读、不写 |
 | 凭据文件 | `<data-dir>/token` | 无：一行 hex，只做形状检查 | 手工放置的 token 永不被改写；v1.0 的 `node.key` 自带标记 |
 
 - **[已定]** **标记不是对其他节点的承诺。** 不同版本的两个节点只共用协议允许共用的部分；较旧的那个

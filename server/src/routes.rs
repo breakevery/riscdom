@@ -1031,12 +1031,12 @@ pub(crate) fn dispatch(
             Err(response) => *response,
         },
         Action::Sessions => match params.usize_required("limit") {
-            Ok(limit) => result_json(app.list_sessions(limit)),
+            Ok(limit) => result_json(app.list_sessions(limit, &session_executor(params, app))),
             Err(response) => *response,
         },
-        Action::SessionCurrent => {
-            ok_json(&serde_json::json!({ "session_id": app.current_session_id() }))
-        }
+        Action::SessionCurrent => ok_json(&serde_json::json!({
+            "session_id": app.current_session_id(&session_executor(params, app))
+        })),
         Action::Snapshots => result_json(app.list_snapshots()),
         Action::VmRunning => ok_json(&serde_json::json!({ "running": app.vm_is_running() })),
         Action::VmStatus => ok_json(&app.vm_status()),
@@ -1519,14 +1519,14 @@ pub(crate) fn dispatch(
             Err(response) => *response,
         },
         Action::SessionCreate => match params.required("title") {
-            Ok(title) => match app.create_session(title) {
+            Ok(title) => match app.create_session(title, &session_executor(params, app)) {
                 Ok(session_id) => ok_json(&serde_json::json!({ "session_id": session_id })),
                 Err(e) => host_error(e),
             },
             Err(response) => *response,
         },
         Action::SessionOpen => match params.required("session_id") {
-            Ok(session_id) => match app.open_session(session_id) {
+            Ok(session_id) => match app.open_session(session_id, &session_executor(params, app)) {
                 Ok(view) => ok_json(&view),
                 Err(e) => not_found_or_internal(e, "session_id", session_id),
             },
@@ -1541,21 +1541,24 @@ pub(crate) fn dispatch(
                 Ok(value) => value,
                 Err(response) => return *response,
             };
-            // The host's rename is idempotent: an unknown id is a no-op, not an
-            // error. The endpoint mirrors that rather than inventing a 404.
-            match app.rename_session(session_id, title) {
+            // The host's rename is idempotent: an unknown id — or one another executor
+            // owns — is a no-op, not an error. The endpoint mirrors that rather than
+            // inventing a 404.
+            match app.rename_session(session_id, title, &session_executor(params, app)) {
                 Ok(()) => no_content(),
                 Err(e) => host_error(e),
             }
         }
         Action::SessionDelete => match params.required("session_id") {
-            Ok(session_id) => match app.delete_session(session_id) {
-                Ok(()) => no_content(),
-                Err(e) => host_error(e),
-            },
+            Ok(session_id) => {
+                match app.delete_session(session_id, &session_executor(params, app)) {
+                    Ok(()) => no_content(),
+                    Err(e) => host_error(e),
+                }
+            }
             Err(response) => *response,
         },
-        Action::SessionClear => match app.clear_all_sessions() {
+        Action::SessionClear => match app.clear_all_sessions(&session_executor(params, app)) {
             Ok(()) => no_content(),
             Err(e) => host_error(e),
         },
@@ -2033,6 +2036,18 @@ fn sandbox_switch_error(error: HostError) -> Response<RespBody> {
         _ => return host_error(error),
     };
     error_response(status, code, &message, Some(cause))
+}
+
+/// The executor a session endpoint acts as (v1.0 M2b-2).
+///
+/// `executor` is optional and defaults to this node's own — the same shape the LLM
+/// endpoints use for the same reason: a single-node client keeps working unchanged,
+/// and naming an executor is how a caller asks about one that is not this machine.
+fn session_executor(params: &Params, app: &Arc<AppState>) -> String {
+    params
+        .get("executor")
+        .map(str::to_string)
+        .unwrap_or_else(|| app.local_executor_id())
 }
 
 /// The status a failed instance act answers with (v1.0 M2a-2).

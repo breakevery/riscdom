@@ -1694,3 +1694,33 @@ gains `config_persisted` beside `persisted`, whose meaning is unchanged — the 
 in place**, so no key has to be typed again and a build that goes back still finds it;
 `clear_llm_config` deletes only the new name. The endpoints' executor dimension, the per-executor
 session split and the interface are M2b-2/M2b-3: no endpoint, session or UI change ships here.
+
+## 76. Session rows name their executor, and an old row stays unnamed
+
+**Date**: 2026-09-27 ｜ **Status**: Decided; landed with the v1.0 M2b-2 batch
+
+**Decision**: `sessions` gains an **`executor_id`** column (added idempotently when a migration runs),
+and the session database's schema version lives in SQLite's own **`PRAGMA user_version`** — the
+file-borne analogue of a JSON format's first-field marker. A file from before the column migrates **on
+open** (its pre-migration bytes are kept as `sessions.db.bak`, and only a migration writes that), and a
+file from a **newer** build is refused with `data_too_new` rather than half-read. Every session call
+names an executor: the seven endpoints take an optional `executor` defaulting to this node's own, and
+`current_session_id` is a per-executor map. A row that predates the column keeps **`NULL`**, and the
+queries read `NULL` as **the node's own**; new rows always write their executor, and `rename` never
+adopts an old row.
+
+**Why**: writing `local` into the old rows would make them depend on a name the node is free to change
+— the day it renames itself, its own history would vanish from its own list, which is silent data
+loss. `NULL` ("no executor is named") and "the node itself" are two different facts that happen to
+have the same consequence today; keeping them apart means a node that has no device name yet still
+reads its history. SQLite's `user_version` is the version marker that needs no table of its own and is
+read before anything else, so `docs/api-compatibility.md`'s rule now names what SQLite actually
+provides instead of describing a metadata table nobody built.
+
+**Impact**: `/v0/sessions`, `/v0/sessions/current` and the five session controls take `executor?`; the
+Tauri commands pass this node's own and their signatures do not change, so no UI change ships here (the
+selector is M2b-3). `SessionMeta` carries `executor_id` — `null` for an unnamed row, which the
+browser's type marks as `string | null`. `open_session` looks a session up **by id** instead of scanning
+every session, `clear_all` is scoped to one executor (the node's own also clears the unnamed rows), and
+`ensure_session` repairs a **stale** pointer by starting a fresh session. `session_messages` is
+untouched: a message belongs to exactly one session, and the join says so.

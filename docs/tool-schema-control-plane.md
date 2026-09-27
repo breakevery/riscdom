@@ -74,8 +74,8 @@ Tool names are unique across the whole set (checked).
 | `llm_readiness` | GET | `/v0/llm/readiness` | `llm.read` | — |
 | `llm_local_probe` | GET | `/v0/llm/local-probe` | `llm.read` | — |
 | `llm_stored_key` | GET | `/v0/llm/stored-key` | `llm.read` | `provider_id` (str) |
-| `sessions` | GET | `/v0/sessions` | `session.read` | `limit` (int) |
-| `sessions_current` | GET | `/v0/sessions/current` | `session.read` | — |
+| `sessions` | GET | `/v0/sessions` | `session.read` | `limit` (int), `executor` (str) |
+| `sessions_current` | GET | `/v0/sessions/current` | `session.read` | `executor` (str) |
 | `snapshots` | GET | `/v0/snapshots` | `snapshot.read` | — |
 | `vm_running` | GET | `/v0/vm/running` | `vm.read` | — |
 | `vm_status` | GET | `/v0/vm/status` | `vm.read` | — |
@@ -114,11 +114,11 @@ Tool names are unique across the whole set (checked).
 | `snapshots_save` | POST | `/v0/snapshots/save` | `snapshot.write` | `name` (str) |
 | `snapshots_resume` | POST | `/v0/snapshots/resume` | `snapshot.write` | `name` (str) |
 | `snapshots_delete` | POST | `/v0/snapshots/delete` | `snapshot.write` | `name` (str) |
-| `sessions_create` | POST | `/v0/sessions/create` | `session.write` | `title` (str) |
-| `sessions_open` | POST | `/v0/sessions/open` | `session.write` | `session_id` (str) |
-| `sessions_rename` | POST | `/v0/sessions/rename` | `session.write` | `session_id` (str), `title` (str) |
-| `sessions_delete` | POST | `/v0/sessions/delete` | `session.write` | `session_id` (str) |
-| `sessions_clear` | POST | `/v0/sessions/clear` | `session.write` | — |
+| `sessions_create` | POST | `/v0/sessions/create` | `session.write` | `title` (str), `executor` (str) |
+| `sessions_open` | POST | `/v0/sessions/open` | `session.write` | `session_id` (str), `executor` (str) |
+| `sessions_rename` | POST | `/v0/sessions/rename` | `session.write` | `session_id` (str), `title` (str), `executor` (str) |
+| `sessions_delete` | POST | `/v0/sessions/delete` | `session.write` | `session_id` (str), `executor` (str) |
+| `sessions_clear` | POST | `/v0/sessions/clear` | `session.write` | `executor` (str) |
 | `toolchain_download_post` | POST | `/v0/toolchain/download` | `toolchain.install` | — (body: `toolchain` = `c`, `zig` or `rust`; default `c`) |
 | `toolchain_download_cancel` | POST | `/v0/toolchain/download/cancel` | `toolchain.install` | — |
 | `qemu_download_post` | POST | `/v0/qemu/download` | `qemu.configure` | — (refuses with install guidance today) |
@@ -186,8 +186,8 @@ say what the model may ask for.
 {"type":"function","function":{"name":"llm_readiness","description":"Whether a model is usable right now.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"llm_local_probe","description":"Whether a local (loopback) model server answers.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"llm_stored_key","description":"Whether the OS credential store holds a key for this provider.","parameters":{"type":"object","properties":{"provider_id":{"type":"string"}},"required":["provider_id"]}}}
-{"type":"function","function":{"name":"sessions","description":"The stored sessions, newest first.","parameters":{"type":"object","properties":{"limit":{"type":"integer"}},"required":[]}}}
-{"type":"function","function":{"name":"sessions_current","description":"The session a run would land in.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"sessions","description":"The stored sessions of one executor, newest first.","parameters":{"type":"object","properties":{"limit":{"type":"integer"},"executor":{"type":"string"}},"required":[]}}}
+{"type":"function","function":{"name":"sessions_current","description":"The session a run would land in.","parameters":{"type":"object","properties":{"executor":{"type":"string"}},"required":[]}}}
 {"type":"function","function":{"name":"snapshots","description":"The stored snapshots.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"vm_running","description":"Whether a VM is running.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"vm_status","description":"The running VM: its state, its ports and when it started.","parameters":{"type":"object","properties":{},"required":[]}}}
@@ -228,11 +228,11 @@ say what the model may ask for.
 {"type":"function","function":{"name":"snapshots_save","description":"Save a snapshot of the running VM.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"snapshots_resume","description":"Restore a snapshot. It stops the VM first.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"snapshots_delete","description":"Delete a snapshot.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
-{"type":"function","function":{"name":"sessions_create","description":"Start a session.","parameters":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}}}
-{"type":"function","function":{"name":"sessions_open","description":"One session and its messages.","parameters":{"type":"object","properties":{"session_id":{"type":"string"}},"required":["session_id"]}}}
-{"type":"function","function":{"name":"sessions_rename","description":"Retitle a session.","parameters":{"type":"object","properties":{"session_id":{"type":"string"},"title":{"type":"string"}},"required":["session_id","title"]}}}
-{"type":"function","function":{"name":"sessions_delete","description":"Delete a session.","parameters":{"type":"object","properties":{"session_id":{"type":"string"}},"required":["session_id"]}}}
-{"type":"function","function":{"name":"sessions_clear","description":"Delete every session.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"sessions_create","description":"Start a session.","parameters":{"type":"object","properties":{"title":{"type":"string"},"executor":{"type":"string"}},"required":["title"]}}}
+{"type":"function","function":{"name":"sessions_open","description":"One session and its messages.","parameters":{"type":"object","properties":{"session_id":{"type":"string"},"executor":{"type":"string"}},"required":["session_id"]}}}
+{"type":"function","function":{"name":"sessions_rename","description":"Retitle a session.","parameters":{"type":"object","properties":{"session_id":{"type":"string"},"title":{"type":"string"},"executor":{"type":"string"}},"required":["session_id","title"]}}}
+{"type":"function","function":{"name":"sessions_delete","description":"Delete a session.","parameters":{"type":"object","properties":{"session_id":{"type":"string"},"executor":{"type":"string"}},"required":["session_id"]}}}
+{"type":"function","function":{"name":"sessions_clear","description":"Delete every session of one executor.","parameters":{"type":"object","properties":{"executor":{"type":"string"}},"required":[]}}}
 {"type":"function","function":{"name":"toolchain_download_post","description":"Download a pinned toolchain: C (the RISC-V GCC), Zig, or Rust (the target's rust-std sysroot).","parameters":{"type":"object","properties":{"toolchain":{"type":"string","description":"c, zig or rust; defaults to c"}},"required":[]}}}
 {"type":"function","function":{"name":"toolchain_download_cancel","description":"Cancel a running toolchain download.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"qemu_download_post","description":"Start a QEMU download. Today it refuses with install guidance on every platform.","parameters":{"type":"object","properties":{},"required":[]}}}

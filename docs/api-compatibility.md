@@ -87,8 +87,8 @@ Each of these needs a **major** version, and therefore the migration path of §6
 
 **The rule.** **[settled]** Every persisted format carries its **version marker in its first field**, so
 that a reader knows what it is holding before it reads anything else. A format that cannot do this (a
-SQLite database) carries the marker in a row of its own metadata table, written in the same transaction
-as the schema.
+SQLite database) carries the marker in **`PRAGMA user_version`** — the header field SQLite
+keeps for exactly this, read before anything else and written with the migration that earns it.
 
 - **[settled]** **Migration happens when the file is opened.** No tool to remember, no flag to pass: a
   node that starts on a new version opens its old data and migrates it. This is what
@@ -113,7 +113,7 @@ as the schema.
 | `settings.json` | `<data-dir>/settings.json` | `version` = `SETTINGS_VERSION` (**2** from v1.0 M2b-1) | **the first real migration happened in v1.0 M2b-1**: a v1 file (LLM configuration was not persisted at all) is migrated on open to **2** with an empty per-executor `llm_configs` map — nothing guessed — its pre-migration bytes are kept as `settings.json.bak`, and a **newer** file is refused with `data_too_new` (nothing applied, nothing written) |
 | Run fingerprint | inside each run's record | `FINGERPRINT_SCHEMA_V1` = `riscdom.run.fingerprint.v1` ([`audit/src/run.rs`](../audit/src/run.rs)) | a v2 fingerprint is a new marker value, never a rewritten v1 record |
 | Audit store | `<data-dir>/audit.db` (SQLite) | schema DDL only — **no explicit version row yet** | the marker row lands with §6's migration work, before the freeze |
-| Session database | `<data-dir>/sessions.db` (SQLite) | schema DDL only — **no explicit version row yet** | same |
+| Session database | `<data-dir>/sessions.db` (SQLite) | `PRAGMA user_version` = **1** (v1.0 M2b-2) | a file from before the column is migrated **on open** (the `executor_id` column is added idempotently; existing rows stay **unnamed**, which means the node itself), its pre-migration bytes are kept as `sessions.db.bak`, and a newer file is refused with `data_too_new` — nothing read, nothing written |
 | Credential files | `<data-dir>/token` | none: one line of hex, shape-checked | a hand-provisioned token is never rewritten; v1.0's `node.key` carries its own marker |
 
 - **[settled]** **A marker is not a promise about other nodes.** Two nodes on different versions may

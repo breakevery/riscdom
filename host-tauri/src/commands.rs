@@ -403,22 +403,26 @@ pub async fn resume_from_snapshot_real(
         .map_err(|e| e.user_message())
 }
 
-/// Recent sessions, newest first.
+/// Recent sessions of this node, newest first.
 #[tauri::command]
 pub async fn list_sessions(
     state: State<'_, Arc<AppState>>,
     limit: usize,
 ) -> Result<Vec<SessionMeta>, String> {
-    state.list_sessions(limit).map_err(|e| e.user_message())
+    state
+        .list_sessions(limit, &state.local_executor_id())
+        .map_err(|e| e.user_message())
 }
 
-/// Create a session and make it current.
+/// Create a session and make it this node's current one.
 #[tauri::command]
 pub async fn create_session(
     state: State<'_, Arc<AppState>>,
     title: String,
 ) -> Result<String, String> {
-    state.create_session(&title).map_err(|e| e.user_message())
+    state
+        .create_session(&title, &state.local_executor_id())
+        .map_err(|e| e.user_message())
 }
 
 /// Open a session: returns its metadata and messages, and makes it current.
@@ -428,7 +432,7 @@ pub async fn open_session(
     session_id: String,
 ) -> Result<SessionDetailView, String> {
     state
-        .open_session(&session_id)
+        .open_session(&session_id, &state.local_executor_id())
         .map_err(|e| e.user_message())
 }
 
@@ -440,7 +444,7 @@ pub async fn rename_session(
     title: String,
 ) -> Result<(), String> {
     state
-        .rename_session(&session_id, &title)
+        .rename_session(&session_id, &title, &state.local_executor_id())
         .map_err(|e| e.user_message())
 }
 
@@ -451,22 +455,24 @@ pub async fn delete_session(
     session_id: String,
 ) -> Result<(), String> {
     state
-        .delete_session(&session_id)
+        .delete_session(&session_id, &state.local_executor_id())
         .map_err(|e| e.user_message())
 }
 
-/// Delete every session. The UI must ask for confirmation first.
+/// Delete every session of this node. The UI must ask for confirmation first.
 #[tauri::command]
 pub async fn clear_all_sessions(state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    state.clear_all_sessions().map_err(|e| e.user_message())
+    state
+        .clear_all_sessions(&state.local_executor_id())
+        .map_err(|e| e.user_message())
 }
 
-/// The session the next run appends to.
+/// The session the next run of this node appends to.
 #[tauri::command]
 pub async fn get_current_session_id(
     state: State<'_, Arc<AppState>>,
 ) -> Result<Option<String>, String> {
-    Ok(state.current_session_id())
+    Ok(state.current_session_id(&state.local_executor_id()))
 }
 
 /// Audit event count + chain status, plus the pending write failures (v0.8).

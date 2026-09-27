@@ -13,6 +13,21 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **Sessions belong to an executor, and the session database carries a version of its own**
+  (v1.0 M2b-2, 2026-09-27). `sessions` gains an **`executor_id`** column, and the session database is the
+  first format whose version lives in SQLite's own **`PRAGMA user_version`** — read before anything else,
+  where `0` means "written before this batch" and is migrated **on open**: the column is added
+  **idempotently** (after asking `PRAGMA table_info`), the pre-migration bytes are kept as
+  `sessions.db.bak` (**only** when a migration happens), and the version is stamped. A file from a
+  **newer** build is refused with `data_too_new` — nothing read, nothing written. Every session call
+  names an executor now: `/v0/sessions` and its six siblings take an optional **`executor`**, defaulting
+  to this node's own (the same shape the LLM endpoints use), and `current_session_id` became a
+  **per-executor map**. A row that predates the column keeps **`NULL`** and is read as the **node's own** —
+  so a node that later renames itself does not lose its history (writing `local` into old rows would have
+  made them disappear); new rows always name their executor, and `rename` never adopts an old row.
+  `open_session` also stopped scanning every session to find one, and `ensure_session` repairs a **stale**
+  pointer (a current id whose row is gone) by starting a fresh session. **Decision §76.**
+
 - **The LLM configuration is persisted per executor, and `settings.json` is migrated for the first
   time** (v1.0 M2b-1, 2026-09-27). The non-secret half of a model configuration — provider,
   endpoint, model — now travels to disk under `llm_configs`, keyed by **executor id**: the node's own

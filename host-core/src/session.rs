@@ -13,6 +13,15 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
+/// The session schema version this build writes, in SQLite's own
+/// `PRAGMA user_version` (v1.0 M2b-2).
+///
+/// SQLite's header field is the analogue of the JSON formats' first-field version
+/// marker: it travels **with the file**, needs no table of its own, and is read
+/// before anything else. `0` means "written before this batch" (SQLite's default)
+/// and is migrated on open.
+pub const SESSION_SCHEMA_VERSION: i64 = 1;
+
 /// Errors produced by the session store.
 #[derive(Debug, Error)]
 pub enum SessionError {
@@ -21,6 +30,14 @@ pub enum SessionError {
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// The file was written by a newer build (v1.0 M2b-2).
+    ///
+    /// `docs/api-compatibility.md` §6: an old reader never reads a newer format,
+    /// never reads part of it and never downgrades it silently — so this is an
+    /// error the caller shows, not a fallback.
+    #[error("data_too_new: the session database is version {found}, this build reads {supported}")]
+    DataTooNew { found: i64, supported: i64 },
 
     #[error("{0}")]
     Other(String),
@@ -34,6 +51,13 @@ pub struct SessionMeta {
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
     pub message_count: usize,
+    /// Which executor this session belongs to (v1.0 M2b-2).
+    ///
+    /// `None` means the row predates the column: it belongs to the **node itself**,
+    /// which is what every session was before this batch. It is serialised as
+    /// `null` rather than omitted — a field that sometimes vanishes is a field every
+    /// client has to guess about.
+    pub executor_id: Option<String>,
 }
 
 /// One persisted conversation message.
@@ -115,9 +139,20 @@ pub struct SessionStore {
 
 impl SessionStore {
     /// Open (or create) the store at `path`; parent directories are created.
+    ///
+    /// A file written by an **older** build is migrated here (v1.0 M2b-2): its bytes
+    /// are copied to `sessions.db.bak` **before** the connection touches it, the
+    /// column is added, and the version is stamped. A file from a **newer** build is
+    /// refused.
     pub fn open(path: &Path) -> Result<Self, SessionError> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
+        }
+        // The backup belongs to the migration and only to the migration: an ordinary
+        // open must not overwrite the snapshot that exists to undo one. A brand-new
+        // file has nothing to copy.
+        if path.is_file() && Self::file_version(path)? < SESSION_SCHEMA_VERSION {
+            std::fs::copy(path, path.with_extension("db.bak"))?;
         }
         let conn = Connection::open(path)?;
         Self::init(conn)
@@ -128,6 +163,12 @@ impl SessionStore {
         Self::init(Connection::open_in_memory()?)
     }
 
+    /// The `user_version` a session file carries; a missing file reads as `0`.
+    fn file_version(path: &Path) -> Result<i64, SessionError> {
+        let conn = Connection::open(path)?;
+        Ok(conn.query_row("PRAGMA user_version", [], |row| row.get(0))?)
+    }
+
     fn init(conn: Connection) -> Result<Self, SessionError> {
         // The busy timeout goes on **first**: the schema below is this
         // connection's first write, and with SQLite's default of zero a second
@@ -135,42 +176,105 @@ impl SessionStore {
         conn.busy_timeout(BUSY_TIMEOUT)?;
         // Required for ON DELETE CASCADE to behave.
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+
+        // The format's own version, before anything is read out of it (v1.0 M2b-2).
+        let found: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if found > SESSION_SCHEMA_VERSION {
+            return Err(SessionError::DataTooNew {
+                found,
+                supported: SESSION_SCHEMA_VERSION,
+            });
+        }
         conn.execute_batch(SCHEMA)?;
+        if found < SESSION_SCHEMA_VERSION {
+            // 0 → 1: `sessions` gains `executor_id` (v1.0 M2b-2). Rows that already
+            // exist keep `NULL` — "not named by any executor", which is what every
+            // session was before this batch, and what the queries treat as the
+            // node's own.
+            Self::add_column_if_missing(&conn, "sessions", "executor_id", "TEXT")?;
+            conn.execute_batch(&format!("PRAGMA user_version = {SESSION_SCHEMA_VERSION};"))?;
+        }
         Ok(Self { conn })
     }
 
+    /// `ALTER TABLE … ADD COLUMN …`, but only when the column is absent.
+    ///
+    /// SQLite has no `ADD COLUMN IF NOT EXISTS`, and telling an "already there" error
+    /// apart from a real one is guesswork; asking `PRAGMA table_info` is the honest
+    /// way and makes the step **idempotent** — a database that already has the column
+    /// (a migration that was interrupted, a hand-made file) is simply current.
+    fn add_column_if_missing(
+        conn: &Connection,
+        table: &str,
+        column: &str,
+        ty: &str,
+    ) -> Result<(), SessionError> {
+        let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+        let names = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if names.iter().any(|name| name == column) {
+            return Ok(());
+        }
+        conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {ty};"))?;
+        Ok(())
+    }
+
     /// Create a session and return its id.
-    pub fn create_session(&self, title: &str) -> Result<String, SessionError> {
+    ///
+    /// `executor_id` is written **explicitly** (v1.0 M2b-2): a session made now says
+    /// whose it is, and only rows that predate the column are unnamed.
+    pub fn create_session(&self, title: &str, executor_id: &str) -> Result<String, SessionError> {
         let id = new_session_id();
         let now = now_ms();
         self.conn.execute(
-            "INSERT INTO sessions (id, title, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?3)",
-            params![id, title, now],
+            "INSERT INTO sessions (id, title, created_at_ms, updated_at_ms, executor_id) \
+             VALUES (?1, ?2, ?3, ?3, ?4)",
+            params![id, title, now, executor_id],
         )?;
         Ok(id)
     }
 
-    /// Sessions, most recently updated first.
-    pub fn list_sessions(&self, limit: usize) -> Result<Vec<SessionMeta>, SessionError> {
+    /// Sessions of one executor, most recently updated first.
+    ///
+    /// `include_unnamed` is `true` only for the node's **own** executor: a row with no
+    /// executor predates the column and belongs to the node itself, so the node's query
+    /// returns it and nobody else's does (v1.0 M2b-2).
+    pub fn list_sessions(
+        &self,
+        limit: usize,
+        executor: &str,
+        include_unnamed: bool,
+    ) -> Result<Vec<SessionMeta>, SessionError> {
         let mut stmt = self.conn.prepare(
-            "SELECT s.id, s.title, s.created_at_ms, s.updated_at_ms, COUNT(m.id) \
+            "SELECT s.id, s.title, s.created_at_ms, s.updated_at_ms, COUNT(m.id), s.executor_id \
              FROM sessions s LEFT JOIN session_messages m ON m.session_id = s.id \
+             WHERE s.executor_id = ?2 OR (?3 AND s.executor_id IS NULL) \
              GROUP BY s.id ORDER BY s.updated_at_ms DESC LIMIT ?1",
         )?;
-        let rows = stmt.query_map(params![limit as i64], |row| {
-            Ok(SessionMeta {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                created_at_ms: row.get(2)?,
-                updated_at_ms: row.get(3)?,
-                message_count: row.get::<_, i64>(4)? as usize,
-            })
-        })?;
+        let rows = stmt.query_map(params![limit as i64, executor, include_unnamed], row_meta)?;
         let mut out = Vec::new();
         for row in rows {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    /// One session's summary, by id — whatever executor it belongs to.
+    ///
+    /// Unscoped on purpose: the caller is the one that knows whose question it is
+    /// answering, and it needs the row's own `executor_id` to decide (v1.0 M2b-2).
+    pub fn session(&self, id: &str) -> Result<Option<SessionMeta>, SessionError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT s.id, s.title, s.created_at_ms, s.updated_at_ms, COUNT(m.id), s.executor_id \
+             FROM sessions s LEFT JOIN session_messages m ON m.session_id = s.id \
+             WHERE s.id = ?1 GROUP BY s.id",
+        )?;
+        let mut rows = stmt.query_map(params![id], row_meta)?;
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
     }
 
     /// Rename a session.
@@ -257,9 +361,15 @@ impl SessionStore {
         touch_session_in(&self.conn, id)
     }
 
-    /// Delete every session (their messages cascade).
-    pub fn clear_all(&self) -> Result<(), SessionError> {
-        self.conn.execute("DELETE FROM sessions", [])?;
+    /// Delete every session of one executor (their messages cascade).
+    ///
+    /// `include_unnamed` mirrors [`Self::list_sessions`]: clearing the node's own
+    /// sessions also clears the rows that predate the column (v1.0 M2b-2).
+    pub fn clear_all(&self, executor: &str, include_unnamed: bool) -> Result<(), SessionError> {
+        self.conn.execute(
+            "DELETE FROM sessions WHERE executor_id = ?1 OR (?2 AND executor_id IS NULL)",
+            params![executor, include_unnamed],
+        )?;
         Ok(())
     }
 
@@ -273,6 +383,14 @@ impl SessionStore {
         Ok(n as usize)
     }
 
+    /// The schema version this store opened with ([`SESSION_SCHEMA_VERSION`], unless
+    /// something stamped the file differently). Diagnostics and tests (v1.0 M2b-2).
+    pub fn schema_version(&self) -> Result<i64, SessionError> {
+        Ok(self
+            .conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))?)
+    }
+
     /// This connection's current `busy_timeout`, in milliseconds ([`BUSY_TIMEOUT`]
     /// unless something changed it). It is a per-connection setting, so this
     /// reports the value *this* store was opened with. Diagnostics and tests.
@@ -281,6 +399,18 @@ impl SessionStore {
             .conn
             .query_row("PRAGMA busy_timeout", [], |row| row.get(0))?)
     }
+}
+
+/// One row of the session list or of [`SessionStore::session`].
+fn row_meta(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionMeta> {
+    Ok(SessionMeta {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        created_at_ms: row.get(2)?,
+        updated_at_ms: row.get(3)?,
+        message_count: row.get::<_, i64>(4)? as usize,
+        executor_id: row.get(5)?,
+    })
 }
 
 /// `UPDATE sessions SET updated_at_ms = ?2 WHERE id = ?1`.

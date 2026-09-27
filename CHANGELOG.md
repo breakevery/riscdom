@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sessions are per executor, and the session database carries a version of its own** (v1.0 M2b-2):
+  `sessions` gains `executor_id`, and the database stamps its schema in SQLite's `PRAGMA user_version`
+  — read before anything else, migrated **on open** (an idempotent `ALTER` after `PRAGMA table_info`,
+  with the pre-migration bytes kept as `sessions.db.bak`), and refused with `data_too_new` when the
+  file is newer than this build. The seven session endpoints take an optional `executor` (default:
+  this node), `current_session_id` became a per-executor map with stale-pointer repair, old rows stay
+  `NULL` and are read as the node's own, and `open_session` looks a session up by id instead of
+  scanning the table.
+
 - **The LLM configuration is persisted, per executor — and `settings.json` is migrated for the
   first time** (v1.0 M2b-1): the non-secret half (provider, endpoint, model) now lives in
   `settings.json` under `llm_configs`, keyed by executor id — the node's own device name, or an

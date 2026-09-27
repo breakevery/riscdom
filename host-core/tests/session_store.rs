@@ -1,6 +1,10 @@
-//! Stage 17a — the session store.
+//! Stage 17a — the session store (schema v1 since v1.0 M2b-2).
 
-use host_core::session::{SessionError, SessionMessage, SessionStore};
+use host_core::session::{SessionError, SessionMessage, SessionStore, SESSION_SCHEMA_VERSION};
+
+/// The executor these tests act as. The store itself does not know the node's
+/// name — the host passes it in — so a store-level test picks one (v1.0 M2b-2).
+const EXECUTOR: &str = "local";
 
 fn unique_dir(tag: &str) -> std::path::PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -20,18 +24,25 @@ fn user(session: &str, text: &str) -> SessionMessage {
 #[test]
 fn create_append_list_load() {
     let store = SessionStore::in_memory().expect("store");
-    let id = store.create_session("hello world").expect("create");
+    let id = store
+        .create_session("hello world", EXECUTOR)
+        .expect("create");
 
     store.append_message(&id, user(&id, "hi")).expect("append");
     store
         .append_message(&id, SessionMessage::new(&id, "assistant", "hello!"))
         .expect("append");
 
-    let sessions = store.list_sessions(10).expect("list");
+    let sessions = store.list_sessions(10, EXECUTOR, true).expect("list");
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].id, id);
     assert_eq!(sessions[0].title, "hello world");
     assert_eq!(sessions[0].message_count, 2);
+    assert_eq!(
+        sessions[0].executor_id.as_deref(),
+        Some(EXECUTOR),
+        "a new row says whose it is"
+    );
 
     let messages = store.load_messages(&id, 100).expect("load");
     assert_eq!(messages.len(), 2);
@@ -45,7 +56,7 @@ fn create_append_list_load() {
 #[test]
 fn load_messages_respects_limit_and_stays_ordered() {
     let store = SessionStore::in_memory().expect("store");
-    let id = store.create_session("t").expect("create");
+    let id = store.create_session("t", EXECUTOR).expect("create");
     for i in 0..5 {
         store
             .append_message(&id, user(&id, &format!("m{i}")))
@@ -64,22 +75,25 @@ fn load_messages_respects_limit_and_stays_ordered() {
 #[test]
 fn rename_and_delete_work() {
     let store = SessionStore::in_memory().expect("store");
-    let id = store.create_session("old").expect("create");
+    let id = store.create_session("old", EXECUTOR).expect("create");
     store.append_message(&id, user(&id, "hi")).expect("append");
 
     store.rename_session(&id, "new").expect("rename");
-    assert_eq!(store.list_sessions(10).unwrap()[0].title, "new");
+    assert_eq!(
+        store.list_sessions(10, EXECUTOR, true).unwrap()[0].title,
+        "new"
+    );
 
     store.delete_session(&id).expect("delete");
-    assert!(store.list_sessions(10).unwrap().is_empty());
+    assert!(store.list_sessions(10, EXECUTOR, true).unwrap().is_empty());
 }
 
 #[test]
 fn deleting_a_session_cascades_to_its_messages() {
     let path = unique_dir("cascade").join("sessions.db");
     let store = SessionStore::open(&path).expect("open");
-    let keep = store.create_session("keep").expect("create");
-    let drop_me = store.create_session("drop").expect("create");
+    let keep = store.create_session("keep", EXECUTOR).expect("create");
+    let drop_me = store.create_session("drop", EXECUTOR).expect("create");
     store.append_message(&keep, user(&keep, "a")).expect("a");
     store
         .append_message(&drop_me, user(&drop_me, "b"))
@@ -99,7 +113,7 @@ fn data_survives_across_store_instances() {
 
     let id = {
         let store = SessionStore::open(&path).expect("open");
-        let id = store.create_session("persisted").expect("create");
+        let id = store.create_session("persisted", EXECUTOR).expect("create");
         store
             .append_message(&id, user(&id, "remember me"))
             .expect("append");
@@ -110,7 +124,7 @@ fn data_survives_across_store_instances() {
     };
 
     let store = SessionStore::open(&path).expect("reopen");
-    let sessions = store.list_sessions(10).expect("list");
+    let sessions = store.list_sessions(10, EXECUTOR, true).expect("list");
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].id, id);
     assert_eq!(sessions[0].message_count, 2);
@@ -121,13 +135,13 @@ fn data_survives_across_store_instances() {
 #[test]
 fn list_is_most_recently_updated_first() {
     let store = SessionStore::in_memory().expect("store");
-    let first = store.create_session("first").expect("create");
-    let second = store.create_session("second").expect("create");
+    let first = store.create_session("first", EXECUTOR).expect("create");
+    let second = store.create_session("second", EXECUTOR).expect("create");
     // Ensure a distinct millisecond so the ordering is deterministic.
     std::thread::sleep(std::time::Duration::from_millis(5));
     store.touch_session(&first).expect("touch");
     let ids: Vec<String> = store
-        .list_sessions(10)
+        .list_sessions(10, EXECUTOR, true)
         .unwrap()
         .into_iter()
         .map(|s| s.id)
@@ -172,7 +186,7 @@ fn a_file_database_gets_a_busy_timeout() {
 fn a_failed_append_leaves_no_message_behind() {
     let path = unique_dir("atomic").join("sessions.db");
     let store = SessionStore::open(&path).expect("open");
-    let id = store.create_session("atomic").expect("create");
+    let id = store.create_session("atomic", EXECUTOR).expect("create");
 
     {
         let blocker = rusqlite::Connection::open(&path).expect("second connection");
@@ -190,7 +204,7 @@ fn a_failed_append_leaves_no_message_behind() {
     assert!(matches!(error, SessionError::Sqlite(_)), "{error:?}");
 
     assert_eq!(store.message_count(&id).expect("count"), 0);
-    let listed = store.list_sessions(10).expect("list");
+    let listed = store.list_sessions(10, EXECUTOR, true).expect("list");
     assert_eq!(listed[0].message_count, 0);
     assert_eq!(
         listed[0].updated_at_ms, listed[0].created_at_ms,
@@ -199,7 +213,160 @@ fn a_failed_append_leaves_no_message_behind() {
 
     // And the store is still usable afterwards: the aborted trigger only ever
     // refused writes, it did not poison the connection.
-    let other = store.create_session("still works").expect("create");
-    assert_eq!(store.list_sessions(10).expect("list").len(), 2);
+    let other = store
+        .create_session("still works", EXECUTOR)
+        .expect("create");
+    assert_eq!(
+        store.list_sessions(10, EXECUTOR, true).expect("list").len(),
+        2
+    );
     assert!(!other.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// v1.0 M2b-2 — the schema's own version, in SQLite's `PRAGMA user_version`
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_new_database_is_stamped_with_the_current_version() {
+    let path = unique_dir("stamped").join("sessions.db");
+    let store = SessionStore::open(&path).expect("open");
+    assert_eq!(
+        store.schema_version().expect("version"),
+        SESSION_SCHEMA_VERSION
+    );
+    assert_eq!(SESSION_SCHEMA_VERSION, 1);
+    // A brand-new file has nothing to back up.
+    assert!(!path.with_extension("db.bak").exists());
+}
+
+#[test]
+fn an_old_database_is_migrated_and_backed_up() {
+    let path = unique_dir("migrate").join("sessions.db");
+    // A database from before the column: the same DDL, no `executor_id`, and
+    // `user_version` at SQLite's default of 0.
+    {
+        let conn = rusqlite::Connection::open(&path).expect("old db");
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL, \
+             created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL); \
+             CREATE TABLE session_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, \
+             session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, \
+             role TEXT NOT NULL, content TEXT NOT NULL, tool_call_json TEXT, \
+             tool_call_id TEXT, created_at_ms INTEGER NOT NULL);",
+        )
+        .expect("old schema");
+        conn.execute(
+            "INSERT INTO sessions (id, title, created_at_ms, updated_at_ms) \
+             VALUES ('sess-old', 'old title', 1, 1)",
+            [],
+        )
+        .expect("old row");
+    }
+    let before = std::fs::read(&path).expect("read");
+
+    let store = SessionStore::open(&path).expect("open migrates");
+    assert_eq!(
+        store.schema_version().expect("version"),
+        SESSION_SCHEMA_VERSION
+    );
+    // The pre-migration bytes are kept, byte for byte.
+    assert_eq!(
+        std::fs::read(path.with_extension("db.bak")).expect("backup"),
+        before,
+        "the backup is what was there before the migration"
+    );
+
+    // The old row survives, **unnamed**: it belongs to the node itself, so the
+    // node's query sees it…
+    let listed = store.list_sessions(10, EXECUTOR, true).expect("list");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, "sess-old");
+    assert_eq!(listed[0].executor_id, None, "an old row stays unnamed");
+    // …and another executor's does not.
+    let foreign = store.list_sessions(10, "executor-0", false).expect("list");
+    assert!(
+        foreign.is_empty(),
+        "another executor must not see it: {foreign:?}"
+    );
+
+    // New rows carry the executor explicitly, and renaming an old one does not
+    // claim it.
+    store.rename_session("sess-old", "renamed").expect("rename");
+    let mine = store.create_session("mine", EXECUTOR).expect("create");
+    assert_eq!(
+        store
+            .session(&mine)
+            .unwrap()
+            .unwrap()
+            .executor_id
+            .as_deref(),
+        Some(EXECUTOR)
+    );
+    assert_eq!(
+        store.session("sess-old").unwrap().unwrap().executor_id,
+        None,
+        "renaming did not give the old row an owner"
+    );
+}
+
+#[test]
+fn a_newer_database_is_refused() {
+    let path = unique_dir("too-new").join("sessions.db");
+    {
+        let conn = rusqlite::Connection::open(&path).expect("db");
+        conn.execute_batch("PRAGMA user_version = 99;")
+            .expect("stamp");
+    }
+    let refused = SessionStore::open(&path);
+    assert!(
+        matches!(
+            refused.as_ref(),
+            Err(SessionError::DataTooNew { found: 99, .. })
+        ),
+        "{:?}",
+        refused.err()
+    );
+    // A refusal is not a migration: nothing was written, and no backup taken.
+    assert!(!path.with_extension("db.bak").exists());
+}
+
+#[test]
+fn a_database_that_already_has_the_column_is_current() {
+    let path = unique_dir("idempotent").join("sessions.db");
+    {
+        // The state an interrupted migration leaves: the column is there, the
+        // version stamp is not.
+        let conn = rusqlite::Connection::open(&path).expect("db");
+        conn.execute_batch(
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL, \
+             created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL, \
+             executor_id TEXT);",
+        )
+        .expect("half-migrated schema");
+    }
+    let store = SessionStore::open(&path).expect("open must not re-add the column");
+    assert_eq!(
+        store.schema_version().expect("version"),
+        SESSION_SCHEMA_VERSION
+    );
+}
+
+#[test]
+fn clearing_is_scoped_to_the_executor() {
+    let store = SessionStore::in_memory().expect("store");
+    let mine = store.create_session("mine", EXECUTOR).expect("create");
+    let theirs = store
+        .create_session("theirs", "executor-0")
+        .expect("create");
+
+    store.clear_all(EXECUTOR, true).expect("clear");
+    let left: Vec<String> = store
+        .list_sessions(10, "executor-0", false)
+        .expect("list")
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
+    assert_eq!(left, vec![theirs], "another executor's session stays");
+    assert!(store.session(&mine).expect("session").is_none());
 }

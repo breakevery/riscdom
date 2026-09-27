@@ -832,7 +832,13 @@ pub struct AppState {
     /// Persisted conversations.
     pub sessions: Arc<Mutex<SessionStore>>,
     /// The session the next run appends to (created on demand).
-    pub current_session_id: Mutex<Option<String>>,
+    /// The session the next run appends to, **per executor** (v1.0 M2b-2).
+    ///
+    /// Keyed by executor id — the node's own device name, or an executor's label —
+    /// the same key space `settings.json`'s `llm_configs` and the keyring use. Before
+    /// this it was one value for the whole node, which is the same thing as long as a
+    /// node has one executor.
+    pub current_session_id: Mutex<HashMap<String, String>>,
     /// The run currently in progress, if any (host-owned provenance, v0.4 1c).
     current_run_id: Mutex<Option<String>>,
     /// The most recent run, finished or not. The VM outlives a run, so a
@@ -1224,7 +1230,7 @@ impl AppState {
             persisted: Mutex::new(false),
             stream_receiver: Arc::new(Mutex::new(None)),
             sessions: Arc::new(Mutex::new(sessions)),
-            current_session_id: Mutex::new(None),
+            current_session_id: Mutex::new(HashMap::new()),
             current_run_id: Mutex::new(None),
             last_run_id: Mutex::new(None),
             snapshot_producers: Mutex::new(HashMap::new()),
@@ -3142,57 +3148,98 @@ impl AppState {
         }
     }
 
-    /// The session the next run appends to.
-    pub fn current_session_id(&self) -> Option<String> {
+    /// The session the next run of `executor` appends to (v1.0 M2b-2).
+    pub fn current_session_id(&self, executor: &str) -> Option<String> {
         self.current_session_id
             .lock()
             .ok()
-            .and_then(|guard| guard.clone())
+            .and_then(|guard| guard.get(executor).cloned())
     }
 
-    /// Create a session and make it current.
-    pub fn create_session(&self, title: &str) -> Result<String, HostError> {
+    /// Create a session for `executor` and make it that executor's current one.
+    pub fn create_session(&self, title: &str, executor: &str) -> Result<String, HostError> {
         let id = {
             let store = self
                 .sessions
                 .lock()
                 .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
             store
-                .create_session(title)
+                .create_session(title, executor)
                 .map_err(|e| HostError::Other(e.to_string()))?
         };
         if let Ok(mut slot) = self.current_session_id.lock() {
-            *slot = Some(id.clone());
+            slot.insert(executor.to_string(), id.clone());
         }
         self.emit_host(
             "host.session.create",
-            serde_json::json!({ "session_id": id }),
+            serde_json::json!({ "session_id": id, "executor": executor }),
         );
         Ok(id)
     }
 
-    /// Recent sessions, newest first.
-    pub fn list_sessions(&self, limit: usize) -> Result<Vec<SessionMeta>, HostError> {
+    /// Recent sessions of `executor`, newest first.
+    pub fn list_sessions(
+        &self,
+        limit: usize,
+        executor: &str,
+    ) -> Result<Vec<SessionMeta>, HostError> {
         let store = self
             .sessions
             .lock()
             .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
         store
-            .list_sessions(limit)
+            .list_sessions(limit, executor, self.owns_unnamed(executor))
             .map_err(|e| HostError::Other(e.to_string()))
     }
 
-    /// Open a session (and make it current), returning its messages.
-    pub fn open_session(&self, session_id: &str) -> Result<SessionDetailView, HostError> {
+    /// Does `session_id` belong to `executor` (v1.0 M2b-2)?
+    ///
+    /// A row with no executor predates the column and belongs to the node itself, so
+    /// only the node's own question is answered yes for it.
+    fn session_belongs(&self, session_id: &str, executor: &str) -> Result<bool, HostError> {
+        let owned = {
+            let store = self
+                .sessions
+                .lock()
+                .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
+            store
+                .session(session_id)
+                .map_err(|e| HostError::Other(e.to_string()))?
+        };
+        Ok(match owned {
+            Some(meta) => match meta.executor_id {
+                Some(owner) => owner == executor,
+                None => self.owns_unnamed(executor),
+            },
+            None => false,
+        })
+    }
+
+    /// Is `executor` this node's own — the one that also answers for unnamed rows?
+    fn owns_unnamed(&self, executor: &str) -> bool {
+        executor == self.local_executor_id()
+    }
+
+    /// Open a session (and make it that executor's current one), returning its contents.
+    ///
+    /// Scoped by executor (v1.0 M2b-2): another executor's session is as invisible as a
+    /// session that does not exist. The lookup is by id, not a scan of every session.
+    pub fn open_session(
+        &self,
+        session_id: &str,
+        executor: &str,
+    ) -> Result<SessionDetailView, HostError> {
         let store = self
             .sessions
             .lock()
             .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
         let meta = store
-            .list_sessions(1000)
+            .session(session_id)
             .map_err(|e| HostError::Other(e.to_string()))?
-            .into_iter()
-            .find(|s| s.id == session_id)
+            .filter(|meta| match &meta.executor_id {
+                Some(owner) => owner == executor,
+                None => self.owns_unnamed(executor),
+            })
             .ok_or_else(|| HostError::Other("session not found".to_string()))?;
         let messages = store
             .load_messages(session_id, HISTORY_LIMIT)
@@ -3200,17 +3247,29 @@ impl AppState {
         drop(store);
 
         if let Ok(mut slot) = self.current_session_id.lock() {
-            *slot = Some(session_id.to_string());
+            slot.insert(executor.to_string(), session_id.to_string());
         }
         self.emit_host(
             "host.session.open",
-            serde_json::json!({ "session_id": session_id }),
+            serde_json::json!({ "session_id": session_id, "executor": executor }),
         );
         Ok(SessionDetailView { meta, messages })
     }
 
-    /// Rename a session.
-    pub fn rename_session(&self, session_id: &str, title: &str) -> Result<(), HostError> {
+    /// Rename a session that belongs to `executor`; another executor's is unknown.
+    ///
+    /// The host's rename is idempotent — an unknown id changes nothing — and a session
+    /// that belongs to somebody else is unknown to this question (v1.0 M2b-2). A row
+    /// that predates the column stays unnamed: renaming does not claim it.
+    pub fn rename_session(
+        &self,
+        session_id: &str,
+        title: &str,
+        executor: &str,
+    ) -> Result<(), HostError> {
+        if !self.session_belongs(session_id, executor)? {
+            return Ok(());
+        }
         let store = self
             .sessions
             .lock()
@@ -3221,13 +3280,16 @@ impl AppState {
         drop(store);
         self.emit_host(
             "host.session.rename",
-            serde_json::json!({ "session_id": session_id }),
+            serde_json::json!({ "session_id": session_id, "executor": executor }),
         );
         Ok(())
     }
 
-    /// Delete a session (its messages cascade) and forget it if current.
-    pub fn delete_session(&self, session_id: &str) -> Result<(), HostError> {
+    /// Delete a session of `executor` (its messages cascade) and forget it if current.
+    pub fn delete_session(&self, session_id: &str, executor: &str) -> Result<(), HostError> {
+        if !self.session_belongs(session_id, executor)? {
+            return Ok(());
+        }
         let store = self
             .sessions
             .lock()
@@ -3237,40 +3299,54 @@ impl AppState {
             .map_err(|e| HostError::Other(e.to_string()))?;
         drop(store);
         if let Ok(mut slot) = self.current_session_id.lock() {
-            if slot.as_deref() == Some(session_id) {
-                *slot = None;
+            if slot.get(executor).map(String::as_str) == Some(session_id) {
+                slot.remove(executor);
             }
         }
         self.emit_host(
             "host.session.delete",
-            serde_json::json!({ "session_id": session_id }),
+            serde_json::json!({ "session_id": session_id, "executor": executor }),
         );
         Ok(())
     }
 
-    /// Delete every session.
-    pub fn clear_all_sessions(&self) -> Result<(), HostError> {
+    /// Delete every session of `executor` (the node's own clears the unnamed rows too).
+    pub fn clear_all_sessions(&self, executor: &str) -> Result<(), HostError> {
         let store = self
             .sessions
             .lock()
             .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
         store
-            .clear_all()
+            .clear_all(executor, self.owns_unnamed(executor))
             .map_err(|e| HostError::Other(e.to_string()))?;
         drop(store);
         if let Ok(mut slot) = self.current_session_id.lock() {
-            *slot = None;
+            slot.remove(executor);
         }
-        self.emit_host("host.session.delete", serde_json::json!({ "all": true }));
+        self.emit_host(
+            "host.session.delete",
+            serde_json::json!({ "all": true, "executor": executor }),
+        );
         Ok(())
     }
 
-    /// The current session, creating one titled from `user_input` if needed.
-    fn ensure_session(&self, user_input: &str) -> Result<String, HostError> {
-        if let Some(id) = self.current_session_id() {
-            return Ok(id);
+    /// The current session of `executor`, creating one titled from `user_input` if
+    /// needed (v1.0 M2b-2).
+    ///
+    /// A **stale** pointer is repaired here: a current id that no longer names a row
+    /// this executor owns (the session was deleted, or another process removed it) is
+    /// dropped and replaced by a fresh session, so a run never appends to a session that
+    /// is not there.
+    fn ensure_session(&self, user_input: &str, executor: &str) -> Result<String, HostError> {
+        if let Some(id) = self.current_session_id(executor) {
+            if self.session_belongs(&id, executor)? {
+                return Ok(id);
+            }
+            if let Ok(mut slot) = self.current_session_id.lock() {
+                slot.remove(executor);
+            }
         }
-        self.create_session(&title_from(user_input))
+        self.create_session(&title_from(user_input), executor)
     }
 
     /// Messages to rehydrate a fresh `AgentLoop` with (never the system prompt).
@@ -5098,7 +5174,10 @@ impl AppState {
         agent.set_snapshot_dir(instance.snapshot_dir.clone());
 
         // Sessions: restore prior turns, then persist whatever this turn adds.
-        let session_id = self.ensure_session(user_input)?;
+        // Sessions: restore prior turns, then persist whatever this turn adds. The run
+        // belongs to the **node's own** executor (v1.0 M2b-2): a task names an instance
+        // of this node, not another executor.
+        let session_id = self.ensure_session(user_input, &self.local_executor_id())?;
         let history = self.load_session_history(&session_id)?;
         if !history.is_empty() {
             agent.push_history(history);

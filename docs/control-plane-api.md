@@ -185,8 +185,8 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/llm/readiness` | GET | `llm.read` | — | `LlmReadiness` | `get_llm_readiness` |
 | `/v0/llm/local-probe` | GET | `llm.read` | — | `LocalProbeResult` | `probe_local_llm` |
 | `/v0/llm/stored-key` | GET | `llm.read` | query: `provider_id` | `{ "present": bool }` | `has_stored_key` |
-| `/v0/sessions` | GET | `session.read` | query: `limit` | `[SessionMeta]` | `list_sessions` |
-| `/v0/sessions/current` | GET | `session.read` | — | `{ "session_id": string \| null }` | `get_current_session_id` |
+| `/v0/sessions` | GET | `session.read` | query: `limit`, `executor`? | `[SessionMeta]` | `list_sessions` |
+| `/v0/sessions/current` | GET | `session.read` | query: `executor`? | `{ "session_id": string \| null }` | `get_current_session_id` |
 | `/v0/snapshots` | GET | `snapshot.read` | — | `[SnapshotMetaView]` | `list_snapshots` |
 | `/v0/vm/running` | GET | `vm.read` | — | `{ "running": bool }` | `vm_is_running` |
 | `/v0/vm/status` | GET | `vm.read` | — | `VmStatusView` | `vm_status` |
@@ -225,11 +225,11 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/snapshots/save` | POST | `snapshot.write` | `{ "name": string }` | `{ "bytes_written": number }` | `save_snapshot_real` |
 | `/v0/snapshots/resume` | POST | `snapshot.write` | `{ "name": string }` | `204 No Content` | `resume_from_snapshot_real` |
 | `/v0/snapshots/delete` | POST | `snapshot.write` | `{ "name": string }` | `{ "deleted": bool }` | `delete_snapshot` |
-| `/v0/sessions/create` | POST | `session.write` | `{ "title": string }` | `{ "session_id": string }` | `create_session` |
-| `/v0/sessions/open` | POST | `session.write` | `{ "session_id": string }` | `SessionDetailView` | `open_session` |
-| `/v0/sessions/rename` | POST | `session.write` | `{ "session_id", "title" }` | `204 No Content` | `rename_session` |
-| `/v0/sessions/delete` | POST | `session.write` | `{ "session_id": string }` | `204 No Content` | `delete_session` |
-| `/v0/sessions/clear` | POST | `session.write` | — | `204 No Content` | `clear_all_sessions` |
+| `/v0/sessions/create` | POST | `session.write` | `{ "title": string, "executor"? }` | `{ "session_id": string }` | `create_session` |
+| `/v0/sessions/open` | POST | `session.write` | `{ "session_id": string, "executor"? }` | `SessionDetailView` | `open_session` |
+| `/v0/sessions/rename` | POST | `session.write` | `{ "session_id", "title", "executor"? }` | `204 No Content` | `rename_session` |
+| `/v0/sessions/delete` | POST | `session.write` | `{ "session_id": string, "executor"? }` | `204 No Content` | `delete_session` |
+| `/v0/sessions/clear` | POST | `session.write` | `{ "executor"? }` | `204 No Content` | `clear_all_sessions` |
 | `/v0/toolchain/download` | POST | `toolchain.install` | — | `202 { "state": "started" }` | `start_toolchain_download` |
 | `/v0/toolchain/download/cancel` | POST | `toolchain.install` | — | `202 { "state": "cancelling" }` | `cancel_toolchain_download` |
 | `/v0/toolchain/path` | POST | `toolchain.configure` | `{ "path": string }` | `204 No Content` | `set_toolchain_path` |

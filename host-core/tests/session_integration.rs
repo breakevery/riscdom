@@ -20,6 +20,13 @@ fn unique_dir(tag: &str) -> std::path::PathBuf {
     dir
 }
 
+/// The executor these tests act as: the node's own (v1.0 M2b-2). Sessions became
+/// per-executor, so every session call names one; the node's device name is what a
+/// single-node test means by "mine".
+fn local(state: &AppState) -> String {
+    state.local_executor_id()
+}
+
 fn text_response(text: &str) -> ChatResponse {
     ChatResponse {
         id: None,
@@ -78,12 +85,14 @@ fn a_run_creates_a_session_and_persists_the_turn() {
 
     run(&state, "hello agent");
 
-    let sessions = state.list_sessions(10).expect("list");
+    let sessions = state.list_sessions(10, &local(&state)).expect("list");
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].title, "hello agent");
-    assert!(state.current_session_id().is_some());
+    assert!(state.current_session_id(&local(&state)).is_some());
 
-    let detail = state.open_session(&sessions[0].id).expect("open");
+    let detail = state
+        .open_session(&sessions[0].id, &local(&state))
+        .expect("open");
     let roles: Vec<&str> = detail.messages.iter().map(|m| m.role.as_str()).collect();
     assert_eq!(roles, vec!["user", "assistant"]);
     assert_eq!(detail.messages[0].content, "hello agent");
@@ -99,15 +108,18 @@ fn a_second_run_appends_to_the_same_session() {
     );
 
     run(&state, "turn one");
-    let id = state.current_session_id().expect("current");
+    let id = state.current_session_id(&local(&state)).expect("current");
     run(&state, "turn two");
 
-    assert_eq!(state.current_session_id().as_deref(), Some(id.as_str()));
-    let sessions = state.list_sessions(10).expect("list");
+    assert_eq!(
+        state.current_session_id(&local(&state)).as_deref(),
+        Some(id.as_str())
+    );
+    let sessions = state.list_sessions(10, &local(&state)).expect("list");
     assert_eq!(sessions.len(), 1, "no new session for the second turn");
     assert_eq!(sessions[0].message_count, 4);
 
-    let detail = state.open_session(&id).expect("open");
+    let detail = state.open_session(&id, &local(&state)).expect("open");
     let contents: Vec<&str> = detail.messages.iter().map(|m| m.content.as_str()).collect();
     assert_eq!(contents, vec!["turn one", "first", "turn two", "second"]);
 }
@@ -127,8 +139,8 @@ fn tool_calls_and_results_are_persisted_as_history() {
     // `list_workspace` needs no VM, so the whole turn runs offline.
     run(&state, "list the workspace");
 
-    let id = state.current_session_id().expect("current");
-    let detail = state.open_session(&id).expect("open");
+    let id = state.current_session_id(&local(&state)).expect("current");
+    let detail = state.open_session(&id, &local(&state)).expect("open");
     let roles: Vec<&str> = detail.messages.iter().map(|m| m.role.as_str()).collect();
     assert_eq!(roles, vec!["user", "assistant", "tool", "assistant"]);
 
@@ -180,8 +192,8 @@ fn history_is_injected_back_into_the_loop_without_the_system_prompt() {
     *state.llm_override.lock().unwrap() = Some(Arc::clone(&llm) as Arc<dyn LlmClient>);
 
     run(&state, "remember me");
-    let id = state.current_session_id().unwrap();
-    state.open_session(&id).expect("open");
+    let id = state.current_session_id(&local(&state)).unwrap();
+    state.open_session(&id, &local(&state)).expect("open");
     run(&state, "what did I say?");
 
     let requests = llm.requests();
@@ -205,7 +217,7 @@ fn history_is_injected_back_into_the_loop_without_the_system_prompt() {
     assert_eq!(system_count, 1, "system prompt should appear once");
 
     // ...and 4 persisted messages, none of them `system`.
-    let detail = state.open_session(&id).expect("open");
+    let detail = state.open_session(&id, &local(&state)).expect("open");
     assert_eq!(detail.messages.len(), 4);
     assert!(detail.messages.iter().all(|m| m.role != "system"));
 }
@@ -215,22 +227,27 @@ fn history_is_injected_back_into_the_loop_without_the_system_prompt() {
 fn rename_and_delete_sessions() {
     let state = state_with("rename", vec![text_response("ok")]);
     run(&state, "original title");
-    let id = state.current_session_id().unwrap();
+    let id = state.current_session_id(&local(&state)).unwrap();
 
-    state.rename_session(&id, "renamed").expect("rename");
-    let listed = state.list_sessions(10).expect("list");
+    state
+        .rename_session(&id, "renamed", &local(&state))
+        .expect("rename");
+    let listed = state.list_sessions(10, &local(&state)).expect("list");
     assert_eq!(listed[0].title, "renamed");
 
-    state.delete_session(&id).expect("delete");
-    assert!(state.list_sessions(10).expect("list").is_empty());
+    state.delete_session(&id, &local(&state)).expect("delete");
+    assert!(state
+        .list_sessions(10, &local(&state))
+        .expect("list")
+        .is_empty());
     assert!(
-        state.current_session_id().is_none(),
+        state.current_session_id(&local(&state)).is_none(),
         "deleting the current session clears it"
     );
 
     // A fresh run starts a new session.
     run(&state, "after delete");
-    assert_eq!(state.list_sessions(10).unwrap().len(), 1);
+    assert_eq!(state.list_sessions(10, &local(&state)).unwrap().len(), 1);
 }
 
 #[test]
@@ -238,10 +255,12 @@ fn rename_and_delete_sessions() {
 fn clear_all_sessions_removes_everything() {
     let state = state_with("clear", vec![text_response("ok")]);
     run(&state, "one");
-    state.create_session("manual").expect("create");
-    assert_eq!(state.list_sessions(10).unwrap().len(), 2);
+    state
+        .create_session("manual", &local(&state))
+        .expect("create");
+    assert_eq!(state.list_sessions(10, &local(&state)).unwrap().len(), 2);
 
-    state.clear_all_sessions().expect("clear");
-    assert!(state.list_sessions(10).unwrap().is_empty());
-    assert!(state.current_session_id().is_none());
+    state.clear_all_sessions(&local(&state)).expect("clear");
+    assert!(state.list_sessions(10, &local(&state)).unwrap().is_empty());
+    assert!(state.current_session_id(&local(&state)).is_none());
 }

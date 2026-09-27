@@ -11,6 +11,12 @@
 
 ### 新增
 
+- **会话按执行者归档，而会话库也有了自己的版本号**（v1.0 M2b-2）：`sessions` 新增 `executor_id`，数据库把
+  schema 版本写进 SQLite 的 `PRAGMA user_version` —— 先于一切被读出，**打开时**迁移（先 `PRAGMA table_info`
+  再幂等地 `ALTER`，迁移前字节留作 `sessions.db.bak`），而当文件比本构建更新时以 `data_too_new` 拒绝。
+  七个会话端点接受可选 `executor`（缺省本节点），`current_session_id` 变为按执行者分表并能修复陈旧指针，
+  老行保持 `NULL` 且被读作本节点自己的，而 `open_session` 改为按 id 直查、不再扫全表。
+
 - **LLM 配置按执行者落盘 —— 而 `settings.json` 第一次被迁移**（v1.0 M2b-1）：非机密的那一半
   （provider、endpoint、model）现在住在 `settings.json` 的 `llm_configs` 里，按执行者 id 归档 —— 本机是它
   的设备名，worker 是它的 label —— 而 key 仍住在 OS 钥匙串。`SETTINGS_VERSION` 从 1 升到 2：v1 文件在
