@@ -52,6 +52,8 @@ const NAMED_PATTERN_ROUTES = {
   "GET /v0/sandboxes/{name}": "sandbox_get",
   "POST /v0/sandboxes/requests/{id}/approve": "sandbox_request_approve",
   "POST /v0/sandboxes/requests/{id}/reject": "sandbox_request_reject",
+  // The queue's cleanup (v1.0 gap 3/N, batch D).
+  "DELETE /v0/sandboxes/requests/{id}": "sandbox_request_delete",
   // The instance model (v1.0 M2a-2): a definition's instances, and what it can do.
   "GET /v0/sandboxes/{name}/instances": "instance_list",
   "GET /v0/sandboxes/{name}/instances/history": "instance_history",

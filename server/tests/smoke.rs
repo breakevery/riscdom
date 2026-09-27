@@ -359,6 +359,13 @@ fn post(addr: SocketAddr, path: &str, body: &str) -> (u16, serde_json::Value) {
     (status, json)
 }
 
+/// A `DELETE`, answered as JSON (v1.0 gap 3/N, batch D).
+fn delete(addr: SocketAddr, path: &str) -> (u16, serde_json::Value) {
+    let (status, raw) = call(addr, "DELETE", path, "", None);
+    let json = serde_json::from_str(&raw).unwrap_or_else(|e| panic!("{path} is JSON ({e}): {raw}"));
+    (status, json)
+}
+
 /// A `POST` that is allowed to take longer than the default read timeout.
 fn post_patient(addr: SocketAddr, path: &str, body: &str) -> (u16, serde_json::Value) {
     let (status, raw) = call_with(addr, "POST", path, "", Some(body), Duration::from_secs(90));
@@ -1033,6 +1040,69 @@ fn a_request_is_never_the_thing_that_switches() {
     assert_eq!(status, 200, "{body}");
     let (_, after) = get(addr, "/v0/sandboxes/current");
     assert_eq!(before, after, "approving moved the node");
+}
+
+#[test]
+fn a_request_can_be_taken_out_of_the_queue_and_the_chain_keeps_it() {
+    // v1.0 gap 3/N batch D: `DELETE /v0/sandboxes/requests/{id}` is the queue's one
+    // cleanup. The queue loses the ask; the chain does not.
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let (status, body) = post(
+        addr,
+        "/v0/sandboxes/requests",
+        r#"{"action":"switch","sandbox":"blink"}"#,
+    );
+    assert_eq!(status, 201, "{body}");
+    let id = body["id"].as_str().expect("an id").to_string();
+
+    // It is in the queue…
+    let (_, body) = get(addr, "/v0/sandboxes/requests");
+    assert!(body["requests"]
+        .as_array()
+        .expect("an array")
+        .iter()
+        .any(|r| r["id"] == id.as_str()));
+
+    // …the member answers `DELETE` only…
+    let (status, _) = get(addr, &format!("/v0/sandboxes/requests/{id}"));
+    assert_eq!(status, 405, "the member is a DELETE");
+
+    // …the `DELETE` answers with the record it removed…
+    let (status, body) = delete(addr, &format!("/v0/sandboxes/requests/{id}"));
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["id"], id.as_str());
+    assert_eq!(body["status"], "pending");
+
+    // …and it is gone from the queue.
+    let (_, body) = get(addr, "/v0/sandboxes/requests");
+    assert!(!body["requests"]
+        .as_array()
+        .expect("an array")
+        .iter()
+        .any(|r| r["id"] == id.as_str()));
+
+    // An id nobody knows is the same `404` a decision gives.
+    let (status, body) = delete(addr, "/v0/sandboxes/requests/req-0-404");
+    assert_eq!(status, 404, "{body}");
+    assert_eq!(body["cause"], "id");
+}
+
+#[test]
+fn a_decided_request_can_be_cleaned_up_too() {
+    // The chain keeps the decision; the queue need not (v1.0 gap 3/N batch D).
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+    let (status, body) = post(
+        addr,
+        "/v0/sandboxes/requests",
+        r#"{"action":"switch","sandbox":"blink"}"#,
+    );
+    assert_eq!(status, 201, "{body}");
+    let id = body["id"].as_str().expect("an id").to_string();
+    let (status, _) = post(addr, &format!("/v0/sandboxes/requests/{id}/approve"), "{}");
+    assert_eq!(status, 200);
+    let (status, body) = delete(addr, &format!("/v0/sandboxes/requests/{id}"));
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["status"], "approved");
 }
 
 #[test]

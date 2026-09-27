@@ -14,7 +14,8 @@ use crate::sandbox_def::{
     CandidatesView, SandboxDef, SandboxSource, SandboxView, DEFAULT_SANDBOX_NAME,
 };
 use crate::sandbox_request::{
-    SandboxAction, SandboxRequestService, SandboxRequestStatus, SandboxRequestView, SandboxRequests,
+    derive_requests_from, SandboxAction, SandboxRequestService, SandboxRequestStatus,
+    SandboxRequestView, SandboxRequests,
 };
 use crate::session::{SessionMessage, SessionMeta, SessionStore};
 use crate::settings::{
@@ -1303,6 +1304,9 @@ impl AppState {
         // Startup hook (v0.4 1e): make runs left open by a previous process
         // legible. Best effort — it must never stop the app from starting.
         let _ = state.abandon_stale_runs();
+        // Startup hook (v1.0 gap 3/N, batch D): bring back the asks the last process left
+        // pending, from the chain. Same rule as above — best effort, never fatal.
+        state.restore_pending_requests();
         // Startup hygiene (v0.4 batch 5/6): whatever a killed process left in the
         // temp directory is removed once it is old enough that nothing can still
         // own it. `<temp>/riscdom` — the fallback data directory — is never a
@@ -3140,6 +3144,45 @@ impl AppState {
             crate::events::m_request_payload(&view.id, "rejected", Some(decided_by)),
         );
         Ok(view)
+    }
+
+    /// Take a request out of the queue (v1.0 gap 3/N, batch D).
+    ///
+    /// The queue loses it; the chain keeps the ask and its decision. An unknown id is the
+    /// same `404` a decision answers, and a **decided** request may be cleaned up too —
+    /// its history is the chain's, not the queue's. Nothing is announced: the queue's
+    /// stream vocabulary has no "removed" word, and a caller can simply re-read.
+    pub fn delete_sandbox_request(&self, id: &str) -> Result<SandboxRequestView, HostError> {
+        self.sandbox_requests
+            .remove(id)
+            .map(|request| SandboxRequestView::from(&request))
+    }
+
+    /// Seed the live queue from the chain at startup (v1.0 gap 3/N, batch D).
+    ///
+    /// The queue is runtime state and dies with the process, so a pending ask would be
+    /// lost by a restart — which is what this undoes: the chain's `m.request.ask` rows are
+    /// folded back into `pending` entries, so a decision can still be made after the node
+    /// comes back. Best effort, like [`Self::abandon_stale_runs`]: a chain that cannot be
+    /// read leaves the queue empty rather than stopping the host.
+    ///
+    /// It says so **only when it did something** (or when an id collided), so a fresh
+    /// node's chain gains no row merely from starting.
+    fn restore_pending_requests(&self) {
+        let events = match self.audit.lock() {
+            Ok(store) => store.all().unwrap_or_default(),
+            Err(_) => return,
+        };
+        let (restored, conflicts) = self
+            .sandbox_requests
+            .restore(&derive_requests_from(&events));
+        if restored == 0 && conflicts.is_empty() {
+            return;
+        }
+        self.emit_host(
+            "host.sandbox_request.restore",
+            serde_json::json!({ "restored": restored, "conflicts": conflicts }),
+        );
     }
 
     /// Switch this node to the sandbox `name` (v0.9 sandbox F2b).

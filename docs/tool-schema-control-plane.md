@@ -47,12 +47,14 @@ Two documented exceptions:
   `qemu/download`, `settings/theme`, `settings/language`, `llm/config`,
   `sandboxes/requests`) gives the `POST` the suffix **`_post`**, so
   `POST /v0/settings/theme` → `settings_theme_post`.
-- **The nine path-parameter routes** get a verb instead of a joined path, because
+- **The ten path-parameter routes** get a verb instead of a joined path, because
   `runs_run_id` helps nobody: `GET /v0/runs/{run_id}` → `run_get`,
   `GET /v0/sandboxes/{name}` → `sandbox_get`, the two request decisions →
-  `sandbox_request_approve` / `sandbox_request_reject`, and the instance model's five
-  (v1.0 M2a-2; `instance_history` is v1.0 gap 3/N) → `instance_list`,
-  `instance_create`, `instance_delete`, `instance_history` and `sandbox_capabilities`.
+  `sandbox_request_approve` / `sandbox_request_reject`, the queue's cleanup
+  (`DELETE /v0/sandboxes/requests/{id}`, v1.0 gap 3/N batch D) → `sandbox_request_delete`,
+  and the instance model's five (v1.0 M2a-2; `instance_history` is v1.0 gap 3/N) →
+  `instance_list`, `instance_create`, `instance_delete`, `instance_history` and
+  `sandbox_capabilities`.
 
 Tool names are unique across the whole set (checked).
 
@@ -143,7 +145,7 @@ Tool names are unique across the whole set (checked).
 | `workspace_export` | POST | `/v0/workspace/export` | `workspace.read` | — (bytes out, not JSON) |
 <!-- tool-routes:controls:end -->
 
-### 3.3 Host-local, and the path-parameter routes (3 + 8)
+### 3.3 Host-local, and the path-parameter routes (3 + 10)
 
 <!-- tool-routes:locals:begin -->
 | Tool | Method | Path | Capability | Arguments |
@@ -160,6 +162,7 @@ Tool names are unique across the whole set (checked).
 | `sandbox_get` | GET | `/v0/sandboxes/{name}` | `sandbox.read` | `name` (str) |
 | `sandbox_request_approve` | POST | `/v0/sandboxes/requests/{id}/approve` | `sandbox.read`, then the request's action | `id` (str) |
 | `sandbox_request_reject` | POST | `/v0/sandboxes/requests/{id}/reject` | as `approve` | `id` (str) |
+| `sandbox_request_delete` | DELETE | `/v0/sandboxes/requests/{id}` | `sandbox.read` | `id` (str) |
 | `instance_list` | GET | `/v0/sandboxes/{name}/instances` | `sandbox.read` | `name` (str) |
 | `instance_create` | POST | `/v0/sandboxes/{name}/instances` | `sandbox.instantiate` | `name` (str) |
 | `instance_delete` | DELETE | `/v0/sandboxes/{name}/instances/{id}` | `sandbox.instantiate` | `name` (str), `id` (str) |
@@ -279,6 +282,7 @@ say what the model may ask for.
 {"type":"function","function":{"name":"sandbox_get","description":"One sandbox definition, by name.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"sandbox_request_approve","description":"Approve a pending sandbox request. Changes the record and nothing else.","parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}}}
 {"type":"function","function":{"name":"sandbox_request_reject","description":"Reject a pending sandbox request.","parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}}}
+{"type":"function","function":{"name":"sandbox_request_delete","description":"Take a sandbox request out of the queue. The audit chain keeps the ask and its decision.","parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}}}
 {"type":"function","function":{"name":"instance_list","description":"The instances derived from one sandbox definition.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"instance_create","description":"Derive an instance from a definition and start its VM. Does not change what the node is running.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"instance_delete","description":"Reap one instance of a definition: stop its VM and forget it.","parameters":{"type":"object","properties":{"name":{"type":"string"},"id":{"type":"string"}},"required":["name","id"]}}}

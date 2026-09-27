@@ -1948,3 +1948,45 @@ definition, no hash formula, no audit event constant and no `m.*` action name ch
 five were vocabulary, and the actions they were once confused with (`m.task.dispatch`,
 `m.request.approve`) keep their rows. The historical CHANGELOG entries that recorded "grew to
 38" stay as written: a changelog records what happened.
+
+## 84. The queue is runtime state; the asks in it are derived from the chain, and a caller cleans up
+
+**Date**: 2026-09-27 ｜ **Status**: Decided; landed with the v1.0 gap 3/N batch D clean-up
+
+**Decision**: The pending-approval slot is **not** persisted, and it does not move into a file.
+`SandboxRequests` stays what it is — a `Vec` behind a `Mutex` — and what survives a restart is
+**derived from the chain**, the same way the instance table's past is (§82):
+`derive_requests_from` folds the `m.request.ask` / `m.request.approve` / `m.request.reject`
+rows into one record per request, and the process seeds the live queue with the rows still
+**pending** at startup. A decided request does not come back live: it is history, and history
+is the chain's. The chain also gains the queue's one cleanup — `DELETE
+/v0/sandboxes/requests/{id}`, gated on `sandbox.read`, answering `200` with the record it
+removed. It writes nothing: the queue loses the ask, the chain keeps it.
+
+**Why**: §9 says M's state lives outside M — the chain, the instance table and the approval
+slot are where the truth is, and M's memory is a cache. §82 answered the instance table with a
+derivation, because a live handle cannot be persisted; the queue is the same shape of problem
+with a different answer available, and picking the *same* answer keeps one rule: **why does
+this survive a restart? because the chain says so**. A second file would put a second source
+of truth beside the chain, which is the drift §82 was written to avoid, and it would need its
+own version constant, its own migration and its own "newer file" story for a `Vec` the chain
+already describes. The one thing the chain does not carry is `reason` (the ask row's detail
+was always `{id, action, sandbox}`), and that is accepted rather than patched: a reason is a
+human's note, not the state a decision needs, and putting it into `m.request.ask`'s detail
+would add a field to a row the hash formula covers — a risk not worth a note. On TTL: §36 says
+there is none, and this batch keeps that. It adds the **other** thing §36 left out — an
+explicit cleanup — and the distinction is the mechanism: nothing expires on its own (no
+sweeper, no clock), while a caller who is done with an ask takes it away. That is compatible
+with "no TTL", not a repeal of it.
+
+**Impact**: `host-core` gains `ReconciledRequest` and the pure `derive_requests_from`,
+`SandboxRequests::restore` (which reports collisions rather than resolving them) and
+`SandboxRequests::remove`; `AppState` seeds the queue in its constructor, best effort, and says
+so with a `host.sandbox_request.restore` row **only when it restored something or an id
+collided**. `server` gains one route — the third path under `/v0/sandboxes/requests/`, a
+pattern matched before a definition name can see it, and the first `DELETE` there — plus
+`Action::SandboxRequestDelete` and one dispatch arm. `docs/control-plane-api.md` §5.2 and
+§5.4, `docs/tool-schema-control-plane.md` §2 and §3.3 and its checker's naming table
+(`sandbox_request_delete`) all follow. **No hash formula, no audit event constant, no `m.*`
+action name and no existing route changed**; the queue's stream has no "removed" frame,
+because inventing one would be a new event for a caller that can simply re-read the queue.

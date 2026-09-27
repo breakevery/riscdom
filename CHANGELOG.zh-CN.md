@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **等待队列能活过重启，而申请可以被移出队列**（v1.0 缺口 3/N 批 D）：`derive_requests_from` 折叠链上的 `m.request.ask` / `m.request.approve` / `m.request.reject` 行，而刚启动的宿主用仍然 **pending** 的申请给队列打底 —— 于是重启之后决策照样能做，而已决的申请只留在链上。`DELETE /v0/sandboxes/requests/{id}`（`sandbox.read`）移出一条并答 `200` 带被移除的记录，什么都不写：队列是运行时状态，链才是记录。`reason` 不被重建 —— 链从未携带它。
+
 - **实例的历史从链推导，而审计读取接受一个窗口**（v1.0 缺口 3/N）：`GET /v0/sandboxes/{name}/instances/history` 报出一个定义曾经有过什么，从它的 `m.sandbox.spawn` / `m.sandbox.reap` 行推导 —— 实例表是运行时状态、不持久化，而 `running` 从活表读出，所以重启后为 false。`history` 是这条路径上的保留字面量（对它发成员动作是 `405`）。`GET /v0/audit/events` 多出 `from_ms`、`to_ms`、`from_id`、`to_id`。而参考调度员给自己命名：`--agent-id`（必填）以 `X-RiscDom-Agent` 发出。
 
 - **调用者可以给自己命名，而 AI 监督者做的每个动作都留下一行指名它的记录**（v1.0 缺口 2/N）：可选的 `X-RiscDom-Agent` header 把 token 的 actor 变成一个有名字的 `Supervisor`，而调度员能做的七个动作 —— 派生、回收、切换、申请、批准、拒绝、派发 —— 会写链行（`m.sandbox.spawn`、`m.sandbox.reap`、`m.sandbox.switch`、`m.request.ask`、`m.request.approve`、`m.request.reject`、`m.task.dispatch`）以及为三个原本无帧的动作补上的对应事件帧。在此之前，一次切换、一次申请和一次决定根本不写任何耐久的东西，而一次派生归在 `host` 名下。身份走在 `AuditEvent.agent_id`（哈希公式之外），所以没有一行历史被移动。不带 header 就是旧行为（`operator`）。事件词汇 17 → 20，且事件文档的表已与代码同步。

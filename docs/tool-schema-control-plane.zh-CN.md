@@ -32,7 +32,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 两条写明的例外：
 
 - **同时服务 `GET` 与 `POST` 的路径**（共六条：`toolchain/download`、`qemu/download`、`settings/theme`、`settings/language`、`llm/config`、`sandboxes/requests`）给 `POST` 加后缀 **`_post`**，于是 `POST /v0/settings/theme` → `settings_theme_post`。
-- **九条带路径参数的路由**用一个动词，而不是把路径拼起来，因为 `runs_run_id` 对谁都没帮助：`GET /v0/runs/{run_id}` → `run_get`，`GET /v0/sandboxes/{name}` → `sandbox_get`，两条申请裁决 → `sandbox_request_approve` / `sandbox_request_reject`，以及实例模型的五条（v1.0 M2a-2；`instance_history` 属 v1.0 缺口 3/N）→ `instance_list`、`instance_create`、`instance_delete`、`instance_history` 与 `sandbox_capabilities`。
+- **十条带路径参数的路由**用一个动词，而不是把路径拼起来，因为 `runs_run_id` 对谁都没帮助：`GET /v0/runs/{run_id}` → `run_get`，`GET /v0/sandboxes/{name}` → `sandbox_get`，两条申请裁决 → `sandbox_request_approve` / `sandbox_request_reject`，队列的清理（`DELETE /v0/sandboxes/requests/{id}`，v1.0 缺口 3/N 批 D）→ `sandbox_request_delete`，以及实例模型的五条（v1.0 M2a-2；`instance_history` 属 v1.0 缺口 3/N）→ `instance_list`、`instance_create`、`instance_delete`、`instance_history` 与 `sandbox_capabilities`。
 
 工具名在整个集合里唯一（有检查）。
 
@@ -123,7 +123,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | `workspace_export` | POST | `/v0/workspace/export` | `workspace.read` | — (bytes out, not JSON) |
 <!-- tool-routes:controls:end -->
 
-### 3.3 本机端点，与带路径参数的路由（3 + 8）
+### 3.3 本机端点，与带路径参数的路由（3 + 10）
 
 <!-- tool-routes:locals:begin -->
 | Tool | Method | Path | Capability | Arguments |
@@ -140,6 +140,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | `sandbox_get` | GET | `/v0/sandboxes/{name}` | `sandbox.read` | `name` (str) |
 | `sandbox_request_approve` | POST | `/v0/sandboxes/requests/{id}/approve` | `sandbox.read`, then the request's action | `id` (str) |
 | `sandbox_request_reject` | POST | `/v0/sandboxes/requests/{id}/reject` | as `approve` | `id` (str) |
+| `sandbox_request_delete` | DELETE | `/v0/sandboxes/requests/{id}` | `sandbox.read` | `id` (str) |
 | `instance_list` | GET | `/v0/sandboxes/{name}/instances` | `sandbox.read` | `name` (str) |
 | `instance_create` | POST | `/v0/sandboxes/{name}/instances` | `sandbox.instantiate` | `name` (str) |
 | `instance_delete` | DELETE | `/v0/sandboxes/{name}/instances/{id}` | `sandbox.instantiate` | `name` (str), `id` (str) |
@@ -257,6 +258,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 {"type":"function","function":{"name":"sandbox_get","description":"One sandbox definition, by name.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"sandbox_request_approve","description":"Approve a pending sandbox request. Changes the record and nothing else.","parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}}}
 {"type":"function","function":{"name":"sandbox_request_reject","description":"Reject a pending sandbox request.","parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}}}
+{"type":"function","function":{"name":"sandbox_request_delete","description":"Take a sandbox request out of the queue. The audit chain keeps the ask and its decision.","parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}}}
 {"type":"function","function":{"name":"instance_list","description":"The instances derived from one sandbox definition.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"instance_create","description":"Derive an instance from a definition and start its VM. Does not change what the node is running.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"instance_delete","description":"Reap one instance of a definition: stop its VM and forget it.","parameters":{"type":"object","properties":{"name":{"type":"string"},"id":{"type":"string"}},"required":["name","id"]}}}

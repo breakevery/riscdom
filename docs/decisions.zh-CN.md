@@ -873,3 +873,13 @@
 **理由**：capability **是路由表的类型化列** —— 正是它让「写不出一条不声明 capability 的路由」成立（API 文档 §3）。一个没有任何路由声明的名字没有这样一列，于是它既授予不了什么、也禁止不了什么：它只是词汇；而当没有任何端点能行使某项权限、词汇表却说它存在时，这正是文档本该防住的那类漂移。这五个名字在 M2a-1 里先于它们的端点被加进来；等端点真的到来（派发用 `agent.run`、派生用 `sandbox.instantiate`、决策用 `sandbox.read` 加该动作自身隐含的那个），这五个就被落下了。现在删掉它们、就在 M3 冻结插件接口之前，正是关键：**冻结该冻 33 个真实权限，而不是 38 个里掺五个占位**。`.remote` 不变式（一个 `.remote` 名必须能找到本地半边）让「保留三个 `.remote` 半边、只删 `task.dispatch`」不自洽 —— 一个没有本地半边的 remote 半边会被那项测试拒掉 —— 所以清理是五个全删，不变式随之空真成立。
 
 **影响**：`server/src/auth.rs`（五个枚举变体、五个 `ALL` 项、五个 `as_str` 分支、`MUST_HAVE` 14 → 9、守卫 `>= 38` → `>= 33`）；`server/tests/smoke.rs`（`33`，以及仍有路由要的那一个名字）；`docs/control-plane-api.md`、`docs/handoff.md`、`server/README.md` 的双语计数，加上 `examples/python` 的边界说明（README 两文与调度员的 docstring）。handoff §1 保留它的 M2a-1 记录并追加一条更正 —— 与该节已有的「v1.0 缺口 2/N 后该名单为 21」同一手法。**没有路由定义、哈希公式、审计事件常量或 `m.*` 动作名发生变化** —— 这五个只是词汇，而曾被与它们混淆的动作（`m.task.dispatch`、`m.request.approve`）保留自己的行。记录过「grew to 38」的 CHANGELOG 历史条目一字未动：变更日志记的是发生过的事。
+
+## 84. 队列是运行时状态；里面的申请从链推导，清理由调用方做
+
+**日期**：2026-09-27 ｜ **状态**：已定；随 v1.0 缺口 3/N 批 D 的清理落地
+
+**决策**：待批槽**不**持久化，也不搬进某个文件。`SandboxRequests` 仍是它本来的样子——`Mutex` 包着的 `Vec`——而重启后幸存的东西**从链推导**，与实例表的过去同一个手法（§82）：`derive_requests_from` 把 `m.request.ask` / `m.request.approve` / `m.request.reject` 行折成每个请求一条记录，进程启动时用那些仍然 **pending** 的行给活队列打底。已决的请求不会活着重来：它是历史，历史是链的。链上也多出队列唯一的清理动作——`DELETE /v0/sandboxes/requests/{id}`，门是 `sandbox.read`，答 `200` 带被移除的记录。它什么都不写：队列丢掉申请，链保留它。
+
+**理由**：§9 说 M 的状态住在 M 之外——审计链、实例表与待批槽才是真相所在，M 的内存只是一份缓存。§82 已经用「推导」回答了实例表，因为活句柄无法持久化；队列是同一类问题而另有一个答案可选，而选**同一个**答案保住了同一条规矩：**这东西为什么能活过重启？因为链这么说**。写第二个文件会在链旁边放第二个真相源，正是 §82 要避免的那种漂移，而且它还得为自己的版本常量、自己的迁移、自己的「更新的文件」故事操心——就为一个链已经描述得清清楚楚的 `Vec`。链唯一不携带的是 `reason`（ask 行的 detail 一直是 `{id, action, sandbox}`），这一点被接受而不是打补丁：reason 是人的备注，不是一次决策所需的状态，而把它塞进 `m.request.ask` 的 detail 会往哈希公式覆盖的行里加一个字段——为一句话备注不值得冒这个险。关于 TTL：§36 说没有，本批保持。它加的是 §36 留下的**另一半**——显式清理——而区别在**机制**：没有任何东西会自己过期（无清扫器、无时钟），而一个用完一条申请的调用方自己把它拿走。这与「无 TTL」相容，不是推翻它。
+
+**影响**：`host-core` 多出 `ReconciledRequest` 与纯函数 `derive_requests_from`、`SandboxRequests::restore`（对冲撞是**报告**而不是解决）与 `SandboxRequests::remove`；`AppState` 在构造器里给队列打底，尽力而为，且**只在真的恢复了东西或发生 id 冲撞时**写一行 `host.sandbox_request.restore`。`server` 多出一条路由——`/v0/sandboxes/requests/` 下的第三条路径，一个在定义名看见它之前就被匹配的**模式**，也是那里第一个 `DELETE`——加上 `Action::SandboxRequestDelete` 与一个分发分支。`docs/control-plane-api.zh-CN.md` §5.2 与 §5.4、`docs/tool-schema-control-plane.zh-CN.md` §2 与 §3.3 及其检查器的命名表（`sandbox_request_delete`）都跟着改。**没有哈希公式、审计事件常量、`m.*` 动作名或既有路由发生变化**；队列的流里没有「已移除」这种帧，因为为一个能直接重读队列的调用方发明新事件并不值得。

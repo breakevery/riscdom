@@ -612,7 +612,7 @@ riscdom toolchain download --wait
 
 那个形状的一个可跑示例是 [`../examples/python/dispatch.py`](../examples/python/dispatch.py)（文档见 [`README`](../examples/python/README.zh-CN.md)）：仅标准库、三个端点、一个用假控制平面自证的 `--self-test`，以及 CLI 的退出码约定。它是骨架，不是产品：一次一条、按顺序。
 
-**调度员**的形状（纲领里的 M）是同一个客户端外面套一个循环，它也已经随附：[`../examples/python/supervisor.py`](../examples/python/supervisor.py) 用一次快照读完节点的状态，决策，行动 —— 一个在十八个「调度员应有」的工具上的有上限工具调用循环，而**策略与模型留给你**（不给 `--llm-model` 就什么都不决定）。它的 README 列出这个表面今天有的边界：M 在链上没有自己的身份（token 客户端以 `operator` 行事）、沙箱请求的决定不写进链、实例表与待批槽住在内存里。
+**调度员**的形状（纲领里的 M）是同一个客户端外面套一个循环，它也已经随附：[`../examples/python/supervisor.py`](../examples/python/supervisor.py) 用一次快照读完节点的状态，决策，行动 —— 一个在十八个「调度员应有」的工具上的有上限工具调用循环，而**策略与模型留给你**（不给 `--llm-model` 就什么都不决定）。它的 README 列出的边界随 v1.0 缺口 3/N 各批逐步收口：M 的动作现在在链上写下它的名字（§81）、一次决策就是一行（§81），而它读的那两张表 —— 实例的历史与仍在等的申请 —— 是从链推导的，而不是留在内存里（§82、§84）。
 
 ## 9. 远程执行者句柄
 

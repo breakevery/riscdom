@@ -120,6 +120,9 @@ pub(crate) enum Action {
     /// Decide a request: the two halves of the one write the queue allows.
     SandboxRequestApprove,
     SandboxRequestReject,
+    /// Take a request out of the queue (v1.0 gap 3/N, batch D): the queue's one
+    /// cleanup, and the only act on it that writes nothing to the chain.
+    SandboxRequestDelete,
     /// Bring a project in, and take one out (v0.9 project in/out).
     WorkspaceImport,
     WorkspaceExport,
@@ -787,6 +790,20 @@ fn sandbox_request_decision_from(path: &str) -> Option<(&str, Action)> {
     Some((id, action))
 }
 
+/// The `<id>` of `/v0/sandboxes/requests/<id>` (v1.0 gap 3/N, batch D), when the path
+/// is exactly that shape.
+///
+/// One segment, and it is the id — no tail. The decision extractor above wants
+/// `{id}/{approve|reject}`, so the two cannot overlap, and anything longer than one
+/// segment is neither.
+fn sandbox_request_member_from(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix(SANDBOX_REQUESTS_PREFIX)?;
+    if rest.is_empty() || rest.contains('/') {
+        return None;
+    }
+    Some(rest)
+}
+
 /// The literal sub-paths of `/v0/sandboxes/…` that are never a definition name.
 ///
 /// Their own routes are matched before a name is considered, so this list only
@@ -935,6 +952,21 @@ pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
         // resolved and the actor is in hand (F2c decision 1).
         return Resolution::Query {
             action,
+            capability: Capability::SandboxRead,
+            path_param: vec![("request_id", id.to_string())],
+        };
+    }
+    if let Some(id) = sandbox_request_member_from(path) {
+        if method != "DELETE" {
+            return Resolution::MethodNotAllowed {
+                allowed: "DELETE".to_string(),
+            };
+        }
+        // The gate is `sandbox.read`, the same as the decisions': an actor that may see
+        // the queue may tidy it. Nothing is written to the chain, so there is no second,
+        // action-implied capability to check (v1.0 gap 3/N, batch D).
+        return Resolution::Query {
+            action: Action::SandboxRequestDelete,
             capability: Capability::SandboxRead,
             path_param: vec![("request_id", id.to_string())],
         };
@@ -1419,6 +1451,18 @@ pub(crate) fn dispatch(
             };
             match decided {
                 // 200 with the record: what the decision landed on, not just "ok".
+                Ok(view) => ok_json(&view),
+                Err(e) => sandbox_request_error(e),
+            }
+        }
+        Action::SandboxRequestDelete => {
+            let id = match params.required("request_id") {
+                Ok(id) => id,
+                Err(response) => return *response,
+            };
+            // The queue loses the ask; the chain keeps it. `200` with the removed record,
+            // like a decision, and no frame: the stream has no "removed" word (batch D).
+            match app.delete_sandbox_request(id) {
                 Ok(view) => ok_json(&view),
                 Err(e) => sandbox_request_error(e),
             }
@@ -2501,10 +2545,10 @@ mod tests {
             // The four path-parameter routes are served but are not rows in `ROUTES`
             // (a pattern is not a row), so they are checked by `resolve` instead.
             let patterns = block("patterns");
-            // Nine since v1.0 gap 3/N: the instance history joins the instance model's
-            // four, the run, the sandbox and the two request decisions. A pattern is not a
-            // row, so this list is what keeps them visible to the check.
-            assert_eq!(patterns.len(), 9, "{language}: the path-parameter tools");
+            // Ten since v1.0 gap 3/N batch D: the queue's `DELETE {id}` joins the instance
+            // history, the instance model's four, the run, the sandbox and the two request
+            // decisions. A pattern is not a row, so this list is what keeps them visible.
+            assert_eq!(patterns.len(), 10, "{language}: the path-parameter tools");
             for (method, path, _) in &patterns {
                 assert!(
                     matches!(resolve(method, path), Resolution::Query { .. }),
@@ -2639,10 +2683,18 @@ mod tests {
             other => panic!("{other:?}"),
         }
         // …but `requests` is a route of its own, so the queue's "instances" is not a
-        // definition's: the reserved list still decides.
+        // definition's: the reserved list still decides. Since v1.0 gap 3/N batch D the
+        // queue's member route (`{id}`) catches the second segment first, so the answer is
+        // "that is the queue's id slot", never an instance collection.
+        match resolve("DELETE", "/v0/sandboxes/requests/instances") {
+            Resolution::Query { action, .. } => {
+                assert_eq!(action, Action::SandboxRequestDelete);
+            }
+            other => panic!("DELETE /v0/sandboxes/requests/instances: {other:?}"),
+        }
         assert!(matches!(
             resolve("GET", "/v0/sandboxes/requests/instances"),
-            Resolution::NotFound
+            Resolution::MethodNotAllowed { .. }
         ));
         // A fourth segment is not a route either.
         assert!(matches!(
@@ -2835,9 +2887,30 @@ mod tests {
                 "GET {path}"
             );
         }
+        // The member itself: a `DELETE` (v1.0 gap 3/N, batch D) and nothing else.
+        match resolve("DELETE", "/v0/sandboxes/requests/req-1-1") {
+            Resolution::Query {
+                action,
+                capability,
+                path_param,
+            } => {
+                assert_eq!(action, Action::SandboxRequestDelete);
+                assert_eq!(capability, Capability::SandboxRead);
+                assert_eq!(path_param, vec![("request_id", "req-1-1".to_string())]);
+            }
+            other => panic!("DELETE /v0/sandboxes/requests/req-1-1: {other:?}"),
+        }
+        for method in ["GET", "POST"] {
+            assert!(
+                matches!(
+                    resolve(method, "/v0/sandboxes/requests/req-1-1"),
+                    Resolution::MethodNotAllowed { .. }
+                ),
+                "{method} /v0/sandboxes/requests/req-1-1"
+            );
+        }
         // Anything else under that path is not a route at all.
         for path in [
-            "/v0/sandboxes/requests/req-1-1",
             "/v0/sandboxes/requests/req-1-1/delete",
             "/v0/sandboxes/requests/a/b/approve",
         ] {

@@ -768,10 +768,10 @@ A **dispatcher's** shape (the roadmap's M) is the same client with a loop around
 ships too: [`../examples/python/supervisor.py`](../examples/python/supervisor.py) reads the
 node's state in one snapshot, decides, and acts — a bounded tool-calling loop over the
 eighteen tools a dispatcher should have, with the **policy and the model left to you** (no
-`--llm-model` means it decides nothing at all). Its README lists the boundaries this surface
-has today: M has no identity of its own in the chain (a token client acts as `operator`), a
-decision on a sandbox request is not recorded, and the instance table and the approval slot
-live in memory.
+`--llm-model` means it decides nothing at all). The boundaries its README lists have been
+closing as v1.0 gap 3/N landed: M's acts now name it in the chain (§81), a decision is a row
+(§81), and the tables it reads — an instance's history and the waiting asks — are derived
+from the chain rather than kept in memory (§82, §84).
 
 ## 9. A remote executor handle
 

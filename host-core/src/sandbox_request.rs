@@ -16,6 +16,7 @@
 use crate::events::{EventSink, EV_SANDBOX_REQUEST};
 use crate::sandbox_def::SandboxDef;
 use crate::HostError;
+use audit::StoredEvent;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -174,6 +175,111 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// What the **chain** says about one request (v1.0 gap 3/N, batch D).
+///
+/// The served shape of the derivation: a request folded out of the chain's
+/// `m.request.ask` / `m.request.approve` / `m.request.reject` rows, not a live
+/// queue entry. The queue itself is runtime state — it dies with the process —
+/// so what survives is the *record*, exactly the way an instance's history does
+/// (`ReconciledInstance`, decisions §82).
+///
+/// Two fields the chain never carried: `reason` (the ask row's detail was always
+/// `{id, action, sandbox}`) and the exact millisecond the ask was made — the
+/// timestamps below are the **rows' own**, which is the same instant for the ask
+/// and the decision but not for anything finer. `definition` is not here either:
+/// no caller in the tree ever passed one.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ReconciledRequest {
+    /// `req-<pid>-<seq>`, as the ask row recorded it.
+    pub id: String,
+    /// Who asked: the ask row's `agent_id`.
+    pub requester_agent_id: String,
+    /// What it wanted.
+    pub action: SandboxAction,
+    /// The sandbox the ask named, if it named one.
+    pub sandbox: Option<String>,
+    /// `pending` when no decision row names it; otherwise the decision.
+    pub status: SandboxRequestStatus,
+    /// Who decided it, from the decision row's `decided_by`.
+    pub decided_by: Option<String>,
+    /// The ask row's `timestamp_ms`.
+    pub requested_at_ms: u64,
+    /// The decision row's `timestamp_ms`, when there is one.
+    pub decided_at_ms: Option<u64>,
+    /// **Always `None`**: the chain never recorded a reason (decisions §84).
+    pub reason: Option<String>,
+}
+
+/// Fold the chain's request rows into one record per request, in ask order.
+///
+/// Pure, like `audit::derive_runs_from`: it reads a chain and answers what it says,
+/// so a test can drive it with a hand-built slice. A chain with no ask rows at all
+/// — every chain written before v1.0 gap 2/N — derives an **empty** list rather
+/// than failing, because "nothing was asked" and "nothing asked was recorded" are
+/// the same answer here.
+///
+/// An ask row that cannot be read (no `id`, an action outside the vocabulary) is
+/// skipped; a decision whose id has no ask is skipped too (an orphan, not a record).
+pub fn derive_requests_from(events: &[StoredEvent]) -> Vec<ReconciledRequest> {
+    let mut out: Vec<ReconciledRequest> = Vec::new();
+    for stored in events {
+        let action = stored.event.action.as_str();
+        let detail = &stored.event.detail;
+        let id = detail.get("id").and_then(|v| v.as_str());
+        match action {
+            "m.request.ask" => {
+                let Some(id) = id else { continue };
+                if out.iter().any(|r| r.id == id) {
+                    continue;
+                }
+                let Some(action) = detail
+                    .get("action")
+                    .and_then(|v| v.as_str())
+                    .and_then(SandboxAction::parse)
+                else {
+                    continue;
+                };
+                out.push(ReconciledRequest {
+                    id: id.to_string(),
+                    requester_agent_id: stored.event.agent_id.clone().unwrap_or_default(),
+                    action,
+                    sandbox: detail
+                        .get("sandbox")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    status: SandboxRequestStatus::Pending,
+                    decided_by: None,
+                    requested_at_ms: stored.event.timestamp_ms.max(0) as u64,
+                    decided_at_ms: None,
+                    reason: None,
+                });
+            }
+            "m.request.approve" | "m.request.reject" => {
+                let Some(id) = id else { continue };
+                let Some(record) = out.iter_mut().find(|r| r.id == id) else {
+                    continue;
+                };
+                if record.status != SandboxRequestStatus::Pending {
+                    continue;
+                }
+                record.status = if action == "m.request.approve" {
+                    SandboxRequestStatus::Approved
+                } else {
+                    SandboxRequestStatus::Rejected
+                };
+                record.decided_by = detail
+                    .get("decided_by")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .or_else(|| stored.event.agent_id.clone());
+                record.decided_at_ms = Some(stored.event.timestamp_ms.max(0) as u64);
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// The queue itself, shared by `AppState` and the loop's tool gateway.
 ///
 /// `current` is the node's running sandbox (`AppState::current_sandbox`'s own
@@ -274,6 +380,58 @@ impl SandboxRequests {
             .find(|r| r.id == id)
             .map(|r| r.action)
             .ok_or_else(|| HostError::SandboxRequestNotFound(id.to_string()))
+    }
+
+    /// Drop a request from the queue (v1.0 gap 3/N, batch D).
+    ///
+    /// The **queue** loses it; the **chain** does not — the ask and its decision rows
+    /// stay, which is what makes an explicit cleanup compatible with §36's "no TTL":
+    /// nothing expires, and a caller that is done with an ask takes it away itself. An
+    /// unknown id is the same `404` a decision gives.
+    pub fn remove(&self, id: &str) -> Result<SandboxRequest, HostError> {
+        let mut requests = self.lock()?;
+        let Some(position) = requests.iter().position(|r| r.id == id) else {
+            return Err(HostError::SandboxRequestNotFound(id.to_string()));
+        };
+        Ok(requests.remove(position))
+    }
+
+    /// Seed the live queue from what the chain says (v1.0 gap 3/N, batch D).
+    ///
+    /// Only **pending** rows come back: a decided request is history, and history lives
+    /// on the chain — the live queue is what still wants a decision. Conflicts are
+    /// **reported, never resolved**: an id already in the queue is left as it stands,
+    /// because silently replacing one queued ask with another is exactly the quiet loss
+    /// the queue exists to prevent. Answers `(restored, conflicting ids)`.
+    pub fn restore(&self, derived: &[ReconciledRequest]) -> (usize, Vec<String>) {
+        let Ok(mut requests) = self.lock() else {
+            return (0, Vec::new());
+        };
+        let mut restored = 0usize;
+        let mut conflicts: Vec<String> = Vec::new();
+        for record in derived {
+            if record.status != SandboxRequestStatus::Pending {
+                continue;
+            }
+            if requests.iter().any(|queued| queued.id == record.id) {
+                conflicts.push(record.id.clone());
+                continue;
+            }
+            requests.push(SandboxRequest {
+                id: record.id.clone(),
+                requester_agent_id: record.requester_agent_id.clone(),
+                action: record.action,
+                sandbox: record.sandbox.clone(),
+                definition: None,
+                reason: None,
+                requested_at_ms: record.requested_at_ms,
+                status: SandboxRequestStatus::Pending,
+                decided_by: None,
+                decided_at_ms: None,
+            });
+            restored += 1;
+        }
+        (restored, conflicts)
     }
 
     /// The queued requests still waiting, oldest first.
@@ -378,6 +536,16 @@ impl SandboxRequestService {
 
     pub fn action_of(&self, id: &str) -> Result<SandboxAction, HostError> {
         self.requests.action_of(id)
+    }
+
+    /// Drop a request from the queue (v1.0 gap 3/N, batch D).
+    ///
+    /// No frame is announced: the queue's stream vocabulary has no "removed" word, and
+    /// inventing one would be a new event for a caller that can simply re-read the queue.
+    /// The caller gets back the record it removed.
+    pub fn remove(&self, id: &str) -> Result<SandboxRequestView, HostError> {
+        let request = self.requests.remove(id)?;
+        Ok(SandboxRequestView::from(&request))
     }
 
     pub fn list(&self, status: Option<SandboxRequestStatus>) -> Vec<SandboxRequestView> {

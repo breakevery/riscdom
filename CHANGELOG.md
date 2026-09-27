@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The waiting queue survives a restart, and a request can be taken out of it** (v1.0 gap
+  3/N batch D): `derive_requests_from` folds the chain's `m.request.ask` / `m.request.approve`
+  / `m.request.reject` rows, and a freshly started host seeds its queue with the asks still
+  **pending** — so a decision can be made after a restart, while a decided request stays on
+  the chain only. `DELETE /v0/sandboxes/requests/{id}` (`sandbox.read`) removes one and answers
+  `200` with the record it removed, writing nothing: the queue is runtime state, the chain is
+  the record. `reason` is not reconstructed — the chain never carried it.
+
 - **An instance's history is derived from the chain, and the audit read takes a window** (v1.0
   gap 3/N): `GET /v0/sandboxes/{name}/instances/history` reports what a definition had,
   derived from its `m.sandbox.spawn` / `m.sandbox.reap` rows — the instance table is runtime

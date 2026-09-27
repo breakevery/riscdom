@@ -193,8 +193,9 @@ kernel batch, not this file:
   `actor: "host"`.
 - **A decision is not written to the chain.** `approve` / `reject` announce a
   `sandbox:request` event and record nothing durable.
-- **The instance table and the pending-approval slot are in memory.** A node restart loses
-  both; the audit chain is the only durable source.
+- **The instance table and the request queue are in memory.** Both are runtime state; what
+  survives a restart is **derived from the audit chain** (decisions §82, §84) — an instance's
+  history, and the asks still pending — so the chain is the durable source.
 - **The audit read has no window and no pagination.** `GET /v0/audit/events` takes `limit`
   (required), `actor` and `action_prefix`, so "everything since X" is an export, not a
   query.

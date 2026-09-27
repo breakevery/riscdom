@@ -13,6 +13,17 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **The waiting queue survives a restart, and a caller cleans up after itself** (v1.0 gap 3/N,
+  batch D, 2026-09-27). The request queue is runtime state and is still not persisted — but its
+  **pending** asks come back: `derive_requests_from` folds the chain's `m.request.ask` /
+  `m.request.approve` / `m.request.reject` rows, and the constructor seeds the live queue with
+  what is still pending, so a decision can be made after a restart. A decided request is
+  history and stays on the chain only. `DELETE /v0/sandboxes/requests/{id}` (`sandbox.read`)
+  takes one out and answers `200` with the record it removed; it writes nothing, which is how
+  "no TTL" (§36) stays true while a caller can still tidy up. The one field the chain never
+  carried is `reason`, and it stays `None` rather than being added to a hashed row. **Decision
+  §84.**
+
 - **The chain is the record of instances, and the audit read takes a window** (v1.0 gap 3/N,
   2026-09-27). `GET /v0/sandboxes/{name}/instances/history` **derives** what a definition had
   from the chain's `m.sandbox.spawn` / `m.sandbox.reap` rows — the instance table cannot be
@@ -72,7 +83,9 @@ current request authorising it (§2).
   known boundaries** the reconnaissance found (M has no identity of its own in the chain; a
   sandbox-request decision is not written to it; the instance table and the approval slot live
   in memory; the audit read has no window or pagination; five capability names are vocabulary
-  only). Two things worth reusing: `import dispatch` needs `sys.path` to be told — this
+  only — all five were closed by the v1.0 gap 3/N batches: the decisions are rows (§81), the
+  audit read takes a window and the instance table's past is derived (§82), the five names are
+  gone (§83), and the queue's pending asks are derived too, with an explicit cleanup (§84)). Two things worth reusing: `import dispatch` needs `sys.path` to be told — this
   project's interpreter runs with `sys.flags.safe_path` on — and the gate gained a second
   Python step (15 → 16 steps).
 

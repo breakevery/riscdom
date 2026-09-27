@@ -262,6 +262,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/sandboxes/requests` | POST | `agent.run` | `{ "action": "switch"\|"define"\|"assemble", "sandbox"?, "reason"? }` | `201 { "id": string }` | `request_sandbox` |
 | `/v0/sandboxes/requests/{id}/approve` | POST | `sandbox.read`, then the request's action (see the note below) | — | `SandboxRequestView`, or `404` / `409` / `403` | `approve_sandbox_request` |
 | `/v0/sandboxes/requests/{id}/reject` | POST | as `approve` | — | `SandboxRequestView`, or `404` / `409` / `403` | `reject_sandbox_request` |
+| `/v0/sandboxes/requests/{id}` | DELETE | `sandbox.read` | — | `SandboxRequestView` (the one removed), or `404` | `delete_sandbox_request` |
 | `/v0/workspace/import` | POST | `workspace.write` | **the archive itself** (zip / tar.gz / tar), with `Content-Type: application/zip` \| `application/gzip` \| `application/x-tar`; query `force`? | `200 { "files": number, "bytes": number }`, or `400` / `409` / `413` (see the note below) | `import_workspace` |
 | `/v0/workspace/export` | POST | `workspace.read` | — | **the archive itself** (`application/gzip`, `Content-Disposition: attachment`) | `export_workspace` |
 
@@ -392,7 +393,13 @@ the tables above. They are part of this document's surface all the same.
   that does not exist is still approvable. An unknown id is `404 not_found` with `cause:
   "id"`; a second decision on the same request is `409 conflict` — a decision is not
   reversible. **There is no TTL in v0.9**: `expired` exists in the status vocabulary but no
-  path produces it, and a pending request waits until somebody decides it.
+  path produces it, and a pending request waits until somebody decides it. A restart
+  **rebuilds the waiting queue from the chain** (v1.0 gap 3/N batch D): the `m.request.ask`
+  rows still pending come back, so a decision can still be made after the node restarts,
+  while a decided request is history and stays on the chain only. `DELETE
+  /v0/sandboxes/requests/{id}` takes a request out of the queue (`sandbox.read`) and answers
+  `200` with the record it removed — the chain keeps the ask and its decision, and an
+  unknown id is the same `404`.
 - **The sandbox switch answers a status per reason** (v0.9 sandbox F2b-2). `POST
   /v0/sandboxes/switch` is the one write on the sandbox surface, and it is synchronous:
   validation, a stop, a start. Its answers are chosen so a client branches on a name, not on

@@ -53,8 +53,8 @@ pub use sandbox_def::{
     NO_VERSION,
 };
 pub use sandbox_request::{
-    SandboxAction, SandboxRequest, SandboxRequestService, SandboxRequestStatus, SandboxRequestView,
-    SandboxRequests,
+    derive_requests_from, ReconciledRequest, SandboxAction, SandboxRequest, SandboxRequestService,
+    SandboxRequestStatus, SandboxRequestView, SandboxRequests,
 };
 pub use session::{SessionMessage, SessionMeta, SessionStore};
 pub use state::{
