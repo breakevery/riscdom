@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An executor picker in the model form and the session list** (v1.0 M2b-3b): one `appStore`
+  selection (`executorSelection`), whose empty entry is this node's own, and every
+  executor-scoped read and write follows it — the model status and readiness, the
+  save/clear/stored-key actions, and the session list. The panel wrappers carry `executor` in
+  both transports, so `SharedApi` still holds the desktop and the browser to one interface.
+
 - **One executor's model configuration, and one wildcard spelled as a value** (v1.0 M2b-3a): the LLM
   endpoints and Tauri commands take an optional `executor` (absent = this node), the keyring account
   and the `settings.json` entry are both keyed by it, and `/v0/sessions?executor=*` answers every

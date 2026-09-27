@@ -141,6 +141,17 @@ export interface AppStore {
   // sessions (stage 17c)
   sessions: api.SessionMeta[];
   currentSessionId: string | null;
+  /**
+   * Which executor the model form and the session list look at (v1.0 M2b-3b).
+   *
+   * An **empty string** means this node's own, which is the spelling both transports read
+   * as "no executor named": the desktop's `Option<String>` sees `None` once an `undefined`
+   * argument is dropped from the JSON, and the browser's query string leaves an empty value
+   * out. The picker therefore needs no special case for the local entry — it is the empty
+   * option, and every call site passes it through unchanged.
+   */
+  executorSelection: string;
+  setExecutorSelection: (next: string) => void;
   // snapshots (stage 19c)
   snapshots: api.SnapshotMeta[];
   refreshSnapshots: () => Promise<void>;
@@ -292,6 +303,9 @@ export function useAppStore(): AppStore {
   const [streamingActive, setStreamingActive] = useState(false);
   const [sessions, setSessions] = useState<api.SessionMeta[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  // Which executor the model form and the session list are looking at (v1.0 M2b-3b).
+  // `""` is this node's own; see `AppStore::executorSelection`.
+  const [executorSelection, setExecutorSelection] = useState("");
   const [snapshots, setSnapshots] = useState<api.SnapshotMeta[]>([]);
   const [vmIsRunning, setVmIsRunning] = useState(false);
   const [vmStatus, setVmStatus] = useState<{ running: boolean; sinceMs: number | null }>({
@@ -322,11 +336,11 @@ export function useAppStore(): AppStore {
 
   const refreshLlmStatus = useCallback(async () => {
     try {
-      setLlmStatus(await api.getLlmConfigStatus());
+      setLlmStatus(await api.getLlmConfigStatus(executorSelection || undefined));
     } catch (e) {
       setLastError(String(e));
     }
-  }, []);
+  }, [executorSelection]);
 
   const refreshWorkspace = useCallback(async () => {
     try {
@@ -618,13 +632,14 @@ export function useAppStore(): AppStore {
   // ---- sessions (declared before the event subscription that uses them) ----
 
   const refreshSessions = useCallback(async () => {
+    const executor = executorSelection || undefined;
     try {
-      setSessions(await api.listSessions(50));
-      setCurrentSessionId(await api.getCurrentSessionId());
+      setSessions(await api.listSessions(50, executor));
+      setCurrentSessionId(await api.getCurrentSessionId(executor));
     } catch (e) {
       setLastError(String(e));
     }
-  }, []);
+  }, [executorSelection]);
 
   const restoreMessages = useCallback((rows: api.SessionMessage[]) => {
     const items: ChatItem[] = [];
@@ -638,7 +653,7 @@ export function useAppStore(): AppStore {
   const openSession = useCallback(
     async (id: string) => {
       try {
-        const detail = await api.openSession(id);
+        const detail = await api.openSession(id, executorSelection || undefined);
         restoreMessages(detail.messages);
         setCurrentSessionId(detail.meta.id);
         setStreaming("");
@@ -648,12 +663,15 @@ export function useAppStore(): AppStore {
         setLastError(String(e));
       }
     },
-    [restoreMessages, refreshSessions],
+    [executorSelection, restoreMessages, refreshSessions],
   );
 
   const newSession = useCallback(async () => {
     try {
-      const id = await api.createSession(t("chat.session_default_title"));
+      const id = await api.createSession(
+        t("chat.session_default_title"),
+        executorSelection || undefined,
+      );
       setMessages([]);
       setStreaming("");
       setStreamingActive(false);
@@ -662,24 +680,24 @@ export function useAppStore(): AppStore {
     } catch (e) {
       setLastError(String(e));
     }
-  }, [refreshSessions]);
+  }, [executorSelection, refreshSessions]);
 
   const renameSession = useCallback(
     async (id: string, title: string) => {
       try {
-        await api.renameSession(id, title);
+        await api.renameSession(id, title, executorSelection || undefined);
         await refreshSessions();
       } catch (e) {
         setLastError(String(e));
       }
     },
-    [refreshSessions],
+    [executorSelection, refreshSessions],
   );
 
   const deleteSession = useCallback(
     async (id: string) => {
       try {
-        await api.deleteSession(id);
+        await api.deleteSession(id, executorSelection || undefined);
         if (currentSessionId === id) {
           setMessages([]);
           setCurrentSessionId(null);
@@ -689,7 +707,7 @@ export function useAppStore(): AppStore {
         setLastError(String(e));
       }
     },
-    [currentSessionId, refreshSessions],
+    [currentSessionId, executorSelection, refreshSessions],
   );
 
   useEffect(() => {
@@ -1132,6 +1150,8 @@ export function useAppStore(): AppStore {
     streamingActive,
     sessions,
     currentSessionId,
+    executorSelection,
+    setExecutorSelection,
     snapshots,
     refreshSnapshots,
     deleteSnapshot,

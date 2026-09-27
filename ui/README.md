@@ -29,7 +29,8 @@ so the badge is how you can see that it is still alive; the value comes from the
 returns to the main view. It fills the window and is split into tabs
 (`src/settings/SettingsTabs.tsx`):
 
-- **Model** — provider preset, base URL, model, API key, “save to the OS keyring”, readiness banner
+- **Model** — **executor** (whose model configuration the form edits; "This node" is the
+  empty entry), provider preset, base URL, model, API key, “save to the OS keyring”, readiness banner
 - **Toolchain** — two blocks, one per tool: the RISC-V GCC and QEMU statuses (resolved path
   plus a source badge), re-probe, set the path by hand, and the full search diagnostics
 - **Snapshot** — snapshot list (save / restore / delete) plus the workspace file list
@@ -157,7 +158,8 @@ so it can be mirrored when the interface becomes translatable
 ## Session persistence
 
 Conversations are saved automatically; after a restart you can open / rename / delete them
-from the "sessions" panel at the top of ChatPanel.
+from the "sessions" panel at the top of ChatPanel — whose own row carries an **executor**
+picker, so the list follows whichever executor you name there ("This node" is the empty entry).
 
 - Storage: `sessions.db` (SQLite) under the **app data directory** — not in the repository
   and not in the AI workspace.

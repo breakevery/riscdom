@@ -359,24 +359,34 @@ export const compareRunFingerprints = (runA: string, runB: string) =>
 export const getProviderPresets = () =>
   get<ProviderPreset[]>("/v0/llm/provider-presets");
 
-export const getLlmConfigStatus = () => get<LlmStatus>("/v0/llm/config");
+/**
+ * The LLM reads take an optional `executor` (v1.0 M2b-3b).
+ *
+ * Omitted, or an empty string, means **this node's own** — `queryString` leaves an empty
+ * value out entirely, which is exactly the server-side default. An empty `<option>` value is
+ * therefore how the picker spells "this node" without a second code path.
+ */
+export const getLlmConfigStatus = (executor?: string) =>
+  get<LlmStatus>("/v0/llm/config", { executor });
 
-export const getLlmReadiness = () => get<LlmReadiness>("/v0/llm/readiness");
+export const getLlmReadiness = (executor?: string) =>
+  get<LlmReadiness>("/v0/llm/readiness", { executor });
 
 export const probeLocalLlm = () => get<LocalProbeResult>("/v0/llm/local-probe");
 
 /** The endpoint answers `{"present": bool}`; the desktop command answers a bool. */
-export const hasStoredKey = async (providerId: string): Promise<boolean> =>
+export const hasStoredKey = async (providerId: string, executor?: string): Promise<boolean> =>
   (await get<{ present: boolean }>("/v0/llm/stored-key", {
     provider_id: providerId,
+    executor,
   })).present;
 
-export const listSessions = (limit: number) =>
-  get<SessionMeta[]>("/v0/sessions", { limit });
+export const listSessions = (limit: number, executor?: string) =>
+  get<SessionMeta[]>("/v0/sessions", { limit, executor });
 
 /** `{"session_id": string | null}` on the wire; the id itself in the UI. */
-export const getCurrentSessionId = async (): Promise<string | null> =>
-  (await get<{ session_id: string | null }>("/v0/sessions/current")).session_id;
+export const getCurrentSessionId = async (executor?: string): Promise<string | null> =>
+  (await get<{ session_id: string | null }>("/v0/sessions/current", { executor })).session_id;
 
 export const listSnapshots = () => get<SnapshotMeta[]>("/v0/snapshots");
 
@@ -511,12 +521,14 @@ export const setLlmConfig = (
   _model: string,
   _providerId: string,
   _remember: boolean,
+  _executor?: string,
 ): Promise<void> => desktopOnly("set_llm_config");
 
-export const loadStoredKey = (_providerId: string): Promise<void> =>
+export const loadStoredKey = (_providerId: string, _executor?: string): Promise<void> =>
   desktopOnly("load_stored_key");
 
-export const clearLlmConfig = (): Promise<void> => desktopOnly("clear_llm_config");
+export const clearLlmConfig = (_executor?: string): Promise<void> =>
+  desktopOnly("clear_llm_config");
 
 export const runAgent = (_userInput: string): Promise<AgentOutcomeView> =>
   desktopOnly("run_agent");
@@ -556,19 +568,27 @@ export const setToolchainPath = (_path: string): Promise<void> =>
 export const clearToolchainPath = (): Promise<void> =>
   desktopOnly("clear_toolchain_path");
 
-export const createSession = (_title: string): Promise<string> =>
+export const createSession = (_title: string, _executor?: string): Promise<string> =>
   desktopOnly("create_session");
 
-export const openSession = (_sessionId: string): Promise<SessionDetail> =>
-  desktopOnly("open_session");
+export const openSession = (
+  _sessionId: string,
+  _executor?: string,
+): Promise<SessionDetail> => desktopOnly("open_session");
 
-export const renameSession = (_sessionId: string, _title: string): Promise<void> =>
-  desktopOnly("rename_session");
+export const renameSession = (
+  _sessionId: string,
+  _title: string,
+  _executor?: string,
+): Promise<void> => desktopOnly("rename_session");
 
-export const deleteSession = (_sessionId: string): Promise<void> =>
-  desktopOnly("delete_session");
+export const deleteSession = (
+  _sessionId: string,
+  _executor?: string,
+): Promise<void> => desktopOnly("delete_session");
 
-export const clearAllSessions = (): Promise<void> => desktopOnly("clear_all_sessions");
+export const clearAllSessions = (_executor?: string): Promise<void> =>
+  desktopOnly("clear_all_sessions");
 
 /**
  * The event stream (v0.9 D2b-3).

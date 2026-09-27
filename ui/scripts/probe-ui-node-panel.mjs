@@ -71,8 +71,17 @@ check(
 // ----- four shared wrappers ---------------------------------------------------
 
 const tauri = read("api/tauri.ts");
+// `list_executors` is the one of the four that is **not** a one-liner: the desktop command
+// answers `[string]` (the labels) while the endpoint answers `{"executors":[{"agent_id":…}]}`,
+// so the wrapper reshapes it into the shared response — the same place `has_stored_key`'s bool
+// is reshaped (v1.0 M2b-3b: a fleet that arrives unshaped is `undefined` for the caller).
+check(
+  "tauri.ts wraps and reshapes the `list_executors` command",
+  /export const listExecutors = async \(\): Promise<ExecutorListResponse> => \{/.test(tauri) &&
+    /await invoke<string\[\]>\("list_executors"\)/.test(tauri) &&
+    /executors: labels\.map\(\(agent_id\) => \(\{ agent_id \}\)\)/.test(tauri),
+);
 for (const [fn, command] of [
-  ["listExecutors", "list_executors"],
   ["listSandboxes", "list_sandboxes"],
   ["currentSandbox", "current_sandbox"],
   ["sandboxCandidates", "sandbox_candidates"],

@@ -13,6 +13,17 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **The executor picker, and M2b is complete** (v1.0 M2b-3b, 2026-09-27). The model form and the
+  session list each carry an **executor** `<select>`, both over one `appStore` field
+  (`executorSelection`). The **empty entry is this node's own** — the spelling both transports
+  already read as "no executor named" — and the rest are the fleet's labels; there is deliberately
+  no wildcard entry, because "the current session" belongs to one executor. Turning it re-reads
+  what the panel shows (the model status and readiness in settings, the session list in chat), and
+  the form's save, clear and stored-key actions follow it, so the form edits the executor it names.
+  The panel wrappers take `executor` in **both** transports, which `SharedApi` enforces by deriving
+  its type from the HTTP module. **No Rust changed.** That closes the M2 line: several instances of
+  one definition, a model configuration per executor, and a session per executor.
+
 - **One executor's model configuration, and the wildcard that is spelled as a value** (v1.0 M2b-3a,
   2026-09-27). The LLM path is keyed by executor end to end — the configuration in memory, the entry
   in `settings.json`, the keyring account (`llm-api-key:<executor>:<provider>`) — and the endpoints

@@ -14,6 +14,13 @@ const BANNER_TEXT: Record<string, StringKey | undefined> = {
 // Only a non-sensitive UI preference is kept in localStorage.
 const REMEMBER_KEY = "riscdom.rememberKey";
 
+// The form's opening values. They are named because the picker needs them too: an executor
+// with nothing configured opens on these rather than keeping the previous executor's values
+// (v1.0 M2b-3b).
+const DEFAULT_PROVIDER_ID = "deepseek";
+const DEFAULT_BASE_URL = "https://api.deepseek.com";
+const DEFAULT_MODEL = "deepseek-chat";
+
 function readRemember(): boolean {
   try {
     return localStorage.getItem(REMEMBER_KEY) !== "false";
@@ -38,9 +45,9 @@ function splitCode(message: string): { code: string; text: string } {
 
 export default function ModelTab({ store }: { store: AppStore }) {
   const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("https://api.deepseek.com");
-  const [model, setModel] = useState("deepseek-chat");
-  const [providerId, setProviderId] = useState("deepseek");
+  const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
+  const [model, setModel] = useState(DEFAULT_MODEL);
+  const [providerId, setProviderId] = useState(DEFAULT_PROVIDER_ID);
   const [presets, setPresets] = useState<api.ProviderPreset[]>([]);
   const [note, setNote] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<{ code: string; text: string } | null>(null);
@@ -52,13 +59,23 @@ export default function ModelTab({ store }: { store: AppStore }) {
   const [suggestion, setSuggestion] = useState<api.LocalProviderInfo | null>(null);
   const [storedPrompt, setStoredPrompt] = useState<string | null>(null);
 
+  // Which executor this form configures (v1.0 M2b-3b). `undefined` is this node's own —
+  // the empty option, which both transports read as "no executor named".
+  const executor = store.executorSelection || undefined;
+
   const refreshReadiness = useCallback(async () => {
     try {
-      setReadiness(await api.getLlmReadiness());
+      setReadiness(await api.getLlmReadiness(executor));
     } catch {
       setReadiness(null);
     }
-  }, []);
+  }, [executor]);
+
+  // The picker's fleet: this node first, then the labels a task can name.
+  const refreshExecutors = store.refreshExecutors;
+  useEffect(() => {
+    void refreshExecutors();
+  }, [refreshExecutors]);
 
   const refreshStatus = store.refreshLlmStatus;
 
@@ -70,21 +87,37 @@ export default function ModelTab({ store }: { store: AppStore }) {
 
     void (async () => {
       await refreshReadiness();
-      // Startup restore: if nothing is configured in memory but a key exists in
-      // the OS keyring, load it silently.
+      // Startup restore (v0.9) and executor switch (v1.0 M2b-3b). The form shows the
+      // **selected** executor's own configuration, and one with nothing configured opens
+      // on the provider defaults instead of keeping the previous executor's values. The
+      // key box is always emptied: a key typed for one executor is not the next one's.
+      setApiKey("");
+      setStoredPrompt(null);
       try {
-        const status = await api.getLlmConfigStatus();
+        const status = await api.getLlmConfigStatus(executor);
         if (!status.configured) {
-          const pid = status.provider_id || "deepseek";
-          if (await api.hasStoredKey(pid)) {
-            await api.loadStoredKey(pid);
-            setProviderId(pid);
+          setProviderId(status.provider_id);
+          setBaseUrl(DEFAULT_BASE_URL);
+          setModel(DEFAULT_MODEL);
+          // If nothing is configured in memory but a key exists in the OS keyring,
+          // load it silently — and show what it loaded.
+          const pid = status.provider_id || DEFAULT_PROVIDER_ID;
+          if (await api.hasStoredKey(pid, executor)) {
+            await api.loadStoredKey(pid, executor);
             await refreshStatus();
             await refreshReadiness();
+            const loaded = await api.getLlmConfigStatus(executor);
+            if (loaded.configured) {
+              setProviderId(loaded.provider_id);
+              setBaseUrl(loaded.base_url);
+              setModel(loaded.model);
+            }
             setNote(t("model.key_restored"));
           }
         } else {
           setProviderId(status.provider_id);
+          setBaseUrl(status.base_url);
+          setModel(status.model);
         }
       } catch {
         /* silent */
@@ -109,7 +142,7 @@ export default function ModelTab({ store }: { store: AppStore }) {
     }
     void (async () => {
       try {
-        if (await api.hasStoredKey(id)) setStoredPrompt(id);
+        if (await api.hasStoredKey(id, executor)) setStoredPrompt(id);
       } catch {
         /* silent */
       }
@@ -118,7 +151,7 @@ export default function ModelTab({ store }: { store: AppStore }) {
 
   const loadStored = async (id: string) => {
     try {
-      await api.loadStoredKey(id);
+      await api.loadStoredKey(id, executor);
       setStoredPrompt(null);
       setNote(t("model.key_loaded"));
       await refreshStatus();
@@ -131,7 +164,7 @@ export default function ModelTab({ store }: { store: AppStore }) {
   const save = async () => {
     setFieldError(null);
     try {
-      await api.setLlmConfig(apiKey, baseUrl, model, providerId, remember);
+      await api.setLlmConfig(apiKey, baseUrl, model, providerId, remember, executor);
       setApiKey(""); // never keep the key in component memory
       setNote(
         remember ? t("model.saved_keyring") : t("model.saved_memory"),
@@ -146,7 +179,7 @@ export default function ModelTab({ store }: { store: AppStore }) {
 
   const clear = async () => {
     try {
-      await api.clearLlmConfig();
+      await api.clearLlmConfig(executor);
       setNote(t("model.cleared"));
       setFieldError(null);
       await refreshStatus();
@@ -182,7 +215,7 @@ export default function ModelTab({ store }: { store: AppStore }) {
     setModel(localModel);
     setSuggestion(null);
     try {
-      await api.setLlmConfig("", provider.base_url, localModel, provider.id, false);
+      await api.setLlmConfig("", provider.base_url, localModel, provider.id, false, executor);
       setNote(t("model.switched_local"));
       await refreshStatus();
       await refreshReadiness();
@@ -239,6 +272,24 @@ export default function ModelTab({ store }: { store: AppStore }) {
         </div>
       ) : null}
       {probeNote ? <div className="muted small">{probeNote}</div> : null}
+
+      <label>
+        {t("model.executor")}
+        <select
+          value={store.executorSelection}
+          title={t("model.executor_hint")}
+          onChange={(e) => store.setExecutorSelection(e.target.value)}
+        >
+          <option value="" title={t("model.executor_this_node")}>
+            {t("model.executor_this_node")}
+          </option>
+          {store.executors.map((executorOption) => (
+            <option key={executorOption.agent_id} value={executorOption.agent_id}>
+              {executorOption.agent_id}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <label>
         {t("model.provider")}

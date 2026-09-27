@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **模型表单与会话列表里的执行者选择器**（v1.0 M2b-3b）：一个 `appStore` 选择（`executorSelection`），空的那一项就是本节点自己，而所有按执行者分的东西都跟着它 —— 模型状态与就绪、保存/清除/钥匙串动作、以及会话列表。面板 wrapper 在两种传输里都带 `executor`，`SharedApi` 因此仍把桌面与浏览器扣在同一个接口上。
+
 - **一个执行者的模型配置，以及拼成值的那个通配**（v1.0 M2b-3a）：LLM 端点与 Tauri 命令接受可选 `executor`（缺省本节点），钥匙串账号与 `settings.json` 条目都按它编键，而 `/v0/sessions?executor=*` 用一张列表给出所有执行者的会话（`limit` 数行数）。只回答单个执行者的端点以 `400`、`cause: "executor"` 拒绝通配。`local` 与 `*` 是保留的执行者 id：带它们的 settings 文件仍然加载，跳过该项并记一条 `host.executor.reserved` 审计事件。
 
 - **审计库带上 schema 版本**（v1.0 M2b-3a）：`PRAGMA user_version = 1`，先于一切读出，打开时迁移（早先几批加的两列幂等重查），而当文件比本构建更新时以 `data_too_new` 拒绝。不放 `.bak`：本文件是 WAL 且多进程，只拷字节会漏帧。

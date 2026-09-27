@@ -76,6 +76,12 @@ export default function ChatPanel({ store }: { store: AppStore }) {
     scrollToBottom();
   }, [store.currentSessionId]);
 
+  // The session list's executor picker offers the fleet, so ask for it once. The same
+  // read `NodeExecutors` makes of the same list (v1.0 M2b-3b).
+  useEffect(() => {
+    void store.refreshExecutors();
+  }, [store.refreshExecutors]);
+
   useEffect(
     () => () => {
       if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current);
@@ -138,6 +144,25 @@ export default function ChatPanel({ store }: { store: AppStore }) {
       {showSessions ? (
         <div className="session-list">
           <div className="row">
+            {/* Which executor's sessions are listed (v1.0 M2b-3b). The empty value is
+                this node's own — the spelling both transports read as "no executor
+                named" — and there is deliberately no wildcard entry: "current session"
+                is one executor's, so the server refuses `*` for it. */}
+            <label>
+              {t("chat.executor")}
+              <select
+                value={store.executorSelection}
+                title={t("chat.executor_hint")}
+                onChange={(e) => store.setExecutorSelection(e.target.value)}
+              >
+                <option value="">{t("chat.executor_this_node")}</option>
+                {store.executors.map((executorOption) => (
+                  <option key={executorOption.agent_id} value={executorOption.agent_id}>
+                    {executorOption.agent_id}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button className="ghost tiny" onClick={() => void store.newSession()}>
               {t("chat.session_new")}
             </button>

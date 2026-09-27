@@ -157,6 +157,11 @@ const EN = {
   "model.local_found": "A local model was found: {name} ({url}, {count} models). Use it?",
   "model.use": "Use",
   "model.provider": "Provider",
+  // The executor picker (v1.0 M2b-3b). "This node" is the empty option: the node's own
+  // executor id is the device name, and nothing in the API exposes it.
+  "model.executor": "Executor",
+  "model.executor_this_node": "This node",
+  "model.executor_hint": "Whose model configuration this form edits",
   "model.no_key_needed": "A local model needs no key",
   "model.key_placeholder": "sk-… (kept in memory only)",
   "model.remember": "Save to the system keyring (recommended)",
@@ -208,6 +213,11 @@ const EN = {
   // Chat panel (v0.8, 2/2).
   "chat.heading": "Chat",
   "chat.sessions": "Sessions ({count})",
+  // The session list's executor picker (v1.0 M2b-3b). No wildcard entry on purpose: the
+  // "current session" is one executor's, so the endpoint refuses `*`.
+  "chat.executor": "Executor",
+  "chat.executor_this_node": "This node",
+  "chat.executor_hint": "Whose sessions are listed",
   "chat.session_new": "New session",
   "chat.session_default_title": "New session",
   "chat.refresh": "Refresh",
@@ -493,6 +503,9 @@ const ZH: Record<StringKey, string> = {
   "model.local_found": "检测到本地模型 {name}（{url}，{count} 个模型）。是否使用？",
   "model.use": "使用",
   "model.provider": "服务商",
+  "model.executor": "执行者",
+  "model.executor_this_node": "本机",
+  "model.executor_hint": "本表单编辑谁的模型配置",
   "model.no_key_needed": "本地模型无需 key",
   "model.key_placeholder": "sk-…（仅保存在内存）",
   "model.remember": "保存到系统钥匙串（推荐）",
@@ -543,6 +556,9 @@ const ZH: Record<StringKey, string> = {
   // Chat panel (v0.8, 2/2).
   "chat.heading": "对话框",
   "chat.sessions": "会话 ({count})",
+  "chat.executor": "执行者",
+  "chat.executor_this_node": "本机",
+  "chat.executor_hint": "列出的会话属于谁",
   "chat.session_new": "新建会话",
   "chat.session_default_title": "新会话",
   "chat.refresh": "刷新",

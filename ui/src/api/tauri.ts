@@ -70,7 +70,19 @@ export type {
 export { unwrapHostPayload } from "./envelope.ts";
 
 /** This node's fleet: the labels a task's `target` may name (v0.9 D2b-4b). */
-export const listExecutors = () => invoke<ExecutorListResponse>("list_executors");
+/**
+ * This node's fleet, in the shape the shared API promises.
+ *
+ * The endpoint answers `{"executors":[{"agent_id": …}]}`; the desktop command answers
+ * `[string]` — the labels themselves. The wrapper adapts the command to the shared shape,
+ * which is the only reason one caller can read both: `ModelTab` asks for the fleet as soon
+ * as the settings page mounts, and an unadapted answer is `undefined` there (v1.0 M2b-3b,
+ * found on a real machine — the window rendered nothing).
+ */
+export const listExecutors = async (): Promise<ExecutorListResponse> => {
+  const labels = (await invoke<string[]>("list_executors")) ?? [];
+  return { executors: labels.map((agent_id) => ({ agent_id })) };
+};
 
 /** Every sandbox definition, plus the one a run would use and the fallback. */
 export const listSandboxes = () => invoke<SandboxListResponse>("list_sandboxes");
@@ -122,24 +134,32 @@ export const runPreflight = () => invoke<void>("run_preflight");
 export const acknowledgePreflight = () =>
   invoke<PreflightView>("acknowledge_preflight");
 
+/**
+ * Store one executor's LLM config (v1.0 M2b-3b: `executor` optional).
+ *
+ * Omitted (or an empty string) means **this node's own** executor — the reading both
+ * transports share: Tauri's `Option<String>` sees `None` (an `undefined` argument is
+ * dropped from the JSON), and the HTTP query string omits an empty value.
+ */
 export const setLlmConfig = (
   apiKey: string,
   baseUrl: string,
   model: string,
   providerId: string,
   remember: boolean,
-) => invoke<void>("set_llm_config", { apiKey, baseUrl, model, providerId, remember });
+  executor?: string,
+) => invoke<void>("set_llm_config", { apiKey, baseUrl, model, providerId, remember, executor });
 
 /** Does a key for `providerId` exist in the OS keyring? (never returns the key) */
-export const hasStoredKey = (providerId: string) =>
-  invoke<boolean>("has_stored_key", { providerId });
+export const hasStoredKey = (providerId: string, executor?: string) =>
+  invoke<boolean>("has_stored_key", { providerId, executor });
 
 /** Load a stored key from the OS keyring into host memory. */
-export const loadStoredKey = (providerId: string) =>
-  invoke<void>("load_stored_key", { providerId });
+export const loadStoredKey = (providerId: string, executor?: string) =>
+  invoke<void>("load_stored_key", { providerId, executor });
 
-export const getLlmReadiness = () =>
-  invoke<LlmReadiness>("get_llm_readiness");
+export const getLlmReadiness = (executor?: string) =>
+  invoke<LlmReadiness>("get_llm_readiness", { executor });
 
 export const probeLocalLlm = () =>
   invoke<LocalProbeResult>("probe_local_llm");
@@ -147,10 +167,11 @@ export const probeLocalLlm = () =>
 export const getProviderPresets = () =>
   invoke<ProviderPreset[]>("get_provider_presets");
 
-export const clearLlmConfig = () => invoke<void>("clear_llm_config");
+export const clearLlmConfig = (executor?: string) =>
+  invoke<void>("clear_llm_config", { executor });
 
-export const getLlmConfigStatus = () =>
-  invoke<LlmStatus>("get_llm_config_status");
+export const getLlmConfigStatus = (executor?: string) =>
+  invoke<LlmStatus>("get_llm_config_status", { executor });
 
 export const runAgent = (
   userInput: string,
@@ -248,25 +269,26 @@ export const setToolchainPath = (path: string) =>
 
 export const clearToolchainPath = () => invoke<void>("clear_toolchain_path");
 
-export const listSessions = (limit: number) =>
-  invoke<SessionMeta[]>("list_sessions", { limit });
+export const listSessions = (limit: number, executor?: string) =>
+  invoke<SessionMeta[]>("list_sessions", { limit, executor });
 
-export const createSession = (title: string) =>
-  invoke<string>("create_session", { title });
+export const createSession = (title: string, executor?: string) =>
+  invoke<string>("create_session", { title, executor });
 
-export const openSession = (sessionId: string) =>
-  invoke<SessionDetail>("open_session", { sessionId });
+export const openSession = (sessionId: string, executor?: string) =>
+  invoke<SessionDetail>("open_session", { sessionId, executor });
 
-export const renameSession = (sessionId: string, title: string) =>
-  invoke<void>("rename_session", { sessionId, title });
+export const renameSession = (sessionId: string, title: string, executor?: string) =>
+  invoke<void>("rename_session", { sessionId, title, executor });
 
-export const deleteSession = (sessionId: string) =>
-  invoke<void>("delete_session", { sessionId });
+export const deleteSession = (sessionId: string, executor?: string) =>
+  invoke<void>("delete_session", { sessionId, executor });
 
-export const clearAllSessions = () => invoke<void>("clear_all_sessions");
+export const clearAllSessions = (executor?: string) =>
+  invoke<void>("clear_all_sessions", { executor });
 
-export const getCurrentSessionId = () =>
-  invoke<string | null>("get_current_session_id");
+export const getCurrentSessionId = (executor?: string) =>
+  invoke<string | null>("get_current_session_id", { executor });
 
 /** Incremental assistant text from the LLM stream (`agent:stream:delta`). */
 export const onAgentStreamDelta = (cb: (text: string) => void) =>
