@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The dispatcher's decision layer** (v1.0 M2c-2): `examples/python/supervisor.py` now asks a
+  model what to do — a bounded tool-calling loop (`--max-rounds`, default 6) over the node's
+  state, offering **eighteen** tools read from `docs/tool-schema-control-plane.md` and filtered
+  to a dispatcher's own (no `agent_run`: that is the executor's loop; no `events`: the stream is
+  context, not a tool). M's model is its own (`--llm-base-url` / `--llm-model` /
+  `--llm-api-key-file`), the policy is yours, and with no model configured M decides nothing.
+  The self-test drives the whole loop against a **fake model** plus the fake node, and the
+  real-machine run had M's tool calls reach a live `riscdom-server`: a dispatch ran a real
+  worker turn in QEMU, an instance was derived and reaped, a dead model left the chain
+  unchanged, and a restart rebuilt the state.
+
 - **A reference dispatcher: `examples/python/supervisor.py`** (v1.0 M2c-1): the client
   `dispatch.py` already had, with a loop around it — one state snapshot (`status`,
   `capabilities`, the fleet, every definition's instances, the pending requests), a decision,

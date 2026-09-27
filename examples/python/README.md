@@ -104,29 +104,78 @@ node's state, and decides whether to act:
 
     read the state (one snapshot)  →  decide  →  act  →  report
 
-**The decision layer is a stub.** `decide()` returns `None`, which means "do nothing", and
-that is the point rather than a placeholder: a dispatcher that cannot see the whole picture
-dispatches nothing, so the conservative answer is also the default one, and turning this on
-cannot by itself change a node. The model call that fills `decide()` in is a later batch;
-everything around it is here — the snapshot, the action plumbing, the event reader, and the
-credential and transport (imported from `dispatch.py`, not copied).
+**The decision layer is a bounded tool-calling loop, and it ships empty of policy.** The
+model is handed the node's state and the control plane's own tool schema, and it decides by
+**calling tools** — the process makes the HTTP request and hands the JSON back, which is the
+loop the client guide's §8 describes. Two things are deliberately left to you: the **policy**
+(what a good decision is) and the **model**. With no `--llm-model` there is no model and M
+decides nothing — the conservative default rather than a degraded mode.
 
 ```bash
-python supervisor.py --once           # one conservative turn, then exit
+python supervisor.py --once           # one turn, no model: decides nothing
 python supervisor.py --interval 30    # stay up, a turn every 30 seconds
+python supervisor.py --once --llm-base-url http://127.0.0.1:11434/v1 \
+    --llm-model qwen2.5:7b            # one turn, with a model (Ollama here)
 python supervisor.py --events         # just the event stream (read-only)
-python supervisor.py --self-test      # offline, fake node, no server
+python supervisor.py --self-test      # offline: a fake node *and* a fake model
 ```
+
+M's model is **M's own**, not the node's: `--llm-base-url`, `--llm-model`,
+`--llm-api-key-file` (or `$RISCDOM_LLM_API_KEY`) are read from the command line and the
+environment and are never taken from the node's `llm_configs`. A node's model runs *tasks*;
+M's model decides *which tasks*. `--max-rounds` (default 6) caps the calls one turn may make,
+so a model that keeps asking for tools ends the turn instead of running forever.
 
 `--server` and `--token-file` mean what they mean above, and the exit codes are the same
 table: `0` the turn completed (acted, or had nothing to do), `1` the turn did not complete —
-the state could not be read, so it acted on nothing — `2` a usage error, `3` the control
-plane could not be reached or refused the credential.
+the state could not be read, or the decision layer failed, and M took no *further* action —
+`2` a usage error, `3` the control plane could not be reached or refused the credential.
 
 `import dispatch` is deliberate: the transport, the token rule and the error taxonomy are
 already written once, and a second copy of the wire format would be a second thing to keep
 true. Python does not always put a script's own directory on `sys.path` (`-P`,
 `PYTHONSAFEPATH=1`), so the file adds it explicitly — two lines, with the reason.
+
+### The tools, and what is *not* offered
+
+M's tool list is **read** from [`docs/tool-schema-control-plane.md`](../../docs/tool-schema-control-plane.md)
+at startup (`--tool-schema` points at it) and filtered to the eighteen a dispatcher should
+have: the state it decides from (`status`, `capabilities`, `executors`, `sandboxes`,
+`instance_list`, `sandboxes_requests`, `runs`, `run_get`, `audit_status`, `audit_events`,
+`vm_status`) and the acts that are its own (`tasks`, `instance_create`, `instance_delete`,
+`sandboxes_switch`, `sandboxes_requests_post`, `sandbox_request_approve`,
+`sandbox_request_reject`). A whitelisted name the document does not define is an error at
+startup, not a quietly shorter list.
+
+Three exclusions are worth naming:
+
+- **`agent_run` is not offered.** It runs one agent turn *on this node* with the executor's
+  own tools — the first rule of the client guide's §8 is that a supervisor is not an executor.
+- **`events` is not offered.** The stream stays open, so it is context (`--events`), not a
+  tool call that never returns — the guide's third rule.
+- **The exports, imports, snapshots and `vm_*` are not offered.** They write files on the node
+  or move its runtime; M decides *what runs where*, and that is all.
+
+### The system prompt, and the state
+
+`SYSTEM_PROMPT` is a skeleton, not a rulebook: who M is (a dispatcher, not an executor), what
+it is looking at (the node's state, in the first user message), how to decide (read first,
+prefer the smallest act, do nothing when the picture is incomplete), and the constraints it
+cannot bend (act only through these tools; a failed tool told you something). The **policy**
+— which executor, which sandbox, whose request to approve — is yours to write, in your own
+prompt or by wrapping `LLMDecider`.
+
+The state travels as **JSON** (`snapshot()`, sorted keys): lossless, and its shapes are
+already documented by the tool schemas, so there is no second description to keep true.
+
+### Proving the decision layer offline
+
+The self-test starts a fake node **and a fake model**: a scripted server that answers a
+`tool_calls` message, then a closing one. It asserts that the snapshot and the eighteen tools
+travel, that a tool call is performed and its result fed back, that a tool M never offered is
+*not* performed, that a failing or unreachable model ends the turn with **no** control
+request at all, and that a model which never stops asking hits `--max-rounds` instead of
+looping forever.
 
 ### Known boundaries
 
@@ -153,10 +202,10 @@ kernel batch, not this file:
 
 | | `dispatch.py` | `supervisor.py` |
 |---|---|---|
-| Shape | a batch: a task list in, a report out | a loop: state in, one decision out |
-| Decides | nothing — `--target` or round-robin | `decide()`, a stub here |
-| Writes | `POST /v0/tasks` | nothing yet (the plumbing is there) |
-| Reads | the fleet | status / capabilities / sandboxes / instances / pending requests |
+| Shape | a batch: a task list in, a report out | a loop: state in, one turn out |
+| Decides | nothing — `--target` or round-robin | a model, over eighteen tools |
+| Writes | `POST /v0/tasks` | dispatch, instances, the switch, the approval slot |
+| Reads | the fleet | status / capabilities / sandboxes / instances / pending requests / the chain |
 | Events | `--follow`, no resume | `--events`, resuming with `Last-Event-ID` |
 | Reuses | — | `dispatch.py`'s transport, token rule and errors |
 

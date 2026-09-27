@@ -1802,3 +1802,42 @@ them here is what stops them being rediscovered as surprises.
 `have_python` guard turns into a printed skip where there is no interpreter. `dispatch.py` is
 **untouched** — imported, never edited — and `docs/tool-schema-control-plane.md` stays M's tool
 list, so no third schema document (and no change to `check-tool-schema.mjs`) was needed.
+
+## 80. M's decision layer is a bounded tool loop, and its model is not the node's
+
+**Date**: 2026-09-27 ｜ **Status**: Decided; landed with the v1.0 M2c-2 batch
+
+**Decision**: The reference dispatcher decides through a **bounded tool-calling loop**
+(`LLMDecider`): the node's state — one snapshot — as the first user message, the control
+plane's own tool schema **read** at startup from `docs/tool-schema-control-plane.md` and
+filtered to the **eighteen** tools a dispatcher should have, at most `--max-rounds` model
+calls per turn, and every tool call the model makes **performed inside the loop** and fed back.
+The model is M's own — `--llm-base-url`, `--llm-model`, `--llm-api-key-file` or
+`$RISCDOM_LLM_API_KEY` — and never the node's `llm_configs`. With no model configured the
+layer is `OfflineDecider`: nothing is decided, the default rather than an error path.
+`agent_run` and `events` are excluded **by name**; a tool that was never offered is not
+performed; a failing or unreachable model ends the turn with no further control request.
+
+**Why**: The tool schema already exists and the gate already keeps it in step with the
+server's route table, so *reading* it is one less copy of the truth — and a whitelist the
+document cannot satisfy is a startup error rather than a quietly weaker dispatcher. The two
+named exclusions are the client guide's own rules, written down where the code is:
+`agent_run` is the executor's loop (a dispatcher that ran turns would be a second executor),
+and the stream is context, not a request that never returns. M's model and the node's model
+are different jobs — deciding *which* task versus running *one* — so M carries its own
+address, key and error types (`LLMTransportError` / `LLMApiError`, apart from the control
+plane's): folding them together would make a dispatcher's outage look like a node's. The loop
+needs a ceiling because the alternative is a process a model can talk into running forever.
+And the **policy stays out on purpose**: the prompt is a skeleton — role, state, boundaries,
+constraints — and the rules are the user's, which is what makes this a reference
+implementation instead of an opinion.
+
+**Impact**: `supervisor.py` grows the client, the loop, and a scripted **fake model** in its
+self-test (45 assertion sites now), so the decision layer is provable offline; the README
+gains the tool list and what is deliberately not offered; the client guide's §8 says what M
+decides *with* instead of calling it a stub; and the gate's step count does not move (16 — the
+same two Python steps). The real-machine half: against a live `riscdom-server`, M's dispatch
+reached a real worker (which wrote a bare-metal guest and booted it in QEMU), `instance_create`
+and `instance_delete` derived and reaped a real instance, a dead model left the chain
+byte-unchanged (53 rows before and after), and a restarted M rebuilt its context from the node
+— with the audit chain as the evidence for each.

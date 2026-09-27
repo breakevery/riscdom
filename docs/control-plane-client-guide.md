@@ -766,11 +766,12 @@ convention. It is the skeleton, not a product: one task at a time, in order.
 
 A **dispatcher's** shape (the roadmap's M) is the same client with a loop around it, and it
 ships too: [`../examples/python/supervisor.py`](../examples/python/supervisor.py) reads the
-node's state in one snapshot, decides, and acts — with the decision layer left as a stub, so
-an idle turn writes nothing at all. Its README lists the boundaries this surface has today:
-M has no identity of its own in the chain (a token client acts as `operator`), a decision on
-a sandbox request is not recorded, and the instance table and the approval slot live in
-memory.
+node's state in one snapshot, decides, and acts — a bounded tool-calling loop over the
+eighteen tools a dispatcher should have, with the **policy and the model left to you** (no
+`--llm-model` means it decides nothing at all). Its README lists the boundaries this surface
+has today: M has no identity of its own in the chain (a token client acts as `operator`), a
+decision on a sandbox request is not recorded, and the instance table and the approval slot
+live in memory.
 
 ## 9. A remote executor handle
 

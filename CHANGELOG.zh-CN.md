@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **调度员的决策层**（v1.0 M2c-2）：`examples/python/supervisor.py` 现在会问模型该做什么 —— 一个在节点状态上的有上限工具调用循环（`--max-rounds`，默认 6），提供 **十八个**从 `docs/tool-schema-control-plane.md` 读出、并过滤成「调度员自己那批」的工具（不给 `agent_run`：那是执行者的循环；不给 `events`：事件流是上下文不是工具）。M 的模型是它自己的（`--llm-base-url` / `--llm-model` / `--llm-api-key-file`），策略由你写，不配模型则什么都不决定。self-test 用**假模型**加假节点跑完整循环，而真机运行里 M 的工具调用真的到达了一个活的 `riscdom-server`：一次派发在 QEMU 里跑了一个真实 worker 回合、派生并回收了一个实例、模型死掉时链一字未变、重启后状态被重建。
+
 - **参考调度员：`examples/python/supervisor.py`**（v1.0 M2c-1）：`dispatch.py` 已有的那个客户端，外面套了一个循环 —— 一次状态快照（`status`、`capabilities`、队伍、每个定义的实例、待批请求）、一次决策、一次行动、一次报账。决策层是桩（`None` = 什么都不做），保守态是「读失败就在写下任何东西之前终止这一轮」，`--events` 用 `Last-Event-ID` 续订事件流，而 docstring 与 README 写下五条已知边界（M 在链上无身份；决定不写链；实例与待批请求在内存；审计读取无窗口；五个能力名只是词汇）。
 
 - **模型表单与会话列表里的执行者选择器**（v1.0 M2b-3b）：一个 `appStore` 选择（`executorSelection`），空的那一项就是本节点自己，而所有按执行者分的东西都跟着它 —— 模型状态与就绪、保存/清除/钥匙串动作、以及会话列表。面板 wrapper 在两种传输里都带 `executor`，`SharedApi` 因此仍把桌面与浏览器扣在同一个接口上。

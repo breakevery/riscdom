@@ -13,6 +13,26 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **M's decision layer, and M2c is complete** (v1.0 M2c-2, 2026-09-27).
+  `examples/python/supervisor.py` now decides: a **bounded tool-calling loop**
+  (`LLMDecider`, `--max-rounds`, default 6) over the node's state, offering the model
+  **eighteen** tools read at startup from `docs/tool-schema-control-plane.md` and filtered to
+  what a dispatcher should have — with `agent_run` (the executor's loop) and `events` (not a
+  tool, per the client guide's §8) left out by name. M's model is M's own
+  (`--llm-base-url` / `--llm-model` / `--llm-api-key-file`, never the node's `llm_configs`),
+  and with no model configured it decides nothing — the conservative default, not a broken
+  mode. The **policy** is deliberately absent: the system prompt is a skeleton, and the
+  self-test drives the loop with a **fake model** (a scripted `http.server`), asserting that
+  the snapshot and the tools travel, that a tool call is performed and fed back, that an
+  unoffered tool is *not* performed, that a failing or unreachable model ends the turn with
+  **no** control request, and that the round cap holds. **Real machine, two processes**: a
+  fresh `riscdom-server` plus M with a scripted model — M read the state, and its tool calls
+  reached the real node: a dispatch ran a **real** worker turn (which built a bare-metal guest
+  and booted it in QEMU), `instance_create` derived a real instance (`m.sandbox.spawn`)
+  which `instance_delete` reaped (`vm.stop`, `m.sandbox.reap`), a dead model left the chain
+  byte-unchanged (53 rows before and after), and a restarted M rebuilt its context from the
+  node. **Decision §80.**
+
 - **A dispatcher you can run, with its decision layer still empty** (v1.0 M2c-1, 2026-09-27).
   `examples/python/supervisor.py` is M's skeleton. It **imports** `dispatch.py`'s transport, token
   rule and error taxonomy instead of copying them, reads the node's state in one snapshot

@@ -73,18 +73,42 @@ python supervisor.py --self-test    # 调度员
 
     读状态（一次快照）  →  决策  →  行动  →  报账
 
-**决策层是桩。** `decide()` 返回 `None`，意思是「什么都不做」，而这是设计而不是占位：一个看不全图的调度员什么都不派，所以保守答案同时就是默认答案，把它打开这件事本身不可能改变一个节点。填 `decide()` 的模型调用是后面的批次；它周围的一切都在这里——快照、动作管道、事件读取，以及凭据与传输（从 `dispatch.py` **import 来的，不是复制**的）。
+**决策层是一个有上限的工具调用循环，而且它不自带策略。** 模型拿到节点的状态与控制平面自己的工具 schema，然后靠**调用工具**来决策 —— 由进程去发那次 HTTP 请求、把 JSON 交回去，也就是客户指南 §8 描述的那个循环。有两件事刻意留给你：**策略**（什么样的决定算好）与**模型**。不给 `--llm-model` 就没有模型，M 什么都不决定 —— 那是保守的默认，而不是降级模式。
 
 ```bash
-python supervisor.py --once           # 走一轮保守回合，然后退出
+python supervisor.py --once           # 一轮，不给模型：什么都不决定
 python supervisor.py --interval 30    # 常驻，每 30 秒一轮
+python supervisor.py --once --llm-base-url http://127.0.0.1:11434/v1 \
+    --llm-model qwen2.5:7b            # 一轮，带模型（这里用 Ollama）
 python supervisor.py --events         # 只要事件流（只读）
-python supervisor.py --self-test      # 离线、假节点、不要服务端
+python supervisor.py --self-test      # 离线：假节点**加**假模型
 ```
 
-`--server` 与 `--token-file` 的含义与上文相同，退出码也是同一张表：`0` 这一轮完成了（动了手，或确实无事可做），`1` 这一轮没完成——状态读不到，于是它什么都没做——`2` 用法错误，`3` 控制平面不可达或拒绝了这个凭据。
+M 的模型是 **M 自己的**，不是节点的：`--llm-base-url`、`--llm-model`、`--llm-api-key-file`（或 `$RISCDOM_LLM_API_KEY`）从命令行与环境读，从不取自节点的 `llm_configs`。节点的模型跑**任务**；M 的模型决定**哪些任务**。`--max-rounds`（默认 6）限制一轮里允许的调用数，所以一个一直要工具的模型会结束这一轮，而不是永远跑下去。
+
+`--server` 与 `--token-file` 的含义与上文相同，退出码也是同一张表：`0` 这一轮完成了（动了手，或确实无事可做），`1` 这一轮没完成 —— 状态读不到，或决策层失败，而 M **没有进一步**动手 —— `2` 用法错误，`3` 控制平面不可达或拒绝了这个凭据。
 
 `import dispatch` 是故意的：传输、token 规矩与错误分类已经写过一遍，再抄一份线格式就是多一样要维持为真的东西。Python 并不总是把脚本自己的目录放进 `sys.path`（`-P`、`PYTHONSAFEPATH=1`），所以文件里显式加了它——两行，带理由。
+
+### 工具，以及刻意不给的工具
+
+M 的工具清单在启动时**读** [`docs/tool-schema-control-plane.zh-CN.md`](../../docs/tool-schema-control-plane.zh-CN.md)（`--tool-schema` 指向它），并过滤出调度员应有的十八个：它决策所依据的状态（`status`、`capabilities`、`executors`、`sandboxes`、`instance_list`、`sandboxes_requests`、`runs`、`run_get`、`audit_status`、`audit_events`、`vm_status`）与属于它自己的动作（`tasks`、`instance_create`、`instance_delete`、`sandboxes_switch`、`sandboxes_requests_post`、`sandbox_request_approve`、`sandbox_request_reject`）。白名单里的名字若文档没有定义，那是**启动报错**，不是一条安静的短清单。
+
+有三条排除值得点名：
+
+- **不给 `agent_run`。** 它在**本节点**用执行者自己的工具跑一轮 agent —— 客户指南 §8 的第一条铁律就是「监工不是执行者」。
+- **不给 `events`。** 事件流是长开的，所以它是上下文（`--events`），而不是一个永不返回的工具调用 —— 指南的第三条铁律。
+- **不给导出、导入、快照与 `vm_*`。** 它们在节点上写文件或搬它的运行时；M 决定的是**什么在哪里跑**，仅此而已。
+
+### system prompt 与状态
+
+`SYSTEM_PROMPT` 是骨架，不是规则手册：M 是谁（调度员不是执行者）、它在看什么（第一条 user 消息里的节点状态）、怎么决定（先读、选最小的动作、看不全就不动），以及它不能弯的约束（只能通过这些工具行动；工具报了错就是告诉了你一件事）。**策略** —— 哪个执行者、哪个沙箱、批谁的请求 —— 由你来写，写在你的 prompt 里或者包一层 `LLMDecider`。
+
+状态以 **JSON** 出行（`snapshot()`，键排序）：无损，而且它的形状早被工具 schema 记下来了，所以不用再养第二份描述。
+
+### 离线自证决策层
+
+self-test 会起一个假节点**和一个假模型**：一个按脚本作答的服务器，先回一条 `tool_calls`，再回一条收尾消息。它断言：快照与十八个工具真的出行了；工具调用被执行、结果被回喂；M 从未提供过的工具**不会**被执行；模型失败或不可达会以**零**控制请求结束这一轮；而一个永不停下要工具的模型会撞上 `--max-rounds` 而不是无限循环。
 
 ### 已知边界
 
@@ -99,10 +123,10 @@ python supervisor.py --self-test      # 离线、假节点、不要服务端
 
 | | `dispatch.py` | `supervisor.py` |
 |---|---|---|
-| 形状 | 批处理：一份任务清单进，一份报告出 | 循环：状态进，一个决定出 |
-| 决策 | 没有——`--target` 或轮询 | `decide()`，此处是桩 |
-| 写 | `POST /v0/tasks` | 目前什么都不写（管道已经在） |
-| 读 | 队伍 | status / capabilities / sandboxes / 实例 / 待批请求 |
+| 形状 | 批处理：一份任务清单进，一份报告出 | 循环：状态进，一轮出去 |
+| 决策 | 没有——`--target` 或轮询 | 一个模型，在十八个工具上 |
+| 写 | `POST /v0/tasks` | 派发、实例、切换、待批槽 |
+| 读 | 队伍 | status / 能力 / 沙箱 / 实例 / 待批请求 / 链 |
 | 事件 | `--follow`，不续订 | `--events`，用 `Last-Event-ID` 续订 |
 | 复用 | —— | `dispatch.py` 的传输、token 规矩与错误 |
 

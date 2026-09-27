@@ -7,12 +7,16 @@ decides *whether* to act. In the roadmap's words (docs/roadmap-v1.0.md §9), M i
 dispatcher: it decides what runs where and stops there. It is not in the data path, does
 not proxy a task's I/O, and is not in the kernel.
 
-**This batch is the skeleton, not the brain.** The decision layer is `decide()` below and
-it is a **stub**: it returns `None`, which means "do nothing". That is deliberate — the
-conservative state is the loop's *starting point*, not an error path — and the LLM loop
-that fills it in is the next batch (M2c-2). What is here is everything around it:
+**The decision layer is a bounded tool-calling loop, and it ships empty of policy.** M is
+handed the node's state and the control plane's own tool schema
+(`docs/tool-schema-control-plane.md`, filtered to the tools a *dispatcher* should have), and
+it decides by **calling tools** — the process makes the HTTP request and hands the JSON back,
+exactly as the client guide describes (§8). Two things are deliberately left to you: the
+**policy** (what a good decision is) and the **model**. Without `--llm-model` there is no
+model and M decides nothing — the conservative default rather than a degraded mode, because a
+dispatcher that cannot see the whole picture dispatches nothing.
 
-    read the state (one snapshot)  ->  decide  ->  act  ->  report
+    read the state (one snapshot)  ->  ask the model, running the tools it asks for  ->  report
 
 `import dispatch` is the point, not a shortcut: the credential reading, the HTTP client
 and the error taxonomy (a refused credential is not a failed request) are already the
@@ -44,8 +48,10 @@ own memory as durable.
   `sandbox.instantiate`; deciding a request needs `sandbox.read` **and** the capability the
   request's own action implies.
 
-    python examples/python/supervisor.py --once                     # one conservative turn
+    python examples/python/supervisor.py --once                     # one turn, no model
     python examples/python/supervisor.py --interval 30              # stay up
+    python examples/python/supervisor.py --once --llm-base-url http://127.0.0.1:11434/v1 \
+        --llm-model qwen2.5:7b                                      # one turn, with a model
     python examples/python/supervisor.py --events                   # just the event stream
     python examples/python/supervisor.py --self-test                # offline, no server
 
@@ -87,6 +93,189 @@ EXIT_TRANSPORT = dispatch.EXIT_TRANSPORT
 DEFAULT_SERVER = dispatch.DEFAULT_SERVER
 DEFAULT_INTERVAL_SECONDS = 30.0
 RECONNECT_SECONDS = 2.0
+DEFAULT_MAX_ROUNDS = 6
+
+# Where the tool list comes from: the schema document is the authority, and `docs/` sits two
+# levels above `examples/python/`. `--tool-schema` overrides it for a copy of this file that
+# lives somewhere else.
+DEFAULT_TOOL_SCHEMA = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "docs",
+    "tool-schema-control-plane.md",
+)
+
+# The tools a **dispatcher** should have: what it decides from, and the acts that are its
+# own. The schema has eighty; the rest are the node's business, and three are worth naming
+# as excluded:
+#
+#   - `agent_run` is the **executor's** loop ("run one agent turn on this node"). The first
+#     rule of the client guide's §8 is that a supervisor is not an executor.
+#   - `events` is **not a tool** (the guide's third rule): the stream stays open, so M
+#     subscribes to it under `--events` and feeds frames as context instead.
+#   - the exports and imports write files on the node, and `snapshots_*` / `vm_*` move its
+#     runtime; neither is routing, which is all M does.
+M_TOOLS: tuple[str, ...] = (
+    # what M decides from — the three sources, plus its own identity and the fleet
+    "status",
+    "capabilities",
+    "executors",
+    "sandboxes",
+    "instance_list",
+    "sandboxes_requests",
+    "runs",
+    "run_get",
+    "audit_status",
+    "audit_events",
+    "vm_status",
+    # what M may do about it — dispatch, instances, the switch, and the approval slot
+    "tasks",
+    "instance_create",
+    "instance_delete",
+    "sandboxes_switch",
+    "sandboxes_requests_post",
+    "sandbox_request_approve",
+    "sandbox_request_reject",
+)
+
+SYSTEM_PROMPT = """You are M, the dispatcher of one RiscDom node.
+
+You decide what runs where, and you stop there. You are not an executor: you never run a
+turn, never write code, and never touch the kernel. You are not in the data path and you do
+not proxy a task's I/O. You act by calling the tools you are given; the process makes the
+HTTP request and hands you the JSON back.
+
+The node you are looking at is described in the first user message: its status, your own
+capabilities, the fleet, the sandbox registry, the instances that exist right now, and the
+requests waiting for a decision. That snapshot is the **truth**, read from the node itself
+(the audit chain, the instance table and the approval slot). Your memory is a cache and it
+is not durable: if you are missing something, ask for it with a tool rather than assuming.
+
+How to decide:
+- Read the snapshot before anything else, and say what you would change, if anything.
+- If it does not tell you enough, do nothing and say what you would need.
+- Prefer the smallest act that answers the question. A dispatch is one task on one executor.
+- `sandbox_request_approve` and `sandbox_request_reject` only change the record. If a switch
+  is actually wanted, `sandboxes_switch` is the act that moves the node — take that decision
+  deliberately, not as a side effect of approving.
+- When there is nothing to change, answer in words and call no tool. That is a complete
+  answer, not a failure.
+
+Constraints:
+- You act only through these tools. Inventing another way is an error.
+- If a tool answers an error, read it; do not retry it blindly.
+"""
+
+
+def load_tools(path: str = DEFAULT_TOOL_SCHEMA) -> list[dict]:
+    """M's tools, read from the schema document and filtered to `M_TOOLS`.
+
+    The document is the authority — `check-tool-schema.mjs` keeps it in step with the
+    server's route table — so the list is **read**, not re-typed: a second copy would drift
+    the first time an endpoint changed. Each definition is one JSON object on its own line
+    inside a fenced block, which is why this is a line filter rather than a Markdown parser.
+
+    A whitelisted name that is missing is an **error**, not a silently shorter list: a model
+    that cannot see `tasks` cannot dispatch, and that failure belongs here rather than in a
+    decision nobody can explain.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError as error:
+        raise ValueError(
+            f"cannot read the tool schema {path} ({error}); pass --tool-schema"
+        ) from None
+    found: dict[str, dict] = {}
+    for line in lines:
+        if not line.startswith('{"type":"function"'):
+            continue
+        try:
+            definition = json.loads(line)
+        except ValueError:
+            continue
+        name = definition.get("function", {}).get("name", "")
+        if name in M_TOOLS:
+            found[name] = definition
+    missing = [name for name in M_TOOLS if name not in found]
+    if missing:
+        raise ValueError(f"{path} does not define {missing}")
+    return [found[name] for name in M_TOOLS]
+
+
+def state_message(state: dict) -> str:
+    """The node's state, as the model's first user message.
+
+    JSON, because it is lossless and its shapes are already documented by the tool schemas —
+    a hand-rendered summary would be a second description to keep true. Keys are sorted, so
+    two turns' messages differ exactly where the state does.
+    """
+    return "The node's state right now:\n" + json.dumps(
+        state, indent=1, sort_keys=True, ensure_ascii=False
+    )
+
+
+class LLMTransportError(Exception):
+    """The model server could not be reached.
+
+    A separate type from `TransportError` on purpose: "the node is unreachable" and "the
+    model is unreachable" have different remedies (fix the node, or fix `--llm-base-url` and
+    its key), and folding them together would make a model outage look like a credential
+    problem.
+    """
+
+
+class LLMApiError(Exception):
+    """The model server answered an error: an HTTP status and whatever body came with it."""
+
+    def __init__(self, status: int, payload: dict) -> None:
+        super().__init__(f"{status}: {payload.get('error') or payload}")
+        self.status = status
+        self.payload = payload
+
+
+class Chat:
+    """An OpenAI-compatible chat client, in `urllib` — the model is not the control plane.
+
+    Deliberately **not** `ControlPlane._request`: that one carries the node's bearer token,
+    reads the node's error model, and points at the node. A model server has its own address,
+    its own key (or none) and its own error text, so it gets its own client. **No retry**,
+    for the same reason the control-plane client has none: a turn that cannot reach its model
+    is a turn to end, not one to spend twice.
+    """
+
+    def __init__(self, base_url: str, model: str, api_key: str = "", timeout: float = 60.0) -> None:
+        self.base = (base_url if "://" in base_url else f"http://{base_url}").rstrip("/")
+        self.model = model
+        self.api_key = api_key
+        self.timeout = timeout
+
+    def __call__(self, messages: list[dict], tools: list[dict]) -> dict:
+        body: dict = {"model": self.model, "messages": messages}
+        if tools:
+            body["tools"] = tools
+            body["tool_choice"] = "auto"
+        request = urllib.request.Request(
+            f"{self.base}/chat/completions",
+            data=json.dumps(body).encode("utf-8"),
+            method="POST",
+        )
+        request.add_header("Content-Type", "application/json")
+        if self.api_key:
+            request.add_header("Authorization", "Bearer " + self.api_key)
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as answer:
+                return json.loads(answer.read())
+        except urllib.error.HTTPError as error:
+            raw = error.read()
+            try:
+                payload = json.loads(raw)
+            except ValueError:
+                payload = {"error": raw.decode("utf-8", "replace")}
+            raise LLMApiError(error.code, payload) from None
+        except urllib.error.URLError as error:
+            raise LLMTransportError(
+                f"cannot reach the model at {self.base}: {error.reason}"
+            ) from None
 
 
 class Action(NamedTuple):
@@ -131,11 +320,14 @@ class Supervisor(ControlPlane):
         quoted = urllib.parse.quote(definition, safe="")
         return list(self.get(f"/v0/sandboxes/{quoted}/instances").get("instances", []))
 
+    def requests(self, status: str | None = None) -> list[dict]:
+        """The approval slot: every request, or the ones in one `status`."""
+        query = f"?status={urllib.parse.quote(status)}" if status else ""
+        return list(self.get(f"/v0/sandboxes/requests{query}").get("requests", []))
+
     def pending_requests(self) -> list[dict]:
         """The approval slot, filtered to what is still waiting on a decision."""
-        return list(
-            self.get("/v0/sandboxes/requests?status=pending").get("requests", [])
-        )
+        return self.requests("pending")
 
     def runs(self, limit: int = 20) -> list[dict]:
         return list(self.get(f"/v0/runs?limit={int(limit)}"))
@@ -191,17 +383,21 @@ class Supervisor(ControlPlane):
         text: str,
         sandbox: str | None = None,
         instance: str | None = None,
+        task_id: str | None = None,
     ) -> dict:
         """`POST /v0/tasks` — the whole `Task`, including the instance (v1.0 M2a-3).
 
-        The parent's `dispatch` predates `instance` and deliberately stays as it is;
-        this is the same request with the finer declaration added.
+        The parent's `dispatch` predates `instance` and `id` and deliberately stays as it is;
+        this is the same request with the finer declaration added. An omitted `id` is the
+        normal case: the node fills one in so the answer can be matched to the ask.
         """
         body: dict = {"target": target, "input": text}
         if sandbox:
             body["sandbox"] = sandbox
         if instance:
             body["instance"] = instance
+        if task_id:
+            body["id"] = task_id
         return json.loads(self._request("POST", "/v0/tasks", json.dumps(body).encode("utf-8")))
 
     def spawn_instance(self, definition: str) -> dict:
@@ -296,89 +492,222 @@ class Supervisor(ControlPlane):
 # --------------------------------------------------------------------------------------
 
 
-def decide(state: dict) -> Action | None:
-    """What to do about `state` — **the stub this batch ships**.
+class Decision(NamedTuple):
+    """What one turn's decision layer did: the tools it asked for, and how it ended."""
 
-    It returns `None`, and `None` means *do nothing*. That is the start of the design and
-    not a placeholder for an error: a dispatcher that cannot see the whole picture
-    dispatches nothing, so the conservative answer is also the default one, and turning
-    the loop on cannot by itself change a node.
+    actions: list[Action]
+    summary: str
 
-    The next batch (M2c-2) replaces this function's body with a model call over the tool
-    schema — the tool list is `docs/tool-schema-control-plane.md`, the state is `state`,
-    and the answer is an `Action`. Note what that shape already fixes: a decision is a
-    **request** (`Action`), never a side effect, and `state` is everything the model may
-    see. `state["capabilities"]` is the caller's own vocabulary — M learns what it may do
-    from the node rather than from a hard-coded list.
+
+class OfflineDecider:
+    """The default decision layer: decide nothing.
+
+    It exists so that "no model configured" is a **working** configuration rather than an
+    error path, and so that the conservative answer is the one you get by doing nothing at
+    all. Naming a model (`--llm-model`) is how you get a decision instead.
     """
-    return None
+
+    def decide(self, state: dict, perform) -> Decision:
+        return Decision([], "no model is configured (--llm-model), so nothing was decided")
+
+
+class LLMDecider:
+    """The decision layer: a bounded tool-calling loop over the node's state.
+
+    One turn is at most `max_rounds` model calls. The model sees the snapshot once, then the
+    results of everything it asks for; **every tool call it makes is performed here**, which
+    is the loop the client guide describes — the process makes the HTTP request and hands the
+    JSON back. The actions are returned in order so the caller can report them.
+
+    A model that stops asking for tools ends the turn. An empty list means "nothing to do",
+    the same answer the offline layer gives, so the conservative case is not a separate path.
+    A model that asks for tools in *every* round hits the cap: the turn ends with what it
+    already did and a summary that says so, because the alternative — a loop with no ceiling
+    — is a process that can be talked into running forever.
+
+    A tool the model names but was not offered is **not performed**; the model gets an error
+    result naming it. That is defence in depth: `tools` is already the whitelist, so this can
+    only fire for a model that invents a name.
+    """
+
+    def __init__(
+        self,
+        chat: Chat,
+        tools: list[dict],
+        system_prompt: str = SYSTEM_PROMPT,
+        max_rounds: int = DEFAULT_MAX_ROUNDS,
+    ) -> None:
+        self.chat = chat
+        self.tools = tools
+        self.system_prompt = system_prompt
+        self.max_rounds = max(1, int(max_rounds))
+        self.allowed = {tool["function"]["name"] for tool in tools}
+
+    def decide(self, state: dict, perform) -> Decision:
+        messages: list[dict] = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": state_message(state)},
+        ]
+        actions: list[Action] = []
+        for _round in range(1, self.max_rounds + 1):
+            answer = self.chat(messages, self.tools)
+            choices = answer.get("choices") or []
+            if not choices:
+                return Decision(actions, "the model answered with no choices")
+            message = choices[0].get("message") or {}
+            messages.append(message)
+            calls = message.get("tool_calls") or []
+            if not calls:
+                closing = (message.get("content") or "").strip()
+                return Decision(actions, closing or "the model said nothing")
+            for call in calls:
+                function = call.get("function") or {}
+                name = function.get("name", "")
+                if name not in self.allowed:
+                    result: dict = {"error": f"no tool named {name!r} was offered"}
+                else:
+                    action = Action(name, tool_arguments(function.get("arguments")))
+                    try:
+                        result = perform(action)
+                        actions.append(action)
+                    except (TransportError, ApiError, ValueError) as error:
+                        result = {"error": str(error)}
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.get("id", ""),
+                        "content": json.dumps(result, ensure_ascii=False),
+                    }
+                )
+        return Decision(
+            actions,
+            f"the model asked for tools in all {self.max_rounds} round(s); the turn ended there",
+        )
+
+
+def tool_arguments(raw) -> dict:
+    """A tool call's arguments: the JSON text a model sends, or an empty mapping."""
+    if isinstance(raw, dict):
+        return raw
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except ValueError as error:
+        raise ValueError(f"the model's tool arguments are not JSON: {error}") from None
+    if not isinstance(parsed, dict):
+        raise ValueError("the model's tool arguments are not an object")
+    return parsed
 
 
 def perform(supervisor: Supervisor, action: Action) -> dict:
     """Carry out an `Action`: the tool name decides which endpoint is asked.
 
-    Unreachable while `decide` returns `None`, and written anyway: M2c-2 supplies the
-    decisions, and the plumbing between a decision and a request is not the interesting
-    part of that batch. The names are the tool schema's, so the two cannot drift apart
-    without a test noticing (`--self-test` drives each one against a fake node).
+    The tool names and their argument names are the schema document's (`instance_create`
+    takes `name`, `sandbox_request_approve` takes `id`), so every tool the model is offered
+    is a tool this function knows — the two cannot drift apart without `--self-test` failing.
+
+    The read tools are here as well as the controls: a model that wants to look again at one
+    thing should be able to, without M having to decide in Python what it is allowed to
+    notice.
     """
     arguments = action.arguments
+    # ----- reads ---------------------------------------------------------------
+    if action.tool == "status":
+        return supervisor.status()
+    if action.tool == "capabilities":
+        return {"capabilities": supervisor.capabilities()}
+    if action.tool == "executors":
+        return {"executors": [{"agent_id": name} for name in supervisor.executors()]}
+    if action.tool == "sandboxes":
+        return supervisor.sandboxes()
+    if action.tool == "instance_list":
+        return {"instances": supervisor.instances(arguments["name"])}
+    if action.tool == "sandboxes_requests":
+        return {"requests": supervisor.requests(arguments.get("status"))}
+    if action.tool == "runs":
+        return {"runs": supervisor.runs(int(arguments.get("limit", 20)))}
+    if action.tool == "run_get":
+        key = urllib.parse.quote(arguments["run_id"], safe="")
+        return {"run": supervisor.get(f"/v0/runs/{key}")}
+    if action.tool == "audit_status":
+        return supervisor.audit_status()
+    if action.tool == "audit_events":
+        return {
+            "events": supervisor.audit_events(
+                int(arguments.get("limit", 50)),
+                arguments.get("actor"),
+                arguments.get("action_prefix"),
+            )
+        }
+    if action.tool == "vm_status":
+        return supervisor.vm_status()
+    # ----- controls ------------------------------------------------------------
     if action.tool == "tasks":
         return supervisor.dispatch_task(
             arguments["target"],
             arguments["input"],
             arguments.get("sandbox"),
             arguments.get("instance"),
+            arguments.get("id"),
         )
-    if action.tool == "sandbox_instance_create":
+    if action.tool == "instance_create":
         return supervisor.spawn_instance(arguments["name"])
-    if action.tool == "sandbox_instance_reap":
-        supervisor.reap_instance(arguments["name"], arguments["instance_id"])
+    if action.tool == "instance_delete":
+        supervisor.reap_instance(arguments["name"], arguments["id"])
         return {"deleted": True}
     if action.tool == "sandboxes_switch":
         return supervisor.switch_sandbox(arguments["name"])
-    if action.tool == "sandbox_request":
-        return {"id": supervisor.ask_sandbox(
-            arguments["action"], arguments.get("sandbox"), arguments.get("reason")
-        )}
+    if action.tool == "sandboxes_requests_post":
+        return {
+            "id": supervisor.ask_sandbox(
+                arguments["action"], arguments.get("sandbox"), arguments.get("reason")
+            )
+        }
     if action.tool == "sandbox_request_approve":
-        return supervisor.decide_request(arguments["request_id"], True)
+        return supervisor.decide_request(arguments["id"], True)
     if action.tool == "sandbox_request_reject":
-        return supervisor.decide_request(arguments["request_id"], False)
+        return supervisor.decide_request(arguments["id"], False)
     raise ValueError(f"unknown tool {action.tool!r}")
 
 
-def run_once(supervisor: Supervisor, out=print) -> int:
-    """One conservative turn, and the whole of this batch's behaviour.
+def run_once(supervisor: Supervisor, decider=None, out=print) -> int:
+    """One conservative turn: read, ask the decision layer, report.
 
-    The order is the design: **read first, decide second, act third**. A read that fails
-    ends the turn — `supervisor.snapshot()` raising is the *only* thing standing between
-    M and a control call, which is why it is one call that fails as a whole rather than a
-    dozen that fail one at a time. Acting on a picture that is missing a piece is how a
-    supervisor destroys work it cannot see.
+    The order is the design: **read first, decide second, act third**. A read that fails ends
+    the turn — `supervisor.snapshot()` raising is the *only* thing standing between M and a
+    control call. The decision layer performs the tools it asks for (that is its loop), so by
+    the time it returns, the calls it made are made: a decision layer that fails half-way is
+    reported **after** those calls, never before them.
     """
+    decider = decider or OfflineDecider()
     try:
         state = supervisor.snapshot()
     except (TransportError, ApiError, ValueError) as error:
         out(f"supervisor: cannot read the node's state ({error}); taking no action")
         return EXIT_TURN_FAILED
 
-    action = decide(state)
-    if action is None:
+    try:
+        decision = decider.decide(state, perform=lambda action: perform(supervisor, action))
+    except (TransportError, ApiError, LLMTransportError, LLMApiError, ValueError) as error:
+        out(f"supervisor: the decision layer failed ({error}); no further action")
+        return EXIT_TURN_FAILED
+
+    if not decision.actions:
         out(
             "supervisor: nothing to do"
             f" ({len(state['pending_requests'])} pending request(s),"
             f" {len(state['executors'])} executor(s),"
             f" {sum(len(v) for v in state['instances'].values())} instance(s) seen)"
         )
-        return EXIT_OK
-
-    try:
-        answer = perform(supervisor, action)
-    except (TransportError, ApiError, ValueError) as error:
-        out(f"supervisor: {action.tool} failed ({error})")
-        return EXIT_TURN_FAILED
-    out(f"supervisor: {action.tool} -> {json.dumps(answer)}")
+    else:
+        for action in decision.actions:
+            out(
+                "supervisor: performed "
+                f"{action.tool} {json.dumps(action.arguments, ensure_ascii=False)}"
+            )
+    if decision.summary:
+        out(f"supervisor: {decision.summary}")
     return EXIT_OK
 
 
@@ -418,14 +747,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="supervisor.py",
         description=(
-            "M — a reference dispatcher. Reads a node's state, decides what to do, and "
-            "acts. The decision layer is a stub in this batch: the default is to do "
-            "nothing."
+            "M — a reference dispatcher. Reads a node's state, asks a model what to do "
+            "about it (if one is configured), and reports. With no --llm-model it decides "
+            "nothing, which is the conservative default."
         ),
-        epilog="The token comes from --token-file or $RISCDOM_TOKEN; never from an argument.",
+        epilog=(
+            "The node's token comes from --token-file or $RISCDOM_TOKEN; the model's key from "
+            "--llm-api-key-file or $RISCDOM_LLM_API_KEY. Neither is ever an argument."
+        ),
     )
     parser.add_argument("--server", default=DEFAULT_SERVER, help=f"host:port (default {DEFAULT_SERVER})")
-    parser.add_argument("--token-file", help="read the bearer token from this file")
+    parser.add_argument("--token-file", help="read the node's bearer token from this file")
     parser.add_argument(
         "--interval",
         type=float,
@@ -436,8 +768,60 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--events", action="store_true", help="subscribe to the event stream instead of turning")
     parser.add_argument("--timeout", type=float, default=30.0, help="per-request timeout in seconds")
     parser.add_argument("--json", action="store_true", help="print frames as JSON (with --events)")
+    # The decision layer's configuration: M's model is **not** the executor's, so these are
+    # M's own settings and are never read from the node's `llm_configs`.
+    parser.add_argument("--llm-base-url", help="an OpenAI-compatible endpoint, e.g. http://127.0.0.1:11434/v1")
+    parser.add_argument("--llm-model", help="the model name to ask (without this, nothing is decided)")
+    parser.add_argument("--llm-api-key-file", help="read the model's API key from this file ($RISCDOM_LLM_API_KEY)")
+    parser.add_argument(
+        "--llm-timeout", type=float, default=60.0, help="per-call timeout for the model in seconds"
+    )
+    parser.add_argument(
+        "--max-rounds",
+        type=int,
+        default=DEFAULT_MAX_ROUNDS,
+        help=f"model calls allowed in one turn (default {DEFAULT_MAX_ROUNDS})",
+    )
+    parser.add_argument(
+        "--tool-schema",
+        default=DEFAULT_TOOL_SCHEMA,
+        help="the control-plane tool schema M's tools are read from",
+    )
     parser.add_argument("--self-test", action="store_true", help="prove this script offline")
     return parser.parse_args(argv)
+
+
+def read_key(path: str | None) -> str:
+    """The model's key: `--llm-api-key-file`, then `$RISCDOM_LLM_API_KEY`.
+
+    Absent is a **valid** answer here, unlike the node's token: a model server on loopback
+    usually wants no key at all.
+    """
+    if path:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                return handle.read().strip()
+        except OSError as error:
+            raise ValueError(f"cannot read {path}: {error}") from None
+    return os.environ.get("RISCDOM_LLM_API_KEY", "").strip()
+
+
+def build_decider(args: argparse.Namespace, out=print):
+    """The decision layer the arguments ask for: a model if one is named, otherwise none."""
+    if not args.llm_model:
+        out("supervisor: no --llm-model: the decision layer is offline and will decide nothing")
+        return OfflineDecider()
+    if not args.llm_base_url:
+        raise ValueError("--llm-model needs --llm-base-url (where the model server is)")
+    tools = load_tools(args.tool_schema)
+    out(f"supervisor: {len(tools)} tool(s) offered to the model {args.llm_model}")
+    chat = Chat(
+        args.llm_base_url,
+        args.llm_model,
+        read_key(args.llm_api_key_file),
+        args.llm_timeout,
+    )
+    return LLMDecider(chat, tools, max_rounds=args.max_rounds)
 
 
 def main(argv: list[str]) -> int:
@@ -447,19 +831,20 @@ def main(argv: list[str]) -> int:
 
     try:
         token = dispatch.read_token(args.token_file)
-    except TransportError as error:
+        decider = build_decider(args)
+    except (TransportError, ValueError) as error:
         print(f"supervisor: {error}", file=sys.stderr)
-        return error.code
+        return error.code if isinstance(error, TransportError) else EXIT_USAGE
 
     supervisor = Supervisor(args.server, token, args.timeout)
     try:
         if args.events:
-            print("supervisor: an AI dispatcher's skeleton — reading the node, deciding nothing yet")
+            print("supervisor: an AI dispatcher — reading the node, deciding by policy you set")
             return watch(supervisor, args.json)
-        print("supervisor: an AI dispatcher's skeleton — reading the node, deciding nothing yet")
+        print("supervisor: an AI dispatcher — reading the node, deciding by policy you set")
         print(f"server    : {args.server}")
         while True:
-            code = run_once(supervisor)
+            code = run_once(supervisor, decider)
             if args.once or code != EXIT_OK:
                 return code
             time.sleep(args.interval)
@@ -605,6 +990,84 @@ class FakeNode:
         return [path for path, _ in self.posted]
 
 
+def model_tool_call(name: str, arguments: dict, call_id: str = "call-1") -> dict:
+    """One scripted assistant message that asks for a tool."""
+    return {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": name, "arguments": json.dumps(arguments)},
+            }
+        ],
+    }
+
+
+def model_final(text: str) -> dict:
+    """One scripted assistant message that asks for nothing."""
+    return {"role": "assistant", "content": text}
+
+
+class FakeModel:
+    """An OpenAI-compatible model server that answers a scripted list of messages.
+
+    It records every request body, so a test can assert what M actually sent — that the
+    snapshot and the tool list really travel, and that a tool result comes back as a `tool`
+    message — and it can be told to fail instead of answering, or scripted to ask for a tool
+    that was never offered. Nothing here talks to a real model: the point is the *loop*.
+    """
+
+    def __init__(self, script: list[dict] | None = None, fail: int | None = None) -> None:
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        self.script = list(script or [])
+        self.fail = fail
+        self.seen: list[dict] = []
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):  # keep the test output clean
+                pass
+
+            def _send(self, status, payload):
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):  # noqa: N802
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length) or b"{}")
+                outer.seen.append(body)
+                if outer.fail:
+                    self._send(outer.fail, {"error": {"message": "the model is unwell"}})
+                    return
+                # The script is consumed in order; running out is a closing message rather
+                # than a hang, so a test cannot wait forever on a missing entry.
+                message = outer.script.pop(0) if outer.script else model_final("(the script is empty)")
+                self._send(200, {"choices": [{"index": 0, "message": message, "finish_reason": "stop"}]})
+                return
+
+            def do_GET(self):  # noqa: N802
+                self._send(404, {"error": {"message": "only POST /chat/completions exists"}})
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.address = f"127.0.0.1:{self.server.server_address[1]}/v1"
+
+    def start(self) -> str:
+        self.thread.start()
+        return self.address
+
+    def stop(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+
 def imported_modules() -> list[str]:
     """Every module `supervisor.py` imports at the top level, by reading this file.
 
@@ -676,16 +1139,18 @@ def self_test() -> int:
         if run_once(supervisor, out=lambda *_: None) != EXIT_OK:
             failures.append("the turn after a failed read must succeed")
 
-        # 5. The plumbing between a decision and a request: every tool, driven by hand.
+        # 5. The plumbing between a decision and a request: every tool, driven by hand. The
+        #    names are the schema document's, so this is also the check that `perform` and
+        #    the tool list still spell one thing one way.
         node.posted.clear()
         perform(supervisor, Action("tasks", {"target": "executor-0", "input": "say hi"}))
-        perform(supervisor, Action("tasks", {"target": "executor-0", "input": "x", "sandbox": "blink", "instance": "local-1-2"}))
-        perform(supervisor, Action("sandbox_instance_create", {"name": "blink"}))
-        perform(supervisor, Action("sandbox_instance_reap", {"name": "blink", "instance_id": "local-1-2"}))
+        perform(supervisor, Action("tasks", {"target": "executor-0", "input": "x", "sandbox": "blink", "instance": "local-1-2", "id": "task-9"}))
+        perform(supervisor, Action("instance_create", {"name": "blink"}))
+        perform(supervisor, Action("instance_delete", {"name": "blink", "id": "local-1-2"}))
         perform(supervisor, Action("sandboxes_switch", {"name": "blink"}))
-        perform(supervisor, Action("sandbox_request", {"action": "switch", "sandbox": "blink"}))
-        perform(supervisor, Action("sandbox_request_approve", {"request_id": "req-1-1"}))
-        perform(supervisor, Action("sandbox_request_reject", {"request_id": "req-1-1"}))
+        perform(supervisor, Action("sandboxes_requests_post", {"action": "switch", "sandbox": "blink"}))
+        perform(supervisor, Action("sandbox_request_approve", {"id": "req-1-1"}))
+        perform(supervisor, Action("sandbox_request_reject", {"id": "req-1-1"}))
         sent = node.posts()
         for path in (
             "/v0/tasks",
@@ -699,13 +1164,32 @@ def self_test() -> int:
                 failures.append(f"{path} was never sent: {sent}")
         if f"DELETE /v0/sandboxes/blink/instances/local-1-2" not in " ".join(node.requests):
             failures.append("the reap never sent its DELETE")
-        # The instance travels with the task (v1.0 M2a-3), and only when declared.
+        # The reads are the same table: a model that asks to look again is answered.
+        perform(supervisor, Action("instance_list", {"name": "blink"}))
+        perform(supervisor, Action("sandboxes_requests", {"status": "pending"}))
+        perform(supervisor, Action("runs", {"limit": 5}))
+        perform(supervisor, Action("audit_events", {"limit": 5, "actor": "operator"}))
+        perform(supervisor, Action("vm_status", {}))
+        read_again = " ".join(node.requests)
+        for path in (
+            "/v0/sandboxes/blink/instances",
+            "/v0/sandboxes/requests?status=pending",
+            "/v0/runs?limit=5",
+            "/v0/audit/events?limit=5&actor=operator",
+            "/v0/vm/status",
+        ):
+            if path not in read_again:
+                failures.append(f"the read tools never asked {path}: {read_again}")
+        # The instance and the id travel with the task (v1.0 M2a-3), and only when declared.
         plain = node.posted[0][1]
         finer = node.posted[1][1]
-        if "instance" in plain:
-            failures.append(f"a task without an instance must not carry one: {plain}")
+        for field in ("instance", "id"):
+            if field in plain:
+                failures.append(f"a task without a {field} must not carry one: {plain}")
         if finer.get("instance") != "local-1-2" or finer.get("sandbox") != "blink":
             failures.append(f"the finer task lost its declaration: {finer}")
+        if finer.get("id") != "task-9":
+            failures.append(f"the caller's task id was dropped: {finer}")
 
         # 6. The event stream: frames are parsed *and* the last id is kept, so a
         #    reconnect resumes instead of asking for a replay it cannot describe.
@@ -745,7 +1229,148 @@ def self_test() -> int:
         if any(not line.startswith("GET ") for line in node.requests):
             failures.append(f"--events must not write: {node.requests}")
 
-        # 9. The red line: nothing but the standard library (and the sibling example).
+        # 9. M's tool list: read from the schema document, filtered to the whitelist, in the
+        #    schema's own shape.
+        tools = load_tools()
+        names = [tool["function"]["name"] for tool in tools]
+        if names != list(M_TOOLS):
+            failures.append(f"the tool list is not the whitelist: {names}")
+        for tool in tools:
+            function = tool.get("function", {})
+            if tool.get("type") != "function" or not function.get("description"):
+                failures.append(f"a tool is not in the schema's shape: {tool}")
+            if not isinstance(function.get("parameters"), dict):
+                failures.append(f"a tool has no parameters object: {function.get('name')}")
+        for excluded in ("agent_run", "events"):
+            if excluded in names:
+                failures.append(f"{excluded} must not be offered to a dispatcher")
+        with open(DEFAULT_TOOL_SCHEMA, encoding="utf-8") as schema:
+            defined = [line for line in schema if line.startswith('{"type":"function"')]
+        if len(defined) <= len(M_TOOLS):
+            failures.append(f"the schema document defines only {len(defined)} tools")
+
+        # 10. The decision layer with a model: the snapshot and the tools travel, a tool call
+        #     is performed, its result goes back, and the model's next answer ends the turn.
+        model = FakeModel(
+            [model_tool_call("instance_create", {"name": "blink"}), model_final("derived one instance")]
+        )
+        model.start()
+        try:
+            node.requests.clear()
+            node.posted.clear()
+            decider = LLMDecider(Chat(model.address, "test-model"), tools, max_rounds=4)
+            code = run_once(supervisor, decider, out=lambda *_: None)
+            if code != EXIT_OK:
+                failures.append(f"a turn with a model must exit {EXIT_OK}, got {code}")
+            if "POST /v0/sandboxes/blink/instances" not in " ".join(node.requests):
+                failures.append(f"the model's tool call was not performed: {node.requests}")
+            if len(model.seen) != 2:
+                failures.append(f"expected two model calls, got {len(model.seen)}")
+            else:
+                first = model.seen[0]
+                if (
+                    first["messages"][0].get("role") != "system"
+                    or "not an executor" not in first["messages"][0].get("content", "")
+                ):
+                    failures.append("the model did not get the system prompt")
+                if "pending_requests" not in first["messages"][1].get("content", ""):
+                    failures.append("the state did not travel with the first message")
+                if len(first.get("tools", [])) != len(M_TOOLS) or first.get("tool_choice") != "auto":
+                    failures.append("the tools did not travel")
+                if model.seen[1]["messages"][-1].get("role") != "tool":
+                    failures.append("the tool result was not fed back")
+        finally:
+            model.stop()
+
+        # 11. The approval tools: the record changes, and only the record.
+        model = FakeModel([model_tool_call("sandbox_request_approve", {"id": "req-1-1"}), model_final("ok")])
+        model.start()
+        try:
+            node.posted.clear()
+            run_once(supervisor, LLMDecider(Chat(model.address, "test-model"), tools), out=lambda *_: None)
+            if "POST /v0/sandboxes/requests/req-1-1/approve" not in " ".join(node.requests):
+                failures.append(f"approve was not sent: {node.requests}")
+        finally:
+            model.stop()
+
+        # 12. …and an ask is a POST that leaves a request behind.
+        model = FakeModel(
+            [
+                model_tool_call("sandboxes_requests_post", {"action": "switch", "sandbox": "blink"}),
+                model_final("asked"),
+            ]
+        )
+        model.start()
+        try:
+            node.posted.clear()
+            run_once(supervisor, LLMDecider(Chat(model.address, "test-model"), tools), out=lambda *_: None)
+            if "POST /v0/sandboxes/requests" not in " ".join(node.requests):
+                failures.append(f"the ask was not sent: {node.requests}")
+        finally:
+            model.stop()
+
+        # 13. A tool M never offered is **not performed**: the model is told, and nothing is
+        #     sent. (`agent_run` is the executor's loop, so it is the interesting case.)
+        model = FakeModel([model_tool_call("agent_run", {"user_input": "hi"}), model_final("fine")])
+        model.start()
+        try:
+            node.posted.clear()
+            run_once(supervisor, LLMDecider(Chat(model.address, "test-model"), tools), out=lambda *_: None)
+            if node.posted:
+                failures.append(f"an unoffered tool must not be performed: {node.posts()}")
+            if len(model.seen) != 2 or "no tool named" not in model.seen[1]["messages"][-1].get("content", ""):
+                failures.append("the model was not told that tool does not exist")
+        finally:
+            model.stop()
+
+        # 14. A model that fails is a conservative turn: exit 1 and **no** control request.
+        model = FakeModel(fail=500)
+        model.start()
+        try:
+            node.posted.clear()
+            code = run_once(supervisor, LLMDecider(Chat(model.address, "test-model"), tools), out=lambda *_: None)
+            if code != EXIT_TURN_FAILED:
+                failures.append(f"a failing model must exit {EXIT_TURN_FAILED}, got {code}")
+            if node.posted:
+                failures.append(f"a failing model must send no control request: {node.posts()}")
+        finally:
+            model.stop()
+
+        # 15. A model server that is not there at all: the same conservative turn.
+        node.posted.clear()
+        code = run_once(
+            supervisor, LLMDecider(Chat("127.0.0.1:1", "test-model"), tools), out=lambda *_: None
+        )
+        if code != EXIT_TURN_FAILED:
+            failures.append(f"an unreachable model must exit {EXIT_TURN_FAILED}, got {code}")
+        if node.posted:
+            failures.append(f"an unreachable model must send no control request: {node.posts()}")
+
+        # 16. The round cap: a model that asks for a tool in every round ends the turn at the
+        #     ceiling instead of running forever — and says so.
+        model = FakeModel([model_tool_call("instance_list", {"name": "blink"})] * 3)
+        model.start()
+        try:
+            capped = LLMDecider(Chat(model.address, "test-model"), tools, max_rounds=3)
+            decision = capped.decide(
+                supervisor.snapshot(), perform=lambda action: perform(supervisor, action)
+            )
+            if len(decision.actions) != 3:
+                failures.append(f"three rounds should mean three actions: {decision.actions}")
+            if "3 round" not in decision.summary:
+                failures.append(f"the cap must be reported: {decision.summary!r}")
+            if len(model.seen) != 3:
+                failures.append(f"the cap must stop the calls: {len(model.seen)}")
+        finally:
+            model.stop()
+
+        # 17. The offline default is still the safe one: no model, no control request.
+        node.posted.clear()
+        code = run_once(supervisor, OfflineDecider(), out=lambda *_: None)
+        if code != EXIT_OK or node.posted:
+            failures.append(f"the offline default must decide nothing: {code} {node.posts()}")
+
+        # 18. The red line: nothing but the standard library (and the sibling example).
         allowed = set(sys.stdlib_module_names) | {"dispatch"}
         outside = [name for name in imported_modules() if name not in allowed]
         if outside:
