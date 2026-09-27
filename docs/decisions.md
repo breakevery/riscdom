@@ -2026,3 +2026,36 @@ in v0.9" sentence was true when written and is not any more), `docs/tool-schema-
 and its definitions block all follow. **No hash formula, no audit event constant, no `m.*`
 action name, no other route and no `limit` semantics changed** — `limit=0` still answers an
 empty array, and `limit` is still required.
+
+## 86. The freeze level is on disk, and the stability policy has passed the red lines
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; landed with the v1.0 M1 batch
+
+**Decision**: The six things [roadmap §6](roadmap-v1.0.md) requires before the API may be called
+frozen are on disk, and the first of them has been tested the way that section demands. Five were
+already written (`docs/api-compatibility.md`, `docs/error-model.md`, `docs/security-model.md` and
+`SECURITY.md`); the sixth — the **written upgrade procedure** — is `docs/upgrade.md`, the file
+§14 has been naming as the place since 2026-09-22. And the stability policy now carries its
+**red-line test** as `docs/api-compatibility.md` §9: each of [roadmap §1](roadmap-v1.0.md)'s four
+constraints is checked against the policy's own clauses.
+
+**Why**: Roadmap §6 is a gate, not a reading list: "the API may not be declared frozen before
+these six are written down." Five of six is not a gate that has been passed — and the sixth had
+been *referenced* for weeks, which is worse than missing: two documents pointed at a file that did
+not exist, so a reader following the trail found nothing. Writing it in the form the decision
+already implied — a procedure an integrator follows, citing the rules rather than restating them —
+closes that. The red-line test is the other half, and the half that matters: the roadmap makes the
+four constraints **the test the stability policy has to pass**, and a test that was never run is a
+claim nobody checked. Running it also produced a useful result — the policy passes because of its
+own shape (additive-only in a minor release, a major version for anything that changes a meaning),
+so the test is a property of the document rather than a promise about future batches.
+
+**Impact**: `docs/upgrade.md` + its translation (new; both listed in `docs/README.md`'s map);
+`docs/api-compatibility.md` §9 (new) plus two corrections there — the capability count in §2
+(**32** → **33**, after the v1.0 gap 3/N clean-up) and §7's "it does not exist yet", which now
+points at a file that is there; `docs/roadmap-v1.0.md` §6's row 2, whose decision column said §14
+while the decision describing data migration is **§11** (§14 is the upgrade path, and row 5's
+citation of it was already right). **No source file, no gate and no check changed** — M1 is a
+milestone about writing down what is already true. The dead-link gap this exposed (no checker
+resolves a relative link, so the dangling `upgrade.md` reference was invisible) is recorded as
+technical debt rather than fixed here.

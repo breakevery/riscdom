@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The freeze level is complete, and the stability policy passes the red lines** (v1.0 M1):
+  [`docs/upgrade.md`](docs/upgrade.md) — the written upgrade procedure decisions §14 and
+  `docs/api-compatibility.md` §7 had been pointing at — is on disk, and `docs/api-compatibility.md`
+  gains §9, which runs [roadmap §1](docs/roadmap-v1.0.md)'s four red lines against the policy's own
+  clauses. Two corrections ride along: the capability count in §2 (32 → 33) and §7's "it does not
+  exist yet"; `docs/roadmap-v1.0.md` §6's row 2 now cites §11, the decision that describes data
+  migration.
+
 - **The audit read pages with a cursor** (v1.0 gap 3/N batch E): `GET /v0/audit/events` takes an
   optional `before_id` — the newest `limit` rows *strictly* older than that id — because the
   answer is newest-first while the store scans ascending, so `to_id` + `limit` cannot say "the

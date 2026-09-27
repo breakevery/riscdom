@@ -200,7 +200,7 @@ promise, and each has a decision behind it already.
 | # | What | What has to exist | Decision |
 |---|---|---|---|
 | 1 | **[settled]** API stability policy | what may change in a minor release, what needs a major one, and how a deprecation is announced | — |
-| 2 | **[settled]** Data migration and schema evolution | the migration mechanism, and the rule that `SETTINGS_VERSION` (and the audit and session schemas) only move with one | §14 |
+| 2 | **[settled]** Data migration and schema evolution | the migration mechanism, and the rule that `SETTINGS_VERSION` (and the audit and session schemas) only move with one | §11 |
 | 3 | **[settled]** Error model | the categories, the `Retryable` flag and the `Cause` chain that serialise across processes and devices | §12 |
 | 4 | **[settled]** Credentials and key management | Ed25519, rotation in parallel, revocation lists, bulk import | §13 |
 | 5 | **[settled]** Upgrade path | in-place, stepwise across a major version, no version skippable, one migration tool per step | §14 |

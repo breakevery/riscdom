@@ -226,6 +226,10 @@ current request authorising it (§2).
   lives plus a disclosure policy with timelines. All three are bilingual and tagged settled / default /
   open, and each writes down what it does *not* settle. `SECURITY.md` gained the reporting timeline it
   was missing. No code, no CI, no gate: M1 is a milestone about writing down what is already true.
+  **Completed** (v1.0 M1, 2026-09-28): the sixth is on disk too —
+  [`docs/upgrade.md`](upgrade.md), the procedure decisions §14 had been naming — and the stability
+  policy carries its red-line test as `api-compatibility.md` §9, so roadmap §13's M1 is satisfied.
+  **Decision §86.**
 
 - **The v1.0 roadmap is on disk, and the network page's dead-switch fix is pushed** (v1.0 纲领落盘,
   2026-09-27). [roadmap-v1.0.md](roadmap-v1.0.md) records the discussion that converged over several

@@ -39,7 +39,7 @@ changing them lives.
 v1.0 M2b-1 migration, the first change that needed a version of its own).
 - **[settled]** **Adding an endpoint.** A new path under `/v1/` is additive by construction.
 - **[settled]** **Adding a capability.** The vocabulary grows and existing tokens are unaffected —
-  [`server/src/auth.rs`](../server/src/auth.rs) holds **32** capabilities today, and the number is not a
+  [`server/src/auth.rs`](../server/src/auth.rs) holds **33** capabilities today, and the number is not a
   contract.
 - **[settled]** **Adding an event type** to the stream, and adding a variant to an enum that a client is
   expected to treat as open.
@@ -129,8 +129,8 @@ keeps for exactly this, read before anything else and written with the migration
 - **[settled]** **Migration is automatic** — see §6. The stepwise rule is about *data*: each major
   version's migration assumes the previous major version's result.
 - **[settled]** **The written procedure is [`docs/upgrade.md`](upgrade.md)** — the file
-  [decisions §14](decisions.md) already names as the place. **It does not exist yet**; it lands before
-  v1.0, and until then this section is the procedure.
+  [decisions §14](decisions.md) names as the place, and it is on disk (v1.0 M1). This section is the
+  rule; that file is the order of operations.
 
 ## 8. What is not promised
 
@@ -142,3 +142,36 @@ keeps for exactly this, read before anything else and written with the migration
   not in the `pub use` surface, this document says nothing about it.
 - **[settled]** **The macOS / Linux packages and the Windows installers follow this document, not their
   own rules.** A package that disagrees with this file is a bug.
+
+## 9. The four red lines, and how this policy passes them
+
+[roadmap-v1.0.md §1](roadmap-v1.0.md) states four constraints — no built-in supervisor, no
+officially operated service, not a general-purpose sandbox, and audit invariants that do not
+move — and says they are the test the policy above has to pass. This section is that test, run
+against the policy's own clauses.
+
+- **No built-in supervisor.** §1 freezes the *protocol* and the `pub use` surface; §2's additions
+  are all mechanism a caller drives (an optional field, a path, a capability, an event type), and
+  §3 forbids removing or re-meaning any of them. Nothing in §1–§4 names an actor or lets one
+  appear: the kernel's own dispatcher is an example under `examples/`, not a frozen component. A
+  change that made the kernel decide for its caller would not be a minor release; it would be a
+  different §1.
+- **No officially operated service.** This document governs an **installation and a local
+  protocol**, never a hosted one: §7 is an installer overwriting an installation, and §6 is the
+  operator's own data directory. §2 may add an endpoint; no clause here promises a party that
+  operates one on somebody's behalf.
+- **Not a general-purpose sandbox.** The frozen surface is the *kernel's* — the control plane, the
+  event vocabulary, the tool schemas, the `pub use` lists — and RISC-V's place in it (the substrate
+  and the default implementation, not the only one) is a §1 statement this policy cannot quietly
+  re-point. Turning the sandbox into a general-purpose one would be a change of **meaning** for an
+  existing surface, which §3 makes a major version: it has to be decided, not drifted into.
+- **The audit invariants do not move.** §1 freezes what a client can observe, the audit event
+  vocabulary included; §2 allows an event type to be **added**, and §3 allows none to be removed or
+  re-meant. The hash formula itself is not reachable from any clause here — it lives inside
+  `audit`, and it is protected by [roadmap-v1.0.md §1](roadmap-v1.0.md) and
+  [decisions §33](decisions.md), not by this policy. So the most a minor release can do is add an
+  event, and adding one does not touch the formula.
+
+**[settled]** The outcome of the test: the policy passes all four, because it only ever moves the
+surface **additively** (§2) and makes every meaning-changing move a major version (§3). A future
+amendment that would fail one of these four is not an amendment to this document.
