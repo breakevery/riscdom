@@ -260,6 +260,27 @@ impl SessionStore {
         Ok(out)
     }
 
+    /// Every executor's sessions, newest first (v1.0 M2b-3a).
+    ///
+    /// The wildcard reading of [`Self::list_sessions`]: one SQL statement, one
+    /// `limit`, so the number means "rows returned" rather than "rows per
+    /// executor". Rows written before the `executor_id` column are included —
+    /// they belong to the node itself, and the node is one of the executors this
+    /// asks about.
+    pub fn list_all_sessions(&self, limit: usize) -> Result<Vec<SessionMeta>, SessionError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT s.id, s.title, s.created_at_ms, s.updated_at_ms, COUNT(m.id), s.executor_id \
+             FROM sessions s LEFT JOIN session_messages m ON m.session_id = s.id \
+             GROUP BY s.id ORDER BY s.updated_at_ms DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], row_meta)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     /// One session's summary, by id — whatever executor it belongs to.
     ///
     /// Unscoped on purpose: the caller is the one that knows whose question it is

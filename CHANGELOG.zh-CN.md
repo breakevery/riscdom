@@ -11,6 +11,10 @@
 
 ### 新增
 
+- **一个执行者的模型配置，以及拼成值的那个通配**（v1.0 M2b-3a）：LLM 端点与 Tauri 命令接受可选 `executor`（缺省本节点），钥匙串账号与 `settings.json` 条目都按它编键，而 `/v0/sessions?executor=*` 用一张列表给出所有执行者的会话（`limit` 数行数）。只回答单个执行者的端点以 `400`、`cause: "executor"` 拒绝通配。`local` 与 `*` 是保留的执行者 id：带它们的 settings 文件仍然加载，跳过该项并记一条 `host.executor.reserved` 审计事件。
+
+- **审计库带上 schema 版本**（v1.0 M2b-3a）：`PRAGMA user_version = 1`，先于一切读出，打开时迁移（早先几批加的两列幂等重查），而当文件比本构建更新时以 `data_too_new` 拒绝。不放 `.bak`：本文件是 WAL 且多进程，只拷字节会漏帧。
+
 - **会话按执行者归档，而会话库也有了自己的版本号**（v1.0 M2b-2）：`sessions` 新增 `executor_id`，数据库把
   schema 版本写进 SQLite 的 `PRAGMA user_version` —— 先于一切被读出，**打开时**迁移（先 `PRAGMA table_info`
   再幂等地 `ALTER`，迁移前字节留作 `sessions.db.bak`），而当文件比本构建更新时以 `data_too_new` 拒绝。

@@ -93,7 +93,7 @@
 |---|---|---|---|
 | `settings.json` | `<data-dir>/settings.json` | `version` = `SETTINGS_VERSION`（自 v1.0 M2b-1 起为 **2**） | **第一次真迁移发生在 v1.0 M2b-1**：v1 文件（LLM 配置当时根本不落盘）在打开时迁移为 **2**，并带一张空的 per-executor `llm_configs` 表 —— 不猜任何东西 —— 迁移前的字节留作 `settings.json.bak`；而**更新的**文件以 `data_too_new` 被拒绝（不应用、不写入） |
 | run 指纹 | 每条 run 记录之内 | `FINGERPRINT_SCHEMA_V1` = `riscdom.run.fingerprint.v1`（[`audit/src/run.rs`](../audit/src/run.rs)） | v2 指纹是一个新的标记值，绝不是改写 v1 记录 |
-| 审计库 | `<data-dir>/audit.db`（SQLite） | 只有 schema DDL —— **尚无显式版本行** | 标记行随 §6 的迁移工作落地，在冻结之前 |
+| 审计库 | `<data-dir>/audit.db`（SQLite） | `PRAGMA user_version` = **1**（v1.0 M2b-3a） | 早于该标记的文件读作 `0`，在**打开时**迁移（早先几批加的两列 —— `agent_id`、`resumed_from_snapshot` —— 幂等重查）然后盖号；更新的文件以 `data_too_new` 被拒绝 —— 不读、不写。**不放 `.bak`**，与会话库不同：本文件是 WAL 且多进程打开，只拷 `audit.db` 会漏掉 `-wal` 里尚未落盘的帧 |
 | 会话库 | `<data-dir>/sessions.db`（SQLite） | `PRAGMA user_version` = **1**（v1.0 M2b-2） | 早于该列的文件在**打开时**迁移（幂等加 `executor_id` 列；已有行保持**未命名**，即属于本节点），迁移前的字节留作 `sessions.db.bak`；更新的文件以 `data_too_new` 被拒绝 —— 不读、不写 |
 | 凭据文件 | `<data-dir>/token` | 无：一行 hex，只做形状检查 | 手工放置的 token 永不被改写；v1.0 的 `node.key` 自带标记 |
 

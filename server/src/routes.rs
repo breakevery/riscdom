@@ -1021,22 +1021,37 @@ pub(crate) fn dispatch(
             result_json(app.compare_run_fingerprints(run_a, run_b))
         }
         Action::LlmProviderPresets => ok_json(&app.provider_presets()),
-        Action::LlmConfig => ok_json(&app.llm_config_status()),
-        Action::LlmReadiness => ok_json(&app.llm_readiness()),
+        Action::LlmConfig => match executor_param(params, app) {
+            ExecutorParam::One(executor) => ok_json(&app.llm_config_status_for(&executor)),
+            ExecutorParam::All => wildcard_refused(),
+        },
+        Action::LlmReadiness => match executor_param(params, app) {
+            ExecutorParam::One(executor) => ok_json(&app.llm_readiness_for(&executor)),
+            ExecutorParam::All => wildcard_refused(),
+        },
         Action::LlmLocalProbe => ok_json(&app.probe_local_llm()),
         Action::LlmStoredKey => match params.required("provider_id") {
-            Ok(provider_id) => {
-                ok_json(&serde_json::json!({ "present": app.has_stored_key(provider_id) }))
-            }
+            Ok(provider_id) => match executor_param(params, app) {
+                ExecutorParam::One(executor) => ok_json(
+                    &serde_json::json!({ "present": app.has_stored_key_for(&executor, provider_id) }),
+                ),
+                ExecutorParam::All => wildcard_refused(),
+            },
             Err(response) => *response,
         },
         Action::Sessions => match params.usize_required("limit") {
-            Ok(limit) => result_json(app.list_sessions(limit, &session_executor(params, app))),
+            Ok(limit) => match executor_param(params, app) {
+                ExecutorParam::One(executor) => result_json(app.list_sessions(limit, &executor)),
+                ExecutorParam::All => result_json(app.list_all_sessions(limit)),
+            },
             Err(response) => *response,
         },
-        Action::SessionCurrent => ok_json(&serde_json::json!({
-            "session_id": app.current_session_id(&session_executor(params, app))
-        })),
+        Action::SessionCurrent => match executor_param(params, app) {
+            ExecutorParam::One(executor) => ok_json(&serde_json::json!({
+                "session_id": app.current_session_id(&executor)
+            })),
+            ExecutorParam::All => wildcard_refused(),
+        },
         Action::Snapshots => result_json(app.list_snapshots()),
         Action::VmRunning => ok_json(&serde_json::json!({ "running": app.vm_is_running() })),
         Action::VmStatus => ok_json(&app.vm_status()),
@@ -1519,16 +1534,22 @@ pub(crate) fn dispatch(
             Err(response) => *response,
         },
         Action::SessionCreate => match params.required("title") {
-            Ok(title) => match app.create_session(title, &session_executor(params, app)) {
-                Ok(session_id) => ok_json(&serde_json::json!({ "session_id": session_id })),
-                Err(e) => host_error(e),
+            Ok(title) => match executor_param(params, app) {
+                ExecutorParam::One(executor) => match app.create_session(title, &executor) {
+                    Ok(session_id) => ok_json(&serde_json::json!({ "session_id": session_id })),
+                    Err(e) => host_error(e),
+                },
+                ExecutorParam::All => wildcard_refused(),
             },
             Err(response) => *response,
         },
         Action::SessionOpen => match params.required("session_id") {
-            Ok(session_id) => match app.open_session(session_id, &session_executor(params, app)) {
-                Ok(view) => ok_json(&view),
-                Err(e) => not_found_or_internal(e, "session_id", session_id),
+            Ok(session_id) => match executor_param(params, app) {
+                ExecutorParam::One(executor) => match app.open_session(session_id, &executor) {
+                    Ok(view) => ok_json(&view),
+                    Err(e) => not_found_or_internal(e, "session_id", session_id),
+                },
+                ExecutorParam::All => wildcard_refused(),
             },
             Err(response) => *response,
         },
@@ -1541,26 +1562,34 @@ pub(crate) fn dispatch(
                 Ok(value) => value,
                 Err(response) => return *response,
             };
+            let executor = match executor_param(params, app) {
+                ExecutorParam::One(executor) => executor,
+                ExecutorParam::All => return wildcard_refused(),
+            };
             // The host's rename is idempotent: an unknown id — or one another executor
             // owns — is a no-op, not an error. The endpoint mirrors that rather than
             // inventing a 404.
-            match app.rename_session(session_id, title, &session_executor(params, app)) {
+            match app.rename_session(session_id, title, &executor) {
                 Ok(()) => no_content(),
                 Err(e) => host_error(e),
             }
         }
         Action::SessionDelete => match params.required("session_id") {
-            Ok(session_id) => {
-                match app.delete_session(session_id, &session_executor(params, app)) {
+            Ok(session_id) => match executor_param(params, app) {
+                ExecutorParam::One(executor) => match app.delete_session(session_id, &executor) {
                     Ok(()) => no_content(),
                     Err(e) => host_error(e),
-                }
-            }
+                },
+                ExecutorParam::All => wildcard_refused(),
+            },
             Err(response) => *response,
         },
-        Action::SessionClear => match app.clear_all_sessions(&session_executor(params, app)) {
-            Ok(()) => no_content(),
-            Err(e) => host_error(e),
+        Action::SessionClear => match executor_param(params, app) {
+            ExecutorParam::One(executor) => match app.clear_all_sessions(&executor) {
+                Ok(()) => no_content(),
+                Err(e) => host_error(e),
+            },
+            ExecutorParam::All => wildcard_refused(),
         },
         Action::ToolchainDownloadStart => {
             if app.toolchain_download_status().in_progress {
@@ -1798,7 +1827,12 @@ pub(crate) fn dispatch(
                 Ok(value) => Some(value),
                 Err(response) => return *response,
             };
-            match app.set_llm_config_with(
+            let executor = match executor_param(params, app) {
+                ExecutorParam::One(executor) => executor,
+                ExecutorParam::All => return wildcard_refused(),
+            };
+            match app.set_llm_config_with_for(
+                &executor,
                 provider_id,
                 api_key.to_string(),
                 base_url.to_string(),
@@ -1810,23 +1844,31 @@ pub(crate) fn dispatch(
             }
         }
         Action::LlmStoredKeyLoad => match params.required("provider_id") {
-            Ok(provider_id) => match app.load_stored_key(provider_id) {
-                Ok(()) => no_content(),
-                // The host answers with the reason as text; a key that is not
-                // stored is a not-found, whatever the wording.
-                Err(message) => error_response(
-                    404,
-                    "not_found",
-                    &format!("no stored key for {provider_id:?}: {message}"),
-                    Some("provider_id"),
-                ),
+            Ok(provider_id) => match executor_param(params, app) {
+                ExecutorParam::One(executor) => {
+                    match app.load_stored_key_for(&executor, provider_id) {
+                        Ok(()) => no_content(),
+                        // The host answers with the reason as text; a key that is not
+                        // stored is a not-found, whatever the wording.
+                        Err(message) => error_response(
+                            404,
+                            "not_found",
+                            &format!("no stored key for {provider_id:?}: {message}"),
+                            Some("provider_id"),
+                        ),
+                    }
+                }
+                ExecutorParam::All => wildcard_refused(),
             },
             Err(response) => *response,
         },
-        Action::LlmConfigClear => {
-            app.clear_llm_config();
-            no_content()
-        }
+        Action::LlmConfigClear => match executor_param(params, app) {
+            ExecutorParam::One(executor) => {
+                app.clear_llm_config_for(&executor);
+                no_content()
+            }
+            ExecutorParam::All => wildcard_refused(),
+        },
         Action::SerialExport => match params.required("path") {
             Ok(path) => match app.export_serial_log(path.to_string()) {
                 Ok(bytes_written) => {
@@ -2038,16 +2080,41 @@ fn sandbox_switch_error(error: HostError) -> Response<RespBody> {
     error_response(status, code, &message, Some(cause))
 }
 
-/// The executor a session endpoint acts as (v1.0 M2b-2).
+/// What a request's `executor` parameter asks for (v1.0 M2b-2; the wildcard v1.0 M2b-3a).
 ///
-/// `executor` is optional and defaults to this node's own — the same shape the LLM
-/// endpoints use for the same reason: a single-node client keeps working unchanged,
-/// and naming an executor is how a caller asks about one that is not this machine.
-fn session_executor(params: &Params, app: &Arc<AppState>) -> String {
-    params
-        .get("executor")
-        .map(str::to_string)
-        .unwrap_or_else(|| app.local_executor_id())
+/// `executor` is optional and defaults to this node's own — the same shape every endpoint
+/// that takes one uses for the same reason: a single-node client keeps working unchanged,
+/// and naming an executor is how a caller asks about one that is not this machine. `*` is
+/// the one wildcard, and it is a **value of this parameter, not an endpoint**: only the
+/// answers that exist in the plural accept it, and the rest refuse it with
+/// [`wildcard_refused`].
+enum ExecutorParam {
+    /// One executor — the named one, or this node's own when nothing was named.
+    One(String),
+    /// Every executor. A single list can answer this; "which one" cannot.
+    All,
+}
+
+/// Read `executor` for a request.
+fn executor_param(params: &Params, app: &Arc<AppState>) -> ExecutorParam {
+    if params.get("executor") == Some("*") {
+        return ExecutorParam::All;
+    }
+    ExecutorParam::One(app.resolve_executor(params.get("executor")))
+}
+
+/// The `400` an endpoint that answers about **one** executor gives a wildcard.
+///
+/// It is the caller's parameter being unusable rather than an empty result: these endpoints
+/// answer about a single executor — which model is configured for it, which session is its
+/// current one, whose session is being renamed — and "every executor" has no single answer.
+fn wildcard_refused() -> Response<RespBody> {
+    error_response(
+        400,
+        "bad_request",
+        "`executor=*` names every executor; this endpoint answers about one — name one, or leave `executor` out for this node",
+        Some("executor"),
+    )
 }
 
 /// The status a failed instance act answers with (v1.0 M2a-2).

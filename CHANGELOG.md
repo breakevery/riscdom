@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **One executor's model configuration, and one wildcard spelled as a value** (v1.0 M2b-3a): the LLM
+  endpoints and Tauri commands take an optional `executor` (absent = this node), the keyring account
+  and the `settings.json` entry are both keyed by it, and `/v0/sessions?executor=*` answers every
+  executor's sessions in one list (`limit` counts rows). Endpoints that answer about a single
+  executor refuse the wildcard with `400`, `cause: "executor"`. `local` and `*` are reserved
+  executor ids: a settings file carrying one loads and skips it with a `host.executor.reserved`
+  audit event.
+
+- **The audit database carries a schema version** (v1.0 M2b-3a): `PRAGMA user_version = 1`, read
+  before anything else, migrated on open (the two columns earlier batches added are re-checked
+  idempotently), and refused with `data_too_new` when the file is newer than this build. No `.bak`:
+  the file is WAL and multi-process, so a byte copy alone can miss frames.
+
 - **Sessions are per executor, and the session database carries a version of its own** (v1.0 M2b-2):
   `sessions` gains `executor_id`, and the database stamps its schema in SQLite's `PRAGMA user_version`
   — read before anything else, migrated **on open** (an idempotent `ALTER` after `PRAGMA table_info`,

@@ -13,6 +13,21 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **One executor's model configuration, and the wildcard that is spelled as a value** (v1.0 M2b-3a,
+  2026-09-27). The LLM path is keyed by executor end to end — the configuration in memory, the entry
+  in `settings.json`, the keyring account (`llm-api-key:<executor>:<provider>`) — and the endpoints
+  and Tauri commands take an optional **`executor`**, absent meaning this node's own.
+  `/v0/sessions` additionally understands **`executor=*`**: every executor's sessions in **one**
+  list, newest first, `limit` counting rows rather than rows per executor, with each row carrying its
+  own `executor_id`. Endpoints whose answer is about **one** executor refuse the wildcard with `400
+  bad_request`, `cause: "executor"` — a model configuration belongs to one executor, and so does
+  "the current session". Two ids are now **reserved** (`local`, `*`): a settings file carrying one
+  loads, and the entry is skipped with a `host.executor.reserved` audit event. The **audit database
+  got the version marker** the compatibility table listed as missing — `PRAGMA user_version = 1`,
+  read before anything else, migrated on open, a newer file refused with `data_too_new`, and
+  deliberately **no `.bak`**: this file is WAL and opened by several processes, so a byte copy of it
+  alone can miss frames still in `-wal`. **Decisions §77 and §78.**
+
 - **Sessions belong to an executor, and the session database carries a version of its own**
   (v1.0 M2b-2, 2026-09-27). `sessions` gains an **`executor_id`** column, and the session database is the
   first format whose version lives in SQLite's own **`PRAGMA user_version`** — read before anything else,

@@ -18,7 +18,8 @@ use crate::sandbox_request::{
 };
 use crate::session::{SessionMessage, SessionMeta, SessionStore};
 use crate::settings::{
-    LlmConfigEntry, LocalSettings, NetworkSettings, SettingsLoad, SETTINGS_VERSION,
+    is_reserved_executor_label, LlmConfigEntry, LocalSettings, NetworkSettings, SettingsLoad,
+    SETTINGS_VERSION,
 };
 use crate::toolchain_download::DownloadEvent;
 use agent::llm::{DeepSeekClient, LlmClient};
@@ -1040,12 +1041,24 @@ impl AppState {
         // (not in v0.9) would have to be visible to.
         let handles: Vec<Arc<dyn AgentHandle>> = specs
             .iter()
-            .map(|spec| {
-                Arc::new(crate::executor::StdioExecutorHandle::new(
+            .filter_map(|spec| {
+                // A label the node already answers to is skipped, not obeyed: the
+                // node's own executor id and the sessions wildcard are taken
+                // (v1.0 M2b-3a, decision §78). The file stays as the person wrote
+                // it — refusing to load it would brick a hand-edited settings file —
+                // and the skip is visible in the audit log rather than silent.
+                if is_reserved_executor_label(&spec.label) {
+                    self.emit_host(
+                        "host.executor.reserved",
+                        serde_json::json!({ "label": spec.label }),
+                    );
+                    return None;
+                }
+                Some(Arc::new(crate::executor::StdioExecutorHandle::new(
                     AgentId::new(spec.label.clone()),
                     spec.program.clone(),
                     spec.args.clone(),
-                )) as Arc<dyn AgentHandle>
+                )) as Arc<dyn AgentHandle>)
             })
             .collect();
         if let Ok(mut held) = self.executors.lock() {
@@ -3192,6 +3205,22 @@ impl AppState {
             .map_err(|e| HostError::Other(e.to_string()))
     }
 
+    /// Every executor's sessions, newest first (v1.0 M2b-3a).
+    ///
+    /// The wildcard reading of [`Self::list_sessions`]: one statement, one `limit`,
+    /// so the number counts rows rather than rows-per-executor. Rows written before
+    /// the `executor_id` column are included — they belong to the node itself, and
+    /// the node is one of the executors this asks about.
+    pub fn list_all_sessions(&self, limit: usize) -> Result<Vec<SessionMeta>, HostError> {
+        let store = self
+            .sessions
+            .lock()
+            .map_err(|_| HostError::Other("sessions lock poisoned".into()))?;
+        store
+            .list_all_sessions(limit)
+            .map_err(|e| HostError::Other(e.to_string()))
+    }
+
     /// Does `session_id` belong to `executor` (v1.0 M2b-2)?
     ///
     /// A row with no executor predates the column and belongs to the node itself, so
@@ -3404,28 +3433,43 @@ impl AppState {
         agent::device()
     }
 
-    /// The local executor's configuration, if it has one.
-    fn llm_config_get(&self) -> Option<LlmConfigInput> {
+    /// The executor a request acts as (v1.0 M2b-3a).
+    ///
+    /// An absent (or blank) name is this node's own — the same shape every
+    /// executor-taking endpoint uses, so a single-node client never has to name
+    /// anything. The sessions wildcard is **not** handled here: `"*"` resolves to
+    /// itself, and the caller decides what a wildcard means for the endpoint it is
+    /// answering (a list can be every executor; a single "current" cannot).
+    pub fn resolve_executor(&self, executor: Option<&str>) -> String {
+        executor
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| self.local_executor_id())
+    }
+
+    /// One executor's configuration, if it has one (v1.0 M2b-3a).
+    fn llm_config_get_for(&self, executor: &str) -> Option<LlmConfigInput> {
         self.llm_config
             .lock()
             .ok()
-            .and_then(|map| map.get(&self.local_executor_id()).cloned())
+            .and_then(|map| map.get(executor).cloned())
     }
 
-    /// Whether the local executor's **non-secret** configuration is on disk.
-    fn llm_config_persisted(&self) -> bool {
+    /// Whether one executor's **non-secret** configuration is on disk (v1.0 M2b-3a).
+    fn llm_config_persisted_for(&self, executor: &str) -> bool {
         self.settings
             .lock()
-            .map(|settings| settings.llm_configs.contains_key(&self.local_executor_id()))
+            .map(|settings| settings.llm_configs.contains_key(executor))
             .unwrap_or(false)
     }
 
-    /// Write the local executor's configuration into `settings.json` (v1.0 M2b-1).
+    /// Write one executor's configuration into `settings.json` (v1.0 M2b-1/M2b-3a).
     ///
     /// Only the non-secret half: which provider, which endpoint, which model. The
     /// key stays in the keyring, the rule `settings.json` has kept since v0.4 — so
     /// this file can be copied, backed up, or pasted into an issue.
-    fn persist_llm_config(&self, input: &LlmConfigInput) {
+    fn persist_llm_config(&self, executor: &str, input: &LlmConfigInput) {
         let entry = LlmConfigEntry {
             provider_id: input.provider_id.clone(),
             base_url: input.base_url.clone(),
@@ -3434,17 +3478,17 @@ impl AppState {
         let Ok(mut settings) = self.settings.lock() else {
             return;
         };
-        settings.llm_configs.insert(self.local_executor_id(), entry);
+        settings.llm_configs.insert(executor.to_string(), entry);
         drop(settings);
         self.save_settings();
     }
 
-    /// Forget the local executor's **persisted** configuration (v1.0 M2b-1).
-    fn forget_llm_config(&self) {
+    /// Forget one executor's **persisted** configuration (v1.0 M2b-1/M2b-3a).
+    fn forget_llm_config(&self, executor: &str) {
         let Ok(mut settings) = self.settings.lock() else {
             return;
         };
-        settings.llm_configs.remove(&self.local_executor_id());
+        settings.llm_configs.remove(executor);
         drop(settings);
         self.save_settings();
     }
@@ -3511,6 +3555,30 @@ impl AppState {
         model: String,
         remember: Option<bool>,
     ) -> Result<(), HostError> {
+        self.set_llm_config_with_for(
+            &self.local_executor_id(),
+            provider_id,
+            api_key,
+            base_url,
+            model,
+            remember,
+        )
+    }
+
+    /// [`Self::set_llm_config_with`], for a named executor (v1.0 M2b-3a).
+    ///
+    /// `executor` is the entry's key in `settings.json` and the keyring account's
+    /// middle word: the non-secret half and the key both travel with the executor,
+    /// so configuring a worker does not touch this node's own model.
+    pub fn set_llm_config_with_for(
+        &self,
+        executor: &str,
+        provider_id: Option<String>,
+        api_key: String,
+        base_url: String,
+        model: String,
+        remember: Option<bool>,
+    ) -> Result<(), HostError> {
         let pid = provider_id
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_PRESET_ID.to_string());
@@ -3557,18 +3625,18 @@ impl AppState {
         let remember = remember.unwrap_or(true);
 
         let persisted = if remember {
-            self.keyring_save(&provider_id, &key)
+            self.keyring_save(executor, &provider_id, &key)
         } else {
             // Never leave a stale entry behind when the user opts out.
-            let _ = self.keyring_delete(&provider_id);
+            let _ = self.keyring_delete(executor, &provider_id);
             false
         };
 
         // The non-secret half always goes to disk (v1.0 M2b-1): which provider,
         // which endpoint, which model — never the key. `remember` only decides
         // whether the key itself is kept in the keyring.
-        self.persist_llm_config(&input);
-        self.set_llm_config(input);
+        self.persist_llm_config(executor, &input);
+        self.set_llm_config_for(executor, input);
         if let Ok(mut p) = self.persisted.lock() {
             *p = persisted;
         }
@@ -3579,10 +3647,15 @@ impl AppState {
     ///
     /// A v0.9.9 entry counts — the read migrates it forward.
     pub fn has_stored_key(&self, provider_id: &str) -> bool {
-        matches!(
-            self.keyring_get_llm_key(&self.local_executor_id(), provider_id),
-            Ok(Some(_))
-        )
+        self.has_stored_key_for(&self.local_executor_id(), provider_id)
+    }
+
+    /// [`Self::has_stored_key`], for a named executor (v1.0 M2b-3a).
+    ///
+    /// The v0.9.9 fallback inside [`Self::keyring_get_llm_key`] is this node's own
+    /// name only, so another executor's answer is exactly its own entry.
+    pub fn has_stored_key_for(&self, executor: &str, provider_id: &str) -> bool {
+        matches!(self.keyring_get_llm_key(executor, provider_id), Ok(Some(_)))
     }
 
     /// Load a stored key from the keyring into memory (startup restore).
@@ -3592,8 +3665,16 @@ impl AppState {
     /// user's endpoint and model, not a preset's), then whatever is already in
     /// memory, then the preset's defaults.
     pub fn load_stored_key(&self, provider_id: &str) -> Result<(), String> {
-        let executor = self.local_executor_id();
-        let key = match self.keyring_get_llm_key(&executor, provider_id) {
+        self.load_stored_key_for(&self.local_executor_id(), provider_id)
+    }
+
+    /// [`Self::load_stored_key`], for a named executor (v1.0 M2b-3a).
+    ///
+    /// The fallback chain reads the **named** executor's own entry: another
+    /// executor's saved endpoint and model are what its key should be paired with,
+    /// never this node's.
+    pub fn load_stored_key_for(&self, executor: &str, provider_id: &str) -> Result<(), String> {
+        let key = match self.keyring_get_llm_key(executor, provider_id) {
             Ok(Some(key)) => key,
             Ok(None) => return Err("no_stored_key".to_string()),
             Err(e) => return Err(e),
@@ -3603,7 +3684,7 @@ impl AppState {
             .settings
             .lock()
             .ok()
-            .and_then(|settings| settings.llm_configs.get(&executor).cloned())
+            .and_then(|settings| settings.llm_configs.get(executor).cloned())
             // The entry is one per executor, so it only answers for its own provider.
             .filter(|entry| entry.provider_id == provider_id);
         let input = match persisted {
@@ -3613,7 +3694,7 @@ impl AppState {
                 base_url: entry.base_url,
                 model: entry.model,
             },
-            None => match self.llm_config_get() {
+            None => match self.llm_config_get_for(executor) {
                 Some(current) if current.provider_id == provider_id => LlmConfigInput {
                     api_key: key,
                     ..current
@@ -3636,49 +3717,55 @@ impl AppState {
             return Err(readiness.reason.unwrap_or_else(|| "invalid_config".into()));
         }
 
-        self.set_llm_config(input);
-        if let Ok(mut p) = self.persisted.lock() {
-            *p = true;
+        let is_local = executor == self.local_executor_id();
+        self.set_llm_config_for(executor, input);
+        // The in-process flag records **this process's** own save, so it only moves
+        // for this node's own executor; another executor's answer is read from the
+        // keyring instead (see [`Self::llm_config_status_for`]).
+        if is_local {
+            if let Ok(mut p) = self.persisted.lock() {
+                *p = true;
+            }
         }
         self.emit_host(
             "host.keyring.load",
-            serde_json::json!({ "provider_id": provider_id }),
+            serde_json::json!({ "provider_id": provider_id, "executor": executor }),
         );
         Ok(())
     }
 
-    fn keyring_save(&self, provider_id: &str, api_key: &str) -> bool {
+    fn keyring_save(&self, executor: &str, provider_id: &str, api_key: &str) -> bool {
         if api_key.trim().is_empty() {
             return false;
         }
-        let user = user_for_llm_key(&self.local_executor_id(), provider_id);
+        let user = user_for_llm_key(executor, provider_id);
         match self.keyring.set(SERVICE, &user, api_key) {
             Ok(()) => {
                 self.emit_host(
                     "host.keyring.save",
-                    serde_json::json!({ "provider_id": provider_id }),
+                    serde_json::json!({ "provider_id": provider_id, "executor": executor }),
                 );
                 true
             }
             Err(_) => {
                 self.emit_host(
                     "host.keyring.save_failed",
-                    serde_json::json!({ "provider_id": provider_id }),
+                    serde_json::json!({ "provider_id": provider_id, "executor": executor }),
                 );
                 false
             }
         }
     }
 
-    fn keyring_delete(&self, provider_id: &str) -> Result<(), String> {
+    fn keyring_delete(&self, executor: &str, provider_id: &str) -> Result<(), String> {
         // Only the **new** name: a v0.9.9 entry is not this build's to delete, and
         // the read path only ever migrates forward (v1.0 M2b-1).
-        let user = user_for_llm_key(&self.local_executor_id(), provider_id);
+        let user = user_for_llm_key(executor, provider_id);
         let result = self.keyring.delete(SERVICE, &user);
         if result.is_ok() {
             self.emit_host(
                 "host.keyring.delete",
-                serde_json::json!({ "provider_id": provider_id }),
+                serde_json::json!({ "provider_id": provider_id, "executor": executor }),
             );
         }
         result
@@ -3691,8 +3778,13 @@ impl AppState {
     /// the tests use, and neither should write a settings file. A person's save goes
     /// through [`Self::set_llm_config_with`], which persists the non-secret half.
     pub fn set_llm_config(&self, input: LlmConfigInput) {
+        self.set_llm_config_for(&self.local_executor_id(), input);
+    }
+
+    /// [`Self::set_llm_config`], for a named executor (v1.0 M2b-3a).
+    pub fn set_llm_config_for(&self, executor: &str, input: LlmConfigInput) {
         if let Ok(mut map) = self.llm_config.lock() {
-            map.insert(self.local_executor_id(), input);
+            map.insert(executor.to_string(), input);
         }
     }
 
@@ -3702,23 +3794,50 @@ impl AppState {
     /// A v0.9.9 keyring entry is left alone: it is not this build's to delete, and
     /// the read path only ever migrates forward.
     pub fn clear_llm_config(&self) {
-        let provider = self.llm_config_get().map(|c| c.provider_id);
+        self.clear_llm_config_for(&self.local_executor_id());
+    }
+
+    /// [`Self::clear_llm_config`], for a named executor (v1.0 M2b-3a).
+    ///
+    /// The in-process `persisted` flag is only cleared for this node's own
+    /// executor: it records this process's own save, which no other executor's
+    /// clear can have made.
+    pub fn clear_llm_config_for(&self, executor: &str) {
+        let provider = self.llm_config_get_for(executor).map(|c| c.provider_id);
         if let Ok(mut map) = self.llm_config.lock() {
-            map.remove(&self.local_executor_id());
+            map.remove(executor);
         }
         if let Some(provider_id) = provider {
-            let _ = self.keyring_delete(&provider_id);
+            let _ = self.keyring_delete(executor, &provider_id);
         }
-        self.forget_llm_config();
-        if let Ok(mut p) = self.persisted.lock() {
-            *p = false;
+        self.forget_llm_config(executor);
+        if executor == self.local_executor_id() {
+            if let Ok(mut p) = self.persisted.lock() {
+                *p = false;
+            }
         }
     }
 
     /// Status for the UI (never returns the key).
     pub fn llm_config_status(&self) -> LlmConfigStatus {
-        let persisted = self.persisted.lock().map(|g| *g).unwrap_or(false);
-        let config_persisted = self.llm_config_persisted();
+        self.llm_config_status_for(&self.local_executor_id())
+    }
+
+    /// [`Self::llm_config_status`], for a named executor (v1.0 M2b-3a).
+    ///
+    /// `persisted` reads two sources, one per case, and both mean "the key is
+    /// remembered": for this node's **own** executor it is the in-process flag —
+    /// this process is the one that saved it — and for a **named** one it is the
+    /// keyring itself, since this process never saved that key.
+    pub fn llm_config_status_for(&self, executor: &str) -> LlmConfigStatus {
+        let is_local = executor == self.local_executor_id();
+        let config_persisted = self.llm_config_persisted_for(executor);
+        let configured = self.llm_config_get_for(executor);
+        let persisted = match &configured {
+            Some(c) if !is_local => self.has_stored_key_for(executor, &c.provider_id),
+            Some(_) => self.persisted.lock().map(|g| *g).unwrap_or(false),
+            None => false,
+        };
         let unconfigured = || LlmConfigStatus {
             configured: false,
             provider_id: DEFAULT_PRESET_ID.to_string(),
@@ -3727,7 +3846,7 @@ impl AppState {
             persisted: false,
             config_persisted,
         };
-        match self.llm_config_get() {
+        match configured {
             Some(c) => LlmConfigStatus {
                 configured: true,
                 provider_id: c.provider_id,
@@ -3742,6 +3861,15 @@ impl AppState {
 
     /// Whether the LLM is ready to run (never includes the key).
     pub fn llm_readiness(&self) -> LlmReadiness {
+        self.llm_readiness_for(&self.local_executor_id())
+    }
+
+    /// [`Self::llm_readiness`], for a named executor (v1.0 M2b-3a).
+    ///
+    /// The injected-client seam (tests) is node-wide: a process that has an LLM
+    /// client injected is ready whatever executor is asked about, the same way it is
+    /// ready for its own.
+    pub fn llm_readiness_for(&self, executor: &str) -> LlmReadiness {
         // Test seam: an injected client is always considered ready.
         if self
             .llm_override
@@ -3760,7 +3888,7 @@ impl AppState {
             reason: Some("no_config".into()),
             suggestion: Some("请在设置中选择服务商并填写 API Key，或使用本地模型".to_string()),
         };
-        match self.llm_config_get() {
+        match self.llm_config_get_for(executor) {
             Some(input) => readiness_of(&input),
             None => no_config(),
         }
@@ -3836,7 +3964,13 @@ impl AppState {
         }
     }
 
-    fn agent_config(&self) -> AgentConfig {
+    /// The agent configuration one executor runs with (v1.0 M2b-3a).
+    ///
+    /// `executor` names whose model configuration is read. A run **on this node**
+    /// asks for this node's own ([`Self::local_executor_id`]), which is what every
+    /// caller passes today; the parameter is what makes the reading explicit rather
+    /// than implied by the map's key.
+    fn agent_config_for(&self, executor: &str) -> AgentConfig {
         let default = AgentConfig::deepseek_default();
         let using_override = self
             .llm_override
@@ -3844,9 +3978,8 @@ impl AppState {
             .map(|g| g.is_some())
             .unwrap_or(false);
         let (mut api_key, base_url, model, provider_id) = match self.llm_config.lock() {
-            // v1.0 M2b-1: the map holds one entry per executor, and this is the
-            // **local** one — the node's own model configuration.
-            Ok(g) => match g.get(&self.local_executor_id()) {
+            // v1.0 M2b-1: the map holds one entry per executor, keyed by executor id.
+            Ok(g) => match g.get(executor) {
                 Some(c) => (
                     c.api_key.clone(),
                     c.base_url.clone(),
@@ -3882,13 +4015,13 @@ impl AppState {
         }
     }
 
-    fn build_llm(&self) -> Result<Box<dyn LlmClient>, HostError> {
+    fn build_llm(&self, executor: &str) -> Result<Box<dyn LlmClient>, HostError> {
         if let Ok(g) = self.llm_override.lock() {
             if let Some(over) = g.as_ref() {
                 return Ok(Box::new(ArcLlm(Arc::clone(over))));
             }
         }
-        let config = self.agent_config();
+        let config = self.agent_config_for(executor);
         if config.api_key.trim().is_empty() {
             return Err(HostError::NotConfigured(
                 "LLM not configured; call set_llm_config first".into(),
@@ -4718,7 +4851,7 @@ impl AppState {
     /// differ only by an unreadable field never look identical. The API key is
     /// never part of it, in any form.
     pub fn run_fingerprint(&self) -> serde_json::Value {
-        let agent_config = self.agent_config();
+        let agent_config = self.agent_config_for(&self.local_executor_id());
         let compiler = self.toolchain_config();
         let toolchain = self.probe_toolchain();
         let qemu = self.probe_qemu();
@@ -5081,7 +5214,7 @@ impl AppState {
         // `cause: "llm"` without checking readiness twice (the route used to; F2d
         // moved the whole refusal ladder into this one function, so the declaration
         // is answered the same way whichever surface asked).
-        let readiness = self.llm_readiness();
+        let readiness = self.llm_readiness_for(&self.local_executor_id());
         if !readiness.ready {
             return Err(HostError::NotConfigured(readiness_error(&readiness)));
         }
@@ -5125,12 +5258,12 @@ impl AppState {
                 );
             }
         }
-        let llm = self.build_llm()?;
+        let llm = self.build_llm(&self.local_executor_id())?;
         let policy = WorkspacePolicy::new(self.workspace_root.clone());
         let system_prompt = format!("{CONSTITUTION}\n\n{}", agent::prompt::OPERATING_RULES);
         let mut agent = AgentLoop::with_vm(
             llm,
-            self.agent_config(),
+            self.agent_config_for(&self.local_executor_id()),
             policy,
             Arc::clone(&self.sink),
             Arc::clone(&instance.vm_slot),

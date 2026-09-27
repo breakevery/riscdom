@@ -38,6 +38,17 @@ pub const OPEN_MAX_ATTEMPTS: u32 = APPEND_MAX_ATTEMPTS;
 /// [`APPEND_BACKOFF_BASE`] does on the write path.
 pub const OPEN_BACKOFF_BASE: Duration = APPEND_BACKOFF_BASE;
 
+/// The schema version an `audit.db` file carries, in SQLite's own
+/// `PRAGMA user_version` (v1.0 M2b-3a).
+///
+/// **1** is the first version that has a version at all. The file already went
+/// through two column migrations with nothing to record them — `agent_id` (v0.8)
+/// and `resumed_from_snapshot` (v0.5 batch 3) — so this is the marker those two
+/// never had, not a format change of its own. A file from before it reads as `0`
+/// and is migrated on open; a file from a **newer** build is refused rather than
+/// half-read.
+pub const AUDIT_SCHEMA_VERSION: i64 = 1;
+
 /// Schema + append-only triggers.
 ///
 /// The `BEFORE UPDATE` / `BEFORE DELETE` triggers are the hard guarantee that
@@ -229,10 +240,47 @@ impl AuditStore {
 
     fn init_schema(&self) -> Result<(), AuditError> {
         Self::configure_connection(&self.conn)?;
+        // The version is read **before** anything else touches the file (v1.0
+        // M2b-3a). A newer build's format may mean something this one does not know,
+        // so an unknown-version file is refused rather than migrated: nothing has
+        // been read and nothing has been written when this returns.
+        let found = Self::file_version_on(&self.conn)?;
+        if found > AUDIT_SCHEMA_VERSION {
+            return Err(AuditError::DataTooNew {
+                found,
+                supported: AUDIT_SCHEMA_VERSION,
+            });
+        }
         self.conn.execute_batch(SCHEMA)?;
         self.migrate_events_table()?;
         self.migrate_runs_table()?;
+        // Stamp last, so a failure above leaves the version where it was and the
+        // next open retries the same migration. Both migrations are idempotent
+        // (`column_exists` asks `PRAGMA table_info` first), so a stamped file and a
+        // half-migrated one converge on the same shape.
+        //
+        // **No `.bak`.** The session store keeps one because it is a single
+        // connection to a non-WAL file, where copying bytes is a complete backup.
+        // This file is **WAL** and opened by several processes at once, so copying
+        // `audit.db` alone can miss frames still in `-wal` — a backup that looks
+        // finished and is not. The migration itself adds a column beside the chain
+        // and writes this number; it destroys nothing, so there is nothing a backup
+        // would rescue.
+        if found < AUDIT_SCHEMA_VERSION {
+            self.conn
+                .execute_batch(&format!("PRAGMA user_version = {AUDIT_SCHEMA_VERSION};"))?;
+        }
         Ok(())
+    }
+
+    /// The `user_version` this connection's file carries.
+    fn file_version_on(conn: &Connection) -> Result<i64, AuditError> {
+        Ok(conn.query_row("PRAGMA user_version", [], |row| row.get(0))?)
+    }
+
+    /// The schema version this store's file carries (diagnostics and tests).
+    pub fn schema_version(&self) -> Result<i64, AuditError> {
+        Self::file_version_on(&self.conn)
     }
 
     /// The connection settings that make several processes writing one

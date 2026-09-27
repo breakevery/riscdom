@@ -181,12 +181,12 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/runs/{run_id}` | GET | `runs.read` | path: `run_id` | `RunView` or `null` | `get_run` |
 | `/v0/runs/diff` | GET | `runs.read` | query: `run_a`, `run_b` | `[FingerprintFieldDiff]` | `compare_run_fingerprints` |
 | `/v0/llm/provider-presets` | GET | `llm.read` | — | `[ProviderPresetView]` | `get_provider_presets` |
-| `/v0/llm/config` | GET | `llm.read` | — | `LlmConfigStatus` | `get_llm_config_status` |
-| `/v0/llm/readiness` | GET | `llm.read` | — | `LlmReadiness` | `get_llm_readiness` |
+| `/v0/llm/config` | GET | `llm.read` | query: `executor`? | `LlmConfigStatus` | `get_llm_config_status` |
+| `/v0/llm/readiness` | GET | `llm.read` | query: `executor`? | `LlmReadiness` | `get_llm_readiness` |
 | `/v0/llm/local-probe` | GET | `llm.read` | — | `LocalProbeResult` | `probe_local_llm` |
-| `/v0/llm/stored-key` | GET | `llm.read` | query: `provider_id` | `{ "present": bool }` | `has_stored_key` |
-| `/v0/sessions` | GET | `session.read` | query: `limit`, `executor`? | `[SessionMeta]` | `list_sessions` |
-| `/v0/sessions/current` | GET | `session.read` | query: `executor`? | `{ "session_id": string \| null }` | `get_current_session_id` |
+| `/v0/llm/stored-key` | GET | `llm.read` | query: `provider_id`, `executor`? | `{ "present": bool }` | `has_stored_key` |
+| `/v0/sessions` | GET | `session.read` | query: `limit`, `executor`? (`*` = every executor) | `[SessionMeta]` | `list_sessions` |
+| `/v0/sessions/current` | GET | `session.read` | query: `executor`? (`*` is a `400`) | `{ "session_id": string \| null }` | `get_current_session_id` |
 | `/v0/snapshots` | GET | `snapshot.read` | — | `[SnapshotMetaView]` | `list_snapshots` |
 | `/v0/vm/running` | GET | `vm.read` | — | `{ "running": bool }` | `vm_is_running` |
 | `/v0/vm/status` | GET | `vm.read` | — | `VmStatusView` | `vm_status` |
@@ -244,9 +244,9 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/audit/export` | POST | `audit.export` | `{ "path": string }` | `{ "events_exported": number }` | `export_audit_jsonl` |
 | `/v0/settings/theme` | POST | `settings.write` | `{ "theme": string }` | `204 No Content` | `set_theme` |
 | `/v0/settings/language` | POST | `settings.write` | `{ "language": string }` | `204 No Content` | `set_language` |
-| `/v0/llm/config` | POST | `llm.configure` | `{ "api_key", "base_url", "model", "provider_id"?, "remember"? }` | `204 No Content` | `set_llm_config` |
-| `/v0/llm/stored-key/load` | POST | `llm.configure` | `{ "provider_id": string }` | `204 No Content` | `load_stored_key` |
-| `/v0/llm/config/clear` | POST | `llm.configure` | — | `204 No Content` | `clear_llm_config` |
+| `/v0/llm/config` | POST | `llm.configure` | `{ "api_key", "base_url", "model", "provider_id"?, "remember"?, "executor"? }` | `204 No Content` | `set_llm_config` |
+| `/v0/llm/stored-key/load` | POST | `llm.configure` | `{ "provider_id": string, "executor"?: string }` | `204 No Content` | `load_stored_key` |
+| `/v0/llm/config/clear` | POST | `llm.configure` | `{ "executor"?: string }` | `204 No Content` | `clear_llm_config` |
 | `/v0/serial/export` | POST | `serial.export` | `{ "path": string }` | `{ "bytes_written": number }` | `export_serial_log` |
 | `/v0/sandboxes/switch` | POST | `sandbox.switch` | `{ "name": string }` | `{ "from": string \| null, "to": string }`, or `404` / `409` / `503` / `500` (see the note below) | `switch_sandbox` |
 | `/v0/sandboxes/requests` | POST | `agent.run` | `{ "action": "switch"\|"define"\|"assemble", "sandbox"?, "reason"? }` | `201 { "id": string }` | `request_sandbox` |
@@ -278,6 +278,16 @@ the tables above. They are part of this document's surface all the same.
 
 ### 5.4 Notes on the tables
 
+- **`executor` is one optional parameter, and `*` is its one wildcard** (v1.0 M2b-3a). It is
+  optional on the LLM and session endpoints, where absent means **this node's own**
+  executor; `*` means **every** executor, but only where a plural answer exists:
+  `/v0/sessions?executor=*` answers one merged list, newest first, with `limit` counting
+  rows rather than rows per executor, and each row carrying its own `executor_id`. The
+  endpoints that answer about **one** executor refuse it with `400 bad_request`,
+  `cause: "executor"` — a model configuration belongs to one executor, and so does
+  "the current session". `*` is therefore a **reserved** executor id as well: nothing may be
+  labelled with it, and neither may `local`, which is this node's own id until a node
+  renames itself.
 - **`/v0/tasks` routes; `/v0/agent/run` runs *here*.** The two look alike and are
   not: `POST /v0/agent/run` runs one turn on **this node**, while `POST /v0/tasks`
   sends a `Task` to the executor its `target` names and answers with the

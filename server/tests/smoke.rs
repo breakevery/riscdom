@@ -1571,6 +1571,170 @@ fn a_cursor_older_than_the_buffer_gets_a_gap_frame() {
 }
 
 // ---------------------------------------------------------------------------
+// One executor at a time (v1.0 M2b-3a)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_model_endpoints_take_an_executor() {
+    let (addr, app) = serve_with_state(temp_workspace("llm-exec"), Arc::new(NoAuth));
+    assert!(!app.llm_config_status().configured);
+
+    // The node's own reading first: nothing is configured.
+    let (status, mine) = get(addr, "/v0/llm/config");
+    assert_eq!(status, 200, "{mine}");
+    assert_eq!(mine["configured"], false);
+
+    // A configuration saved for a worker is the worker's, and the endpoint names it.
+    app.set_llm_config_with_for(
+        "worker-a",
+        Some("deepseek".into()),
+        "http-key-not-real".into(),
+        "http://127.0.0.1:9/v1".into(),
+        "worker-model".into(),
+        Some(false),
+    )
+    .expect("save for the worker");
+
+    let (status, worker) = get(addr, "/v0/llm/config?executor=worker-a");
+    assert_eq!(status, 200, "{worker}");
+    assert_eq!(worker["configured"], true);
+    assert_eq!(worker["model"], "worker-model");
+    assert_eq!(worker["base_url"], "http://127.0.0.1:9/v1");
+    assert!(
+        !worker.to_string().contains("http-key-not-real"),
+        "the key never travels: {worker}"
+    );
+
+    // The node itself is still unconfigured, and so is readiness.
+    let (_, mine) = get(addr, "/v0/llm/config");
+    assert_eq!(mine["configured"], false);
+    let (_, ready) = get(addr, "/v0/llm/readiness?executor=worker-a");
+    assert_eq!(ready["ready"], true);
+    let (_, not_ready) = get(addr, "/v0/llm/readiness");
+    assert_eq!(not_ready["ready"], false);
+    assert_eq!(not_ready["reason"], "no_config");
+
+    // A stored key is asked about per executor too (nothing was remembered here).
+    let (_, present) = get(
+        addr,
+        "/v0/llm/stored-key?provider_id=deepseek&executor=worker-a",
+    );
+    assert_eq!(present["present"], false);
+    let (_, present) = get(addr, "/v0/llm/stored-key?provider_id=deepseek");
+    assert_eq!(present["present"], false);
+
+    // The wildcard is refused: a model configuration belongs to one executor, and
+    // there is no plural reading of "which model is configured".
+    let (status, body) = get(addr, "/v0/llm/config?executor=*");
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["code"], "bad_request");
+    assert_eq!(body["cause"], "executor");
+}
+
+#[test]
+fn a_model_configuration_is_written_and_cleared_for_one_executor() {
+    let (addr, app) = serve_with_state(temp_workspace("llm-exec-write"), Arc::new(NoAuth));
+    let body = serde_json::json!({
+        "api_key": "http-key-not-real",
+        "base_url": "http://127.0.0.1:9/v1",
+        "model": "worker-model",
+        "provider_id": "deepseek",
+        "remember": false,
+        "executor": "worker-a",
+    });
+    let plain = serde_json::json!({
+        "api_key": "http-key-not-real",
+        "base_url": "http://127.0.0.1:9/v1",
+        "model": "mine-model",
+        "provider_id": "deepseek",
+        "remember": false,
+    });
+    let (status, _) = call(addr, "POST", "/v0/llm/config", "", Some(&body.to_string()));
+    assert_eq!(status, 204);
+    assert!(app.llm_config_status_for("worker-a").configured);
+    assert!(!app.llm_config_status().configured);
+
+    // Clearing names the executor, and only that one goes.
+    let (status, _) = call(
+        addr,
+        "POST",
+        "/v0/llm/config/clear",
+        "",
+        Some(r#"{"executor":"worker-a"}"#),
+    );
+    assert_eq!(status, 204);
+    assert!(!app.llm_config_status_for("worker-a").configured);
+
+    // `executor` is optional: the plain call writes this node's own entry. The
+    // named write above put nothing on the node.
+    let (status, _) = call(addr, "POST", "/v0/llm/config", "", Some(&plain.to_string()));
+    assert_eq!(status, 204);
+    assert!(app.llm_config_status().configured);
+    assert_eq!(app.llm_config_status().model, "mine-model");
+    assert!(!app.llm_config_status_for("worker-a").configured);
+
+    // And a write that names the worker leaves the node's own entry alone.
+    let (status, _) = call(addr, "POST", "/v0/llm/config", "", Some(&body.to_string()));
+    assert_eq!(status, 204);
+    assert!(app.llm_config_status_for("worker-a").configured);
+    assert!(app.llm_config_status().configured, "the node keeps its own");
+    assert_eq!(app.llm_config_status().model, "mine-model");
+}
+
+#[test]
+fn the_sessions_wildcard_lists_every_executor() {
+    let (addr, app) = serve_with_state(temp_workspace("sessions-all"), Arc::new(NoAuth));
+    let local = app.local_executor_id();
+    app.create_session("mine", &local).expect("local session");
+    app.create_session("theirs", "worker-a")
+        .expect("worker session");
+
+    let (status, mine) = get(addr, "/v0/sessions?limit=10");
+    assert_eq!(status, 200, "{mine}");
+    assert_eq!(mine.as_array().expect("list").len(), 1);
+
+    let (status, all) = get(addr, "/v0/sessions?limit=10&executor=*");
+    assert_eq!(status, 200, "{all}");
+    let rows = all.as_array().expect("list");
+    assert_eq!(rows.len(), 2);
+    assert!(
+        rows.iter().any(|row| row["executor_id"] == "worker-a"),
+        "each row still says whose it is: {all}"
+    );
+
+    // A limit is a row count, not a per-executor count.
+    let (_, one) = get(addr, "/v0/sessions?limit=1&executor=*");
+    assert_eq!(one.as_array().expect("list").len(), 1);
+
+    // Naming one executor still narrows to it.
+    let (_, worker) = get(addr, "/v0/sessions?limit=10&executor=worker-a");
+    assert_eq!(worker.as_array().expect("list").len(), 1);
+
+    // "Current" is one value per executor, so the wildcard is refused rather than
+    // answered with nothing.
+    let (status, body) = get(addr, "/v0/sessions/current?executor=*");
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["code"], "bad_request");
+    assert_eq!(body["cause"], "executor");
+
+    let (status, current) = get(addr, "/v0/sessions/current");
+    assert_eq!(status, 200, "{current}");
+    assert!(current["session_id"].is_string(), "{current}");
+    let (_, current) = get(addr, "/v0/sessions/current?executor=worker-a");
+    assert!(current["session_id"].is_string(), "{current}");
+
+    // And a control's wildcard is refused the same way: which executor's session
+    // would it be renaming?
+    let (status, body) = post(
+        addr,
+        "/v0/sessions/rename",
+        r#"{"session_id":"any","title":"t","executor":"*"}"#,
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["cause"], "executor");
+}
+
+// ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
 

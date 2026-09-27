@@ -50,10 +50,10 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | `runs` | GET | `/v0/runs` | `runs.read` | `limit` (int, default 20) |
 | `runs_diff` | GET | `/v0/runs/diff` | `runs.read` | `run_a` (str), `run_b` (str) |
 | `llm_provider_presets` | GET | `/v0/llm/provider-presets` | `llm.read` | — |
-| `llm_config` | GET | `/v0/llm/config` | `llm.read` | — |
-| `llm_readiness` | GET | `/v0/llm/readiness` | `llm.read` | — |
+| `llm_config` | GET | `/v0/llm/config` | `llm.read` | `executor` (str) |
+| `llm_readiness` | GET | `/v0/llm/readiness` | `llm.read` | `executor` (str) |
 | `llm_local_probe` | GET | `/v0/llm/local-probe` | `llm.read` | — |
-| `llm_stored_key` | GET | `/v0/llm/stored-key` | `llm.read` | `provider_id` (str) |
+| `llm_stored_key` | GET | `/v0/llm/stored-key` | `llm.read` | `provider_id` (str), `executor` (str) |
 | `sessions` | GET | `/v0/sessions` | `session.read` | `limit` (int), `executor` (str) |
 | `sessions_current` | GET | `/v0/sessions/current` | `session.read` | `executor` (str) |
 | `snapshots` | GET | `/v0/snapshots` | `snapshot.read` | — |
@@ -113,9 +113,9 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | `audit_export` | POST | `/v0/audit/export` | `audit.export` | `path` (str) |
 | `settings_theme_post` | POST | `/v0/settings/theme` | `settings.write` | `theme` (str) |
 | `settings_language_post` | POST | `/v0/settings/language` | `settings.write` | `language` (str) |
-| `llm_config_post` | POST | `/v0/llm/config` | `llm.configure` | `api_key` (str), `base_url` (str), `model` (str), `provider_id` (str), `remember` (bool) |
-| `llm_stored_key_load` | POST | `/v0/llm/stored-key/load` | `llm.configure` | `provider_id` (str) |
-| `llm_config_clear` | POST | `/v0/llm/config/clear` | `llm.configure` | — |
+| `llm_config_post` | POST | `/v0/llm/config` | `llm.configure` | `api_key` (str), `base_url` (str), `model` (str), `provider_id` (str), `remember` (bool), `executor` (str) |
+| `llm_stored_key_load` | POST | `/v0/llm/stored-key/load` | `llm.configure` | `provider_id` (str), `executor` (str) |
+| `llm_config_clear` | POST | `/v0/llm/config/clear` | `llm.configure` | `executor` (str) |
 | `serial_export` | POST | `/v0/serial/export` | `serial.export` | `path` (str) |
 | `sandboxes_switch` | POST | `/v0/sandboxes/switch` | `sandbox.switch` | `name` (str) |
 | `sandboxes_requests_post` | POST | `/v0/sandboxes/requests` | `agent.run` | `action` (str), `sandbox` (str), `reason` (str) |
@@ -160,10 +160,10 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 {"type":"function","function":{"name":"runs","description":"The run index, newest first.","parameters":{"type":"object","properties":{"limit":{"type":"integer"}},"required":[]}}}
 {"type":"function","function":{"name":"runs_diff","description":"Two runs' configuration fingerprints, field by field.","parameters":{"type":"object","properties":{"run_a":{"type":"string"},"run_b":{"type":"string"}},"required":["run_a","run_b"]}}}
 {"type":"function","function":{"name":"llm_provider_presets","description":"The built-in model provider presets.","parameters":{"type":"object","properties":{},"required":[]}}}
-{"type":"function","function":{"name":"llm_config","description":"The configured model: provider, base URL and model name, and whether a key is set (never the key).","parameters":{"type":"object","properties":{},"required":[]}}}
-{"type":"function","function":{"name":"llm_readiness","description":"Whether a model is usable right now.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"llm_config","description":"The configured model of one executor: provider, base URL and model name, and whether a key is set (never the key).","parameters":{"type":"object","properties":{"executor":{"type":"string"}},"required":[]}}}
+{"type":"function","function":{"name":"llm_readiness","description":"Whether one executor's model is usable right now.","parameters":{"type":"object","properties":{"executor":{"type":"string"}},"required":[]}}}
 {"type":"function","function":{"name":"llm_local_probe","description":"Whether a local (loopback) model server answers.","parameters":{"type":"object","properties":{},"required":[]}}}
-{"type":"function","function":{"name":"llm_stored_key","description":"Whether the OS credential store holds a key for this provider.","parameters":{"type":"object","properties":{"provider_id":{"type":"string"}},"required":["provider_id"]}}}
+{"type":"function","function":{"name":"llm_stored_key","description":"Whether the OS credential store holds a key for this provider, for one executor.","parameters":{"type":"object","properties":{"provider_id":{"type":"string"},"executor":{"type":"string"}},"required":["provider_id"]}}}
 {"type":"function","function":{"name":"sessions","description":"The stored sessions of one executor, newest first.","parameters":{"type":"object","properties":{"limit":{"type":"integer"},"executor":{"type":"string"}},"required":[]}}}
 {"type":"function","function":{"name":"sessions_current","description":"The session a run would land in.","parameters":{"type":"object","properties":{"executor":{"type":"string"}},"required":[]}}}
 {"type":"function","function":{"name":"snapshots","description":"The stored snapshots.","parameters":{"type":"object","properties":{},"required":[]}}}
@@ -225,9 +225,9 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 {"type":"function","function":{"name":"audit_export","description":"Write the whole audit chain as JSONL into the workspace.","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}
 {"type":"function","function":{"name":"settings_theme_post","description":"Set the interface theme.","parameters":{"type":"object","properties":{"theme":{"type":"string"}},"required":["theme"]}}}
 {"type":"function","function":{"name":"settings_language_post","description":"Set the interface language.","parameters":{"type":"object","properties":{"language":{"type":"string"}},"required":["language"]}}}
-{"type":"function","function":{"name":"llm_config_post","description":"Configure the model. With remember, the key goes to the OS credential store instead of this session only.","parameters":{"type":"object","properties":{"api_key":{"type":"string"},"base_url":{"type":"string"},"model":{"type":"string"},"provider_id":{"type":"string"},"remember":{"type":"boolean"}},"required":["api_key","base_url","model"]}}}
-{"type":"function","function":{"name":"llm_stored_key_load","description":"Load a stored key from the OS credential store into this session.","parameters":{"type":"object","properties":{"provider_id":{"type":"string"}},"required":["provider_id"]}}}
-{"type":"function","function":{"name":"llm_config_clear","description":"Forget the model configuration.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"llm_config_post","description":"Configure one executor's model. With remember, the key goes to the OS credential store instead of this session only.","parameters":{"type":"object","properties":{"api_key":{"type":"string"},"base_url":{"type":"string"},"model":{"type":"string"},"provider_id":{"type":"string"},"remember":{"type":"boolean"},"executor":{"type":"string"}},"required":["api_key","base_url","model"]}}}
+{"type":"function","function":{"name":"llm_stored_key_load","description":"Load a stored key from the OS credential store into this session, for one executor.","parameters":{"type":"object","properties":{"provider_id":{"type":"string"},"executor":{"type":"string"}},"required":["provider_id"]}}}
+{"type":"function","function":{"name":"llm_config_clear","description":"Forget one executor's model configuration.","parameters":{"type":"object","properties":{"executor":{"type":"string"}},"required":[]}}}
 {"type":"function","function":{"name":"serial_export","description":"Write the captured serial output into the workspace.","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}
 {"type":"function","function":{"name":"sandboxes_switch","description":"Switch this node to another sandbox definition. The running VM is stopped and started again.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"sandboxes_requests_post","description":"Leave a sandbox request for someone who may switch. It switches nothing by itself.","parameters":{"type":"object","properties":{"action":{"type":"string"},"sandbox":{"type":"string"},"reason":{"type":"string"}},"required":["action"]}}}

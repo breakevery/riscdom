@@ -1724,3 +1724,47 @@ browser's type marks as `string | null`. `open_session` looks a session up **by 
 every session, `clear_all` is scoped to one executor (the node's own also clears the unnamed rows), and
 `ensure_session` repairs a **stale** pointer by starting a fresh session. `session_messages` is
 untouched: a message belongs to exactly one session, and the join says so.
+
+## 77. The executor is an optional parameter, and `*` is its only wildcard
+
+**Date**: 2026-09-27 ｜ **Status**: Decided; landed with the v1.0 M2b-3a batch
+
+**Decision**: The executor an LLM or session endpoint acts as is **one optional parameter**
+(`executor`), absent meaning **this node's own** — never a second endpoint and never a boolean
+flag. The one wildcard is spelled as its **value**: `/v0/sessions?executor=*` answers every
+executor's sessions in one list. Endpoints whose answer is about a **single** executor refuse
+`*` with `400 bad_request`, `cause: "executor"`: a model configuration belongs to one executor,
+and so does "the current session".
+
+**Why**: There is one axis here — *which executor am I talking about* — and a second spelling
+(`?all=true`) or a second route (`/v0/sessions/all`) would be a second name for the same axis,
+with its own row in the endpoint table and its own count to keep in step. Spelling the wildcard
+as a **value** keeps the endpoint table unchanged: it is one token in the whole surface, so it is
+also one sentence in the documentation. The refusal is the same rule read the other way: a
+question with no plural answer does not get a wildcard answer, it gets the caller's parameter
+named back. The merged list's `limit` is a **row count**, not a per-executor count, because one
+statement and one `LIMIT` is what the store does — "N per executor" would need N queries and
+would make the number mean a different thing per executor present.
+
+**Impact**: `/v0/llm/config`, `/v0/llm/readiness`, `/v0/llm/stored-key`, the three LLM controls
+and the five session controls take `executor?`; `/v0/sessions` additionally understands `*`.
+The endpoint table's counts (§5.1 33 / §5.2 36) do not move, and neither does
+`every_query_endpoint_answers`'s `cases.len() == 33`. The Tauri commands carry `executor` as an
+optional argument, so a client that passes nothing keeps its old meaning; the UI selector that
+uses it is M2b-3b.
+
+## 78. `local` and `*` are reserved executor ids
+
+**Date**: 2026-09-27 ｜ **Status**: Decided; landed with the v1.0 M2b-3a batch
+
+**Decision**: An executor label may not be `"local"` (this node's own id until a node renames
+itself) or `"*"` (the sessions wildcard). A settings file carrying one still **loads**, and the
+offending entry is **skipped** with a `host.executor.reserved` audit event.
+
+**Why**: The executor id is one key space. It names the entry in `settings.json`'s
+`llm_configs`, the middle word of the keyring account, and the value of the `executor`
+parameter — so a worker labelled `local` would share the node's own model configuration, and a
+worker labelled `*` would collide with the wildcard itself. Skipping rather than refusing is the
+same reading v1.0 M2b-1 chose for a newer settings file: the failure is made **visible** (an audit
+event here, `settings_problem` there) instead of being swallowed or being allowed to brick a
+hand-edited file. The file is left byte-for-byte as the person wrote it.

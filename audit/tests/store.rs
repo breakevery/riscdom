@@ -1,6 +1,11 @@
 //! Stage 4a — store basics and concurrent append behaviour.
 
-use audit::{verify_chain, AuditEvent, AuditSink, AuditStore, ChainStatus, SqliteAuditSink};
+use audit::{
+    verify_chain, AuditError, AuditEvent, AuditSink, AuditStore, ChainStatus, SqliteAuditSink,
+    AUDIT_SCHEMA_VERSION,
+};
+use rusqlite::Connection;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -86,4 +91,118 @@ fn concurrent_appends_keep_chain_intact() {
         verify_chain(&store).expect("verify"),
         ChainStatus::Intact { length: 100 }
     );
+}
+
+// ----- schema version (v1.0 M2b-3a) ------------------------------------------
+
+/// A unique `audit.db` path under the temp directory.
+fn temp_db(tag: &str) -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "riscdom-audit-{tag}-{}-{nanos}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.join("audit.db")
+}
+
+#[test]
+fn a_fresh_file_is_stamped_and_keeps_no_backup() {
+    let db = temp_db("fresh");
+    let store = AuditStore::open(&db).expect("open");
+    assert_eq!(
+        store.schema_version().expect("version"),
+        AUDIT_SCHEMA_VERSION
+    );
+    drop(store);
+    // The audit store writes **no** `.bak`: this file is WAL and opened by several
+    // processes, so copying `audit.db` alone can miss frames still in `-wal`.
+    assert!(!db.with_extension("db.bak").exists());
+}
+
+#[test]
+fn a_file_from_before_the_marker_is_migrated_on_open() {
+    let db = temp_db("migrate");
+    // The shape before v1.0 M2b-3a: no version row, and neither of the two columns
+    // the earlier batches added.
+    {
+        let conn = Connection::open(&db).expect("raw open");
+        conn.execute_batch(
+            "CREATE TABLE audit_events (\n                 id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp_ms INTEGER NOT NULL,\n                 actor TEXT NOT NULL, action TEXT NOT NULL, detail_json TEXT NOT NULL,\n                 prev_hash TEXT NOT NULL, hash TEXT NOT NULL UNIQUE);\n             CREATE TABLE runs (\n                 run_id TEXT PRIMARY KEY, session_id TEXT, parent_run_id TEXT,\n                 fingerprint TEXT NOT NULL, fingerprint_schema TEXT NOT NULL,\n                 started_at_ms INTEGER NOT NULL, ended_at_ms INTEGER,\n                 start_seq INTEGER NOT NULL, end_seq INTEGER, status TEXT NOT NULL);",
+        )
+        .expect("old shape");
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .expect("version");
+        assert_eq!(version, 0, "the fixture carries no marker");
+    }
+
+    let mut store = AuditStore::open(&db).expect("open old");
+    assert_eq!(
+        store.schema_version().expect("version"),
+        AUDIT_SCHEMA_VERSION
+    );
+    // Both columns arrived and the chain is untouched: a row appended now is the
+    // first link of this file's chain, and its hash is the formula's.
+    let stored = store.append(ev(1, "sandbox", "vm.start")).expect("append");
+    assert!(stored.event.agent_id.is_none(), "producers opt in");
+    assert_eq!(stored.prev_hash, audit::GENESIS_PREV_HASH);
+    assert_eq!(
+        verify_chain(&store).expect("verify"),
+        ChainStatus::Intact { length: 1 }
+    );
+    assert_eq!(
+        store.schema_version().expect("version"),
+        AUDIT_SCHEMA_VERSION
+    );
+    drop(store);
+    assert!(!db.with_extension("db.bak").exists());
+}
+
+#[test]
+fn a_marker_whose_columns_are_missing_is_still_migrated() {
+    let db = temp_db("half");
+    {
+        let conn = Connection::open(&db).expect("raw open");
+        conn.execute_batch(
+            "CREATE TABLE audit_events (\n                 id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp_ms INTEGER NOT NULL,\n                 actor TEXT NOT NULL, action TEXT NOT NULL, detail_json TEXT NOT NULL,\n                 prev_hash TEXT NOT NULL, hash TEXT NOT NULL UNIQUE);\n             CREATE TABLE runs (\n                 run_id TEXT PRIMARY KEY, session_id TEXT, parent_run_id TEXT,\n                 fingerprint TEXT NOT NULL, fingerprint_schema TEXT NOT NULL,\n                 started_at_ms INTEGER NOT NULL, ended_at_ms INTEGER,\n                 start_seq INTEGER NOT NULL, end_seq INTEGER, status TEXT NOT NULL);\n             PRAGMA user_version = 1;",
+        )
+        .expect("half-migrated fixture");
+    }
+    // The column work is idempotent, so a file that claims the version without the
+    // columns converges on the same shape instead of failing.
+    let mut store = AuditStore::open(&db).expect("open half");
+    assert_eq!(
+        store.schema_version().expect("version"),
+        AUDIT_SCHEMA_VERSION
+    );
+    store
+        .append(ev(2, "agent", "llm.request").with_agent("exec-1"))
+        .expect("append");
+    let read = store.get(1).expect("get").expect("present");
+    assert_eq!(read.event.agent_id.as_deref(), Some("exec-1"));
+}
+
+#[test]
+fn a_newer_file_is_refused() {
+    let db = temp_db("newer");
+    drop(AuditStore::open(&db).expect("open"));
+    {
+        let conn = Connection::open(&db).expect("raw open");
+        conn.execute_batch("PRAGMA user_version = 99;")
+            .expect("stamp 99");
+    }
+
+    let refused = AuditStore::open(&db);
+    match refused.as_ref() {
+        Err(AuditError::DataTooNew { found, supported }) => {
+            assert_eq!(*found, 99);
+            assert_eq!(*supported, AUDIT_SCHEMA_VERSION);
+        }
+        Err(e) => panic!("expected DataTooNew, got {e}"),
+        Ok(_) => panic!("a file from a newer build must not open"),
+    }
 }

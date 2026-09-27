@@ -403,25 +403,29 @@ pub async fn resume_from_snapshot_real(
         .map_err(|e| e.user_message())
 }
 
-/// Recent sessions of this node, newest first.
+/// Recent sessions of one executor, newest first (v1.0 M2b-2; `executor` v1.0 M2b-3a).
 #[tauri::command]
 pub async fn list_sessions(
     state: State<'_, Arc<AppState>>,
     limit: usize,
+    executor: Option<String>,
 ) -> Result<Vec<SessionMeta>, String> {
+    let executor = state.resolve_executor(executor.as_deref());
     state
-        .list_sessions(limit, &state.local_executor_id())
+        .list_sessions(limit, &executor)
         .map_err(|e| e.user_message())
 }
 
-/// Create a session and make it this node's current one.
+/// Create a session for one executor and make it that executor's current one.
 #[tauri::command]
 pub async fn create_session(
     state: State<'_, Arc<AppState>>,
     title: String,
+    executor: Option<String>,
 ) -> Result<String, String> {
+    let executor = state.resolve_executor(executor.as_deref());
     state
-        .create_session(&title, &state.local_executor_id())
+        .create_session(&title, &executor)
         .map_err(|e| e.user_message())
 }
 
@@ -430,9 +434,11 @@ pub async fn create_session(
 pub async fn open_session(
     state: State<'_, Arc<AppState>>,
     session_id: String,
+    executor: Option<String>,
 ) -> Result<SessionDetailView, String> {
+    let executor = state.resolve_executor(executor.as_deref());
     state
-        .open_session(&session_id, &state.local_executor_id())
+        .open_session(&session_id, &executor)
         .map_err(|e| e.user_message())
 }
 
@@ -442,9 +448,11 @@ pub async fn rename_session(
     state: State<'_, Arc<AppState>>,
     session_id: String,
     title: String,
+    executor: Option<String>,
 ) -> Result<(), String> {
+    let executor = state.resolve_executor(executor.as_deref());
     state
-        .rename_session(&session_id, &title, &state.local_executor_id())
+        .rename_session(&session_id, &title, &executor)
         .map_err(|e| e.user_message())
 }
 
@@ -453,26 +461,34 @@ pub async fn rename_session(
 pub async fn delete_session(
     state: State<'_, Arc<AppState>>,
     session_id: String,
+    executor: Option<String>,
 ) -> Result<(), String> {
+    let executor = state.resolve_executor(executor.as_deref());
     state
-        .delete_session(&session_id, &state.local_executor_id())
+        .delete_session(&session_id, &executor)
         .map_err(|e| e.user_message())
 }
 
-/// Delete every session of this node. The UI must ask for confirmation first.
+/// Delete every session of one executor. The UI must ask for confirmation first.
 #[tauri::command]
-pub async fn clear_all_sessions(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+pub async fn clear_all_sessions(
+    state: State<'_, Arc<AppState>>,
+    executor: Option<String>,
+) -> Result<(), String> {
+    let executor = state.resolve_executor(executor.as_deref());
     state
-        .clear_all_sessions(&state.local_executor_id())
+        .clear_all_sessions(&executor)
         .map_err(|e| e.user_message())
 }
 
-/// The session the next run of this node appends to.
+/// The session the next run of one executor appends to.
 #[tauri::command]
 pub async fn get_current_session_id(
     state: State<'_, Arc<AppState>>,
+    executor: Option<String>,
 ) -> Result<Option<String>, String> {
-    Ok(state.current_session_id(&state.local_executor_id()))
+    let executor = state.resolve_executor(executor.as_deref());
+    Ok(state.current_session_id(&executor))
 }
 
 /// Audit event count + chain status, plus the pending write failures (v0.8).
@@ -598,10 +614,14 @@ pub async fn probe_local_llm(state: State<'_, Arc<AppState>>) -> Result<LocalPro
     Ok(state.probe_local_llm())
 }
 
-/// Whether the LLM is ready to run, and why not.
+/// Whether the LLM is ready to run, and why not (v1.0 M2b-3a: `executor` optional).
 #[tauri::command]
-pub async fn get_llm_readiness(state: State<'_, Arc<AppState>>) -> Result<LlmReadiness, String> {
-    Ok(state.llm_readiness())
+pub async fn get_llm_readiness(
+    state: State<'_, Arc<AppState>>,
+    executor: Option<String>,
+) -> Result<LlmReadiness, String> {
+    let executor = state.resolve_executor(executor.as_deref());
+    Ok(state.llm_readiness_for(&executor))
 }
 
 /// The built-in provider presets (for the settings dropdown).
@@ -612,7 +632,7 @@ pub async fn get_provider_presets(
     Ok(state.provider_presets())
 }
 
-/// Store LLM config for this session (in memory only).
+/// Store LLM config for one executor (v1.0 M2b-3a: `executor` optional).
 #[tauri::command]
 pub async fn set_llm_config(
     state: State<'_, Arc<AppState>>,
@@ -621,9 +641,11 @@ pub async fn set_llm_config(
     model: String,
     provider_id: Option<String>,
     remember: Option<bool>,
+    executor: Option<String>,
 ) -> Result<(), String> {
+    let executor = state.resolve_executor(executor.as_deref());
     state
-        .set_llm_config_with(provider_id, api_key, base_url, model, remember)
+        .set_llm_config_with_for(&executor, provider_id, api_key, base_url, model, remember)
         .map_err(|e| e.user_message())
 }
 
@@ -632,8 +654,10 @@ pub async fn set_llm_config(
 pub async fn has_stored_key(
     state: State<'_, Arc<AppState>>,
     provider_id: String,
+    executor: Option<String>,
 ) -> Result<bool, String> {
-    Ok(state.has_stored_key(&provider_id))
+    let executor = state.resolve_executor(executor.as_deref());
+    Ok(state.has_stored_key_for(&executor, &provider_id))
 }
 
 /// Load a stored key from the keyring into memory (startup restore).
@@ -641,23 +665,31 @@ pub async fn has_stored_key(
 pub async fn load_stored_key(
     state: State<'_, Arc<AppState>>,
     provider_id: String,
+    executor: Option<String>,
 ) -> Result<(), String> {
-    state.load_stored_key(&provider_id)
+    let executor = state.resolve_executor(executor.as_deref());
+    state.load_stored_key_for(&executor, &provider_id)
 }
 
-/// Forget LLM config.
+/// Forget one executor's LLM config.
 #[tauri::command]
-pub async fn clear_llm_config(state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    state.clear_llm_config();
+pub async fn clear_llm_config(
+    state: State<'_, Arc<AppState>>,
+    executor: Option<String>,
+) -> Result<(), String> {
+    let executor = state.resolve_executor(executor.as_deref());
+    state.clear_llm_config_for(&executor);
     Ok(())
 }
 
-/// Whether an LLM is configured (never returns the key).
+/// Whether an LLM is configured (never returns the key; `executor` v1.0 M2b-3a).
 #[tauri::command]
 pub async fn get_llm_config_status(
     state: State<'_, Arc<AppState>>,
+    executor: Option<String>,
 ) -> Result<LlmConfigStatus, String> {
-    Ok(state.llm_config_status())
+    let executor = state.resolve_executor(executor.as_deref());
+    Ok(state.llm_config_status_for(&executor))
 }
 
 /// Run one agent turn (v0.9 sandbox F2d adds the optional `sandbox` declaration).

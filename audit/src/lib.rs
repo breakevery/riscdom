@@ -32,8 +32,8 @@ pub use run::{
 };
 pub use sink::{AuditFailureReporter, AuditSink, FileAuditSink, SqliteAuditSink};
 pub use store::{
-    AuditStore, EventFilter, APPEND_BACKOFF_BASE, APPEND_MAX_ATTEMPTS, BUSY_TIMEOUT,
-    OPEN_BACKOFF_BASE, OPEN_MAX_ATTEMPTS,
+    AuditStore, EventFilter, APPEND_BACKOFF_BASE, APPEND_MAX_ATTEMPTS, AUDIT_SCHEMA_VERSION,
+    BUSY_TIMEOUT, OPEN_BACKOFF_BASE, OPEN_MAX_ATTEMPTS,
 };
 
 /// The default failure reporter: put it where a human will see it.

@@ -19,6 +19,30 @@ pub const SETTINGS_VERSION: u32 = 2;
 /// The version a v1 file is treated as carrying when it declares none.
 const OLDEST_VERSION: u32 = 1;
 
+/// Labels an executor may **not** carry, because the node already uses them
+/// (v1.0 M2b-3a).
+///
+/// An executor is addressed in the same key space as the node itself: the node's
+/// own executor id is its device name ([`agent::DEFAULT_DEVICE`], `"local"`, until
+/// a node names itself), and `"*"` is the wildcard a session query spells as "every
+/// executor". A worker labelled either one would be a second thing answering to a
+/// name that already means something — the LLM configuration is looked up by this
+/// string, so a worker called `local` would share the node's own model entry.
+///
+/// The list is a **refusal list, not a file error**: a settings file carrying one
+/// loads intact and the offender is skipped with a visible audit event, the same
+/// way a newer file's refusal is visible (v1.0 M2b-1) instead of being swallowed.
+/// Bricking a hand-edited file would be the worse answer.
+pub const RESERVED_EXECUTOR_LABELS: &[&str] = &[agent::DEFAULT_DEVICE, "*"];
+
+/// Is `label` one of [`RESERVED_EXECUTOR_LABELS`]?
+///
+/// Compared against the node's **current** device name as well as the list, so a
+/// node that has named itself keeps its own name reserved too.
+pub fn is_reserved_executor_label(label: &str) -> bool {
+    RESERVED_EXECUTOR_LABELS.contains(&label) || label == agent::device()
+}
+
 /// One executor's model configuration, as **persisted** (v1.0 M2b-1).
 ///
 /// Deliberately without an `api_key`: the key is a credential and lives in the OS

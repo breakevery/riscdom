@@ -106,12 +106,12 @@ pub struct Actor {
 | `/v0/runs/{run_id}` | GET | `runs.read` | path：`run_id` | `RunView` 或 `null` | `get_run` |
 | `/v0/runs/diff` | GET | `runs.read` | query：`run_a`、`run_b` | `[FingerprintFieldDiff]` | `compare_run_fingerprints` |
 | `/v0/llm/provider-presets` | GET | `llm.read` | — | `[ProviderPresetView]` | `get_provider_presets` |
-| `/v0/llm/config` | GET | `llm.read` | — | `LlmConfigStatus` | `get_llm_config_status` |
-| `/v0/llm/readiness` | GET | `llm.read` | — | `LlmReadiness` | `get_llm_readiness` |
+| `/v0/llm/config` | GET | `llm.read` | query：`executor`? | `LlmConfigStatus` | `get_llm_config_status` |
+| `/v0/llm/readiness` | GET | `llm.read` | query：`executor`? | `LlmReadiness` | `get_llm_readiness` |
 | `/v0/llm/local-probe` | GET | `llm.read` | — | `LocalProbeResult` | `probe_local_llm` |
-| `/v0/llm/stored-key` | GET | `llm.read` | query：`provider_id` | `{ "present": bool }` | `has_stored_key` |
-| `/v0/sessions` | GET | `session.read` | query：`limit`、`executor`? | `[SessionMeta]` | `list_sessions` |
-| `/v0/sessions/current` | GET | `session.read` | query：`executor`? | `{ "session_id": string \| null }` | `get_current_session_id` |
+| `/v0/llm/stored-key` | GET | `llm.read` | query：`provider_id`、`executor`? | `{ "present": bool }` | `has_stored_key` |
+| `/v0/sessions` | GET | `session.read` | query：`limit`、`executor`?（`*` = 全部执行者） | `[SessionMeta]` | `list_sessions` |
+| `/v0/sessions/current` | GET | `session.read` | query：`executor`?（`*` 为 `400`） | `{ "session_id": string \| null }` | `get_current_session_id` |
 | `/v0/snapshots` | GET | `snapshot.read` | — | `[SnapshotMetaView]` | `list_snapshots` |
 | `/v0/vm/running` | GET | `vm.read` | — | `{ "running": bool }` | `vm_is_running` |
 | `/v0/vm/status` | GET | `vm.read` | — | `VmStatusView` | `vm_status` |
@@ -169,9 +169,9 @@ pub struct Actor {
 | `/v0/audit/export` | POST | `audit.export` | `{ "path": string }` | `{ "events_exported": number }` | `export_audit_jsonl` |
 | `/v0/settings/theme` | POST | `settings.write` | `{ "theme": string }` | `204 No Content` | `set_theme` |
 | `/v0/settings/language` | POST | `settings.write` | `{ "language": string }` | `204 No Content` | `set_language` |
-| `/v0/llm/config` | POST | `llm.configure` | `{ "api_key", "base_url", "model", "provider_id"?, "remember"? }` | `204 No Content` | `set_llm_config` |
-| `/v0/llm/stored-key/load` | POST | `llm.configure` | `{ "provider_id": string }` | `204 No Content` | `load_stored_key` |
-| `/v0/llm/config/clear` | POST | `llm.configure` | — | `204 No Content` | `clear_llm_config` |
+| `/v0/llm/config` | POST | `llm.configure` | `{ "api_key", "base_url", "model", "provider_id"?, "remember"?, "executor"? }` | `204 No Content` | `set_llm_config` |
+| `/v0/llm/stored-key/load` | POST | `llm.configure` | `{ "provider_id": string, "executor"?: string }` | `204 No Content` | `load_stored_key` |
+| `/v0/llm/config/clear` | POST | `llm.configure` | `{ "executor"?: string }` | `204 No Content` | `clear_llm_config` |
 | `/v0/serial/export` | POST | `serial.export` | `{ "path": string }` | `{ "bytes_written": number }` | `export_serial_log` |
 | `/v0/sandboxes/switch` | POST | `sandbox.switch` | `{ "name": string }` | `{ "from": string \| null, "to": string }`，或 `404` / `409` / `503` / `500`（见下方注） | `switch_sandbox` |
 | `/v0/sandboxes/requests` | POST | `agent.run` | `{ "action": "switch"\|"define"\|"assemble", "sandbox"?, "reason"? }` | `201 { "id": string }` | `request_sandbox` |
@@ -196,6 +196,7 @@ pub struct Actor {
 
 ### 5.4 表格附注
 
+- **`executor` 是一个可选参数，而 `*` 是它唯一的通配**（v1.0 M2b-3a）。在 LLM 与会话端点上可选，缺省即**本节点自己**这个执行者；`*` 表示**全部**执行者，但只在存在「复数答案」的地方：`/v0/sessions?executor=*` 回一张合并列表（按新到旧，`limit` 数的是行数而不是「每执行者各几行」，且每行自己带 `executor_id`）。那些只回答**一个**执行者的端点以 `400 bad_request`、`cause: "executor"` 拒绝它 —— 模型配置属于某一个执行者，「当前会话」也一样。因此 `*` 同时是**保留**的执行者 id：谁都不许用它做 label，`local` 也不行 —— 那是本节点自己的 id（直到节点给自己改名）。
 - **`/v0/tasks` 是路由，`/v0/agent/run` 是**在这里**跑。** 两者形似而不同的：`POST /v0/agent/run` 在**本节点**上跑一轮，`POST /v0/tasks` 把一条 `Task` 送到它的 `target` 指定的执行者，并回该执行者产出的 `TaskOutcome`。节点**故意不是**它自己的执行者之一——目标写它就是 `404`——所以两个端点从不重叠；`GET /v0/executors` 列出任务能抵达谁。执行者队伍来自 `settings.json` 里的 `executors`（label + program + args），**仅此一处**：v0.9 没有运行时注册端点。不带 `id` 的任务由服务端补一个；而一次**失败**的运行依旧是 `200`——它的 `outcome` 自会说明；`404` / `500` 分别留给无人拥有的目标与断掉的派发。
 
 - **`POST /v0/qemu/download` 按决定在每个平台上都拒绝。** RiscDom 引导用户自己安装 QEMU
