@@ -486,6 +486,9 @@ fn every_query_endpoint_answers() {
         ("/v0/sandboxes/current", 200, "current"),
         ("/v0/sandboxes/candidates", 200, "toolchains"),
         ("/v0/sandboxes/default", 200, "name"),
+        // The chain's record of a definition's instances (v1.0 gap 3/N): derived, so it is
+        // empty on a fresh node rather than absent.
+        ("/v0/sandboxes/default/instances/history", 200, "instances"),
         // The request queue (v0.9 sandbox F2c): empty until someone asks.
         ("/v0/sandboxes/requests", 200, "requests"),
         // Reserved: served, and answers 501 until the aggregate lands.
@@ -493,8 +496,8 @@ fn every_query_endpoint_answers() {
     ];
     assert_eq!(
         cases.len(),
-        33,
-        "31 query rows, the two path-parameter queries, and the reserved aggregate"
+        34,
+        "the served queries (the table's rows and the three path-parameter ones), and the reserved aggregate"
     );
     for (path, want_status, key) in cases {
         let (status, body) = get(addr, path);
@@ -1918,6 +1921,80 @@ fn a_caller_that_names_itself_lands_in_the_chain() {
         "/v0/audit/events?limit=50&action_prefix=m.request.ask",
     );
     assert_eq!(ask(&events)["agent_id"], at_cap, "{events}");
+}
+
+#[test]
+fn the_audit_read_takes_a_window() {
+    // v1.0 gap 3/N. The four fields have been applied in SQL since the store was written;
+    // what was missing was a way to say them over HTTP.
+    let (addr, _app) = serve_with_state(temp_workspace("window"), Arc::new(NoAuth));
+
+    let (status, body) = get(
+        addr,
+        "/v0/audit/events?limit=5&from_ms=1&to_ms=9999999999999",
+    );
+    assert_eq!(status, 200, "{body}");
+    assert!(body.is_array(), "{body}");
+    let (status, body) = get(addr, "/v0/audit/events?limit=5&from_id=1&to_id=100000");
+    assert_eq!(status, 200, "{body}");
+    // The window really filters: a `from_id` past the end has nothing after it.
+    let (status, body) = get(addr, "/v0/audit/events?limit=5&from_id=999999");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body.as_array().expect("array").len(), 0, "{body}");
+
+    // A window the wrong way round is the caller's parameter, and the `cause` says which
+    // one to look at.
+    let (status, body) = get(addr, "/v0/audit/events?limit=5&from_ms=10&to_ms=5");
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["cause"], "from_ms", "{body}");
+    let (status, body) = get(addr, "/v0/audit/events?limit=5&from_id=10&to_id=5");
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["cause"], "from_id", "{body}");
+    // …and a value that is not a number is the caller's too.
+    let (status, body) = get(addr, "/v0/audit/events?limit=5&from_ms=lots");
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["cause"], "from_ms", "{body}");
+}
+
+#[test]
+fn the_instance_history_endpoint_answers_what_the_chain_says() {
+    // v1.0 gap 3/N: `.../instances` is the live table, `.../instances/history` is the chain.
+    let workspace = temp_workspace("history");
+    seed_a_definition(&workspace, "blink");
+    let (addr, _app) = serve_with_state(workspace, Arc::new(NoAuth));
+
+    // Nothing has been derived on this node, so the history is an **empty list** — derived
+    // rather than absent, which is what makes it usable as a reconciliation source.
+    let (status, body) = get(addr, "/v0/sandboxes/blink/instances/history");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["instances"].as_array().expect("array").len(),
+        0,
+        "{body}"
+    );
+
+    // A definition nobody has is the same `404` the live list gives.
+    let (status, body) = get(addr, "/v0/sandboxes/nope/instances/history");
+    assert_eq!(status, 404, "{body}");
+    assert_eq!(body["cause"], "name", "{body}");
+
+    // `history` is a literal of its own, so the member acts do not apply to it: both answer
+    // `405`, naming the method the route does take. That is the point of reserving it — a
+    // DELETE here must not be read as reaping an instance called "history".
+    for method in ["DELETE", "POST"] {
+        let (status, body) = call(
+            addr,
+            method,
+            "/v0/sandboxes/blink/instances/history",
+            "",
+            if method == "POST" { Some("{}") } else { None },
+        );
+        assert_eq!(status, 405, "{method}: {body}");
+        assert!(
+            body.contains("use GET"),
+            "{method}: the 405 names the method: {body}"
+        );
+    }
 }
 
 #[test]

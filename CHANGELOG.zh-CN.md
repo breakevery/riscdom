@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **实例的历史从链推导，而审计读取接受一个窗口**（v1.0 缺口 3/N）：`GET /v0/sandboxes/{name}/instances/history` 报出一个定义曾经有过什么，从它的 `m.sandbox.spawn` / `m.sandbox.reap` 行推导 —— 实例表是运行时状态、不持久化，而 `running` 从活表读出，所以重启后为 false。`history` 是这条路径上的保留字面量（对它发成员动作是 `405`）。`GET /v0/audit/events` 多出 `from_ms`、`to_ms`、`from_id`、`to_id`。而参考调度员给自己命名：`--agent-id`（必填）以 `X-RiscDom-Agent` 发出。
+
 - **调用者可以给自己命名，而 AI 监督者做的每个动作都留下一行指名它的记录**（v1.0 缺口 2/N）：可选的 `X-RiscDom-Agent` header 把 token 的 actor 变成一个有名字的 `Supervisor`，而调度员能做的七个动作 —— 派生、回收、切换、申请、批准、拒绝、派发 —— 会写链行（`m.sandbox.spawn`、`m.sandbox.reap`、`m.sandbox.switch`、`m.request.ask`、`m.request.approve`、`m.request.reject`、`m.task.dispatch`）以及为三个原本无帧的动作补上的对应事件帧。在此之前，一次切换、一次申请和一次决定根本不写任何耐久的东西，而一次派生归在 `host` 名下。身份走在 `AuditEvent.agent_id`（哈希公式之外），所以没有一行历史被移动。不带 header 就是旧行为（`operator`）。事件词汇 17 → 20，且事件文档的表已与代码同步。
 
 - **调度员的决策层**（v1.0 M2c-2）：`examples/python/supervisor.py` 现在会问模型该做什么 —— 一个在节点状态上的有上限工具调用循环（`--max-rounds`，默认 6），提供 **十八个**从 `docs/tool-schema-control-plane.md` 读出、并过滤成「调度员自己那批」的工具（不给 `agent_run`：那是执行者的循环；不给 `events`：事件流是上下文不是工具）。M 的模型是它自己的（`--llm-base-url` / `--llm-model` / `--llm-api-key-file`），策略由你写，不配模型则什么都不决定。self-test 用**假模型**加假节点跑完整循环，而真机运行里 M 的工具调用真的到达了一个活的 `riscdom-server`：一次派发在 QEMU 里跑了一个真实 worker 回合、派生并回收了一个实例、模型死掉时链一字未变、重启后状态被重建。

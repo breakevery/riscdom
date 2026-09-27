@@ -297,7 +297,54 @@ class Supervisor(ControlPlane):
     (`executors` / `dispatch` / `events`). M reads a dozen more and writes a handful, so
     they are added **here, in a subclass** — `dispatch.py` is imported, never edited, and
     stays the one description of the wire format.
+
+    The subclass also puts M's **name** on every request (`X-RiscDom-Agent`, v1.0 gap 3/N),
+    which is what makes the node's audit rows say who asked instead of naming the node.
     """
+
+    def __init__(
+        self,
+        server: str,
+        token: str,
+        timeout: float = 30.0,
+        caller: str | None = None,
+    ) -> None:
+        super().__init__(server, token, timeout)
+        self.caller = caller
+
+    def _request(self, method: str, path: str, body: bytes | None = None) -> bytes:
+        """The parent's request, with M's name on it.
+
+        Overridden rather than edited into `dispatch.py`: the batch client has no identity to
+        declare, and the header belongs to the dispatcher. The body of this method mirrors
+        the parent's (it builds and sends in one step, so there is no hook to extend) — the
+        error mapping is repeated verbatim, and `--self-test` walks both of its branches
+        through this override so the two cannot drift apart unnoticed.
+        """
+        request = urllib.request.Request(f"{self.base}{path}", data=body, method=method)
+        request.add_header("Authorization", f"Bearer {self.token}")
+        if self.caller:
+            request.add_header("X-RiscDom-Agent", self.caller)
+        if body is not None:
+            request.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as answer:
+                return answer.read()
+        except urllib.error.HTTPError as error:
+            raw = error.read()
+            try:
+                payload = json.loads(raw)
+            except ValueError:
+                payload = {"code": "error", "message": raw.decode("utf-8", "replace")}
+            if error.code in (401, 403):
+                # The same reading the parent takes: a credential problem is not a task
+                # problem, and the caller has to fix who it is.
+                raise TransportError(
+                    f"the control plane refused this token: {payload.get('message', error.code)}"
+                ) from None
+            raise ApiError(error.code, payload) from None
+        except urllib.error.URLError as error:
+            raise TransportError(f"cannot reach {self.base}: {error.reason}") from None
 
     # ----- reads ---------------------------------------------------------------
 
@@ -759,6 +806,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--server", default=DEFAULT_SERVER, help=f"host:port (default {DEFAULT_SERVER})")
     parser.add_argument("--token-file", help="read the node's bearer token from this file")
     parser.add_argument(
+        "--agent-id",
+        help=(
+            "the name M answers to, sent as `X-RiscDom-Agent` on every request so the node's "
+            "audit rows say who asked (or $RISCDOM_AGENT_ID). **Required**: an unnamed "
+            "dispatcher is what the gap 2/N batch went and fixed."
+        ),
+    )
+    parser.add_argument(
         "--interval",
         type=float,
         default=DEFAULT_INTERVAL_SECONDS,
@@ -829,6 +884,15 @@ def main(argv: list[str]) -> int:
     if args.self_test:
         return self_test()
 
+    agent_id = (args.agent_id or os.environ.get("RISCDOM_AGENT_ID", "")).strip()
+    if not agent_id:
+        print(
+            "supervisor: M must be named: pass --agent-id <name> or set $RISCDOM_AGENT_ID "
+            "(the node writes that name into every audit row this dispatcher causes)",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
     try:
         token = dispatch.read_token(args.token_file)
         decider = build_decider(args)
@@ -836,12 +900,12 @@ def main(argv: list[str]) -> int:
         print(f"supervisor: {error}", file=sys.stderr)
         return error.code if isinstance(error, TransportError) else EXIT_USAGE
 
-    supervisor = Supervisor(args.server, token, args.timeout)
+    supervisor = Supervisor(args.server, token, args.timeout, caller=agent_id)
     try:
         if args.events:
-            print("supervisor: an AI dispatcher — reading the node, deciding by policy you set")
+            print(f"supervisor: {agent_id} — an AI dispatcher, reading the node")
             return watch(supervisor, args.json)
-        print("supervisor: an AI dispatcher — reading the node, deciding by policy you set")
+        print(f"supervisor: {agent_id} — an AI dispatcher, reading the node")
         print(f"server    : {args.server}")
         while True:
             code = run_once(supervisor, decider)
@@ -872,6 +936,9 @@ class FakeNode:
         self.token = "self-test-token"
         self.requests: list[str] = []
         self.posted: list[tuple[str, dict]] = []
+        # The caller each request declared (v1.0 gap 3/N), in arrival order: the header is
+        # what the whole batch is about, so the test reads what M actually sent.
+        self.callers: list[str | None] = []
         self.event_ids_seen: list[str | None] = []
         self.fail_path: str | None = None
         outer = self
@@ -889,6 +956,9 @@ class FakeNode:
                 self.wfile.write(body)
 
             def _authorised(self) -> bool:
+                # Every handler asks this first, so it is also where the caller header is
+                # recorded: one place, and no handler can forget it.
+                outer.callers.append(self.headers.get("X-RiscDom-Agent"))
                 return self.headers.get("Authorization") == f"Bearer {outer.token}"
 
             def do_GET(self):  # noqa: N802 (http.server's naming)
@@ -1092,7 +1162,7 @@ def self_test() -> int:
     node = FakeNode()
     address = node.start()
     try:
-        supervisor = Supervisor(address, node.token, timeout=5.0)
+        supervisor = Supervisor(address, node.token, timeout=5.0, caller="m-self-test")
 
         # 1. The snapshot reads every source it says it does.
         state = supervisor.snapshot()
@@ -1370,7 +1440,44 @@ def self_test() -> int:
         if code != EXIT_OK or node.posted:
             failures.append(f"the offline default must decide nothing: {code} {node.posts()}")
 
-        # 18. The red line: nothing but the standard library (and the sibling example).
+        # 19. M's name travels (v1.0 gap 3/N): every request carries `X-RiscDom-Agent`, an
+        #     unnamed dispatcher carries none, and both error branches of the override behave
+        #     like the parent's.
+        # A clean window, so the pairing of path and caller is beyond doubt.
+        node.requests.clear()
+        node.callers.clear()
+        supervisor.snapshot()
+        unnamed_at = [
+            path
+            for path, caller in zip(node.requests, node.callers)
+            if caller != "m-self-test"
+        ]
+        if not node.callers:
+            failures.append("the named dispatcher made no request at all")
+        if unnamed_at:
+            failures.append(f"requests that did not carry M's name: {unnamed_at}")
+        unnamed = Supervisor(address, node.token, timeout=5.0)
+        node.callers.clear()
+        node.requests.clear()
+        unnamed.snapshot()
+        if any(caller is not None for caller in node.callers):
+            failures.append(f"an unnamed dispatcher sends no header: {node.callers}")
+        # The override repeats the parent's error mapping (it builds and sends in one step),
+        # so both branches are walked through it here and cannot drift apart unnoticed.
+        try:
+            supervisor.get("/v0/no-such-endpoint")
+            failures.append("a 404 must raise")
+        except ApiError as error:
+            if error.status != 404:
+                failures.append(f"expected a 404 ApiError, got {error.status}")
+        except TransportError as error:
+            failures.append(f"a 404 is not a transport problem: {error}")
+        # …and an unnamed M is a usage error **before** anything is contacted: the identity is
+        # what the batch is about, so it is not defaulted away.
+        if main(["--once", "--agent-id", "  "]) != EXIT_USAGE:
+            failures.append("a blank --agent-id must be a usage error")
+
+        # 20. The red line: nothing but the standard library (and the sibling example).
         allowed = set(sys.stdlib_module_names) | {"dispatch"}
         outside = [name for name in imported_modules() if name not in allowed]
         if outside:

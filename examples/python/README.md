@@ -112,13 +112,19 @@ loop the client guide's §8 describes. Two things are deliberately left to you: 
 decides nothing — the conservative default rather than a degraded mode.
 
 ```bash
-python supervisor.py --once           # one turn, no model: decides nothing
-python supervisor.py --interval 30    # stay up, a turn every 30 seconds
-python supervisor.py --once --llm-base-url http://127.0.0.1:11434/v1 \
-    --llm-model qwen2.5:7b            # one turn, with a model (Ollama here)
-python supervisor.py --events         # just the event stream (read-only)
-python supervisor.py --self-test      # offline: a fake node *and* a fake model
+python supervisor.py --agent-id m-admin --once         # one turn, no model: decides nothing
+python supervisor.py --agent-id m-admin --interval 30  # stay up, a turn every 30 seconds
+python supervisor.py --agent-id m-admin --once --llm-base-url http://127.0.0.1:11434/v1 \
+    --llm-model qwen2.5:7b                             # one turn, with a model (Ollama here)
+python supervisor.py --agent-id m-admin --events       # just the event stream (read-only)
+python supervisor.py --self-test                       # offline: a fake node *and* a fake model
 ```
+
+Every one of those needs **`--agent-id`** (or `$RISCDOM_AGENT_ID`): M sends its name as the
+`X-RiscDom-Agent` header on every request, and the node writes that name into every audit row
+the dispatcher causes (`m.sandbox.spawn`, `m.task.dispatch`, …). It is required rather than
+defaulted because an unnamed dispatcher is exactly what made M invisible in the chain before:
+with the header, a row says *who asked*; without it, the row names the node.
 
 M's model is **M's own**, not the node's: `--llm-base-url`, `--llm-model`,
 `--llm-api-key-file` (or `$RISCDOM_LLM_API_KEY`) are read from the command line and the

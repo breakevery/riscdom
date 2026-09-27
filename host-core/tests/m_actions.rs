@@ -39,7 +39,13 @@ fn sink() -> Arc<dyn EventSink> {
 /// The newest row with this `action`, read straight out of the chain.
 fn row_for(state: &AppState, action: &str) -> Option<StoredEventView> {
     state
-        .list_events(100, None, Some(action.to_string()))
+        .list_events(
+            100,
+            host_core::EventFilter {
+                action_prefix: Some(action.to_string()),
+                ..Default::default()
+            },
+        )
         .expect("events")
         .into_iter()
         .find(|row| row.action == action)
@@ -141,6 +147,66 @@ fn a_refused_switch_leaves_no_row_and_the_stream_says_so() {
     assert_eq!(frames.len(), 1, "one frame per attempt: {frames:?}");
     assert_eq!(frames[0].0, host_core::EV_SANDBOX_SWITCH, "{frames:?}");
     assert_eq!(frames[0].1["ok"], false, "{frames:?}");
+}
+
+#[test]
+fn an_instance_history_is_derived_from_the_chain() {
+    // v1.0 gap 3/N. The instance table is runtime state and cannot be persisted (`vm_slot` is
+    // a live handle), so the past is derived from the rows a derive and a reap leave. The
+    // rows are seeded directly here: starting a real VM is the real machine's job, and this
+    // test is about the *derivation*.
+    let app = state("history");
+    let live = app.register_instance("blink");
+    {
+        let mut store = app.audit.lock().expect("audit");
+        for (id, definition) in [
+            (live.id.as_str().to_string(), "blink"),
+            ("local-1-9".to_string(), "blink"),
+            ("local-1-8".to_string(), "other"),
+        ] {
+            store
+                .append(audit::AuditEvent::new(
+                    "host",
+                    "m.sandbox.spawn",
+                    serde_json::json!({ "instance_id": id, "definition": definition }),
+                ))
+                .expect("seed a spawn row");
+        }
+        store
+            .append(audit::AuditEvent::new(
+                "host",
+                "m.sandbox.reap",
+                serde_json::json!({ "instance_id": "local-1-9", "definition": "blink" }),
+            ))
+            .expect("seed a reap row");
+    }
+
+    let history = app.instance_history("blink").expect("history");
+    let ids: Vec<&str> = history.iter().map(|row| row.instance_id.as_str()).collect();
+    assert_eq!(ids, vec![live.id.as_str(), "local-1-9"], "{history:?}");
+    let reaped = history
+        .iter()
+        .find(|row| row.instance_id == "local-1-9")
+        .expect("the reaped one");
+    assert!(reaped.reaped_at_ms.is_some(), "{reaped:?}");
+    assert!(
+        !reaped.running,
+        "a reaped instance is not running: {reaped:?}"
+    );
+    // The live one has no VM in this test — no QEMU — so it answers `false` too, which is
+    // the honest answer: `running` is read from the table, not assumed from the chain.
+    let still_there = history
+        .iter()
+        .find(|row| row.instance_id == live.id.as_str())
+        .expect("the live one");
+    assert!(still_there.reaped_at_ms.is_none(), "{still_there:?}");
+    assert!(!still_there.running, "{still_there:?}");
+    assert!(still_there.spawned_at_ms.is_some(), "{still_there:?}");
+
+    // Another definition's history is its own, and an instance derived elsewhere is not here.
+    let other = app.instance_history("other").expect("history");
+    assert_eq!(other.len(), 1, "{other:?}");
+    assert_eq!(other[0].instance_id, "local-1-8", "{other:?}");
 }
 
 #[test]

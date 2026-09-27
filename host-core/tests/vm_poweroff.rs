@@ -103,7 +103,13 @@ fn a_guest_that_powered_off_is_not_reported_as_running() {
 
     // The banner proves the guest really ran and reached the finisher write.
     let serial: String = state
-        .list_events(500, None, Some("agent.tool.result".to_string()))
+        .list_events(
+            500,
+            host_core::EventFilter {
+                action_prefix: Some("agent.tool.result".to_string()),
+                ..Default::default()
+            },
+        )
         .expect("events")
         .iter()
         .filter_map(|e| e.detail.get("result").and_then(|v| v.as_str()))

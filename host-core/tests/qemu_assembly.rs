@@ -34,7 +34,13 @@ fn state(tag: &str) -> AppState {
 /// Actions of the audit events whose action starts with `prefix`, oldest first.
 fn download_actions(state: &AppState, prefix: &str) -> Vec<String> {
     let mut actions: Vec<String> = state
-        .list_events(500, None, Some(prefix.to_string()))
+        .list_events(
+            500,
+            host_core::EventFilter {
+                action_prefix: Some(prefix.to_string()),
+                ..Default::default()
+            },
+        )
         .expect("events")
         .into_iter()
         .map(|e| e.action)
@@ -192,7 +198,13 @@ fn a_qemu_that_does_not_run_is_not_adopted() {
 
     // The failure is audited with the reason, and nothing was adopted.
     let events = state
-        .list_events(500, None, Some("host.qemu.download.failed".to_string()))
+        .list_events(
+            500,
+            host_core::EventFilter {
+                action_prefix: Some("host.qemu.download.failed".to_string()),
+                ..Default::default()
+            },
+        )
         .expect("events");
     assert_eq!(events.len(), 1, "{events:?}");
     let detail = serde_json::to_string(&events[0].detail).expect("detail");

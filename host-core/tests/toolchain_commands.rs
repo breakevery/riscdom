@@ -375,7 +375,13 @@ fn download_audit_events_are_complete() {
 
     // The detail records the version and the final path, and nothing sensitive.
     let done = state
-        .list_events(200, None, Some("host.toolchain.download.done".to_string()))
+        .list_events(
+            200,
+            host_core::EventFilter {
+                action_prefix: Some("host.toolchain.download.done".to_string()),
+                ..Default::default()
+            },
+        )
         .expect("events");
     let detail = done[0].detail.to_string();
     println!("detail: {detail}");
@@ -389,7 +395,13 @@ fn download_audit_events_are_complete() {
 /// Actions of the audit events whose action starts with `prefix`, oldest first.
 fn download_actions(state: &AppState, prefix: &str) -> Vec<String> {
     let mut actions: Vec<String> = state
-        .list_events(500, None, Some(prefix.to_string()))
+        .list_events(
+            500,
+            host_core::EventFilter {
+                action_prefix: Some(prefix.to_string()),
+                ..Default::default()
+            },
+        )
         .expect("events")
         .into_iter()
         .map(|e| e.action)

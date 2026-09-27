@@ -98,8 +98,11 @@ fn vm_started(state: &AppState) -> bool {
     state
         .list_events(
             500,
-            Some("sandbox".to_string()),
-            Some("vm.start".to_string()),
+            host_core::EventFilter {
+                actor: Some("sandbox".to_string()),
+                action_prefix: Some("vm.start".to_string()),
+                ..Default::default()
+            },
         )
         .map(|events| !events.is_empty())
         .unwrap_or(false)
@@ -142,7 +145,13 @@ fn a_manual_qemu_path_reaches_the_agent_loop() {
 
     // And the failing start is visible in the audit trail.
     let results = state
-        .list_events(500, None, Some("agent.tool.result".to_string()))
+        .list_events(
+            500,
+            host_core::EventFilter {
+                action_prefix: Some("agent.tool.result".to_string()),
+                ..Default::default()
+            },
+        )
         .expect("events")
         .into_iter()
         .filter_map(|e| {

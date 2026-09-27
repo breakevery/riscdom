@@ -70,7 +70,9 @@ fn a_task_dispatched_locally_comes_back_as_an_outcome_that_names_the_agent() {
     assert_eq!(runs.len(), 1, "one dispatch, one run");
 
     // And every event that run wrote carries the agent identity (batch B).
-    let events = state.list_events(200, None, None).expect("events");
+    let events = state
+        .list_events(200, host_core::EventFilter::default())
+        .expect("events");
     let stamped = events
         .iter()
         .filter(|event| event.agent_id.as_deref() == Some(agent_id.as_str()))

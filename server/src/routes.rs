@@ -62,6 +62,9 @@ pub(crate) enum Action {
     SandboxInstanceCreate,
     /// `DELETE /v0/sandboxes/{name}/instances/{id}`: reap one.
     SandboxInstanceDelete,
+    /// `GET /v0/sandboxes/{name}/instances/history`: the instances the **chain** says
+    /// this definition had (v1.0 gap 3/N). Not the live table: the past.
+    SandboxInstanceHistory,
     /// `GET /v0/sandboxes/{name}/capabilities`: what a definition can do.
     SandboxCapabilities,
     /// `GET /v0/capabilities`: what **this caller** may do (the one query that is
@@ -670,6 +673,20 @@ impl Params {
         }
     }
 
+    /// Read an optional signed integer (epoch milliseconds, or a chain id).
+    ///
+    /// No range check here: which pair must be ordered is the endpoint's business, and a
+    /// `400` that names the right parameter is worth more than a generic refusal.
+    pub fn i64_opt(&self, name: &str) -> Result<Option<i64>, Box<Response<RespBody>>> {
+        match self.get(name) {
+            Some(raw) => raw
+                .parse()
+                .map(Some)
+                .map_err(|_| Box::new(bad_request(name, "must be a number"))),
+            None => Ok(None),
+        }
+    }
+
     /// Read a required boolean (`true` / `false`), or the `400` to answer with.
     pub fn bool_required(&self, name: &str) -> Result<bool, Box<Response<RespBody>>> {
         match self.required(name)? {
@@ -817,7 +834,31 @@ fn sandbox_instance_path_from(path: &str) -> Option<(&str, Option<&str>)> {
     }
     match (segments.next(), segments.next(), segments.next()) {
         (Some("instances"), None, None) => Some((name, None)),
-        (Some("instances"), Some(id), None) if !id.is_empty() => Some((name, Some(id))),
+        // `history` is a literal of its own (v1.0 gap 3/N): an id is never that word, so
+        // the record route never swallows the history route.
+        (Some("instances"), Some(id), None)
+            if !id.is_empty() && !RESERVED_INSTANCE_SEGMENTS.contains(&id) =>
+        {
+            Some((name, Some(id)))
+        }
+        _ => None,
+    }
+}
+
+/// The literals of `/v0/sandboxes/{name}/instances/…` that are never an instance id.
+const RESERVED_INSTANCE_SEGMENTS: &[&str] = &["history"];
+
+/// The `<name>` of `/v0/sandboxes/<name>/instances/history` (v1.0 gap 3/N), when the
+/// path is exactly that shape.
+fn sandbox_instance_history_from(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix(SANDBOX_PREFIX)?;
+    let mut segments = rest.split('/');
+    let name = segments.next()?;
+    if name.is_empty() || reserved_sandbox_segment(name) {
+        return None;
+    }
+    match (segments.next(), segments.next(), segments.next()) {
+        (Some("instances"), Some("history"), None) => Some(name),
         _ => None,
     }
 }
@@ -910,6 +951,18 @@ pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
             path_param: vec![("name", name.to_string())],
         };
     }
+    if let Some(name) = sandbox_instance_history_from(path) {
+        if method != "GET" {
+            return Resolution::MethodNotAllowed {
+                allowed: "GET".to_string(),
+            };
+        }
+        return Resolution::Query {
+            action: Action::SandboxInstanceHistory,
+            capability: Capability::SandboxRead,
+            path_param: vec![("name", name.to_string())],
+        };
+    }
     if let Some((name, id)) = sandbox_instance_path_from(path) {
         // The collection takes a `GET` (list) and a `POST` (derive); a member takes
         // a `DELETE` (reap). Both parameters travel when the path names a member:
@@ -997,9 +1050,15 @@ pub(crate) fn dispatch(
                 Ok(limit) => limit,
                 Err(response) => return *response,
             };
-            let actor = params.get("actor").map(str::to_string);
-            let action_prefix = params.get("action_prefix").map(str::to_string);
-            result_json(app.list_events(limit, actor, action_prefix))
+            // The window (v1.0 gap 3/N): the four fields the store has always applied in
+            // SQL, now reachable. `limit` keeps meaning "how many rows come back", and the
+            // window says *which* rows — a reader that must not miss anything pages forward
+            // with `from_id` rather than asking for a huge limit.
+            let filter = match audit_window(params) {
+                Ok(filter) => filter,
+                Err(response) => return *response,
+            };
+            result_json(app.list_events(limit, filter))
         }
         Action::Runs => match params.usize_or("limit", 20) {
             Ok(limit) => result_json(app.list_runs(limit)),
@@ -1120,6 +1179,25 @@ pub(crate) fn dispatch(
                 ok_json(&serde_json::json!({
                     "instances": app.instances_view(Some(name)),
                 }))
+            }
+            Err(response) => *response,
+        },
+        Action::SandboxInstanceHistory => match params.required("name") {
+            Ok(name) => {
+                // The definition has to exist, like the live list: the question is "what did
+                // *this* definition run", and a name nobody has is the same `404`.
+                if app.sandbox(name).is_none() {
+                    return error_response(
+                        404,
+                        "not_found",
+                        &format!("no sandbox named {name:?}"),
+                        Some("name"),
+                    );
+                }
+                match app.instance_history(name) {
+                    Ok(rows) => ok_json(&serde_json::json!({ "instances": rows })),
+                    Err(e) => host_error(e),
+                }
             }
             Err(response) => *response,
         },
@@ -2098,6 +2176,44 @@ fn sandbox_switch_error(error: HostError) -> Response<RespBody> {
     error_response(status, code, &message, Some(cause))
 }
 
+/// The window a chain read asks for (v1.0 gap 3/N).
+///
+/// `actor` and `action_prefix` narrow **what**; the four numbers narrow **where** — by epoch
+/// milliseconds or by chain id, inclusive at both ends, exactly as `EventFilter` applies them
+/// in SQL. A pair that is the wrong way round is the caller's parameter, so it is a `400`
+/// naming the lower bound rather than an empty answer nobody can explain.
+fn audit_window(params: &Params) -> Result<host_core::EventFilter, Box<Response<RespBody>>> {
+    let filter = host_core::EventFilter {
+        actor: params.get("actor").map(str::to_string),
+        action_prefix: params.get("action_prefix").map(str::to_string),
+        from_ms: params.i64_opt("from_ms")?,
+        to_ms: params.i64_opt("to_ms")?,
+        from_id: params.i64_opt("from_id")?,
+        to_id: params.i64_opt("to_id")?,
+    };
+    if let (Some(from), Some(to)) = (filter.from_ms, filter.to_ms) {
+        if from > to {
+            return Err(Box::new(error_response(
+                400,
+                "bad_request",
+                "`from_ms` is after `to_ms`",
+                Some("from_ms"),
+            )));
+        }
+    }
+    if let (Some(from), Some(to)) = (filter.from_id, filter.to_id) {
+        if from > to {
+            return Err(Box::new(error_response(
+                400,
+                "bad_request",
+                "`from_id` is after `to_id`",
+                Some("from_id"),
+            )));
+        }
+    }
+    Ok(filter)
+}
+
 /// What a request's `executor` parameter asks for (v1.0 M2b-2; the wildcard v1.0 M2b-3a).
 ///
 /// `executor` is optional and defaults to this node's own — the same shape every endpoint
@@ -2385,10 +2501,10 @@ mod tests {
             // The four path-parameter routes are served but are not rows in `ROUTES`
             // (a pattern is not a row), so they are checked by `resolve` instead.
             let patterns = block("patterns");
-            // Eight since v1.0 M2a-2: the instance model's four join the run, the
-            // sandbox and the two request decisions. A pattern is not a row, so this
-            // list is what keeps them visible to the check.
-            assert_eq!(patterns.len(), 8, "{language}: the path-parameter tools");
+            // Nine since v1.0 gap 3/N: the instance history joins the instance model's
+            // four, the run, the sandbox and the two request decisions. A pattern is not a
+            // row, so this list is what keeps them visible to the check.
+            assert_eq!(patterns.len(), 9, "{language}: the path-parameter tools");
             for (method, path, _) in &patterns {
                 assert!(
                     matches!(resolve(method, path), Resolution::Query { .. }),
@@ -2467,6 +2583,11 @@ mod tests {
             ("DELETE", "/v0/sandboxes/blink/instances", "GET, POST"),
             ("GET", "/v0/sandboxes/blink/instances/local-1-2", "DELETE"),
             ("POST", "/v0/sandboxes/blink/capabilities", "GET"),
+            // `history` is a literal of its own (v1.0 gap 3/N), so the member acts never
+            // apply to it — a DELETE there is a `405`, not a reap of an instance called
+            // "history".
+            ("POST", "/v0/sandboxes/blink/instances/history", "GET"),
+            ("DELETE", "/v0/sandboxes/blink/instances/history", "GET"),
         ] {
             match resolve(method, path) {
                 Resolution::MethodNotAllowed { allowed: found } => {
@@ -2528,6 +2649,43 @@ mod tests {
             resolve("GET", "/v0/sandboxes/blink/instances/extra/more"),
             Resolution::NotFound
         ));
+    }
+
+    #[test]
+    fn resolve_the_instance_history_route() {
+        // v1.0 gap 3/N. The literal is matched **before** the member parse, which is what
+        // makes it a literal at all.
+        match resolve("GET", "/v0/sandboxes/blink/instances/history") {
+            Resolution::Query {
+                action,
+                capability,
+                path_param,
+            } => {
+                assert_eq!(action, Action::SandboxInstanceHistory);
+                assert_eq!(capability, Capability::SandboxRead);
+                assert_eq!(path_param, vec![("name", "blink".to_string())]);
+            }
+            other => panic!("{other:?}"),
+        }
+        // An id that is not the literal still reaps.
+        match resolve("DELETE", "/v0/sandboxes/blink/instances/local-1-2") {
+            Resolution::Query {
+                action,
+                capability,
+                path_param,
+            } => {
+                assert_eq!(action, Action::SandboxInstanceDelete);
+                assert_eq!(capability, Capability::SandboxInstantiate);
+                assert_eq!(
+                    path_param,
+                    vec![
+                        ("name", "blink".to_string()),
+                        ("instance_id", "local-1-2".to_string())
+                    ]
+                );
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

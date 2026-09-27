@@ -54,6 +54,7 @@ const NAMED_PATTERN_ROUTES = {
   "POST /v0/sandboxes/requests/{id}/reject": "sandbox_request_reject",
   // The instance model (v1.0 M2a-2): a definition's instances, and what it can do.
   "GET /v0/sandboxes/{name}/instances": "instance_list",
+  "GET /v0/sandboxes/{name}/instances/history": "instance_history",
   "POST /v0/sandboxes/{name}/instances": "instance_create",
   "DELETE /v0/sandboxes/{name}/instances/{id}": "instance_delete",
   "GET /v0/sandboxes/{name}/capabilities": "sandbox_capabilities",

@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An instance's history is derived from the chain, and the audit read takes a window** (v1.0
+  gap 3/N): `GET /v0/sandboxes/{name}/instances/history` reports what a definition had,
+  derived from its `m.sandbox.spawn` / `m.sandbox.reap` rows — the instance table is runtime
+  state and is not persisted, and `running` is read from the live table, so it is false after a
+  restart. `history` is a reserved literal of that path (a member act on it is a `405`).
+  `GET /v0/audit/events` gains `from_ms`, `to_ms`, `from_id` and `to_id`. And the reference
+  dispatcher names itself: `--agent-id` (required) travels as `X-RiscDom-Agent`.
+
 - **A caller can name itself, and every act an AI supervisor takes leaves a row naming it**
   (v1.0 gap 2/N): the optional `X-RiscDom-Agent` header turns the token's actor into a named
   `Supervisor`, and the seven acts a dispatcher can take — derive, reap, switch, ask,

@@ -142,9 +142,12 @@ check(
 
 const STATE = path.join(REPO, "host-core", "src", "state.rs");
 const state = readAbs(STATE);
+// The slice stops at the **end of that struct**, not at the next struct: another struct
+// landing in between (v1.0 gap 3/N's `ReconciledInstance`) is not part of this claim.
+const instanceStart = state.indexOf("pub struct InstanceView");
 const instanceStruct = state.slice(
-  state.indexOf("pub struct InstanceView"),
-  state.indexOf("pub struct AppState"),
+  instanceStart,
+  state.indexOf("\n}\n", instanceStart),
 );
 const instanceFields = [...instanceStruct.matchAll(/^\s{4}pub (\w+):/gm)].map((m) => m[1]);
 const instanceInterface = types.slice(

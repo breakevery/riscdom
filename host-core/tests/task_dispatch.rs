@@ -235,7 +235,13 @@ fn a_child_that_answers_reports_the_identity_it_announced() {
     // (v1.0 gap 2/N): before this batch the only trace of a dispatch was the worker's
     // own chain, which exists when the two processes share a workspace and nowhere else.
     let row = state
-        .list_events(50, None, Some("m.task.dispatch".into()))
+        .list_events(
+            50,
+            host_core::EventFilter {
+                action_prefix: Some("m.task.dispatch".into()),
+                ..Default::default()
+            },
+        )
         .expect("events")
         .into_iter()
         .find(|row| row.action == "m.task.dispatch")

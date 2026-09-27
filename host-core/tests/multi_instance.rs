@@ -109,7 +109,9 @@ fn each_instance_has_its_own_agent_identity_and_host_events_carry_it() {
 
     // A host event (setting the theme is enough) carries this instance's id.
     a.set_theme("dark").expect("set theme");
-    let events = a.list_events(50, None, None).expect("events");
+    let events = a
+        .list_events(50, host_core::EventFilter::default())
+        .expect("events");
     let ours = events
         .iter()
         .find(|e| e.action == "host.theme.set")

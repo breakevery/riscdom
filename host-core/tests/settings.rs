@@ -424,7 +424,9 @@ fn a_newer_settings_file_is_reported_not_swallowed() {
         "no backup either"
     );
     // And the chain carries the refusal.
-    let events = state.list_events(50, None, None).expect("events");
+    let events = state
+        .list_events(50, host_core::EventFilter::default())
+        .expect("events");
     assert!(
         events
             .iter()

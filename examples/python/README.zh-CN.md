@@ -76,13 +76,15 @@ python supervisor.py --self-test    # 调度员
 **决策层是一个有上限的工具调用循环，而且它不自带策略。** 模型拿到节点的状态与控制平面自己的工具 schema，然后靠**调用工具**来决策 —— 由进程去发那次 HTTP 请求、把 JSON 交回去，也就是客户指南 §8 描述的那个循环。有两件事刻意留给你：**策略**（什么样的决定算好）与**模型**。不给 `--llm-model` 就没有模型，M 什么都不决定 —— 那是保守的默认，而不是降级模式。
 
 ```bash
-python supervisor.py --once           # 一轮，不给模型：什么都不决定
-python supervisor.py --interval 30    # 常驻，每 30 秒一轮
-python supervisor.py --once --llm-base-url http://127.0.0.1:11434/v1 \
-    --llm-model qwen2.5:7b            # 一轮，带模型（这里用 Ollama）
-python supervisor.py --events         # 只要事件流（只读）
-python supervisor.py --self-test      # 离线：假节点**加**假模型
+python supervisor.py --agent-id m-admin --once         # 一轮，不给模型：什么都不决定
+python supervisor.py --agent-id m-admin --interval 30  # 常驻，每 30 秒一轮
+python supervisor.py --agent-id m-admin --once --llm-base-url http://127.0.0.1:11434/v1 \
+    --llm-model qwen2.5:7b                             # 一轮，带模型（这里用 Ollama）
+python supervisor.py --agent-id m-admin --events       # 只要事件流（只读）
+python supervisor.py --self-test                       # 离线：假节点**加**假模型
 ```
+
+以上每一条都需要 **`--agent-id`**（或 `$RISCDOM_AGENT_ID`）：M 把它的名字作为 `X-RiscDom-Agent` header 发在**每一个**请求上，而节点会把这个名字写进该调度员引起的每一行审计（`m.sandbox.spawn`、`m.task.dispatch` ……）。它是**必填**而不是默认值，因为「没有名字的调度员」正是当初让 M 在链上不可见的原因：带上 header，行里写的是**谁要的**；不带，行里写的是节点。
 
 M 的模型是 **M 自己的**，不是节点的：`--llm-base-url`、`--llm-model`、`--llm-api-key-file`（或 `$RISCDOM_LLM_API_KEY`）从命令行与环境读，从不取自节点的 `llm_configs`。节点的模型跑**任务**；M 的模型决定**哪些任务**。`--max-rounds`（默认 6）限制一轮里允许的调用数，所以一个一直要工具的模型会结束这一轮，而不是永远跑下去。
 

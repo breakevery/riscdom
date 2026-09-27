@@ -238,7 +238,13 @@ fn a_label_the_node_already_answers_to_is_not_registered() {
 
     // The skip is visible: one audit event per refused label, not a silent drop.
     let events = state
-        .list_events(50, None, Some("host.executor".into()))
+        .list_events(
+            50,
+            host_core::EventFilter {
+                action_prefix: Some("host.executor".into()),
+                ..Default::default()
+            },
+        )
         .expect("events");
     assert_eq!(
         events.len(),

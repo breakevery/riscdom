@@ -41,6 +41,10 @@ pub use executor::{StdioExecutorHandle, DEFAULT_EXECUTOR_TIMEOUT};
 pub use keyring::{KeyringBackend, OsKeyring, SERVICE};
 pub use preflight::{PreflightCache, PreflightRow, PreflightView};
 pub use run_diff::{diff_fingerprints, FingerprintFieldDiff, FINGERPRINT_FIELDS};
+// Re-exported for the surfaces above host-core (the control plane and the Tauri
+// commands), which ask a chain read for a window without depending on `audit`
+// themselves (v1.0 gap 3/N).
+pub use audit::EventFilter;
 // Re-exported for the surfaces above host-core (the Tauri commands), which name a
 // dispatch outcome without depending on `agent` themselves (v0.9 interface E0).
 pub use agent::{InstanceId, TaskOutcome};

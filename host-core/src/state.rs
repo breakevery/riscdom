@@ -695,6 +695,26 @@ pub struct InstanceView {
     pub vm_started_at_ms: Option<i64>,
 }
 
+/// What the **chain** says about one instance (v1.0 gap 3/N).
+///
+/// The served shape of [`AppState::instance_history`]: a record derived from the chain, not
+/// a live handle. `running` is "is it running **now**", answered from the live table — after
+/// a node restart nothing is, which is the honest answer rather than a stale `true`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ReconciledInstance {
+    /// `<device>-<pid>-<seq>`.
+    pub instance_id: String,
+    /// The definition it was derived from, as the chain recorded it.
+    pub definition: String,
+    /// When the chain says it was derived; `null` for the node's own instance, which no
+    /// `m.sandbox.spawn` row created (it exists from construction).
+    pub spawned_at_ms: Option<i64>,
+    /// When the chain says it was reaped, if it was.
+    pub reaped_at_ms: Option<i64>,
+    /// Is a live VM in its slot **right now**?
+    pub running: bool,
+}
+
 /// Where an instance's snapshots live: `<workspace>/.riscdom/snapshots/<device>/<id>`.
 ///
 /// Two levels, because two instances in one workspace must not share a snapshot
@@ -2544,6 +2564,102 @@ impl AppState {
             running: instance.is_running(),
             vm_started_at_ms: instance.vm_started_at_ms(),
         }
+    }
+
+    /// What the **chain** says about this definition's instances (v1.0 gap 3/N).
+    ///
+    /// The instance table is **runtime state** (decisions §34): its `vm_slot` is a live
+    /// process handle, so it cannot be persisted, and after a restart the guests are gone
+    /// anyway. What survives is the *record* — a derive and a reap are both rows since the
+    /// gap 2/N batch — so the past is **derived** rather than kept, exactly the way the run
+    /// index is (`audit::derive_runs_from`).
+    ///
+    /// Three things the derivation is careful about:
+    ///
+    /// - **`running` is "is it running right now"**, answered from the live table. After a
+    ///   restart every record answers `false`, which is the honest answer rather than a
+    ///   record that claims a VM nobody has.
+    /// - **The node's own instance has no `spawn` row** — it exists from construction — so it
+    ///   is added by hand, first (it is older than anything derived), with a `null` start.
+    /// - **A reap closes the record**; an instance derived and never reaped shows up with
+    ///   `reaped_at_ms: null` and `running: false`, which is what a killed process leaves.
+    pub fn instance_history(&self, definition: &str) -> Result<Vec<ReconciledInstance>, HostError> {
+        let events = {
+            let store = self
+                .audit
+                .lock()
+                .map_err(|_| HostError::Other("audit store lock poisoned".into()))?;
+            store.all().map_err(|e| HostError::Other(e.to_string()))?
+        };
+
+        let mut order: Vec<String> = Vec::new();
+        let mut derived: HashMap<String, (String, i64)> = HashMap::new();
+        let mut reaped: HashMap<String, i64> = HashMap::new();
+        for stored in &events {
+            let detail = &stored.event.detail;
+            let Some(id) = detail.get("instance_id").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            match stored.event.action.as_str() {
+                "m.sandbox.spawn" => {
+                    let from = detail
+                        .get("definition")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    if derived
+                        .insert(id.to_string(), (from, stored.event.timestamp_ms))
+                        .is_none()
+                    {
+                        order.push(id.to_string());
+                    }
+                }
+                "m.sandbox.reap" => {
+                    reaped.insert(id.to_string(), stored.event.timestamp_ms);
+                }
+                _ => {}
+            }
+        }
+
+        let mut out: Vec<ReconciledInstance> = Vec::new();
+        // The node's own instance first: nothing derived it, and it is the one a switch
+        // and a plain run act on. It only belongs here once something has named what it
+        // runs — before that its definition is `""`, and `""` is not a definition name.
+        let own = self.own_instance.clone();
+        if let Some(instance) = self.instance(&own) {
+            if instance.definition == definition {
+                out.push(ReconciledInstance {
+                    instance_id: own.as_str().to_string(),
+                    definition: instance.definition.clone(),
+                    spawned_at_ms: None,
+                    reaped_at_ms: None,
+                    running: instance.is_running(),
+                });
+            }
+        }
+        for id in order {
+            let Some((from, at)) = derived.get(&id) else {
+                continue;
+            };
+            if from != definition {
+                continue;
+            }
+            out.push(ReconciledInstance {
+                instance_id: id.clone(),
+                definition: from.clone(),
+                spawned_at_ms: Some(*at),
+                reaped_at_ms: reaped.get(&id).copied(),
+                running: self.instance_running(&id),
+            });
+        }
+        Ok(out)
+    }
+
+    /// Is this instance in the live table **and** holding a VM?
+    fn instance_running(&self, id: &str) -> bool {
+        self.instance(&InstanceId::new(id))
+            .map(|instance| instance.is_running())
+            .unwrap_or(false)
     }
 
     /// Register an instance with fresh, empty state: the table half of
@@ -4814,25 +4930,21 @@ impl AppState {
         })
     }
 
-    /// Recent events, newest last, filtered.
+    /// Recent events, newest last, filtered and windowed.
+    ///
+    /// `filter` is the audit store's own [`audit::EventFilter`] (v1.0 gap 3/N): the four
+    /// window fields it carries were always applied in SQL, and only this surface was
+    /// missing them. Taking the type rather than six loose arguments keeps one description of
+    /// "which slice of the chain" instead of two.
     pub fn list_events(
         &self,
         limit: usize,
-        actor: Option<String>,
-        action_prefix: Option<String>,
+        filter: audit::EventFilter,
     ) -> Result<Vec<StoredEventView>, HostError> {
         let store = self
             .audit
             .lock()
             .map_err(|_| HostError::Other("audit store lock poisoned".into()))?;
-        let filter = audit::EventFilter {
-            actor,
-            action_prefix,
-            from_ms: None,
-            to_ms: None,
-            from_id: None,
-            to_id: None,
-        };
         let mut events = store.list(filter, limit)?;
         events.reverse(); // newest first for the UI
         Ok(events.into_iter().map(StoredEventView::from).collect())

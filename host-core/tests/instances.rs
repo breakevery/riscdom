@@ -353,7 +353,7 @@ fn the_run_start_event_records_the_definition_and_the_instance() {
     // What each `run.start` records: the definition it resolved to and the instance
     // it ran on (v1.0 M2a-3) — the link the chain could not make before.
     let run_starts = |app: &AppState| -> Vec<(String, String)> {
-        app.list_events(200, None, None)
+        app.list_events(200, host_core::EventFilter::default())
             .expect("events")
             .into_iter()
             .filter(|event| event.action == "run.start")

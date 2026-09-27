@@ -184,7 +184,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
 | `/v0/audit/status` | GET | `audit.read` | — | `AuditStatusView` | `get_audit_status` |
-| `/v0/audit/events` | GET | `audit.read` | query: `limit`, `actor`, `action_prefix` | `[StoredEventView]` | `list_audit_events` |
+| `/v0/audit/events` | GET | `audit.read` | query: `limit`, `actor`, `action_prefix`, `from_ms`, `to_ms`, `from_id`, `to_id` | `[StoredEventView]` | `list_audit_events` |
 | `/v0/runs` | GET | `runs.read` | query: `limit` (default 20) | `[RunView]` | `list_runs` |
 | `/v0/runs/{run_id}` | GET | `runs.read` | path: `run_id` | `RunView` or `null` | `get_run` |
 | `/v0/runs/diff` | GET | `runs.read` | query: `run_a`, `run_b` | `[FingerprintFieldDiff]` | `compare_run_fingerprints` |
@@ -216,7 +216,8 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/sandboxes/{name}` | GET | `sandbox.read` | path: `name` | `SandboxView`, or `404` | `get_sandbox` |
 | `/v0/sandboxes/{name}/instances` | GET | `sandbox.read` | path: `name` | `{ "instances": [InstanceView] }`, or `404` | — |
 | `/v0/sandboxes/{name}/instances` | POST | `sandbox.instantiate` | path: `name` | `{ "instance_id", "definition", "vm_started_at_ms" }`, or `404` / `500` / `503` | — |
-| `/v0/sandboxes/{name}/instances/{id}` | DELETE | `sandbox.instantiate` | path: `name`, `id` | `204`, or `404` | — |
+| `/v0/sandboxes/{name}/instances` | DELETE | `sandbox.instantiate` | path: `name`, `id` | `204`, or `404` | — |
+| `/v0/sandboxes/{name}/instances/history` | GET | `sandbox.read` | path: `name` | `{ "instances": [ReconciledInstance] }`, or `404` | — |
 | `/v0/sandboxes/{name}/capabilities` | GET | `sandbox.read` | path: `name` | `{ "name", "supports_multiplexing" }`, or `404` | — |
 | `/v0/sandboxes/requests` | GET | `sandbox.read` | query: `status`? | `{ "requests": [SandboxRequestView] }`, or `400` on an unknown `status` | `list_sandbox_requests` |
 | `/v0/executors` | GET | `agent.run` | — | `{ "executors": [{ "agent_id": string }] }` | `list_executors` |
@@ -356,6 +357,26 @@ the tables above. They are part of this document's surface all the same.
   holds — while `GET /v0/sandboxes/{name}/capabilities` answers what the **definition** can do
   (`supports_multiplexing`). `Task.instance`, the field that routes a run to one of these
   instances, arrives with M2a-3.
+- **The chain is the history of instances, and `…/instances/history` reads it** (v1.0 gap 3/N).
+  The instance table is **runtime state** — a `vm_slot` is a live process handle, so it cannot
+  be persisted, and after a restart the guests are gone anyway. What survives is the record:
+  every derive and every reap is a row (`m.sandbox.spawn` / `m.sandbox.reap`), so
+  `GET /v0/sandboxes/{name}/instances/history` **derives** what the definition had — the way
+  the run index is derived from the chain rather than kept beside it. Each entry carries
+  `instance_id`, `definition`, `spawned_at_ms`, `reaped_at_ms` (`null` if it never was) and
+  `running`, which is "is it running **now**", read from the live table: after a restart it is
+  `false` for everything, which is the honest answer rather than a stale `true`. The node's
+  own instance is listed too, with a `null` start — nothing derived it, and it is the one a
+  switch and a plain run act on, listed only once something has named what it runs. `history`
+  is a **literal** of that path: it is never read as an instance id, so a member act on it is
+  a `405`, not a reap.
+- **The audit read takes a window** (v1.0 gap 3/N). `GET /v0/audit/events` takes `limit`
+  (required) plus `actor` and `action_prefix` as it always did, and now also `from_ms`,
+  `to_ms`, `from_id` and `to_id` — inclusive at both ends, applied by the store exactly as
+  before. `limit` keeps meaning **how many rows come back**; a reader that must not miss
+  anything pages forward with `from_id` rather than asking for a huge limit, because the read
+  has no cursor of its own. A pair the wrong way round is the caller's parameter: `400`,
+  `cause: "from_ms"` (or `"from_id"`).
 - **A sandbox request is an ask, not a command** (v0.9 sandbox F2c). `POST
   /v0/sandboxes/requests` needs `agent.run` — the actor that may run an agent is the actor
   that may say what it wants — and answers `201` with the new id. `GET

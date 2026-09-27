@@ -586,7 +586,14 @@ pub async fn list_audit_events(
     action_prefix: Option<String>,
 ) -> Result<Vec<StoredEventView>, String> {
     state
-        .list_events(limit, actor, action_prefix)
+        .list_events(
+            limit,
+            host_core::EventFilter {
+                actor,
+                action_prefix,
+                ..Default::default()
+            },
+        )
         .map_err(|e| e.user_message())
 }
 

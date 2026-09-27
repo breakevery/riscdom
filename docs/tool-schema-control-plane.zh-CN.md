@@ -32,7 +32,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 两条写明的例外：
 
 - **同时服务 `GET` 与 `POST` 的路径**（共六条：`toolchain/download`、`qemu/download`、`settings/theme`、`settings/language`、`llm/config`、`sandboxes/requests`）给 `POST` 加后缀 **`_post`**，于是 `POST /v0/settings/theme` → `settings_theme_post`。
-- **八条带路径参数的路由**用一个动词，而不是把路径拼起来，因为 `runs_run_id` 对谁都没帮助：`GET /v0/runs/{run_id}` → `run_get`，`GET /v0/sandboxes/{name}` → `sandbox_get`，两条申请裁决 → `sandbox_request_approve` / `sandbox_request_reject`，以及实例模型的四条（v1.0 M2a-2）→ `instance_list`、`instance_create`、`instance_delete` 与 `sandbox_capabilities`。
+- **九条带路径参数的路由**用一个动词，而不是把路径拼起来，因为 `runs_run_id` 对谁都没帮助：`GET /v0/runs/{run_id}` → `run_get`，`GET /v0/sandboxes/{name}` → `sandbox_get`，两条申请裁决 → `sandbox_request_approve` / `sandbox_request_reject`，以及实例模型的五条（v1.0 M2a-2；`instance_history` 属 v1.0 缺口 3/N）→ `instance_list`、`instance_create`、`instance_delete`、`instance_history` 与 `sandbox_capabilities`。
 
 工具名在整个集合里唯一（有检查）。
 
@@ -46,7 +46,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | Tool | Method | Path | Capability | Arguments |
 |---|---|---|---|---|
 | `audit_status` | GET | `/v0/audit/status` | `audit.read` | — |
-| `audit_events` | GET | `/v0/audit/events` | `audit.read` | `limit` (int, required), `actor` (str), `action_prefix` (str) |
+| `audit_events` | GET | `/v0/audit/events` | `audit.read` | `limit` (int, required), `actor` (str), `action_prefix` (str), `from_ms` (int), `to_ms` (int), `from_id` (int), `to_id` (int) |
 | `runs` | GET | `/v0/runs` | `runs.read` | `limit` (int, default 20) |
 | `runs_diff` | GET | `/v0/runs/diff` | `runs.read` | `run_a` (str), `run_b` (str) |
 | `llm_provider_presets` | GET | `/v0/llm/provider-presets` | `llm.read` | — |
@@ -143,6 +143,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | `instance_list` | GET | `/v0/sandboxes/{name}/instances` | `sandbox.read` | `name` (str) |
 | `instance_create` | POST | `/v0/sandboxes/{name}/instances` | `sandbox.instantiate` | `name` (str) |
 | `instance_delete` | DELETE | `/v0/sandboxes/{name}/instances/{id}` | `sandbox.instantiate` | `name` (str), `id` (str) |
+| `instance_history` | GET | `/v0/sandboxes/{name}/instances/history` | `sandbox.read` | `name` (str) |
 | `sandbox_capabilities` | GET | `/v0/sandboxes/{name}/capabilities` | `sandbox.read` | `name` (str) |
 <!-- tool-routes:patterns:end -->
 
@@ -156,7 +157,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 ```json
 [
 {"type":"function","function":{"name":"audit_status","description":"The audit chain's verdict: how many events it holds and whether it verifies.","parameters":{"type":"object","properties":{},"required":[]}}}
-{"type":"function","function":{"name":"audit_events","description":"Recent audit events, newest first.","parameters":{"type":"object","properties":{"limit":{"type":"integer"},"actor":{"type":"string"},"action_prefix":{"type":"string"}},"required":["limit"]}}}
+{"type":"function","function":{"name":"audit_events","description":"Recent audit events, newest first, optionally windowed by time or chain id.","parameters":{"type":"object","properties":{"limit":{"type":"integer"},"actor":{"type":"string"},"action_prefix":{"type":"string"},"from_ms":{"type":"integer"},"to_ms":{"type":"integer"},"from_id":{"type":"integer"},"to_id":{"type":"integer"}},"required":["limit"]}}}
 {"type":"function","function":{"name":"runs","description":"The run index, newest first.","parameters":{"type":"object","properties":{"limit":{"type":"integer"}},"required":[]}}}
 {"type":"function","function":{"name":"runs_diff","description":"Two runs' configuration fingerprints, field by field.","parameters":{"type":"object","properties":{"run_a":{"type":"string"},"run_b":{"type":"string"}},"required":["run_a","run_b"]}}}
 {"type":"function","function":{"name":"llm_provider_presets","description":"The built-in model provider presets.","parameters":{"type":"object","properties":{},"required":[]}}}
@@ -259,6 +260,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 {"type":"function","function":{"name":"instance_list","description":"The instances derived from one sandbox definition.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"instance_create","description":"Derive an instance from a definition and start its VM. Does not change what the node is running.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"instance_delete","description":"Reap one instance of a definition: stop its VM and forget it.","parameters":{"type":"object","properties":{"name":{"type":"string"},"id":{"type":"string"}},"required":["name","id"]}}}
+{"type":"function","function":{"name":"instance_history","description":"The instances this definition had, as the node's history records them — derived from the audit chain, not the live table; `running` is false after a restart.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"sandbox_capabilities","description":"What one sandbox definition can do: whether it multiplexes.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 ]
 ```

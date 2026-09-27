@@ -123,7 +123,13 @@ fn vm_stays_alive_across_runs_and_can_be_stopped() {
     assert!(state.vm_is_running(), "run 2 must not drop the VM");
 
     let results = state
-        .list_events(500, None, Some("agent.tool.result".into()))
+        .list_events(
+            500,
+            host_core::EventFilter {
+                action_prefix: Some("agent.tool.result".into()),
+                ..Default::default()
+            },
+        )
         .expect("events");
     assert!(
         results

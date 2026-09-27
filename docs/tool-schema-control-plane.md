@@ -47,12 +47,12 @@ Two documented exceptions:
   `qemu/download`, `settings/theme`, `settings/language`, `llm/config`,
   `sandboxes/requests`) gives the `POST` the suffix **`_post`**, so
   `POST /v0/settings/theme` → `settings_theme_post`.
-- **The eight path-parameter routes** get a verb instead of a joined path, because
+- **The nine path-parameter routes** get a verb instead of a joined path, because
   `runs_run_id` helps nobody: `GET /v0/runs/{run_id}` → `run_get`,
   `GET /v0/sandboxes/{name}` → `sandbox_get`, the two request decisions →
-  `sandbox_request_approve` / `sandbox_request_reject`, and the instance model's four
-  (v1.0 M2a-2) → `instance_list`, `instance_create`, `instance_delete` and
-  `sandbox_capabilities`.
+  `sandbox_request_approve` / `sandbox_request_reject`, and the instance model's five
+  (v1.0 M2a-2; `instance_history` is v1.0 gap 3/N) → `instance_list`,
+  `instance_create`, `instance_delete`, `instance_history` and `sandbox_capabilities`.
 
 Tool names are unique across the whole set (checked).
 
@@ -66,7 +66,7 @@ Tool names are unique across the whole set (checked).
 | Tool | Method | Path | Capability | Arguments |
 |---|---|---|---|---|
 | `audit_status` | GET | `/v0/audit/status` | `audit.read` | — |
-| `audit_events` | GET | `/v0/audit/events` | `audit.read` | `limit` (int, required), `actor` (str), `action_prefix` (str) |
+| `audit_events` | GET | `/v0/audit/events` | `audit.read` | `limit` (int, required), `actor` (str), `action_prefix` (str), `from_ms` (int), `to_ms` (int), `from_id` (int), `to_id` (int) |
 | `runs` | GET | `/v0/runs` | `runs.read` | `limit` (int, default 20) |
 | `runs_diff` | GET | `/v0/runs/diff` | `runs.read` | `run_a` (str), `run_b` (str) |
 | `llm_provider_presets` | GET | `/v0/llm/provider-presets` | `llm.read` | — |
@@ -163,6 +163,7 @@ Tool names are unique across the whole set (checked).
 | `instance_list` | GET | `/v0/sandboxes/{name}/instances` | `sandbox.read` | `name` (str) |
 | `instance_create` | POST | `/v0/sandboxes/{name}/instances` | `sandbox.instantiate` | `name` (str) |
 | `instance_delete` | DELETE | `/v0/sandboxes/{name}/instances/{id}` | `sandbox.instantiate` | `name` (str), `id` (str) |
+| `instance_history` | GET | `/v0/sandboxes/{name}/instances/history` | `sandbox.read` | `name` (str) |
 | `sandbox_capabilities` | GET | `/v0/sandboxes/{name}/capabilities` | `sandbox.read` | `name` (str) |
 <!-- tool-routes:patterns:end -->
 
@@ -178,7 +179,7 @@ say what the model may ask for.
 ```json
 [
 {"type":"function","function":{"name":"audit_status","description":"The audit chain's verdict: how many events it holds and whether it verifies.","parameters":{"type":"object","properties":{},"required":[]}}}
-{"type":"function","function":{"name":"audit_events","description":"Recent audit events, newest first.","parameters":{"type":"object","properties":{"limit":{"type":"integer"},"actor":{"type":"string"},"action_prefix":{"type":"string"}},"required":["limit"]}}}
+{"type":"function","function":{"name":"audit_events","description":"Recent audit events, newest first, optionally windowed by time or chain id.","parameters":{"type":"object","properties":{"limit":{"type":"integer"},"actor":{"type":"string"},"action_prefix":{"type":"string"},"from_ms":{"type":"integer"},"to_ms":{"type":"integer"},"from_id":{"type":"integer"},"to_id":{"type":"integer"}},"required":["limit"]}}}
 {"type":"function","function":{"name":"runs","description":"The run index, newest first.","parameters":{"type":"object","properties":{"limit":{"type":"integer"}},"required":[]}}}
 {"type":"function","function":{"name":"runs_diff","description":"Two runs' configuration fingerprints, field by field.","parameters":{"type":"object","properties":{"run_a":{"type":"string"},"run_b":{"type":"string"}},"required":["run_a","run_b"]}}}
 {"type":"function","function":{"name":"llm_provider_presets","description":"The built-in model provider presets.","parameters":{"type":"object","properties":{},"required":[]}}}
@@ -281,6 +282,7 @@ say what the model may ask for.
 {"type":"function","function":{"name":"instance_list","description":"The instances derived from one sandbox definition.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"instance_create","description":"Derive an instance from a definition and start its VM. Does not change what the node is running.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"instance_delete","description":"Reap one instance of a definition: stop its VM and forget it.","parameters":{"type":"object","properties":{"name":{"type":"string"},"id":{"type":"string"}},"required":["name","id"]}}}
+{"type":"function","function":{"name":"instance_history","description":"The instances this definition had, as the node's history records them — derived from the audit chain, not the live table; `running` is false after a restart.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"sandbox_capabilities","description":"What one sandbox definition can do: whether it multiplexes.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 ]
 ```

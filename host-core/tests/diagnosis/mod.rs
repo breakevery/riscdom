@@ -206,7 +206,9 @@ pub fn report(
     outcome: Option<&AgentOutcomeView>,
     host_error: Option<&str>,
 ) -> String {
-    let events = state.list_events(500, None, None).unwrap_or_default();
+    let events = state
+        .list_events(500, host_core::EventFilter::default())
+        .unwrap_or_default();
     let steps = tool_steps(&events);
     let serial = sink.serial_text();
     let chain = match state.audit_status() {

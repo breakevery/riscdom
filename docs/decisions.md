@@ -1881,3 +1881,36 @@ the code — it had listed fourteen while the code defined seventeen, a drift th
 The API document's §3 documents the header. Nothing else on the surface moves: **no new route,
 no new capability, no change to the hash formula, the triggers or a historical row**, and a
 chain containing the new rows verifies intact.
+
+## 82. An instance's past is derived from the chain, not kept in a file
+
+**Date**: 2026-09-27 ｜ **Status**: Decided; landed with the v1.0 gap 3/N batch
+
+**Decision**: The instance table is **not** persisted. `SandboxInstance.vm_slot` is a live
+process handle — a VM, not data — and after a restart the guests are gone anyway, so "persist
+the table" would be a file claiming VMs nobody has. What a definition **had** is derived
+instead: `GET /v0/sandboxes/{name}/instances/history` folds the chain's `m.sandbox.spawn` and
+`m.sandbox.reap` rows into a list (`instance_id`, `definition`, `spawned_at_ms`,
+`reaped_at_ms`, `running`) — exactly the way `audit::derive_runs_from` rebuilds the run index.
+`running` is read from the live table ("is it running **now**"), so after a restart it is
+`false` for every record; the node's own instance is included with a `null` start, because
+nothing derived it.
+
+**Why**: §34 already separates what a node *runs* (runtime state) from what it *starts from*
+(configuration), and the instance model inherited that: an instance outlives its VM, and a
+table of live handles dies with the process. The chain, by contrast, is append-only and
+durable — and since the gap 2/N batch it is also **attributable** (each row names its caller),
+which is what makes it usable as the reconciliation source rather than a second bookkeeping
+file that can disagree with it. Deriving answers the honest question too: "what was derived and
+never reaped?" is a query over rows, not a field somebody has to remember to update.
+
+**Impact**: `AppState::instance_history` and a `ReconciledInstance` view; one new query route
+— a **pattern**, so §5.1's heading (which counts the table's static rows, checked against
+`server/src/routes.rs`) does not move while the document's table and the tool-schema document
+gain a row — whose `history` segment is a **reserved literal**: a member act on it is a `405`,
+never a reap. `docs/control-plane-api.md` §5.4, `docs/tool-schema-control-plane.md` §2 and its
+checker's naming table all follow. The audit window is this batch's other half: the
+four fields `EventFilter` has always applied in SQL are now reachable over HTTP, with a reversed
+pair refused as `400` and the `cause` naming the lower bound. **No table, no schema and no chain
+structure changed**, and the reference dispatcher now declares its name — `--agent-id` is
+required, because an unnamed dispatcher is what §81 went and fixed.

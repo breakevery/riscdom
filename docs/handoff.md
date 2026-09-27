@@ -13,6 +13,20 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **The chain is the record of instances, and the audit read takes a window** (v1.0 gap 3/N,
+  2026-09-27). `GET /v0/sandboxes/{name}/instances/history` **derives** what a definition had
+  from the chain's `m.sandbox.spawn` / `m.sandbox.reap` rows — the instance table cannot be
+  persisted (a `vm_slot` is a live handle, §34), so the past is derived the way the run index
+  is. Each entry carries `spawned_at_ms`, `reaped_at_ms` and `running`, and `running` is
+  "**now**", read from the live table (after a restart: `false` for everything). `history` is a
+  reserved literal of that path, so a member act on it is a `405`, not a reap.
+  `GET /v0/audit/events` gained the four window parameters the store has always applied in SQL
+  (`from_ms` / `to_ms` / `from_id` / `to_id`; a reversed pair is a `400` naming the lower bound)
+  — §5.1's table gained a row (a **pattern**, so its heading — the static rows' count — does not
+  move). And `examples/python/supervisor.py` **names itself**:
+  `--agent-id` (required, or `$RISCDOM_AGENT_ID`) travels as `X-RiscDom-Agent` on every request,
+  so the rows the dispatcher causes say who asked. **Decision §82.**
+
 - **Every act an AI supervisor takes leaves a row that names it** (v1.0 gap 2/N, 2026-09-27). A
   client may name itself with the optional **`X-RiscDom-Agent`** header; the `Actor` it is
   served as then carries that name and `ActorKind::Supervisor`, and the **seven acts a
