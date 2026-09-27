@@ -2059,3 +2059,38 @@ citation of it was already right). **No source file, no gate and no check change
 milestone about writing down what is already true. The dead-link gap this exposed (no checker
 resolves a relative link, so the dangling `upgrade.md` reference was invisible) is recorded as
 technical debt rather than fixed here.
+
+## 87. The plugin interface is frozen
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; landed with the v1.0 M3 batch
+
+**Decision**: The sandbox plugin interface is frozen as [`docs/plugin-interface.md`](plugin-interface.md).
+The shape §3 settled and the bullets [roadmap §8](roadmap-v1.0.md) lists become a specification a plugin
+author implements against: the transport, the four mandatory mechanism operations and their frame
+grammar, the two optional semantics operations, the capability declaration's framework, the manifest's
+required keys, the error and version rules, the architecture-independence constraint and the trust
+model. Two things stay **open on purpose**: the capability declaration **format** — a draft, because it
+is what a plugin author implements first and the part most likely to need one revision once a real
+plugin exists ([roadmap §8](roadmap-v1.0.md) says it should be frozen last) — and the **architecture
+abstraction**, where the *requirement* is frozen and the trait is v1.x work.
+
+**Why**: §3 requires the plugin interface to freeze before the kernel API, and gives the reason: an
+interface reshaped after the cross-device work is work done twice. Two things made the freeze doable
+now rather than later, and both are about honesty rather than completeness. First, the shape was
+already settled (§3, §4, §5) — what was missing was a document a plugin author could implement
+against, and the frame grammar was the only genuinely new design work. Second, the two open items were
+**named as open** rather than guessed at: the capability declaration format had been a **circular
+reference** — roadmap §8 said the draft was in §14.11, and §14.11 said the draft was in §8, so nothing
+was written anywhere — which is the one failure mode a freeze must not have; and the architecture trait
+does not exist, so freezing one before a plugin does would invent an implementation contract out of
+nothing. The freeze also inherits a rule from the rest of the project: "frozen" means what
+[api-compatibility.md](api-compatibility.md) §1–§3 says it means, so this interface grows additively
+and a meaning-changing move is a major version.
+
+**Impact**: `docs/plugin-interface.md` + its translation (new; both listed in `docs/README.md`'s map);
+`docs/roadmap-v1.0.md` §6's row 1 now cites §86 for the API stability policy (it carried a `—` while
+§86 already existed); `docs/README.md`, `CHANGELOG.md` and `handoff.md` §1 follow. **No source file, no
+capability name, no audit event constant, no route and no hash formula changed** — M3 is a design, and
+§3 already says the implementation is v1.x. The two open items are tracked here rather than in a TODO:
+the declaration format is settled before v1.x implements anything, and the abstraction's trait is
+designed once a non-RISC-V plugin exists to design it against.

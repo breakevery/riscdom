@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The plugin interface is frozen** (v1.0 M3): [`docs/plugin-interface.md`](docs/plugin-interface.md) writes
+  down what [roadmap §8](docs/roadmap-v1.0.md) described — the stdio / JSON-lines transport, the four
+  mandatory mechanism operations with their frame grammar, the two optional semantics operations, the
+  capability declaration's *framework*, the manifest's required keys, and the error and version rules —
+  and says, section by section, what it freezes and what it leaves open. The capability declaration
+  format stays a **draft** on purpose, and the architecture abstraction is a requirement rather than a
+  trait. `docs/roadmap-v1.0.md` §6's row 1 now cites §86.
+
 - **The freeze level is complete, and the stability policy passes the red lines** (v1.0 M1):
   [`docs/upgrade.md`](docs/upgrade.md) — the written upgrade procedure decisions §14 and
   `docs/api-compatibility.md` §7 had been pointing at — is on disk, and `docs/api-compatibility.md`

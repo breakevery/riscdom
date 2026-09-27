@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **插件接口已冻结**（v1.0 M3）：[`docs/plugin-interface.md`](docs/plugin-interface.md) 把 [roadmap §8](docs/roadmap-v1.0.md) 描述的东西写了下来 —— stdio / JSON lines 传输、四个必含的机制层操作及其帧语法、两个可选的语义层操作、capability 声明的**框架**、manifest 的必备键，以及错误与版本规则 —— 并逐节说明它冻结了什么、留下了什么。capability 声明格式刻意保持为 **draft**，而架构抽象是一条要求、不是一个 trait。`docs/roadmap-v1.0.md` §6 的 row 1 现在引 §86。
+
 - **冻结六条已齐，稳定性政策通过四条红线**（v1.0 M1）：[`docs/upgrade.md`](docs/upgrade.md) —— decisions §14 与 `docs/api-compatibility.md` §7 一直在指的那份成文升级流程 —— 已在盘；`docs/api-compatibility.md` 多出 §9，拿 [roadmap §1](docs/roadmap-v1.0.md) 的四条红线逐条对照政策自己的条款来跑。随之修掉两处：§2 的 capability 计数（32 → 33）与 §7 的「它目前还不存在」；`docs/roadmap-v1.0.md` §6 的 row 2 现在引 §11 —— 描述数据迁移的那条决策。
 
 - **审计读用游标翻页**（v1.0 缺口 3/N 批 E）：`GET /v0/audit/events` 接受可选的 `before_id` —— 比那个 id **严格**更早的最新 `limit` 行 —— 因为这个答案是 newest-first 而存储是升序扫描，所以 `to_id` + `limit` 说不出「紧邻 X 之前那几行」。`EventFilter` 多出游标所需的加法式 `descending` 标志（默认 `false`，其他调用方不动）；`before_id` 与 `to_id` 同传是 `400`。`limit` 仍然必填，`limit=0` 仍然答空数组。参考调度员的 `worker` 测试也不再死守两种同样正确的失败措辞之一 —— 那在负载高的机器上是一次竞态。

@@ -11,6 +11,8 @@
 
 ## 1. 快照 —— `v0.9.9` 已发布（正式发布时更新本节）
 
+- **插件接口已冻结**（v1.0 M3，2026-09-28）。[`docs/plugin-interface.md`](plugin-interface.zh-CN.md) 就是 [roadmap §8](roadmap-v1.0.zh-CN.md) 描述、decisions §3 要求在内核 API 之前冻结的那份规范：stdio / JSON lines 传输、四个必含的机制层操作（`start`/`stop`/`execute`/`output`）及其帧语法、两个可选的语义层操作（`snapshot`/`fingerprint`）、capability 声明的框架、manifest 的必备键、错误与版本规则、架构无关这条约束，以及信任模型 —— 每一节都说明它冻结了什么、留下了什么。有两样东西**刻意开放**：capability 声明的**格式**（draft；roadmap §8 说它最后冻结）与**架构抽象**（要求已冻结，trait 属 v1.x）。**决策 §87。**
+
 - **等待队列能活过重启，而调用方自己收拾**（v1.0 缺口 3/N 批 D，2026-09-27）。申请队列是运行时状态，仍然不持久化 —— 但它里面 **pending** 的申请会回来：`derive_requests_from` 折叠链上的 `m.request.ask` / `m.request.approve` / `m.request.reject` 行，构造器用仍然 pending 的那些给活队列打底，于是重启之后决策照样能做。已决的申请是历史，只留在链上。`DELETE /v0/sandboxes/requests/{id}`（`sandbox.read`）把一条移出并答 `200` 带被移除的记录；它什么都不写 —— 于是「无 TTL」（§36）仍然成立，而调用方仍能收拾。链从未携带的那一个字段是 `reason`，它保持 `None`，而不是被加进一行受哈希保护的行里。**决策 §84。**
 
 - **链就是实例的记录，而审计读取接受一个窗口**（v1.0 缺口 3/N，2026-09-27）。`GET /v0/sandboxes/{name}/instances/history` 从链上的 `m.sandbox.spawn` / `m.sandbox.reap` 行**推导**一个定义曾经有过什么 —— 实例表无法持久化（`vm_slot` 是活句柄，§34），所以过去像 run 索引一样被推导。每项带 `spawned_at_ms`、`reaped_at_ms` 与 `running`，而 `running` 是「**现在**」，从活表读出（重启后：一切都是 `false`）。`history` 是这条路径上的保留字面量，所以对它发成员动作是 `405`、不是回收。`GET /v0/audit/events` 多出存储一直在 SQL 里应用的四个窗口参数（`from_ms` / `to_ms` / `from_id` / `to_id`；写反的一对是 `400`、点名下界）—— §5.1 的表多出一行（它是**模式**，所以标题 —— 数静态行的那个 —— 不动）。自批 E 起这个读取还能用**游标**翻页（`before_id` —— 比那个 id 严格更早的最新 `limit` 行 —— 背后是加法式的 `EventFilter.descending`），因为这个答案是 newest-first 而存储是升序扫描；`before_id` 与 `to_id` 同传是 `400`。而 `examples/python/supervisor.py` **给自己命名**：`--agent-id`（必填，或 `$RISCDOM_AGENT_ID`）随**每一个**请求以 `X-RiscDom-Agent` 发出，于是该调度员引起的行说得出是谁要的。**决策 §82。**

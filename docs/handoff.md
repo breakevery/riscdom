@@ -13,6 +13,16 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **The plugin interface is frozen** (v1.0 M3, 2026-09-28). [`docs/plugin-interface.md`](plugin-interface.md)
+  is the specification [roadmap §8](roadmap-v1.0.md) described and decisions §3 required to freeze before
+  the kernel API: the stdio / JSON-lines transport, the four mandatory mechanism operations
+  (`start` / `stop` / `execute` / `output`) with their frame grammar, the two optional semantics
+  operations (`snapshot` / `fingerprint`), the capability declaration's framework, the manifest's
+  required keys, the error and version rules, the architecture-independence constraint and the trust
+  model — each section saying what it freezes and what it leaves open. Two things are open **on
+  purpose**: the capability declaration **format** (a draft; roadmap §8 says it is frozen last) and the
+  **architecture abstraction** (the requirement is frozen, the trait is v1.x work). **Decision §87.**
+
 - **The waiting queue survives a restart, and a caller cleans up after itself** (v1.0 gap 3/N,
   batch D, 2026-09-27). The request queue is runtime state and is still not persisted — but its
   **pending** asks come back: `derive_requests_from` folds the chain's `m.request.ask` /
