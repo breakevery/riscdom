@@ -31,7 +31,7 @@
 ## 2. 小版本里允许的变更
 
 - **[已定]** **加一个可选字段**（请求或应答里）。不认识它的客户端忽略它；没收到它的服务端维持今天的
-  行为。这正是设置文件自 v0.4 以来遵循的规矩（`#[serde(default)]`，`SETTINGS_VERSION` 不动）。
+  行为。这正是设置文件自 v0.4 以来遵循的规矩 —— 也是它一直把 `SETTINGS_VERSION` 保持为 **1** 的规矩，直到 v1.0 M2b-1 那次迁移，第一次需要自己版本号的变更）。
 - **[已定]** **加一个端点。** `/v1/` 下的新路径天然是增量。
 - **[已定]** **加一个 capability。** 词汇表会变长，已有 token 不受影响 ——
   [`server/src/auth.rs`](../server/src/auth.rs) 今天有 **32** 个 capability，而这个数字不是契约。
@@ -91,7 +91,7 @@
 
 | 格式 | 位置 | 今天的版本标记 | v1.0 的动作 |
 |---|---|---|---|
-| `settings.json` | `<data-dir>/settings.json` | `version`，加载时归一为 `SETTINGS_VERSION`（**1**） | 标记仍是文件首字段；「多套 LLM 配置」是第一个真正用它的迁移 |
+| `settings.json` | `<data-dir>/settings.json` | `version` = `SETTINGS_VERSION`（自 v1.0 M2b-1 起为 **2**） | **第一次真迁移发生在 v1.0 M2b-1**：v1 文件（LLM 配置当时根本不落盘）在打开时迁移为 **2**，并带一张空的 per-executor `llm_configs` 表 —— 不猜任何东西 —— 迁移前的字节留作 `settings.json.bak`；而**更新的**文件以 `data_too_new` 被拒绝（不应用、不写入） |
 | run 指纹 | 每条 run 记录之内 | `FINGERPRINT_SCHEMA_V1` = `riscdom.run.fingerprint.v1`（[`audit/src/run.rs`](../audit/src/run.rs)） | v2 指纹是一个新的标记值，绝不是改写 v1 记录 |
 | 审计库 | `<data-dir>/audit.db`（SQLite） | 只有 schema DDL —— **尚无显式版本行** | 标记行随 §6 的迁移工作落地，在冻结之前 |
 | 会话库 | `<data-dir>/sessions.db`（SQLite） | 只有 schema DDL —— **尚无显式版本行** | 同上 |

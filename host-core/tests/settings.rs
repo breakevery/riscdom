@@ -1,6 +1,6 @@
 //! Stage 25a — local settings file (`settings.json`) and toolchain persistence.
 
-use host_core::settings::{ExecutorSpecSettings, LocalSettings, SETTINGS_VERSION};
+use host_core::settings::{ExecutorSpecSettings, LocalSettings, SettingsLoad, SETTINGS_VERSION};
 use host_core::state::AppState;
 use std::path::PathBuf;
 
@@ -47,6 +47,7 @@ fn save_then_load_round_trips() {
         sandboxes: Vec::new(),
         executors: Vec::new(),
         network: None,
+        llm_configs: std::collections::HashMap::new(),
     };
     settings.save(&path).expect("save");
     assert!(path.is_file(), "{path:?}");
@@ -320,4 +321,143 @@ fn the_language_preference_round_trips_and_rejects_nonsense() {
         AppState::in_memory(&workspace).expect("state").language(),
         "system"
     );
+}
+
+// ---------------------------------------------------------------------------
+// v1.0 M2b-1 — the first real migration: settings.json v1 → v2
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_v1_file_migrates_to_v2_with_an_empty_llm_map() {
+    // A v1 file carried no LLM configuration at all (its key lived in the keyring
+    // and the rest lived only in memory), so the step adds the map **empty**:
+    // nothing is guessed from the keyring or the environment.
+    let raw = r#"{"version":1,"theme":"dark","toolchain_path":"/opt/gcc/bin/riscv-none-elf-gcc"}"#;
+    let (settings, outcome) = LocalSettings::load_text(raw);
+    assert_eq!(outcome, SettingsLoad::Migrated { from: 1 });
+    assert_eq!(settings.version, SETTINGS_VERSION);
+    assert!(settings.llm_configs.is_empty(), "nothing was guessed");
+    assert_eq!(settings.theme.as_deref(), Some("dark"));
+    assert_eq!(
+        settings.toolchain_path.as_deref(),
+        Some("/opt/gcc/bin/riscv-none-elf-gcc"),
+        "the rest of the file survives the migration"
+    );
+}
+
+#[test]
+fn a_file_without_a_version_is_the_oldest_format() {
+    let (settings, outcome) = LocalSettings::load_text(r#"{"theme":"light"}"#);
+    assert_eq!(outcome, SettingsLoad::Migrated { from: 1 });
+    assert_eq!(settings.version, SETTINGS_VERSION);
+    assert_eq!(settings.theme.as_deref(), Some("light"));
+}
+
+#[test]
+fn a_newer_file_is_refused_and_nothing_is_applied() {
+    // M1's rule (`docs/api-compatibility.md` §6): an old reader never reads a newer
+    // format, never reads part of it, and never downgrades it silently.
+    let (settings, outcome) = LocalSettings::load_text(r#"{"version":99,"theme":"dark"}"#);
+    assert_eq!(outcome, SettingsLoad::TooNew { found: 99 });
+    assert_eq!(settings, LocalSettings::default(), "nothing was applied");
+    assert_eq!(settings.theme, None, "not even the parts we recognise");
+}
+
+#[test]
+fn the_migration_backs_the_file_up_once_and_writes_v2_back() {
+    let workspace = unique_dir("migrate");
+    let path = workspace.join(".riscdom").join("settings.json");
+    std::fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
+    let original = r#"{"version":1,"theme":"dark"}"#;
+    std::fs::write(&path, original).expect("write");
+
+    let state = AppState::in_memory(&workspace).expect("state");
+    assert_eq!(state.theme(), "dark", "the migrated value is in force");
+    assert!(state.settings_problem().is_none());
+
+    // The backup is the pre-migration bytes, byte for byte …
+    let backup = path.with_extension("json.bak");
+    assert_eq!(
+        std::fs::read_to_string(&backup).expect("backup"),
+        original,
+        "the backup is what was there before the migration"
+    );
+    // … and the file itself is now v2.
+    let migrated = std::fs::read_to_string(&path).expect("settings.json");
+    assert!(migrated.contains("\"version\": 2"), "{migrated}");
+    assert!(migrated.contains("\"llm_configs\""), "{migrated}");
+
+    // A later ordinary save must not overwrite the migration snapshot: the backup
+    // exists to undo a *migration*.
+    state.set_theme("light").expect("set theme");
+    assert_eq!(
+        std::fs::read_to_string(&backup).expect("backup"),
+        original,
+        "only a migration writes the backup"
+    );
+}
+
+#[test]
+fn a_newer_settings_file_is_reported_not_swallowed() {
+    let workspace = unique_dir("too-new");
+    let path = workspace.join(".riscdom").join("settings.json");
+    std::fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
+    let original = r#"{"version":99,"theme":"dark"}"#;
+    std::fs::write(&path, original).expect("write");
+
+    let state = AppState::in_memory(&workspace).expect("state");
+    // The host keeps running on defaults, and says why: the refusal is visible.
+    let problem = state.settings_problem().expect("a reported problem");
+    assert!(problem.contains("99"), "{problem}");
+    assert_eq!(
+        state.theme(),
+        "system",
+        "defaults, not the newer file's value"
+    );
+    // Nothing was written — not the file, and not a backup of it.
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("settings.json"),
+        original
+    );
+    assert!(
+        !path.with_extension("json.bak").exists(),
+        "no backup either"
+    );
+    // And the chain carries the refusal.
+    let events = state.list_events(50, None, None).expect("events");
+    assert!(
+        events
+            .iter()
+            .any(|e| e.action == "host.settings.data_too_new"),
+        "the audit chain names it"
+    );
+}
+
+#[test]
+fn settings_json_never_carries_an_api_key() {
+    let workspace = unique_dir("no-secret");
+    let state = AppState::in_memory(&workspace).expect("state");
+    state
+        .set_llm_config_with(
+            Some("deepseek".into()),
+            "sk-must-not-be-written".into(),
+            String::new(),
+            String::new(),
+            Some(false),
+        )
+        .expect("set config");
+
+    let text = std::fs::read_to_string(state.settings_path()).expect("settings.json");
+    assert!(text.contains("\"llm_configs\""), "{text}");
+    assert!(text.contains("\"deepseek\""), "{text}");
+    assert!(!text.contains("sk-must-not-be-written"), "{text}");
+    assert!(
+        !text.contains("api_key"),
+        "no key field exists at all: {text}"
+    );
+    // The status separates the two facts (v1.0 M2b-1).
+    let status = state.llm_config_status();
+    assert!(status.configured);
+    assert!(status.config_persisted, "the non-secret half is on disk");
+    assert!(!status.persisted, "…and the key was not remembered");
 }

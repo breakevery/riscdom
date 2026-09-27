@@ -35,7 +35,8 @@ changing them lives.
 
 - **[settled]** **Adding an optional field** to a request or a response. A client that does not know the
   field ignores it; a server that does not receive it keeps today's behaviour. This is the rule the
-  settings file has followed since v0.4 (`#[serde(default)]`, `SETTINGS_VERSION` does not move).
+  settings file has followed since v0.4 — and which kept `SETTINGS_VERSION` at **1** until the
+v1.0 M2b-1 migration, the first change that needed a version of its own).
 - **[settled]** **Adding an endpoint.** A new path under `/v1/` is additive by construction.
 - **[settled]** **Adding a capability.** The vocabulary grows and existing tokens are unaffected —
   [`server/src/auth.rs`](../server/src/auth.rs) holds **32** capabilities today, and the number is not a
@@ -109,7 +110,7 @@ as the schema.
 
 | Format | Where | Version marker today | v1.0 action |
 |---|---|---|---|
-| `settings.json` | `<data-dir>/settings.json` | `version`, normalised to `SETTINGS_VERSION` (**1**) on load | the marker stays the file's first field; the several-LLM-configurations change is the first migration that uses it |
+| `settings.json` | `<data-dir>/settings.json` | `version` = `SETTINGS_VERSION` (**2** from v1.0 M2b-1) | **the first real migration happened in v1.0 M2b-1**: a v1 file (LLM configuration was not persisted at all) is migrated on open to **2** with an empty per-executor `llm_configs` map — nothing guessed — its pre-migration bytes are kept as `settings.json.bak`, and a **newer** file is refused with `data_too_new` (nothing applied, nothing written) |
 | Run fingerprint | inside each run's record | `FINGERPRINT_SCHEMA_V1` = `riscdom.run.fingerprint.v1` ([`audit/src/run.rs`](../audit/src/run.rs)) | a v2 fingerprint is a new marker value, never a rewritten v1 record |
 | Audit store | `<data-dir>/audit.db` (SQLite) | schema DDL only — **no explicit version row yet** | the marker row lands with §6's migration work, before the freeze |
 | Session database | `<data-dir>/sessions.db` (SQLite) | schema DDL only — **no explicit version row yet** | same |

@@ -176,10 +176,20 @@ check(
     !settings.includes("pub remote_token:"),
   FIELDS.join(", "),
 );
+// The version constant is free to move when a *different* field needs a migration
+// (v1.0 M2b-1 moved it to 2 for the per-executor LLM map), so what is pinned here
+// is the property this check is about — `network` is additive — plus the one
+// invariant that has to hold anyway: the document that declares the format names
+// the same number the constant does. Pinning the literal made this check fail the
+// day another field migrated.
+const settingsVersion = /pub const SETTINGS_VERSION: u32 = (\d+);/.exec(settings)?.[1];
+const compatibility = readFileSync(path.join(REPO, "docs", "api-compatibility.md"), "utf8");
 check(
   "settings.json gains it additively",
-  /pub network: Option<NetworkSettings>/.test(settings) &&
-    /pub const SETTINGS_VERSION: u32 = 1;/.test(settings),
+  /#\[serde\(default\)\]\s*\n\s*pub network: Option<NetworkSettings>/.test(settings) &&
+    settingsVersion !== undefined &&
+    compatibility.includes(`**${settingsVersion}**`),
+  settingsVersion ? `version ${settingsVersion}, documented` : "no version constant",
 );
 
 // ----- two transports, held to each other -------------------------------------

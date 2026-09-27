@@ -13,6 +13,27 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **The LLM configuration is persisted per executor, and `settings.json` is migrated for the first
+  time** (v1.0 M2b-1, 2026-09-27). The non-secret half of a model configuration — provider,
+  endpoint, model — now travels to disk under `llm_configs`, keyed by **executor id**: the node's own
+  **device name** (`local`) for the machine, or an executor's `label` for a worker — the same
+  addressing space `Task.target` uses, and deliberately **not** the node's `AgentId`, which carries
+  the pid and would not survive the restart the entry exists for. The key stays where it has been
+  since v0.4: the OS keyring, now under `llm-api-key:<executor>:<provider>`, with a v0.9.9 entry
+  (`llm-api-key:<provider>`) read **forward** — the value is written under the new name and the old
+  entry is left alone, so a build that goes back still finds it. `SETTINGS_VERSION` moves **1 → 2**,
+  the first real use of the freeze level's migration rules: `LocalSettings::load_text` reads the
+  document's version (absent = the oldest format, not a number = a corrupt file), `migrate` refuses a
+  **newer** file with `data_too_new` and turns an older one into the current format (v1 → v2 adds the
+  map **empty** — nothing is guessed from the keyring or the environment), the load path writes the
+  pre-migration bytes to `settings.json.bak` **only when it migrates** and writes the migrated
+  document back, and a refusal is **visible** — an audit event (`host.settings.data_too_new`) plus
+  `AppState::settings_problem` — instead of the old "a file I cannot read becomes defaults" silence.
+  `LlmConfigStatus` gains `config_persisted` beside `persisted`: the interface reads `persisted` as
+  "your key is remembered", and that stays true; the new field says the non-secret half is on disk.
+  Endpoints, sessions and the UI are untouched — M2b-2/3 add the executor dimension to the endpoints,
+  the per-executor session split and the interface. **Decision §75.**
+
 - **A run can name an instance, and the chain records it** (v1.0 M2a-3, 2026-09-27 — M2a's last piece).
   `Task` gains `instance: Option<InstanceId>` (`#[serde(default)]`, the shape `sandbox` already had, so
   an older task line still parses); `HostAgentHandle` and the `worker` pass it to `run_agent_for`,

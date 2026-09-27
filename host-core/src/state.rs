@@ -6,7 +6,9 @@ use crate::events::{
     EV_AGENT_TOOL_CALL, EV_AGENT_TOOL_RESULT, EV_AUDIT_FAILED, EV_SANDBOX_SWITCH, EV_SERIAL_CHUNK,
     EV_VM_STATE,
 };
-use crate::keyring::{user_for_provider, InMemoryKeyring, KeyringBackend, OsKeyring, SERVICE};
+use crate::keyring::{
+    legacy_user_for_provider, user_for_llm_key, InMemoryKeyring, KeyringBackend, OsKeyring, SERVICE,
+};
 use crate::run_diff::{self, FingerprintFieldDiff};
 use crate::sandbox_def::{
     CandidatesView, SandboxDef, SandboxSource, SandboxView, DEFAULT_SANDBOX_NAME,
@@ -15,7 +17,9 @@ use crate::sandbox_request::{
     SandboxAction, SandboxRequestService, SandboxRequestStatus, SandboxRequestView, SandboxRequests,
 };
 use crate::session::{SessionMessage, SessionMeta, SessionStore};
-use crate::settings::{LocalSettings, NetworkSettings};
+use crate::settings::{
+    LlmConfigEntry, LocalSettings, NetworkSettings, SettingsLoad, SETTINGS_VERSION,
+};
 use crate::toolchain_download::DownloadEvent;
 use agent::llm::{DeepSeekClient, LlmClient};
 use agent::message::{ChatMessage, ChatRequest, ChatResponse, StreamEvent};
@@ -341,6 +345,15 @@ pub struct LlmConfigStatus {
     pub model: String,
     /// Whether the current key is stored in the OS keyring.
     pub persisted: bool,
+    /// Whether this executor's **non-secret** configuration is in `settings.json`
+    /// (v1.0 M2b-1).
+    ///
+    /// A second field rather than a redefinition of `persisted`: the interface
+    /// reads `persisted` as "your key is remembered", and that stays true. The two
+    /// facts are separate on purpose — a config can be on disk with its key only in
+    /// memory (a `remember: false` save), and a key can be in the keyring with the
+    /// config not yet written.
+    pub config_persisted: bool,
 }
 
 /// A provider preset, shaped for the frontend.
@@ -778,6 +791,13 @@ pub struct AppState {
     qemu_download_last: Mutex<Option<crate::qemu_download::QemuDownloadEvent>>,
     /// Non-secret local settings mirrored to `settings.json`.
     settings: Mutex<LocalSettings>,
+    /// Why this node is not using its settings file, if it is not (v1.0 M2b-1).
+    ///
+    /// Set today by one thing: a `settings.json` from a newer build, which is
+    /// **refused** rather than half-read. The host keeps running on defaults and
+    /// says so here (and in the audit chain) instead of pretending the file was
+    /// simply corrupt.
+    settings_problem: Mutex<Option<String>>,
     /// The executor handles a task is routed to (v0.9 interface E0).
     ///
     /// Built from `settings.executors` after the settings file is read. The
@@ -795,7 +815,7 @@ pub struct AppState {
     /// resolved from a process-wide `OnceLock`, so only the first instance's
     /// directory ever took effect.
     data_dir: PathBuf,
-    pub llm_config: Mutex<Option<LlmConfigInput>>,
+    pub llm_config: Mutex<HashMap<String, LlmConfigInput>>,
     pub workspace_root: PathBuf,
     pub compiler: agent::CompilerConfig,
     /// Test seam: an injected LLM client (bypasses HTTP).
@@ -1192,10 +1212,11 @@ impl AppState {
             toolchain_download_last: Mutex::new(None),
             qemu_download_last: Mutex::new(None),
             settings: Mutex::new(LocalSettings::default()),
+            settings_problem: Mutex::new(None),
             executors: Mutex::new(Vec::new()),
             settings_path: crate::paths::settings_path(),
             data_dir: crate::paths::default_data_dir(),
-            llm_config: Mutex::new(None),
+            llm_config: Mutex::new(HashMap::new()),
             workspace_root: root,
             compiler: agent::CompilerConfig::from_env(),
             llm_override: Mutex::new(None),
@@ -3022,9 +3043,58 @@ impl AppState {
         outcome
     }
 
-    /// Read settings from disk and apply them (missing/corrupt → defaults).
+    /// Read settings from disk, migrating an older file (v1.0 M2b-1).
+    ///
+    /// The rules are `docs/api-compatibility.md` §6's, and this is their first real
+    /// use: an older file is migrated **on open**, its pre-migration bytes are kept
+    /// beside it as `settings.json.bak`, and the migrated document is written back
+    /// in the current format. A **newer** file is refused — nothing applied, nothing
+    /// written — and the refusal is made visible (an audit event plus
+    /// [`Self::settings_problem`]) rather than being swallowed as "a corrupt file
+    /// becomes defaults".
     fn load_settings(&self) {
-        let loaded = LocalSettings::load(&self.settings_path);
+        let raw = std::fs::read_to_string(&self.settings_path).unwrap_or_default();
+        let (loaded, outcome) = LocalSettings::load_text(&raw);
+
+        if let SettingsLoad::TooNew { found } = outcome {
+            let message = format!(
+                "settings.json is version {found}, this build reads {SETTINGS_VERSION}; \
+                 nothing was applied and nothing was written"
+            );
+            if let Ok(mut slot) = self.settings_problem.lock() {
+                *slot = Some(message.clone());
+            }
+            eprintln!("settings: {message}");
+            self.emit_host(
+                "host.settings.data_too_new",
+                serde_json::json!({ "found": found, "supported": SETTINGS_VERSION }),
+            );
+        }
+
+        // The backup is the **pre-migration** bytes, byte for byte — and only a
+        // migration makes one: an ordinary save later must not overwrite the
+        // snapshot that exists to undo a migration.
+        if let SettingsLoad::Migrated { from } = outcome {
+            let backup = self.settings_path.with_extension("json.bak");
+            if let Err(e) = std::fs::write(&backup, raw.as_bytes()) {
+                self.emit_host(
+                    "host.settings.backup_failed",
+                    serde_json::json!({
+                        "error": e.to_string(),
+                        "path": backup.display().to_string(),
+                    }),
+                );
+            }
+            self.emit_host(
+                "host.settings.migrated",
+                serde_json::json!({
+                    "from": from,
+                    "to": SETTINGS_VERSION,
+                    "backup": backup.display().to_string(),
+                }),
+            );
+        }
+
         if let Ok(mut g) = self.settings.lock() {
             *g = loaded.clone();
         }
@@ -3040,6 +3110,22 @@ impl AppState {
         if let Ok(mut g) = self.qemu_path.lock() {
             *g = loaded.qemu_path.map(PathBuf::from);
         }
+
+        // A migrated document goes back to disk in the current format, so the next
+        // open is a plain read: migration happens once.
+        if matches!(outcome, SettingsLoad::Migrated { .. }) {
+            self.save_settings();
+        }
+    }
+
+    /// Why this node is not using its settings file, if it is not (v1.0 M2b-1).
+    ///
+    /// None normally. `Some(message)` today means the file came from a newer build.
+    pub fn settings_problem(&self) -> Option<String> {
+        self.settings_problem
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
     }
 
     /// Persist settings. Best effort: a failure is audited, never fatal.
@@ -3231,6 +3317,100 @@ impl AppState {
         Ok(())
     }
 
+    // ----- LLM configuration (v1.0 M2b-1: one entry per executor) -------------
+
+    /// The executor id this node's own model configuration is filed under.
+    ///
+    /// The **device name** (`"local"` until a node names itself) — not the node's
+    /// `AgentId`, which carries the pid and so would not survive the restart the
+    /// settings entry exists for.
+    pub fn local_executor_id(&self) -> String {
+        agent::device()
+    }
+
+    /// The local executor's configuration, if it has one.
+    fn llm_config_get(&self) -> Option<LlmConfigInput> {
+        self.llm_config
+            .lock()
+            .ok()
+            .and_then(|map| map.get(&self.local_executor_id()).cloned())
+    }
+
+    /// Whether the local executor's **non-secret** configuration is on disk.
+    fn llm_config_persisted(&self) -> bool {
+        self.settings
+            .lock()
+            .map(|settings| settings.llm_configs.contains_key(&self.local_executor_id()))
+            .unwrap_or(false)
+    }
+
+    /// Write the local executor's configuration into `settings.json` (v1.0 M2b-1).
+    ///
+    /// Only the non-secret half: which provider, which endpoint, which model. The
+    /// key stays in the keyring, the rule `settings.json` has kept since v0.4 — so
+    /// this file can be copied, backed up, or pasted into an issue.
+    fn persist_llm_config(&self, input: &LlmConfigInput) {
+        let entry = LlmConfigEntry {
+            provider_id: input.provider_id.clone(),
+            base_url: input.base_url.clone(),
+            model: input.model.clone(),
+        };
+        let Ok(mut settings) = self.settings.lock() else {
+            return;
+        };
+        settings.llm_configs.insert(self.local_executor_id(), entry);
+        drop(settings);
+        self.save_settings();
+    }
+
+    /// Forget the local executor's **persisted** configuration (v1.0 M2b-1).
+    fn forget_llm_config(&self) {
+        let Ok(mut settings) = self.settings.lock() else {
+            return;
+        };
+        settings.llm_configs.remove(&self.local_executor_id());
+        drop(settings);
+        self.save_settings();
+    }
+
+    /// Read one executor's provider key, migrating a v0.9.9 entry forward
+    /// (v1.0 M2b-1).
+    ///
+    /// The new name (`llm-api-key:<executor>:<provider>`) is tried first. On a miss
+    /// — and **only** for this node's own executor — the v0.9.9 name
+    /// (`llm-api-key:<provider>`) is tried, because that is what a node with a
+    /// single model configuration wrote. A hit is written forward under the new name
+    /// and the **old entry is left where it is**: nothing is lost if an older build
+    /// runs again, and the migration is idempotent.
+    fn keyring_get_llm_key(
+        &self,
+        executor_id: &str,
+        provider_id: &str,
+    ) -> Result<Option<String>, String> {
+        let user = user_for_llm_key(executor_id, provider_id);
+        if let Some(key) = self.keyring.get(SERVICE, &user)? {
+            return Ok(Some(key));
+        }
+        if executor_id != self.local_executor_id() {
+            return Ok(None);
+        }
+        let legacy = legacy_user_for_provider(provider_id);
+        let Some(key) = self.keyring.get(SERVICE, &legacy)? else {
+            return Ok(None);
+        };
+        if self.keyring.set(SERVICE, &user, &key).is_ok() {
+            self.emit_host(
+                "host.keyring.migrated",
+                serde_json::json!({
+                    "from": legacy,
+                    "to": user,
+                    "provider_id": provider_id,
+                }),
+            );
+        }
+        Ok(Some(key))
+    }
+
     // ----- LLM config -------------------------------------------------------
 
     /// The built-in provider presets (pure data).
@@ -3244,7 +3424,9 @@ impl AppState {
     /// Store LLM config, filling base_url / model from a preset when omitted.
     ///
     /// `remember` (default `true`) also persists the key in the OS keyring;
-    /// failures degrade silently to in-memory-only.
+    /// failures degrade silently to in-memory-only. The **non-secret** half always
+    /// goes to `settings.json` (v1.0 M2b-1), so a restart knows which provider and
+    /// model this node is configured for before anybody types a key again.
     pub fn set_llm_config_with(
         &self,
         provider_id: Option<String>,
@@ -3306,6 +3488,10 @@ impl AppState {
             false
         };
 
+        // The non-secret half always goes to disk (v1.0 M2b-1): which provider,
+        // which endpoint, which model — never the key. `remember` only decides
+        // whether the key itself is kept in the keyring.
+        self.persist_llm_config(&input);
         self.set_llm_config(input);
         if let Ok(mut p) = self.persisted.lock() {
             *p = persisted;
@@ -3313,42 +3499,60 @@ impl AppState {
         Ok(())
     }
 
-    /// Does the keyring hold a key for `provider_id`?
+    /// Does the keyring hold a key for `provider_id` (v1.0 M2b-1: this executor's)?
+    ///
+    /// A v0.9.9 entry counts — the read migrates it forward.
     pub fn has_stored_key(&self, provider_id: &str) -> bool {
         matches!(
-            self.keyring.get(SERVICE, &user_for_provider(provider_id)),
+            self.keyring_get_llm_key(&self.local_executor_id(), provider_id),
             Ok(Some(_))
         )
     }
 
     /// Load a stored key from the keyring into memory (startup restore).
+    ///
+    /// What the model is pointed at, in order of authority: the entry this node
+    /// **persisted** for that provider (v1.0 M2b-1 — so a restart restores the
+    /// user's endpoint and model, not a preset's), then whatever is already in
+    /// memory, then the preset's defaults.
     pub fn load_stored_key(&self, provider_id: &str) -> Result<(), String> {
-        let key = match self.keyring.get(SERVICE, &user_for_provider(provider_id)) {
+        let executor = self.local_executor_id();
+        let key = match self.keyring_get_llm_key(&executor, provider_id) {
             Ok(Some(key)) => key,
             Ok(None) => return Err("no_stored_key".to_string()),
             Err(e) => return Err(e),
         };
 
-        let existing = self
-            .llm_config
+        let persisted = self
+            .settings
             .lock()
             .ok()
-            .and_then(|g| g.as_ref().cloned());
-        let input = match existing {
-            Some(current) if current.provider_id == provider_id => LlmConfigInput {
+            .and_then(|settings| settings.llm_configs.get(&executor).cloned())
+            // The entry is one per executor, so it only answers for its own provider.
+            .filter(|entry| entry.provider_id == provider_id);
+        let input = match persisted {
+            Some(entry) => LlmConfigInput {
+                provider_id: entry.provider_id,
                 api_key: key,
-                ..current
+                base_url: entry.base_url,
+                model: entry.model,
             },
-            _ => {
-                let preset =
-                    find_preset(provider_id).ok_or_else(|| "unknown_provider".to_string())?;
-                LlmConfigInput {
-                    provider_id: preset.id.clone(),
+            None => match self.llm_config_get() {
+                Some(current) if current.provider_id == provider_id => LlmConfigInput {
                     api_key: key,
-                    base_url: preset.base_url,
-                    model: preset.default_model,
+                    ..current
+                },
+                _ => {
+                    let preset =
+                        find_preset(provider_id).ok_or_else(|| "unknown_provider".to_string())?;
+                    LlmConfigInput {
+                        provider_id: preset.id.clone(),
+                        api_key: key,
+                        base_url: preset.base_url,
+                        model: preset.default_model,
+                    }
                 }
-            }
+            },
         };
 
         let readiness = readiness_of(&input);
@@ -3371,10 +3575,8 @@ impl AppState {
         if api_key.trim().is_empty() {
             return false;
         }
-        match self
-            .keyring
-            .set(SERVICE, &user_for_provider(provider_id), api_key)
-        {
+        let user = user_for_llm_key(&self.local_executor_id(), provider_id);
+        match self.keyring.set(SERVICE, &user, api_key) {
             Ok(()) => {
                 self.emit_host(
                     "host.keyring.save",
@@ -3393,9 +3595,10 @@ impl AppState {
     }
 
     fn keyring_delete(&self, provider_id: &str) -> Result<(), String> {
-        let result = self
-            .keyring
-            .delete(SERVICE, &user_for_provider(provider_id));
+        // Only the **new** name: a v0.9.9 entry is not this build's to delete, and
+        // the read path only ever migrates forward (v1.0 M2b-1).
+        let user = user_for_llm_key(&self.local_executor_id(), provider_id);
+        let result = self.keyring.delete(SERVICE, &user);
         if result.is_ok() {
             self.emit_host(
                 "host.keyring.delete",
@@ -3405,27 +3608,32 @@ impl AppState {
         result
     }
 
-    /// Store LLM config in memory (replaces any previous value).
+    /// Store the local executor's LLM config in memory (replaces any previous
+    /// value).
+    ///
+    /// In memory **only**: this is the path the environment-variable adoption and
+    /// the tests use, and neither should write a settings file. A person's save goes
+    /// through [`Self::set_llm_config_with`], which persists the non-secret half.
     pub fn set_llm_config(&self, input: LlmConfigInput) {
-        if let Ok(mut g) = self.llm_config.lock() {
-            *g = Some(input);
+        if let Ok(mut map) = self.llm_config.lock() {
+            map.insert(self.local_executor_id(), input);
         }
     }
 
-    /// Forget LLM config: clears memory **and** the keyring entry for the
-    /// currently configured provider (other providers are left untouched).
+    /// Forget the local executor's LLM config: memory, the keyring entry, and the
+    /// persisted non-secret half (v1.0 M2b-1).
+    ///
+    /// A v0.9.9 keyring entry is left alone: it is not this build's to delete, and
+    /// the read path only ever migrates forward.
     pub fn clear_llm_config(&self) {
-        let provider = self
-            .llm_config
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().map(|c| c.provider_id.clone()));
-        if let Ok(mut g) = self.llm_config.lock() {
-            *g = None;
+        let provider = self.llm_config_get().map(|c| c.provider_id);
+        if let Ok(mut map) = self.llm_config.lock() {
+            map.remove(&self.local_executor_id());
         }
         if let Some(provider_id) = provider {
             let _ = self.keyring_delete(&provider_id);
         }
+        self.forget_llm_config();
         if let Ok(mut p) = self.persisted.lock() {
             *p = false;
         }
@@ -3434,25 +3642,25 @@ impl AppState {
     /// Status for the UI (never returns the key).
     pub fn llm_config_status(&self) -> LlmConfigStatus {
         let persisted = self.persisted.lock().map(|g| *g).unwrap_or(false);
+        let config_persisted = self.llm_config_persisted();
         let unconfigured = || LlmConfigStatus {
             configured: false,
             provider_id: DEFAULT_PRESET_ID.to_string(),
             base_url: String::new(),
             model: String::new(),
             persisted: false,
+            config_persisted,
         };
-        match self.llm_config.lock() {
-            Ok(g) => match g.as_ref() {
-                Some(c) => LlmConfigStatus {
-                    configured: true,
-                    provider_id: c.provider_id.clone(),
-                    base_url: c.base_url.clone(),
-                    model: c.model.clone(),
-                    persisted,
-                },
-                None => unconfigured(),
+        match self.llm_config_get() {
+            Some(c) => LlmConfigStatus {
+                configured: true,
+                provider_id: c.provider_id,
+                base_url: c.base_url,
+                model: c.model,
+                persisted,
+                config_persisted,
             },
-            Err(_) => unconfigured(),
+            None => unconfigured(),
         }
     }
 
@@ -3476,12 +3684,9 @@ impl AppState {
             reason: Some("no_config".into()),
             suggestion: Some("请在设置中选择服务商并填写 API Key，或使用本地模型".to_string()),
         };
-        match self.llm_config.lock() {
-            Ok(g) => match g.as_ref() {
-                Some(input) => readiness_of(input),
-                None => no_config(),
-            },
-            Err(_) => no_config(),
+        match self.llm_config_get() {
+            Some(input) => readiness_of(&input),
+            None => no_config(),
         }
     }
 
@@ -3563,7 +3768,9 @@ impl AppState {
             .map(|g| g.is_some())
             .unwrap_or(false);
         let (mut api_key, base_url, model, provider_id) = match self.llm_config.lock() {
-            Ok(g) => match g.as_ref() {
+            // v1.0 M2b-1: the map holds one entry per executor, and this is the
+            // **local** one — the node's own model configuration.
+            Ok(g) => match g.get(&self.local_executor_id()) {
                 Some(c) => (
                     c.api_key.clone(),
                     c.base_url.clone(),

@@ -785,3 +785,13 @@
 **理由**：两个声明不是二选一，而是同一句话的两层（*哪个定义*，以及*由它造出的哪个正在跑的东西*）；一个只认一个、静默丢掉另一个的运行，就是在无声地违背调用方要的东西。静默回退正是 F2d 对 sandbox 名字拒绝过的东西，所以实例拿到同一种待遇。路由形状是从现有代码长出来的，不是新抽象：`AgentHandle::run` 本来就收到整个 `Task`，`HostAgentHandle` 本来就持着能回答的 `Arc<AppState>`（它的表），而 loop 本来就收 `Arc<Mutex<Option<VM>>>` —— 于是「哪个实例」在 `run_agent_for` 里定下，它上面的东西形状不变。id 在**执行者跑的地方**被校验，绝不由调度器校验：stdio 执行者的实例属于**它自己**的表。
 
 **影响**：`/v0/agent/run` 与 `/v0/tasks` 接受 `instance`（Tauri 的 `run_agent` 命令多了一个可选参数；前端 wrapper 也接上，而调用点一处未改）；id 原样走 stdio 协议，worker 拿它对自己的节点校验。agent 的 `start_vm` 工具把 `.mig` 写进**实例的**目录（`ToolContext.snapshot_dir`，由宿主经 `AgentLoop::set_snapshot_dir` 设），M2a-1 记下的那处不一致就此闭环。`run.start` 的 detail 现在带 `sandbox` 与 `instance`（一次运行两者都没有时为 `null`），由新的 `run_start_detail_with` 写入；更老的 detail 仍可解析，因为 `parse_run_start` 用 `get` 取每个键 —— 而 **`detail` 属于每条事件自己的哈希**，所以这两个键动的是**新**事件的哈希、旧的任何一行都不动；不动的是哈希**公式**。
+
+## 75. LLM 配置按执行者落盘，而设置文件有了自己的版本号
+
+**日期**：2026-09-27 ｜ **状态**：已定；随 v1.0 M2b-1 批落地
+
+**决策**：一套模型配置里非机密的那一半（provider、endpoint、model）持久化在 `settings.json` 的 `llm_configs` 下，按**执行者 id** 归档 —— 本机用它自己的**设备名**，worker 用 `settings.executors[].label` —— 而 key 仍住在 OS 钥匙串，名为 `llm-api-key:<executor>:<provider>`。`SETTINGS_VERSION` 变为 **2**：`settings.json` 是第一个用 `docs/api-compatibility.md` §6 迁移规则的格式 —— 读文档声明的版本（缺失 = 最老格式，不是数字 = 坏文件），把更新的文件以 `data_too_new` 拒绝（不应用、不写入），把更旧的迁到当前格式，**只在迁移时**把迁移前的字节留作 `settings.json.bak`，把迁完的文档写回，并让拒绝**可见**（一条审计事件加 `AppState::settings_problem`）。
+
+**理由**：一个每次重启都忘了自己配了哪个模型的节点，实际上是把配置存在环境变量里 —— 而一台机器上有好几个执行者时，「用哪个模型」是**每个执行者**的事实，不是每个节点的事实。key 留在钥匙串，因为那条规矩自 v0.4 就成立，而这个文件正是人们会拷贝、备份、粘进 issue 的那一个。本机执行者的键用**设备名**而不是它的 `AgentId`：AgentId 带 pid，用它做键的条目在它为之存在的那次重启之后就再也读不到。版本号上移是向前看的 —— v0.9.9 没有版本检查，拒不了任何东西 —— 它的价值在于：从此每个读者都有一个可推理的格式，而本构建会拒绝一个它不认识的格式，而不是只读它认得的那一半。
+
+**影响**：`llm_configs` 形状上是增量的，但格式是 v2；v1 文件迁成一张空表，因为它**本来**就不带任何 LLM 配置（无从猜起）。`LlmConfigStatus` 在 `persisted` 旁新增 `config_persisted`，而前者的含义不变 —— 界面把它读作「你的 key 记住了」。钥匙串的读取把 v0.9.9 条目向前迁、**并把旧条目留在原地**，于是不需要重输任何 key，回退到旧构建也仍找得到；`clear_llm_config` 只删新名。端点的执行者维度、per-executor 会话切分与界面属 M2b-2/M2b-3：本批不落任何端点、会话或 UI 的变更。

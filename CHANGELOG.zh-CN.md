@@ -11,6 +11,15 @@
 
 ### 新增
 
+- **LLM 配置按执行者落盘 —— 而 `settings.json` 第一次被迁移**（v1.0 M2b-1）：非机密的那一半
+  （provider、endpoint、model）现在住在 `settings.json` 的 `llm_configs` 里，按执行者 id 归档 —— 本机是它
+  的设备名，worker 是它的 label —— 而 key 仍住在 OS 钥匙串。`SETTINGS_VERSION` 从 1 升到 2：v1 文件在
+  **打开时**迁移成一张空表（不猜任何东西），迁移前的字节留作 `settings.json.bak`（只有迁移会写它），
+  而来自**更新**构建的文件以 `data_too_new` 被拒绝 —— 不应用、不写入，且这个拒绝是**可见的**（一条审计事件
+  加 `AppState::settings_problem`），不再被当成「坏文件退默认」吞掉。钥匙串账户名多了执行者
+  （`llm-api-key:<executor>:<provider>`），而 v0.9.9 的条目（`llm-api-key:<provider>`）会被**向前读**：
+  值写进新名，旧条目原地保留。
+
 - **一次运行可以点名一个实例**（v1.0 M2a-3）：`Task` 新增 `instance`（`#[serde(default)]`，更老的任务行
   仍可解析），`HostAgentHandle` 与 `worker` 把它传给 `run_agent_for`，由实例决定这次运行拿到哪个 VM 槽 ——
   而 `AgentLoop::with_vm` 原样不动。被点名的实例严格校验：未知 id 是 `404 cause "instance"`，它的定义

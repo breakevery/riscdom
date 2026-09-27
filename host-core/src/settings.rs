@@ -5,10 +5,65 @@
 //! loading never fails and never panics.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Current on-disk schema version.
-pub const SETTINGS_VERSION: u32 = 1;
+///
+/// **v2** (v1.0 M2b-1): the LLM configuration became a per-executor map
+/// ([`LocalSettings::llm_configs`]). v1 files are migrated on open — the first
+/// real use of the mechanism `docs/api-compatibility.md` §6 describes — and a file
+/// from a **newer** build is refused rather than half-read.
+pub const SETTINGS_VERSION: u32 = 2;
+
+/// The version a v1 file is treated as carrying when it declares none.
+const OLDEST_VERSION: u32 = 1;
+
+/// One executor's model configuration, as **persisted** (v1.0 M2b-1).
+///
+/// Deliberately without an `api_key`: the key is a credential and lives in the OS
+/// keyring, which is the rule `settings.json` has followed since v0.4. What is
+/// here is the non-secret part a restart needs — which provider, which endpoint,
+/// which model — so a node knows what it is configured for before anybody types a
+/// key again.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct LlmConfigEntry {
+    #[serde(default)]
+    pub provider_id: String,
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub model: String,
+}
+
+/// What reading a settings document did (v1.0 M2b-1).
+///
+/// The caller acts on this instead of guessing: a migrated file is written back
+/// (after a backup), a newer one is reported and **nothing** is applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsLoad {
+    /// No file, or a file this build cannot parse at all: defaults, nothing to do.
+    Missing,
+    /// A file whose version is the one this build writes.
+    Current,
+    /// An older file, migrated in memory; the caller writes it back and keeps a
+    /// backup of what was there.
+    Migrated { from: u32 },
+    /// A file from a **newer** build: refused, and nothing was applied.
+    TooNew { found: u32 },
+}
+
+/// Why a settings document could not be read (v1.0 M2b-1).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SettingsLoadError {
+    /// The file was written by a newer build.
+    ///
+    /// `docs/api-compatibility.md` §6: an old reader never reads a newer format,
+    /// never reads part of it, and never downgrades it silently. The host reports
+    /// this instead of carrying on with defaults as if nothing were wrong.
+    #[error("data_too_new: settings.json is version {found}, this build reads {supported}")]
+    DataTooNew { found: u32, supported: u32 },
+}
 
 /// Persisted local settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -88,6 +143,20 @@ pub struct LocalSettings {
     /// serves nobody.
     #[serde(default)]
     pub network: Option<NetworkSettings>,
+    /// Every executor's model configuration, keyed by **executor id** (v1.0 M2b-1,
+    /// `SETTINGS_VERSION` 2).
+    ///
+    /// The key is the node's own device name (`"local"` until a node names
+    /// itself) for the machine itself, and `settings.executors[].label` for a
+    /// worker — the same addressing space `Task.target` uses. Deliberately **not**
+    /// the node's `AgentId`: that carries the pid, so a key made of it would not
+    /// survive the restart it exists for.
+    ///
+    /// The values are non-secret ([`LlmConfigEntry`]); the keys live in the OS
+    /// keyring. A v1 file has no such field at all and migrates to an **empty**
+    /// map — nothing is guessed from the keyring or the environment.
+    #[serde(default)]
+    pub llm_configs: HashMap<String, LlmConfigEntry>,
 }
 
 /// The node's network wiring (v0.9.9).
@@ -168,34 +237,87 @@ impl Default for LocalSettings {
             default_sandbox: None,
             executors: Vec::new(),
             network: None,
+            llm_configs: HashMap::new(),
         }
     }
 }
 
 impl LocalSettings {
-    /// Load from `path`. A missing, unreadable or malformed file yields
-    /// [`LocalSettings::default`] instead of an error.
+    /// Load from `path`, migrating an older file (v1.0 M2b-1).
+    ///
+    /// A missing, unreadable or malformed file yields [`LocalSettings::default`]
+    /// instead of an error — the behaviour every version before this one had. A
+    /// file from a **newer** build also yields defaults *here*, because this
+    /// convenience cannot report the refusal; the host calls [`Self::load_text`]
+    /// itself, which is the call that owns that decision.
     pub fn load(path: &Path) -> Self {
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return Self::default();
+        let raw = std::fs::read_to_string(path).unwrap_or_default();
+        Self::load_text(&raw).0
+    }
+
+    /// The settings in `raw`, plus what reading them did.
+    ///
+    /// Pure: no filesystem, no clock, no keyring — so the rules of
+    /// `docs/api-compatibility.md` §6 can be pinned in a test. A document with no
+    /// `version` key is the oldest format; one whose `version` is not a number is
+    /// not a settings document at all (defaults, nothing applied); one from a
+    /// newer build is **refused** rather than half-read.
+    pub fn load_text(raw: &str) -> (Self, SettingsLoad) {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) else {
+            return (Self::default(), SettingsLoad::Missing);
         };
-        match serde_json::from_str::<LocalSettings>(&text) {
-            Ok(mut settings) => {
-                settings.version = SETTINGS_VERSION;
-                settings.toolchain_path = settings.toolchain_path.filter(|p| !p.trim().is_empty());
-                settings.zig_path = settings.zig_path.filter(|p| !p.trim().is_empty());
-                settings.rust_sysroot = settings.rust_sysroot.filter(|p| !p.trim().is_empty());
-                settings.qemu_path = settings.qemu_path.filter(|p| !p.trim().is_empty());
-                // An executor needs both halves of a command line to be routable:
-                // a label with nothing to run is not an executor, and keeping it
-                // would make `GET /v0/executors` promise something unreachable.
-                settings
-                    .executors
-                    .retain(|e| !e.label.trim().is_empty() && !e.program.trim().is_empty());
-                settings
+        // A file written before the key existed is a v1 file; a version that is not
+        // a number is not a version at all.
+        let from = match value.get("version") {
+            None => OLDEST_VERSION,
+            Some(v) => match v.as_u64() {
+                Some(n) => n as u32,
+                None => return (Self::default(), SettingsLoad::Missing),
+            },
+        };
+        match Self::migrate(value, from) {
+            Ok(settings) if from < SETTINGS_VERSION => (settings, SettingsLoad::Migrated { from }),
+            Ok(settings) => (settings, SettingsLoad::Current),
+            Err(SettingsLoadError::DataTooNew { found, .. }) => {
+                (Self::default(), SettingsLoad::TooNew { found })
             }
-            Err(_) => Self::default(),
         }
+    }
+
+    /// Read `value` as the format `from`, migrating it to the current one.
+    ///
+    /// The single place a settings format changes. A step is a **structural**
+    /// change, never a guess: v1 → v2 adds the per-executor LLM map empty, because
+    /// a v1 file carried no LLM configuration at all (its key lives in the keyring
+    /// and the rest lived only in memory) — there is nothing to invent.
+    pub fn migrate(value: serde_json::Value, from: u32) -> Result<Self, SettingsLoadError> {
+        if from > SETTINGS_VERSION {
+            return Err(SettingsLoadError::DataTooNew {
+                found: from,
+                supported: SETTINGS_VERSION,
+            });
+        }
+        let mut value = value;
+        if from < 2 {
+            value["llm_configs"] = serde_json::json!({});
+        }
+        value["version"] = serde_json::json!(SETTINGS_VERSION);
+
+        let Ok(mut settings) = serde_json::from_value::<LocalSettings>(value) else {
+            // A document whose *shape* is wrong is as harmless as unreadable JSON:
+            // it was never a settings file this build understood.
+            return Ok(Self::default());
+        };
+        // The load path's own tidying, unchanged: an empty path is no path, and an
+        // executor needs both halves of a command line to be routable.
+        settings.toolchain_path = settings.toolchain_path.filter(|p| !p.trim().is_empty());
+        settings.zig_path = settings.zig_path.filter(|p| !p.trim().is_empty());
+        settings.rust_sysroot = settings.rust_sysroot.filter(|p| !p.trim().is_empty());
+        settings.qemu_path = settings.qemu_path.filter(|p| !p.trim().is_empty());
+        settings
+            .executors
+            .retain(|e| !e.label.trim().is_empty() && !e.program.trim().is_empty());
+        Ok(settings)
     }
 
     /// Persist to `path`, creating the parent directory when needed.

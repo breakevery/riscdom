@@ -12,8 +12,29 @@ use std::sync::Mutex;
 /// Service name used for all entries.
 pub const SERVICE: &str = "com.breakevery.riscdom";
 
-/// Keyring account name for a provider, e.g. `"llm-api-key:deepseek"`.
-pub fn user_for_provider(provider_id: &str) -> String {
+/// Keyring account name for one **executor's** provider key, e.g.
+/// `"llm-api-key:local:deepseek"` (v1.0 M2b-1).
+///
+/// The executor is part of the name so two executors can hold two different keys
+/// for the same provider. `executor_id` is the node's own device name for the
+/// machine itself, and an executor's `label` for a worker — the addressing space
+/// `Task.target` uses.
+///
+/// Before this batch the name was `llm-api-key:<provider>`; that spelling is still
+/// **read** (v0.9.9 wrote it), and a hit is written forward under the new name while
+/// the old entry is left where it is. See [`legacy_user_for_provider`] and
+/// `AppState`'s keyring read.
+pub fn user_for_llm_key(executor_id: &str, provider_id: &str) -> String {
+    format!("llm-api-key:{executor_id}:{provider_id}")
+}
+
+/// The **v0.9.9** account name for a provider key: `"llm-api-key:deepseek"`.
+///
+/// Kept for the read migration only. That name was written when a node had one
+/// model configuration and no executor notion, so a hit can only belong to the node
+/// itself — which is why the migration reads it for the local executor and for
+/// nobody else.
+pub fn legacy_user_for_provider(provider_id: &str) -> String {
     format!("llm-api-key:{provider_id}")
 }
 

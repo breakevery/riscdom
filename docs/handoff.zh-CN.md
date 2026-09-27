@@ -11,6 +11,21 @@
 
 ## 1. 快照 —— `v0.9.9` 已发布（正式发布时更新本节）
 
+- **LLM 配置按执行者落盘，而 `settings.json` 第一次被迁移**（v1.0 M2b-1，2026-09-27）。一套模型配置里
+  非机密的那一半 —— provider、endpoint、model —— 现在写到磁盘的 `llm_configs` 下，按**执行者 id** 归档：
+  本机用它自己的**设备名**（`local`），worker 用它 `label` —— 与 `Task.target` 同一寻址空间，且**有意不是**
+  节点的 `AgentId`，因为后者带 pid，会让这条为「重启」而存在的记录活不过它自己的那次重启。key 仍留在它
+  自 v0.4 起就住的地方：OS 钥匙串，现在名字是 `llm-api-key:<executor>:<provider>`，而 v0.9.9 的条目
+  （`llm-api-key:<provider>`）会被**向前读** —— 值写进新名，旧条目原地保留，于是回退到旧构建也仍找得到。
+  `SETTINGS_VERSION` **1 → 2**，冻结级那套迁移规则的第一次真用：`LocalSettings::load_text` 读文档声明的版本
+  （缺失 = 最老格式，不是数字 = 坏文件），`migrate` 把**更新**的文件以 `data_too_new` 拒绝、把更旧的迁到当前
+  格式（v1 → v2 只加**空**的那张表 —— 不从钥匙串或环境猜任何东西），加载路径**只在迁移时**把迁移前的字节写进
+  `settings.json.bak` 并把迁完的文档写回，而拒绝是**可见的** —— 一条审计事件（`host.settings.data_too_new`）
+  加 `AppState::settings_problem` —— 不再是过去那句「读不懂的文件就当默认」的沉默。`LlmConfigStatus` 在
+  `persisted` 旁新增 `config_persisted`：界面把 `persisted` 读作「你的 key 记住了」，这层含义不变；新字段说的是
+  非机密的那一半已落盘。端点、会话与 UI 一字未动 —— M2b-2/3 才给端点加执行者维度、做 per-executor 会话切分
+  与界面。**决策 §75。**
+
 - **一次运行可以点名一个实例，而链会记下它**（v1.0 M2a-3，2026-09-27 —— M2a 的最后一块）。`Task` 新增
   `instance: Option<InstanceId>`（`#[serde(default)]`，与 `sandbox` 当初同形，所以更老的任务行仍可解析）；
   `HostAgentHandle` 与 `worker` 把它传给 `run_agent_for`（它现在是第四个参数），而 loop 拿到的**仍然是

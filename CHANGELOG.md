@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The LLM configuration is persisted, per executor — and `settings.json` is migrated for the
+  first time** (v1.0 M2b-1): the non-secret half (provider, endpoint, model) now lives in
+  `settings.json` under `llm_configs`, keyed by executor id — the node's own device name, or an
+  executor's label — while the key stays in the OS keyring. `SETTINGS_VERSION` moves 1 → 2: a v1
+  file is migrated **on open** into an empty map (nothing is guessed), its pre-migration bytes are
+  kept as `settings.json.bak` (written only by a migration), and a file from a **newer** build is
+  refused with `data_too_new` — nothing applied, nothing written, and the refusal is visible (an
+  audit event plus `AppState::settings_problem`) instead of being swallowed as a corrupt file.
+  Keyring account names gain the executor (`llm-api-key:<executor>:<provider>`), and a v0.9.9
+  entry (`llm-api-key:<provider>`) is read **forward**: the value is written under the new name and
+  the old entry is left where it is.
+
 - **A run can name an instance** (v1.0 M2a-3): `Task` gains `instance` (`#[serde(default)]`, so an
   older task line still parses), `HostAgentHandle` and the `worker` pass it to `run_agent_for`, and
   the instance decides which VM slot the run gets — while `AgentLoop::with_vm` stays as it was. A

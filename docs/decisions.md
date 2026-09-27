@@ -1662,3 +1662,35 @@ detail now carries `sandbox` and `instance` (`null` when a run had neither), wri
 `run_start_detail_with`; an older detail still parses, because `parse_run_start` reads each key with
 `get` — and **`detail` is part of each event's own hash**, so the two keys move *new* events' hashes
 and no old row's; the hash *formula* is what does not change.
+
+## 75. The LLM configuration is persisted per executor, and the settings file carries a version of its own
+
+**Date**: 2026-09-27 ｜ **Status**: Decided; landed with the v1.0 M2b-1 batch
+
+**Decision**: the non-secret half of a model configuration (provider, endpoint, model) is persisted in
+`settings.json` under `llm_configs`, keyed by **executor id** — the node's own **device name** for the
+machine itself, and `settings.executors[].label` for a worker — while the key stays in the OS keyring
+under `llm-api-key:<executor>:<provider>`. `SETTINGS_VERSION` becomes **2**: `settings.json` is the
+first format to use the migration rules of `docs/api-compatibility.md` §6 — read the declared version
+(absent = the oldest format, not a number = corrupt), refuse a newer file with `data_too_new` (nothing
+applied, nothing written), migrate an older one into the current format, keep the pre-migration bytes
+as `settings.json.bak` **only when migrating**, write the migrated document back, and make a refusal
+visible (an audit event plus `AppState::settings_problem`).
+
+**Why**: a node that forgets which model it is configured for on every restart keeps its
+configuration in an environment variable in practice — and with several executors on one machine,
+"which model" is a per-executor fact, not a per-node one. The key stays in the keyring because that
+rule has held since v0.4 and this is the file people copy, back up and paste into issues. The
+**device name** keys the local executor rather than its `AgentId`, because the AgentId contains the
+pid: an entry keyed by it would be unreadable after the very restart it exists for. The version bump
+is forward-looking — v0.9.9 has no version check and cannot refuse anything — so its value is that
+every reader from here on has a format to reason about, and that this build refuses a format it does
+not know instead of reading the half it recognises.
+
+**Impact**: `llm_configs` is additive in shape but the format is v2; a v1 file migrates to an empty
+map, because that file carried no LLM configuration at all (nothing to guess). `LlmConfigStatus`
+gains `config_persisted` beside `persisted`, whose meaning is unchanged — the interface reads it as
+"your key is remembered". The keyring read migrates a v0.9.9 entry forward **and leaves the old entry
+in place**, so no key has to be typed again and a build that goes back still finds it;
+`clear_llm_config` deletes only the new name. The endpoints' executor dimension, the per-executor
+session split and the interface are M2b-2/M2b-3: no endpoint, session or UI change ships here.
