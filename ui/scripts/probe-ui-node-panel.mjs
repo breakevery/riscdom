@@ -129,6 +129,34 @@ check(
   missing.length === 0 ? `${rustFields.length} fields` : `missing: ${missing.join(", ")}`,
 );
 
+// ----- the instance model's shape (v1.0 M2a-2) --------------------------------
+
+const STATE = path.join(REPO, "host-core", "src", "state.rs");
+const state = readAbs(STATE);
+const instanceStruct = state.slice(
+  state.indexOf("pub struct InstanceView"),
+  state.indexOf("pub struct AppState"),
+);
+const instanceFields = [...instanceStruct.matchAll(/^\s{4}pub (\w+):/gm)].map((m) => m[1]);
+const instanceInterface = types.slice(
+  types.indexOf("export interface SandboxInstanceView"),
+  types.indexOf("export interface SandboxInstanceListResponse"),
+);
+const missingInstance = instanceFields.filter(
+  (field) => !new RegExp(`^\\s{2}${field}:`, "m").test(instanceInterface),
+);
+check(
+  "every Rust field of InstanceView is in SandboxInstanceView",
+  instanceFields.length >= 5 && missingInstance.length === 0,
+  missingInstance.length === 0
+    ? `${instanceFields.length} fields`
+    : `missing: ${missingInstance.join(", ")}`,
+);
+check(
+  "the caller's capability set has a type of its own",
+  /export interface NodeCapabilitiesView \{\s*capabilities: string\[\];/.test(types),
+);
+
 // ----- the wording ------------------------------------------------------------
 
 const registry = await import(pathToFileURL(path.join(SRC, "i18n", "strings.ts")).href);

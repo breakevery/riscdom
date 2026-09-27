@@ -765,3 +765,13 @@
 **理由**：v0.9.9 的模型是一个节点一台 VM —— 槽、串口缓冲、起始时刻都是单例，它们让第二个客机**不可能**，而不只是不太可能（决策 §68 保留节点自己的 `Arc<AppState>` 正是为此）。而最省的正确改法已经建成了一半：`AgentLoop::with_vm` 收的就是 `Arc<Mutex<Option<VM>>>`，所以一个自带槽的实例可以**原样**交给 loop。节点自己的那个实例存在，是为了让任何 M2a 之前的路径都不必学会新含义 —— 切换仍然是在它里面换掉 VM，正如它当年换掉槽里的 VM —— 也是为了让「当前实例是谁」永远有答案（`current_instance` 会回落到它）。
 
 **影响**：`vm_slot()` 现在是一个**方法**（当前实例的槽），因为字段无法给每实例的 `Arc` 起别名；`spawn_instance` 是派生路径、`stop_instance` 是回收路径（节点自己的那个实例只是被清空，从不被移除）。快照挪到 `snapshots/<device>/<instance_id>` —— 每实例一个目录 —— 而两种更旧的布局（按 agent、以及共享根）仍然**可读**，这正是从 v0.9.9 升级上来的节点需要的。端口从来不是障碍：`HELD_PORTS` 为每台 VM 租一对，所以同进程两个客机不会抢到对方的（决策 §65 的形状仍然成立）。审计链一字未动：实例身份走 `detail`，与 `agent_id` 当年作为一个「刻意不进哈希公式」的字段加进来是同一种做法。把这些接到外面的端点是 M2a-2，`Task.instance` 是 M2a-3；在那之前，这张表只能从宿主内部够到。
+
+## 73. 实例路由是路径参数路由，而成员路径要同时带两半
+
+**日期**：2026-09-27 ｜ **状态**：已定；随 v1.0 M2a-2 批落地
+
+**决策**：实例模型的四条沙箱路由是**路径参数路由**，不是 `ROUTES` 的行 —— 表里比对的是字面路径，而 `{name}` 不是 —— 因此它们由提取器解析（集合与成员走 `sandbox_instance_path_from`，定义能力走 `sandbox_capabilities_from`）。`Resolution::Query` 的 `path_param` 从 `Option` 变成 **`Vec<(&'static str, String)>`**：成员路由要同时携带 `name` 与 `instance_id`，因为回收实例的处理器必须核对这个 id 属于路径点名的那个定义。`GET /v0/capabilities` 是本批新增的那一**行**—— 一条字面路径 —— 它回答**调用者**能做什么（`status.read`），与 `/v0/sandboxes/{name}/capabilities` 的「这个定义能做什么」（`sandbox.read`）是**刻意的两个不同问题**，不合并。
+
+**理由**：派生出实例不是收养一个实例（决策 §72），所以创建端点既不占用切换「一次一个」的槽，也不受飞行中 run 的检查 —— 第二台客机不是一次接管 —— 而它的回答也如实如此：`201` 带新 id，而节点的 `current_sandbox` 原地不动。保留名表**不加长**：`instances` 与 `capabilities` 是第二段，所以定义叫这两个名字不会遮住任何东西；而 `requests` 是真正的第一段路由，仍然保留。一个 `Option` 参数装不下成员路径的两半，而把两半拼成一个字符串，等于让处理器重新解析路由已经知道的东西。
+
+**影响**：`docs/control-plane-api.md` §5.1 为 **33**；工具 schema 的表多了五行、定义多了五条，于是 `patterns.len()` 的硬断言从 4 改为 **8**，`scripts/check-tool-schema.mjs` 的 `NAMED_PATTERN_ROUTES` 映射也要跟着改（那个检查器按机械规则推导名字，所以一个动词式的路径参数名要么在映射里，要么就是失败）。五个工具名是 `instance_list`、`instance_create`、`instance_delete`、`sandbox_capabilities` 与 `capabilities`。失败映射：不存在的定义 `404 cause "name"`；不能跑的定义 `503`（与切换对同一条件给的一致）；启动失败 `500 cause "sandbox_start_failed"`；不属于该定义的 id 是 `404 cause "instance"`。浏览器侧的 `SandboxInstanceView` 由 node-panel 探针逐字段核对宿主的 `InstanceView`；而把这些实例派给某个 run 的 `Task.instance` 随 M2a-3 到来。

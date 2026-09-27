@@ -15,7 +15,7 @@ instruction from a supervisor AI and one from a human are both authorised instru
 from the control plane; the audit chain tells them apart by `agent_id`. Building two
 control channels instead of one is the mistake this design exists to avoid.
 
-**Implementation status (v0.9).** Everything in §5 is implemented — the 32 query
+**Implementation status (v0.9).** Everything in §5 is implemented — the 33 query
 endpoints of §5.1, the 36 controls of §5.2, the host-local endpoints of §5.3, the error
 model of §4, the event envelope with `Last-Event-ID` replay and `gap` frames, and the
 bearer token of §3. Only two routes are reserved: `/v0/resources` (§6, G3) and
@@ -171,7 +171,7 @@ Query commands are `GET`. Control commands are `POST`. "Capability" is the preco
 the server checks before the handler runs (§3; §6 gap G2). The last column names the
 Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 
-### 5.1 Queries (32)
+### 5.1 Queries (33)
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
@@ -206,8 +206,13 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/sandboxes/current` | GET | `sandbox.read` | — | `{ "current": string \| null, "default": string }` | `current_sandbox` |
 | `/v0/sandboxes/candidates` | GET | `sandbox.read` | — | `CandidatesView` | `sandbox_candidates` |
 | `/v0/sandboxes/{name}` | GET | `sandbox.read` | path: `name` | `SandboxView`, or `404` | `get_sandbox` |
+| `/v0/sandboxes/{name}/instances` | GET | `sandbox.read` | path: `name` | `{ "instances": [InstanceView] }`, or `404` | — |
+| `/v0/sandboxes/{name}/instances` | POST | `sandbox.instantiate` | path: `name` | `{ "instance_id", "definition", "vm_started_at_ms" }`, or `404` / `500` / `503` | — |
+| `/v0/sandboxes/{name}/instances/{id}` | DELETE | `sandbox.instantiate` | path: `name`, `id` | `204`, or `404` | — |
+| `/v0/sandboxes/{name}/capabilities` | GET | `sandbox.read` | path: `name` | `{ "name", "supports_multiplexing" }`, or `404` | — |
 | `/v0/sandboxes/requests` | GET | `sandbox.read` | query: `status`? | `{ "requests": [SandboxRequestView] }`, or `400` on an unknown `status` | `list_sandbox_requests` |
 | `/v0/executors` | GET | `agent.run` | — | `{ "executors": [{ "agent_id": string }] }` | `list_executors` |
+| `/v0/capabilities` | GET | `status.read` | — | `{ "capabilities": [string] }` | — |
 
 ### 5.2 Controls (36) — implemented in v0.9 batch 4, extended by sandbox F1, F2b-2, F2c, project in/out and the task endpoint
 
@@ -318,6 +323,21 @@ the tables above. They are part of this document's surface all the same.
   (`current`, `candidates`, and the two the rest of the F2 line reserves — `requests`,
   `assemble`) are never read as a name. The switch is a route of its own now (`POST`,
   declared above), so a `GET` on it is a `405`.
+- **An instance is derived, not adopted** (v1.0 M2a-2). `POST /v0/sandboxes/{name}/instances`
+  starts a second VM beside whatever the node is running and answers `201` with the new
+  instance's id — it does **not** change what the node runs, so it neither takes the
+  switch's one-at-a-time slot nor refuses because a run is in flight (`POST
+  /v0/sandboxes/switch` is still the takeover, and it still refuses). `GET
+  /v0/sandboxes/{name}/instances` lists the instances made from *that* definition, the node's
+  own instance included only once something has run from it; `DELETE
+  /v0/sandboxes/{name}/instances/{id}` stops one and answers `204`, and an id that is not that
+  definition's is a `404` with `cause: "instance"`. A definition that cannot run is the
+  environment's answer (`503`, the same one a switch gives) and an unknown definition is a
+  `404` naming the parameter. The two capability endpoints are **not** the same question:
+  `GET /v0/capabilities` answers what **this caller** may do — the vocabulary its credential
+  holds — while `GET /v0/sandboxes/{name}/capabilities` answers what the **definition** can do
+  (`supports_multiplexing`). `Task.instance`, the field that routes a run to one of these
+  instances, arrives with M2a-3.
 - **A sandbox request is an ask, not a command** (v0.9 sandbox F2c). `POST
   /v0/sandboxes/requests` needs `agent.run` — the actor that may run an agent is the actor
   that may say what it wants — and answers `201` with the new id. `GET
@@ -360,8 +380,8 @@ the tables above. They are part of this document's surface all the same.
   simply not a readable archive is `400` with `cause: "archive"`; a file already in the
   workspace is `409` with `cause: "exists"` unless `?force=true` says to replace it; and
   a body above **64 MiB** is `413 payload_too_large` — the import's own ceiling, not the
-  shared 64 KiB one every JSON body uses. Importing needs `workspace.write` (the 32nd
-  capability) where exporting needs `workspace.read`: reading a project and replacing it
+  shared 64 KiB one every JSON body uses. Importing needs `workspace.write` (the last
+  capability the v0.9 line added) where exporting needs `workspace.read`: reading a project and replacing it
   are not the same permission. Import is **containment-only** (no extension allow-list),
   for the same reason the exports are: a project is not only `.c` / `.h` / `.S` / `.s`.
 - **A run may declare the sandbox it wants** (v0.9 sandbox F2d). `POST /v0/agent/run`
@@ -383,7 +403,8 @@ the tables above. They are part of this document's surface all the same.
 - **Capabilities are declared and enforced.** Every route names its capability in the
   route table and the server checks it against the actor the hook returned before the
   handler runs; a missing capability is `403 forbidden` with `cause: "capability"` (§3).
-  Under the v0.9 default every actor holds all 32, so a `403` can only come from a hook
+  Under the v0.9 default every actor holds the whole vocabulary (38 names since v1.0
+  M2a-1), so a `403` can only come from a hook
   that returns a narrower actor — or from the two request decisions, which check the
   capability the request's `action` implies after the route's own gate has passed.
 - **Parameters.** A required parameter that is missing or unparsable is `400 bad_request`

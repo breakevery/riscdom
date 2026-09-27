@@ -47,10 +47,12 @@ Two documented exceptions:
   `qemu/download`, `settings/theme`, `settings/language`, `llm/config`,
   `sandboxes/requests`) gives the `POST` the suffix **`_post`**, so
   `POST /v0/settings/theme` → `settings_theme_post`.
-- **The four path-parameter routes** get a verb instead of a joined path, because
+- **The eight path-parameter routes** get a verb instead of a joined path, because
   `runs_run_id` helps nobody: `GET /v0/runs/{run_id}` → `run_get`,
-  `GET /v0/sandboxes/{name}` → `sandbox_get`, and the two request decisions →
-  `sandbox_request_approve` / `sandbox_request_reject`.
+  `GET /v0/sandboxes/{name}` → `sandbox_get`, the two request decisions →
+  `sandbox_request_approve` / `sandbox_request_reject`, and the instance model's four
+  (v1.0 M2a-2) → `instance_list`, `instance_create`, `instance_delete` and
+  `sandbox_capabilities`.
 
 Tool names are unique across the whole set (checked).
 
@@ -58,7 +60,7 @@ Tool names are unique across the whole set (checked).
 
 `arguments` is the request: a query string for a `GET`, a JSON body for a `POST`.
 
-### 3.1 Queries (32)
+### 3.1 Queries (33)
 
 <!-- tool-routes:queries:begin -->
 | Tool | Method | Path | Capability | Arguments |
@@ -95,6 +97,7 @@ Tool names are unique across the whole set (checked).
 | `sandboxes_requests` | GET | `/v0/sandboxes/requests` | `sandbox.read` | `status` (str) |
 | `resources` | GET | `/v0/resources` | `vm.read` | — (reserved: answers `501`) |
 | `executors` | GET | `/v0/executors` | `agent.run` | — |
+| `capabilities` | GET | `/v0/capabilities` | `status.read` | — |
 <!-- tool-routes:queries:end -->
 
 ### 3.2 Controls (36)
@@ -140,7 +143,7 @@ Tool names are unique across the whole set (checked).
 | `workspace_export` | POST | `/v0/workspace/export` | `workspace.read` | — (bytes out, not JSON) |
 <!-- tool-routes:controls:end -->
 
-### 3.3 Host-local, and the path-parameter routes (3 + 4)
+### 3.3 Host-local, and the path-parameter routes (3 + 8)
 
 <!-- tool-routes:locals:begin -->
 | Tool | Method | Path | Capability | Arguments |
@@ -157,6 +160,10 @@ Tool names are unique across the whole set (checked).
 | `sandbox_get` | GET | `/v0/sandboxes/{name}` | `sandbox.read` | `name` (str) |
 | `sandbox_request_approve` | POST | `/v0/sandboxes/requests/{id}/approve` | `sandbox.read`, then the request's action | `id` (str) |
 | `sandbox_request_reject` | POST | `/v0/sandboxes/requests/{id}/reject` | as `approve` | `id` (str) |
+| `instance_list` | GET | `/v0/sandboxes/{name}/instances` | `sandbox.read` | `name` (str) |
+| `instance_create` | POST | `/v0/sandboxes/{name}/instances` | `sandbox.instantiate` | `name` (str) |
+| `instance_delete` | DELETE | `/v0/sandboxes/{name}/instances/{id}` | `sandbox.instantiate` | `name` (str), `id` (str) |
+| `sandbox_capabilities` | GET | `/v0/sandboxes/{name}/capabilities` | `sandbox.read` | `name` (str) |
 <!-- tool-routes:patterns:end -->
 
 ## 4. The definitions
@@ -202,6 +209,7 @@ say what the model may ask for.
 {"type":"function","function":{"name":"sandboxes_requests","description":"The sandbox requests waiting for a decision, newest first.","parameters":{"type":"object","properties":{"status":{"type":"string"}},"required":[]}}}
 {"type":"function","function":{"name":"resources","description":"Reserved: resource accounting. Answers 501 today.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"executors","description":"The executors a task can be routed to.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"capabilities","description":"What this caller may do: the capability names the credential holds.","parameters":{"type":"object","properties":{},"required":[]}}}
 ]
 ```
 <!-- tool-defs:queries:end -->
@@ -270,6 +278,10 @@ say what the model may ask for.
 {"type":"function","function":{"name":"sandbox_get","description":"One sandbox definition, by name.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"sandbox_request_approve","description":"Approve a pending sandbox request. Changes the record and nothing else.","parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}}}
 {"type":"function","function":{"name":"sandbox_request_reject","description":"Reject a pending sandbox request.","parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}}}
+{"type":"function","function":{"name":"instance_list","description":"The instances derived from one sandbox definition.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
+{"type":"function","function":{"name":"instance_create","description":"Derive an instance from a definition and start its VM. Does not change what the node is running.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
+{"type":"function","function":{"name":"instance_delete","description":"Reap one instance of a definition: stop its VM and forget it.","parameters":{"type":"object","properties":{"name":{"type":"string"},"id":{"type":"string"}},"required":["name","id"]}}}
+{"type":"function","function":{"name":"sandbox_capabilities","description":"What one sandbox definition can do: whether it multiplexes.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 ]
 ```
 <!-- tool-defs:patterns:end -->
@@ -305,7 +317,7 @@ Three checks, one owner each:
 
 - **The route tables against the code**: `server/src/routes.rs`'s own tests read the three
   marked tables above and compare them with the server's route table (`ROUTES` +
-  `LOCAL_ROUTES` + the four path-parameter routes, which must also resolve). A route added
+  `LOCAL_ROUTES` + the eight path-parameter routes, which must also resolve). A route added
   to the server without a row here fails the build.
 - **The definitions against the tables**: `scripts/check-tool-schema.mjs` fails when a
   table row has no `"name"` in the definitions, when two tools share a name, or when a name

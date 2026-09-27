@@ -1593,3 +1593,39 @@ take each other's (the shape of decision §65 holds). The audit chain is untouch
 identity rides in `detail`, the same way `agent_id` was added as a field that is deliberately not in
 the hash formula. The endpoint that reaches all of this is M2a-2 and `Task.instance` is M2a-3; until
 then the table is reachable only from inside the host.
+
+## 73. An instance route is a pattern, and a member path carries both halves
+
+**Date**: 2026-09-27 ｜ **Status**: Decided; landed with the v1.0 M2a-2 batch
+
+**Decision**: the instance model's four sandbox routes are **pattern routes**, not rows in
+`ROUTES` — the table compares literal paths and `{name}` is not one — so they resolve through
+extractors (`sandbox_instance_path_from` for the collection and the member,
+`sandbox_capabilities_from` for a definition's capabilities). `Resolution::Query`'s `path_param`
+becomes a **`Vec<(&'static str, String)>`** (it was an `Option`): a member route carries **both**
+`name` and `instance_id`, because a handler that reaps an instance has to check that the id
+belongs to the definition the path names. `GET /v0/capabilities` is the one **row** the batch
+adds — a literal path — and it answers what the *caller* may do (`status.read`), a deliberately
+different question from `/v0/sandboxes/{name}/capabilities`'s "what can this definition do"
+(`sandbox.read`). The two are not to be merged.
+
+**Why**: deriving an instance is not adopting one (decision §72), so the create endpoint takes
+neither the switch's one-at-a-time slot nor the in-flight-run check — a second guest is not a
+takeover — and the answer says so by being a `201` carrying the new id while the node's
+`current_sandbox` stays where it was. The reserved-name list does **not** grow: `instances` and
+`capabilities` are second segments, so a definition may be called either of them without
+shadowing anything, while `requests` (a real first-segment route) stays reserved. One `Option`
+parameter could not carry both halves of a member path, and packing them into one string would
+have made the handler re-parse what the router already knew.
+
+**Impact**: `docs/control-plane-api.md` §5.1 is **33**; the tool-schema tables grew five rows and
+the definitions five entries, which moved `patterns.len()`'s hard assertion from 4 to **8** and
+`scripts/check-tool-schema.mjs`'s `NAMED_PATTERN_ROUTES` map (that checker derives a name
+mechanically, so a verb-named pattern is an entry there or it is a failure). The five tool names
+are `instance_list`, `instance_create`, `instance_delete`, `sandbox_capabilities` and
+`capabilities`. Failures map as: an unknown definition `404 cause "name"`, a definition that
+cannot run `503` (the answer the switch gives for the same condition), a start that failed `500
+cause "sandbox_start_failed"`, and an id that is not that definition's `404 cause "instance"`.
+The browser's `SandboxInstanceView` is checked field by field against the host's `InstanceView`
+by the node-panel probe, and `Task.instance` — the field that routes a run to one of these
+instances — arrives with M2a-3.

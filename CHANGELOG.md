@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A node's sandbox instances have five endpoints** (v1.0 M2a-2): `POST
+  /v0/sandboxes/{name}/instances` derives one (`sandbox.instantiate`, `201`), `GET` on the same
+  path lists the instances of that definition (`sandbox.read`), `DELETE
+  /v0/sandboxes/{name}/instances/{id}` reaps one (`204`), `GET /v0/sandboxes/{name}/capabilities`
+  answers the definition's `supports_multiplexing`, and `GET /v0/capabilities` answers what the
+  caller's credential may do (`status.read`). Deriving starts a second VM beside what the node
+  runs and changes neither. The four sandbox routes resolve through new path-parameter
+  extractors, `Resolution`'s `path_param` became a `Vec` (a member route carries two), the
+  browser gained `SandboxInstanceView` / `NodeCapabilitiesView`, and the API document, the two
+  tool-schema documents and the tool-name checker moved with them (§5.1 is 33, patterns 4 → 8).
+
 - **A node owns sandbox instances** (v1.0 M2a-1): `AppState`'s single VM slot became an instance table
   with a current pointer; the VM slot, the serial senders, the serial buffer and the VM start time
   moved **per instance**; `InstanceId` (`<device>-<pid>-<seq>`, device settable, one counter serving

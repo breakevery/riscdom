@@ -641,6 +641,44 @@ impl SandboxInstance {
             snapshot_dir,
         }
     }
+
+    /// Is a **live** VM in this instance's slot?
+    ///
+    /// Pure: a dead handle is **not** dropped here, unlike
+    /// [`AppState::vm_is_running`], which performs lazy cleanup. A listing must not
+    /// change what it lists.
+    pub fn is_running(&self) -> bool {
+        let mut slot = self.vm_slot.lock().unwrap_or_else(|e| e.into_inner());
+        match slot.as_mut() {
+            Some(vm) => vm.is_running(),
+            None => false,
+        }
+    }
+
+    /// When this instance's VM started (epoch ms), if it has one.
+    pub fn vm_started_at_ms(&self) -> Option<i64> {
+        self.vm_started_at_ms.lock().ok().and_then(|held| *held)
+    }
+}
+
+/// One instance, as served (v1.0 M2a-2).
+///
+/// A **read-only view**: what a caller needs in order to name an instance and decide
+/// what to do with it. The fields are the ones a dispatcher acts on (roadmap §9's
+/// M): which instance, what it was made from, whether it is the node's own, and
+/// whether a VM is in its slot right now.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct InstanceView {
+    /// `<device>-<pid>-<seq>` (v1.0 M2a-1).
+    pub instance_id: String,
+    /// The definition it was created from; `""` is the node's own instance.
+    pub definition: String,
+    /// Is this the node's own instance — the one a switch and a plain run act on?
+    pub own: bool,
+    /// Is a **live** VM in its slot?
+    pub running: bool,
+    /// The moment its VM started (epoch ms), when one did.
+    pub vm_started_at_ms: Option<i64>,
 }
 
 /// Where an instance's snapshots live: `<workspace>/.riscdom/snapshots/<device>/<id>`.
@@ -2393,6 +2431,43 @@ impl AppState {
     /// than in the `AppState` itself.
     pub fn vm_slot(&self) -> Arc<Mutex<Option<RiscVVirtualMachine>>> {
         self.current_instance().vm_slot
+    }
+
+    /// One instance as a view; `None` when this node does not own that instance.
+    ///
+    /// Read-only: nothing here starts, stops or reaps anything (v1.0 M2a-2).
+    pub fn instance_view(&self, id: &InstanceId) -> Option<InstanceView> {
+        self.instance(id).map(|instance| self.view_of(&instance))
+    }
+
+    /// Every instance this node owns, optionally restricted to one **definition**.
+    ///
+    /// The filter is what `GET /v0/sandboxes/{name}/instances` means (v1.0 M2a-2):
+    /// the instances made from *that* definition, not the node's whole table. The
+    /// node's own instance carries `""` until a switch names what it runs, so it is
+    /// listed under a definition once something has run from one — which is also
+    /// when it has a VM at all.
+    pub fn instances_view(&self, definition: Option<&str>) -> Vec<InstanceView> {
+        self.instance_ids()
+            .into_iter()
+            .filter_map(|id| self.instance(&id))
+            .filter(|instance| match definition {
+                Some(name) => instance.definition == name,
+                None => true,
+            })
+            .map(|instance| self.view_of(&instance))
+            .collect()
+    }
+
+    /// The served shape of one instance.
+    fn view_of(&self, instance: &SandboxInstance) -> InstanceView {
+        InstanceView {
+            instance_id: instance.id.as_str().to_string(),
+            definition: instance.definition.clone(),
+            own: instance.id == self.own_instance,
+            running: instance.is_running(),
+            vm_started_at_ms: instance.vm_started_at_ms(),
+        }
     }
 
     /// Register an instance with fresh, empty state: the table half of

@@ -14,7 +14,7 @@
  *   - the marked blocks (`<!-- tool-routes:NAME:begin -->` … `:end`) must be identical in
  *     the English file and its translation;
  *   - every tool name in a marked table must be the derivation of §2 of the document from
- *     that row's method and path (with the six `_post` suffixes and the four verb-named
+ *     that row's method and path (with the `_post` suffixes and the verb-named
  *     path-parameter routes it documents);
  *   - every name in a table must appear in the document's own definitions, and every name
  *     in the definitions must be in a table (no orphan either way);
@@ -52,6 +52,11 @@ const NAMED_PATTERN_ROUTES = {
   "GET /v0/sandboxes/{name}": "sandbox_get",
   "POST /v0/sandboxes/requests/{id}/approve": "sandbox_request_approve",
   "POST /v0/sandboxes/requests/{id}/reject": "sandbox_request_reject",
+  // The instance model (v1.0 M2a-2): a definition's instances, and what it can do.
+  "GET /v0/sandboxes/{name}/instances": "instance_list",
+  "POST /v0/sandboxes/{name}/instances": "instance_create",
+  "DELETE /v0/sandboxes/{name}/instances/{id}": "instance_delete",
+  "GET /v0/sandboxes/{name}/capabilities": "sandbox_capabilities",
 };
 
 /** The marked blocks of a document: `name -> body`, in file order. */

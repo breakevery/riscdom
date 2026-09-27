@@ -190,3 +190,44 @@ fn the_snapshot_walk_still_reads_the_older_per_agent_layout() {
         "the oldest layout is still listed"
     );
 }
+
+#[test]
+fn a_derive_that_cannot_start_leaves_no_trace() {
+    // A definition the checks accept and the start refuses: a runnable stand-in
+    // where QEMU should be, a file where the compiler should be, and a kernel in
+    // the workspace so nothing refuses before the VM does. What matters is that the
+    // instance the derive registered does **not** survive the failure — a table that
+    // keeps a VM that never ran is a table that lies (v1.0 M2a-1's rule, reached
+    // here through the derive path the endpoint uses).
+    let workspace = unique_dir("derive-fail");
+    std::fs::write(workspace.join("hello.elf"), b"not really an ELF").expect("kernel");
+    let data_dir = unique_dir("derive-fail-data");
+
+    let stand_in = data_dir.join("stand-in-qemu");
+    #[cfg(target_os = "windows")]
+    std::fs::copy(r"C:\Windows\System32\cmd.exe", &stand_in).expect("copy cmd.exe");
+    #[cfg(not(target_os = "windows"))]
+    std::fs::copy("/bin/echo", &stand_in).expect("copy echo");
+    let compiler = data_dir.join("stand-in-gcc");
+    std::fs::write(&compiler, b"not really a compiler").expect("compiler");
+    std::fs::write(
+        data_dir.join("settings.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "version": 1,
+            "sandboxes": [{
+                "name": "blink",
+                "qemu_exe": stand_in.display().to_string(),
+                "toolchain_path": compiler.display().to_string(),
+            }],
+        }))
+        .expect("json"),
+    )
+    .expect("settings");
+
+    let app = AppState::with_data_dir(&workspace, &data_dir).expect("state");
+    let before = app.instance_ids();
+    let refused = app.spawn_instance("blink");
+    assert!(refused.is_err(), "a stand-in is not a QEMU: {refused:?}");
+    assert_eq!(app.instance_ids(), before, "the table is where it was");
+    assert!(!app.vm_is_running(), "nothing is running");
+}

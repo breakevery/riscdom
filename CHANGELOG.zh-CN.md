@@ -11,6 +11,15 @@
 
 ### 新增
 
+- **节点的沙箱实例有了五个端点**（v1.0 M2a-2）：`POST /v0/sandboxes/{name}/instances` 派生一个
+  （`sandbox.instantiate`，`201`），同路径的 `GET` 列出该定义下的实例（`sandbox.read`），
+  `DELETE /v0/sandboxes/{name}/instances/{id}` 回收一个（`204`），
+  `GET /v0/sandboxes/{name}/capabilities` 回答定义的 `supports_multiplexing`，而
+  `GET /v0/capabilities` 回答调用者凭证能做什么（`status.read`）。派生是在节点正在跑的东西旁边再起
+  一台 VM，两者都不改。四条沙箱路由由新的路径参数提取器解析，`Resolution` 的 `path_param` 变成
+  `Vec`（成员路由要带两个），浏览器侧新增 `SandboxInstanceView` / `NodeCapabilitiesView`，
+  API 文档、两份工具 schema 文档与工具名检查脚本一并跟上（§5.1 为 33，路径参数 4 → 8）。
+
 - **一个节点拥有若干沙箱实例**（v1.0 M2a-1）：`AppState` 的单一 VM 槽变成一张带当前指针的实例表；
   VM 槽、串口发送端、串口缓冲与 VM 起始时刻改为**每实例一份**；`InstanceId`
   （`<device>-<pid>-<seq>`，device 可设，agent 与实例共用一个计数器）连同 `register_instance` /

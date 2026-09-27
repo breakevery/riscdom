@@ -11,7 +11,7 @@ use crate::http::{binary_response, error_response, json_response, no_content, Re
 use crate::log::{self, LogLevel};
 use crate::sse::{HttpEventSink, SseHub};
 use host_core::{
-    AppState, ArchiveFormat, EventSink, HostError, SandboxAction, SandboxRequestStatus,
+    AppState, ArchiveFormat, EventSink, HostError, InstanceId, SandboxAction, SandboxRequestStatus,
 };
 use hyper::body::Bytes;
 use hyper::header::{HeaderValue, CONTENT_DISPOSITION};
@@ -55,6 +55,18 @@ pub(crate) enum Action {
     SandboxCandidates,
     /// `/v0/sandboxes/{name}`, the second path-parameter route.
     Sandbox,
+    // ---- the instance model (v1.0 M2a-2) ----
+    /// `GET /v0/sandboxes/{name}/instances`: the instances of one definition.
+    SandboxInstances,
+    /// `POST /v0/sandboxes/{name}/instances`: derive one.
+    SandboxInstanceCreate,
+    /// `DELETE /v0/sandboxes/{name}/instances/{id}`: reap one.
+    SandboxInstanceDelete,
+    /// `GET /v0/sandboxes/{name}/capabilities`: what a definition can do.
+    SandboxCapabilities,
+    /// `GET /v0/capabilities`: what **this caller** may do (the one query that is
+    /// not about a resource at all).
+    Capabilities,
     /// The reserved aggregate (§6, G3): answers 501.
     Resources,
     /// `/v0/executors`: the fleet this node dispatches to (v0.9 interface E0).
@@ -116,8 +128,10 @@ pub(crate) enum Resolution {
     Query {
         action: Action,
         capability: Capability,
-        /// `/v0/runs/{run_id}` and `/v0/sandboxes/{name}` are the paths with one.
-        path_param: Option<(&'static str, String)>,
+        /// The path parameters, in the order the extractor read them: empty for a
+        /// table row, one for `/v0/runs/{run_id}` or `/v0/sandboxes/{name}`, two for
+        /// `/v0/sandboxes/{name}/instances/{id}` (v1.0 M2a-2).
+        path_param: Vec<(&'static str, String)>,
     },
     /// An endpoint the server answers itself (it needs more than `AppState`).
     Local { kind: Local, capability: Capability },
@@ -324,6 +338,17 @@ const ROUTES: &[(&str, &str, Capability, Action)] = &[
         "/v0/executors",
         Capability::AgentRun,
         Action::Executors,
+    ),
+    // What **this caller** may do (v1.0 M2a-2). A query: it changes nothing, and
+    // the vocabulary is not a secret — the API document lists it. The capability is
+    // `status.read` because it describes the node's own surface, and the answer
+    // comes from the actor the hook resolved, which is the only thing a request
+    // can know (for the standard token the two are the same set).
+    (
+        "GET",
+        "/v0/capabilities",
+        Capability::StatusRead,
+        Action::Capabilities,
     ),
     // ---- controls ----
     (
@@ -745,6 +770,20 @@ fn sandbox_request_decision_from(path: &str) -> Option<(&str, Action)> {
     Some((id, action))
 }
 
+/// The literal sub-paths of `/v0/sandboxes/…` that are never a definition name.
+///
+/// Their own routes are matched before a name is considered, so this list only
+/// decides what a *name* may be. `instances` and `capabilities` are deliberately
+/// **not** here (v1.0 M2a-2): they are second segments
+/// (`/v0/sandboxes/{name}/instances`), so a definition may be called either of them
+/// without shadowing anything — a one-segment path is still a definition.
+fn reserved_sandbox_segment(segment: &str) -> bool {
+    matches!(
+        segment,
+        "current" | "candidates" | "requests" | "switch" | "assemble"
+    )
+}
+
 /// The `<name>` of `/v0/sandboxes/<name>`, when the path is exactly that shape.
 ///
 /// The literal sub-paths of `/v0/sandboxes/…` are their own routes. The two that
@@ -755,16 +794,42 @@ fn sandbox_request_decision_from(path: &str) -> Option<(&str, Action)> {
 /// give those paths a handler.
 fn sandbox_name_from(path: &str) -> Option<&str> {
     let rest = path.strip_prefix(SANDBOX_PREFIX)?;
-    if rest.is_empty() || rest.contains('/') {
-        return None;
-    }
-    if matches!(
-        rest,
-        "current" | "candidates" | "requests" | "switch" | "assemble"
-    ) {
+    if rest.is_empty() || rest.contains('/') || reserved_sandbox_segment(rest) {
         return None;
     }
     Some(rest)
+}
+
+/// `/v0/sandboxes/{name}/instances` and `.../instances/{id}` (v1.0 M2a-2).
+///
+/// The **shape** only: which act a shape means depends on the method, and that is
+/// `resolve`'s decision (a `GET` on the collection lists, a `POST` derives, a
+/// `DELETE` on a member reaps). The first segment is a definition name, so the
+/// reserved literals [`sandbox_name_from`] refuses are refused here too —
+/// otherwise `/v0/sandboxes/requests/instances` would read as the queue's first
+/// segment.
+fn sandbox_instance_path_from(path: &str) -> Option<(&str, Option<&str>)> {
+    let rest = path.strip_prefix(SANDBOX_PREFIX)?;
+    let mut segments = rest.split('/');
+    let name = segments.next()?;
+    if name.is_empty() || reserved_sandbox_segment(name) {
+        return None;
+    }
+    match (segments.next(), segments.next(), segments.next()) {
+        (Some("instances"), None, None) => Some((name, None)),
+        (Some("instances"), Some(id), None) if !id.is_empty() => Some((name, Some(id))),
+        _ => None,
+    }
+}
+
+/// `/v0/sandboxes/{name}/capabilities` (v1.0 M2a-2): what a definition can do.
+fn sandbox_capabilities_from(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix(SANDBOX_PREFIX)?;
+    let (name, tail) = rest.split_once('/')?;
+    if name.is_empty() || tail != "capabilities" || reserved_sandbox_segment(name) {
+        return None;
+    }
+    Some(name)
 }
 
 /// Resolve a request to its route. The query string is the caller's business.
@@ -795,7 +860,7 @@ pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
             return Resolution::Query {
                 action: *action,
                 capability: *capability,
-                path_param: None,
+                path_param: Vec::new(),
             };
         }
         allowed.push(route_method);
@@ -814,7 +879,7 @@ pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
         return Resolution::Query {
             action: Action::Run,
             capability: Capability::RunsRead,
-            path_param: Some(("run_id", run_id.to_string())),
+            path_param: vec![("run_id", run_id.to_string())],
         };
     }
     if let Some((id, action)) = sandbox_request_decision_from(path) {
@@ -830,7 +895,50 @@ pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
         return Resolution::Query {
             action,
             capability: Capability::SandboxRead,
-            path_param: Some(("request_id", id.to_string())),
+            path_param: vec![("request_id", id.to_string())],
+        };
+    }
+    if let Some(name) = sandbox_capabilities_from(path) {
+        if method != "GET" {
+            return Resolution::MethodNotAllowed {
+                allowed: "GET".to_string(),
+            };
+        }
+        return Resolution::Query {
+            action: Action::SandboxCapabilities,
+            capability: Capability::SandboxRead,
+            path_param: vec![("name", name.to_string())],
+        };
+    }
+    if let Some((name, id)) = sandbox_instance_path_from(path) {
+        // The collection takes a `GET` (list) and a `POST` (derive); a member takes
+        // a `DELETE` (reap). Both parameters travel when the path names a member:
+        // the handler checks that the instance belongs to the definition.
+        let action = match (method, id.is_some()) {
+            ("GET", false) => Action::SandboxInstances,
+            ("POST", false) => Action::SandboxInstanceCreate,
+            ("DELETE", true) => Action::SandboxInstanceDelete,
+            _ => {
+                return Resolution::MethodNotAllowed {
+                    allowed: match id {
+                        Some(_) => "DELETE".to_string(),
+                        None => "GET, POST".to_string(),
+                    },
+                }
+            }
+        };
+        let capability = match action {
+            Action::SandboxInstances => Capability::SandboxRead,
+            _ => Capability::SandboxInstantiate,
+        };
+        let mut path_param = vec![("name", name.to_string())];
+        if let Some(id) = id {
+            path_param.push(("instance_id", id.to_string()));
+        }
+        return Resolution::Query {
+            action,
+            capability,
+            path_param,
         };
     }
     if let Some(name) = sandbox_name_from(path) {
@@ -842,7 +950,7 @@ pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
         return Resolution::Query {
             action: Action::Sandbox,
             capability: Capability::SandboxRead,
-            path_param: Some(("name", name.to_string())),
+            path_param: vec![("name", name.to_string())],
         };
     }
     Resolution::NotFound
@@ -975,6 +1083,101 @@ pub(crate) fn dispatch(
             },
             Err(response) => *response,
         },
+        // ---- the instance model (v1.0 M2a-2) ----
+        //
+        // Three reads and two acts. Deriving an instance does **not** change what the
+        // node is running — that is M2a-1's guarantee — which is why nothing here
+        // consults the switch's one-at-a-time slot or the in-flight-run check: a
+        // second guest is not a takeover.
+        Action::SandboxInstances => match params.required("name") {
+            Ok(name) => {
+                // The definition has to exist: the question is "what instances does
+                // *this* definition have", and a name nobody has is a `404` — the same
+                // answer `/v0/sandboxes/{name}` gives.
+                if app.sandbox(name).is_none() {
+                    return error_response(
+                        404,
+                        "not_found",
+                        &format!("no sandbox named {name:?}"),
+                        Some("name"),
+                    );
+                }
+                ok_json(&serde_json::json!({
+                    "instances": app.instances_view(Some(name)),
+                }))
+            }
+            Err(response) => *response,
+        },
+        Action::SandboxInstanceCreate => match params.required("name") {
+            Ok(name) => match app.spawn_instance(name) {
+                // `201`: an instance came into being, and the answer names it.
+                Ok(id) => {
+                    let started = app
+                        .instance_view(&id)
+                        .and_then(|view| view.vm_started_at_ms);
+                    created_json(&serde_json::json!({
+                        "instance_id": id.as_str(),
+                        "definition": name,
+                        "vm_started_at_ms": started,
+                    }))
+                }
+                Err(e) => sandbox_instance_error(e, "sandbox_start_failed"),
+            },
+            Err(response) => *response,
+        },
+        Action::SandboxInstanceDelete => {
+            let id = match params.required("instance_id") {
+                Ok(id) => id,
+                Err(response) => return *response,
+            };
+            let name = match params.required("name") {
+                Ok(name) => name,
+                Err(response) => return *response,
+            };
+            let id = InstanceId::new(id);
+            // Both halves of the path have to agree, and the instance has to be this
+            // node's: an id alone would let a caller reap an instance the path does
+            // not name.
+            let belongs = app
+                .instance(&id)
+                .filter(|instance| instance.definition == name);
+            if belongs.is_none() {
+                return error_response(
+                    404,
+                    "not_found",
+                    &format!("no instance {id} of sandbox {name:?}"),
+                    Some("instance"),
+                );
+            }
+            match app.stop_instance(&id) {
+                Ok(()) => no_content(),
+                Err(e) => sandbox_instance_error(e, "sandbox_stop_failed"),
+            }
+        }
+        Action::SandboxCapabilities => match params.required("name") {
+            Ok(name) => match app.sandbox(name) {
+                Some(view) => ok_json(&serde_json::json!({
+                    "name": view.name,
+                    "supports_multiplexing": view.supports_multiplexing,
+                })),
+                None => error_response(
+                    404,
+                    "not_found",
+                    &format!("no sandbox named {name:?}"),
+                    Some("name"),
+                ),
+            },
+            Err(response) => *response,
+        },
+        Action::Capabilities => {
+            // From the actor the hook resolved: what **this caller** may do. For the
+            // standard token that is the whole vocabulary (as it is for the
+            // `--no-auth` default), so a client can read its own powers instead of
+            // discovering them one `403` at a time.
+            let mut names: Vec<&str> = actor.capabilities.iter().map(Capability::as_str).collect();
+            names.sort_unstable();
+            ok_json(&serde_json::json!({ "capabilities": names }))
+        }
         // The one write on the sandbox surface (v0.9 sandbox F2b-2). The switch is
         // synchronous — validation, a stop, a start — so it runs inline here (and
         // inline in a Tauri command), and the two pre-checks exist so a refusal
@@ -1816,6 +2019,27 @@ fn sandbox_switch_error(error: HostError) -> Response<RespBody> {
     error_response(status, code, &message, Some(cause))
 }
 
+/// The status a failed instance act answers with (v1.0 M2a-2).
+///
+/// The same reading the switch gives its own failures, plus the one case only a
+/// derive has: a VM that never started. A definition that is not there is the
+/// caller's parameter (`404`), a definition that cannot run is the environment
+/// (`503`), and an act that failed is the host failing (`500`) with the caller's
+/// `cause` — `spawn_instance`'s "did not start" arrives as `Other` rather than
+/// `SandboxStart`, and a `stop_instance` that could not stop its VM arrives the
+/// same way.
+fn sandbox_instance_error(error: HostError, failure_cause: &'static str) -> Response<RespBody> {
+    let message = error.user_message();
+    let (status, code, cause) = match &error {
+        HostError::SandboxNotFound(_) => (404, "not_found", "name"),
+        HostError::SandboxQemuMissing(_) => (503, "unavailable", "sandbox_qemu_missing"),
+        HostError::SandboxToolchainMissing(_) => (503, "unavailable", "sandbox_toolchain_missing"),
+        HostError::SandboxKernelMissing(_) => (503, "unavailable", "sandbox_kernel_missing"),
+        _ => (500, "internal", failure_cause),
+    };
+    error_response(status, code, &message, Some(cause))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1890,7 +2114,7 @@ mod tests {
                 } => {
                     assert_eq!(found, action, "{path}");
                     assert_eq!(found_capability, capability, "{path}");
-                    assert!(path_param.is_none(), "{path}");
+                    assert!(path_param.is_empty(), "{path}");
                 }
                 other => panic!("POST {path}: {other:?}"),
             }
@@ -2045,7 +2269,10 @@ mod tests {
             // The four path-parameter routes are served but are not rows in `ROUTES`
             // (a pattern is not a row), so they are checked by `resolve` instead.
             let patterns = block("patterns");
-            assert_eq!(patterns.len(), 4, "{language}: the path-parameter tools");
+            // Eight since v1.0 M2a-2: the instance model's four join the run, the
+            // sandbox and the two request decisions. A pattern is not a row, so this
+            // list is what keeps them visible to the check.
+            assert_eq!(patterns.len(), 8, "{language}: the path-parameter tools");
             for (method, path, _) in &patterns {
                 assert!(
                     matches!(resolve(method, path), Resolution::Query { .. }),
@@ -2065,11 +2292,126 @@ mod tests {
                     ..
                 } => {
                     assert_eq!(found, *capability, "{path}");
-                    assert!(path_param.is_none(), "{path}");
+                    assert!(path_param.is_empty(), "{path}");
                 }
                 other => panic!("{path} did not resolve to a query: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn resolve_the_instance_routes_and_their_methods() {
+        // The collection: a `GET` lists, a `POST` derives, and both carry the name.
+        match resolve("GET", "/v0/sandboxes/blink/instances") {
+            Resolution::Query {
+                action,
+                capability,
+                path_param,
+            } => {
+                assert_eq!(action, Action::SandboxInstances);
+                assert_eq!(capability, Capability::SandboxRead);
+                assert_eq!(path_param, vec![("name", "blink".to_string())]);
+            }
+            other => panic!("{other:?}"),
+        }
+        match resolve("POST", "/v0/sandboxes/blink/instances") {
+            Resolution::Query {
+                action,
+                capability,
+                path_param,
+            } => {
+                assert_eq!(action, Action::SandboxInstanceCreate);
+                assert_eq!(capability, Capability::SandboxInstantiate);
+                assert_eq!(path_param, vec![("name", "blink".to_string())]);
+            }
+            other => panic!("{other:?}"),
+        }
+        // One member: `DELETE`, and both halves of the path travel — the handler
+        // checks that the instance belongs to the definition the path names.
+        match resolve("DELETE", "/v0/sandboxes/blink/instances/local-1-2") {
+            Resolution::Query {
+                action,
+                capability,
+                path_param,
+            } => {
+                assert_eq!(action, Action::SandboxInstanceDelete);
+                assert_eq!(capability, Capability::SandboxInstantiate);
+                assert_eq!(
+                    path_param,
+                    vec![
+                        ("name", "blink".to_string()),
+                        ("instance_id", "local-1-2".to_string())
+                    ]
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        // The wrong method is a `405` naming what the path does serve.
+        for (method, path, allowed) in [
+            ("DELETE", "/v0/sandboxes/blink/instances", "GET, POST"),
+            ("GET", "/v0/sandboxes/blink/instances/local-1-2", "DELETE"),
+            ("POST", "/v0/sandboxes/blink/capabilities", "GET"),
+        ] {
+            match resolve(method, path) {
+                Resolution::MethodNotAllowed { allowed: found } => {
+                    assert_eq!(found, allowed, "{method} {path}")
+                }
+                other => panic!("{method} {path}: {other:?}"),
+            }
+        }
+        // What one definition can do.
+        match resolve("GET", "/v0/sandboxes/blink/capabilities") {
+            Resolution::Query {
+                action,
+                capability,
+                path_param,
+            } => {
+                assert_eq!(action, Action::SandboxCapabilities);
+                assert_eq!(capability, Capability::SandboxRead);
+                assert_eq!(path_param, vec![("name", "blink".to_string())]);
+            }
+            other => panic!("{other:?}"),
+        }
+        // What this caller may do: a table row, not a pattern.
+        match resolve("GET", "/v0/capabilities") {
+            Resolution::Query {
+                action, capability, ..
+            } => {
+                assert_eq!(action, Action::Capabilities);
+                assert_eq!(capability, Capability::StatusRead);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(
+            resolve("POST", "/v0/capabilities"),
+            Resolution::MethodNotAllowed { .. }
+        ));
+    }
+
+    #[test]
+    fn the_new_sub_paths_do_not_shadow_a_definition_name() {
+        // A definition called `instances` is a definition (v1.0 M2a-2): the new
+        // routes are two segments deep, so one segment is still a name.
+        match resolve("GET", "/v0/sandboxes/instances") {
+            Resolution::Query {
+                action, path_param, ..
+            } => {
+                assert_eq!(action, Action::Sandbox);
+                assert_eq!(path_param, vec![("name", "instances".to_string())]);
+            }
+            other => panic!("{other:?}"),
+        }
+        // …but `requests` is a route of its own, so the queue's "instances" is not a
+        // definition's: the reserved list still decides.
+        assert!(matches!(
+            resolve("GET", "/v0/sandboxes/requests/instances"),
+            Resolution::NotFound
+        ));
+        // A fourth segment is not a route either.
+        assert!(matches!(
+            resolve("GET", "/v0/sandboxes/blink/instances/extra/more"),
+            Resolution::NotFound
+        ));
     }
 
     #[test]
@@ -2079,7 +2421,7 @@ mod tests {
                 action, path_param, ..
             } => {
                 assert_eq!(action, Action::Run);
-                assert_eq!(path_param, Some(("run_id", "run-1-7".to_string())));
+                assert_eq!(path_param, vec![("run_id", "run-1-7".to_string())]);
             }
             other => panic!("got {other:?}"),
         }
@@ -2115,7 +2457,7 @@ mod tests {
                 action, path_param, ..
             } => {
                 assert_eq!(action, Action::Sandbox);
-                assert_eq!(path_param, Some(("name", "blink".to_string())));
+                assert_eq!(path_param, vec![("name", "blink".to_string())]);
             }
             other => panic!("got {other:?}"),
         }
@@ -2132,7 +2474,7 @@ mod tests {
                     ..
                 } => {
                     assert_eq!(found, action, "{path}");
-                    assert!(path_param.is_none(), "{path}");
+                    assert!(path_param.is_empty(), "{path}");
                 }
                 other => panic!("GET {path}: {other:?}"),
             }
@@ -2151,7 +2493,7 @@ mod tests {
                 capability,
             } => {
                 assert_eq!(capability, Capability::SandboxSwitch);
-                assert!(path_param.is_none());
+                assert!(path_param.is_empty());
             }
             other => panic!("POST /v0/sandboxes/switch: {other:?}"),
         }
@@ -2169,7 +2511,7 @@ mod tests {
                 path_param,
             } => {
                 assert_eq!(capability, Capability::SandboxRead);
-                assert!(path_param.is_none());
+                assert!(path_param.is_empty());
             }
             other => panic!("GET /v0/sandboxes/requests: {other:?}"),
         }
@@ -2208,7 +2550,7 @@ mod tests {
                     assert_eq!(capability, Capability::SandboxRead, "{path}");
                     assert_eq!(
                         path_param,
-                        Some(("request_id", "req-1-1".to_string())),
+                        vec![("request_id", "req-1-1".to_string())],
                         "{path}"
                     );
                 }

@@ -1803,6 +1803,181 @@ fn an_actor_without_the_capability_is_refused_with_403() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The instance model (v1.0 M2a-2)
+// ---------------------------------------------------------------------------
+
+/// A runnable binary that is not the tool it pretends to be, so a definition
+/// passes the host's checks and fails later — the same stand-in
+/// `host-core/tests/sandbox_switch.rs` uses.
+fn a_runnable_stand_in(dir: &Path, name: &str) -> PathBuf {
+    let path = dir.join(name);
+    #[cfg(target_os = "windows")]
+    {
+        std::fs::copy(r"C:\Windows\System32\cmd.exe", &path).expect("copy cmd.exe");
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::fs::copy("/bin/echo", &path).expect("copy echo");
+    }
+    path
+}
+
+/// A file that exists, for the checks that only ask whether something is there.
+fn a_file(dir: &Path, name: &str) -> PathBuf {
+    let path = dir.join(name);
+    std::fs::write(&path, b"not really a compiler").expect("write");
+    path
+}
+
+/// Seed `<workspace>/.riscdom/settings.json` with one definition: runnable as far
+/// as the checks can tell, but with no kernel anywhere, so a derive can only end
+/// in the environment's refusal on every platform.
+fn seed_a_definition(workspace: &Path, name: &str) {
+    let dir = workspace.join(".riscdom");
+    std::fs::create_dir_all(&dir).expect("state dir");
+    let definition = serde_json::json!({
+        "version": 1,
+        "sandboxes": [{
+            "name": name,
+            "supports_multiplexing": true,
+            "qemu_exe": a_runnable_stand_in(&dir, "stand-in-qemu").display().to_string(),
+            "toolchain_path": a_file(&dir, "stand-in-gcc").display().to_string(),
+        }],
+    });
+    std::fs::write(
+        dir.join("settings.json"),
+        serde_json::to_string_pretty(&definition).expect("json"),
+    )
+    .expect("settings");
+}
+
+#[test]
+fn the_five_instance_endpoints_answer() {
+    // The state is in hand so an instance can be put in the table without a QEMU:
+    // `register_instance` is the table half of a derive, and the endpoints are what
+    // this batch is about. A derive that *starts* a VM is the golden path's ticket.
+    let workspace = temp_workspace("instances");
+    seed_a_definition(&workspace, "blink");
+    let (addr, app) = serve_with_state(workspace, Arc::new(NoAuth));
+
+    // ① GET /v0/capabilities — what this caller may do.
+    let (status, raw) = get(addr, "/v0/capabilities");
+    assert_eq!(status, 200, "{raw}");
+    let capabilities = raw["capabilities"].as_array().expect("an array");
+    assert_eq!(capabilities.len(), 38, "{raw}");
+    for name in [
+        "sandbox.instantiate",
+        "task.dispatch",
+        "request.approve",
+        "audit.read.remote",
+    ] {
+        assert!(
+            capabilities.iter().any(|c| c.as_str() == Some(name)),
+            "{name} in {raw}"
+        );
+    }
+
+    // ② GET /v0/sandboxes/{name}/capabilities — the definition's own answer.
+    let (status, raw) = get(addr, "/v0/sandboxes/blink/capabilities");
+    assert_eq!(status, 200, "{raw}");
+    assert_eq!(raw["name"], "blink");
+    assert_eq!(raw["supports_multiplexing"], true);
+    let (status, raw) = get(addr, "/v0/sandboxes/nope/capabilities");
+    assert_eq!(status, 404, "{raw}");
+    assert_eq!(raw["cause"], "name");
+
+    // ③ GET /v0/sandboxes/{name}/instances — empty until something is derived.
+    let (status, raw) = get(addr, "/v0/sandboxes/blink/instances");
+    assert_eq!(status, 200, "{raw}");
+    assert_eq!(
+        raw["instances"].as_array().expect("an array").len(),
+        0,
+        "{raw}"
+    );
+    let (status, raw) = get(addr, "/v0/sandboxes/nope/instances");
+    assert_eq!(status, 404, "{raw}");
+
+    // A registered instance (no VM: the table half) is what the listing shows — and
+    // the node's own instance is *not* here, because it has run from no definition.
+    let instance = app.register_instance("blink");
+    let (status, raw) = get(addr, "/v0/sandboxes/blink/instances");
+    assert_eq!(status, 200, "{raw}");
+    let listed = raw["instances"].as_array().expect("an array");
+    assert_eq!(listed.len(), 1, "{raw}");
+    assert_eq!(listed[0]["instance_id"], instance.id.as_str());
+    assert_eq!(listed[0]["definition"], "blink");
+    assert_eq!(listed[0]["own"], false);
+    assert_eq!(listed[0]["running"], false);
+    assert_eq!(listed[0]["vm_started_at_ms"], serde_json::Value::Null);
+
+    // ④ DELETE /v0/sandboxes/{name}/instances/{id} — 204, then 404.
+    let path = format!("/v0/sandboxes/blink/instances/{}", instance.id);
+    let (status, raw) = call(addr, "DELETE", &path, "", None);
+    assert_eq!(status, 204, "{raw}");
+    let (status, raw) = call(addr, "DELETE", &path, "", None);
+    assert_eq!(status, 404, "{raw}");
+    let json: serde_json::Value = serde_json::from_str(&raw).expect("JSON");
+    assert_eq!(json["cause"], "instance");
+    // An id belonging to another definition is a `404` too: both halves of the path
+    // have to agree.
+    let other = app.register_instance("another");
+    let path = format!("/v0/sandboxes/blink/instances/{}", other.id);
+    let (status, raw) = call(addr, "DELETE", &path, "", None);
+    assert_eq!(status, 404, "{raw}");
+
+    // ⑤ POST /v0/sandboxes/{name}/instances — 404 for a name nobody has, and the
+    // environment's answer when the definition cannot run (no kernel anywhere).
+    let (status, raw) = call(addr, "POST", "/v0/sandboxes/nope/instances", "", None);
+    assert_eq!(status, 404, "{raw}");
+    let json: serde_json::Value = serde_json::from_str(&raw).expect("JSON");
+    assert_eq!(json["cause"], "name");
+    let (status, raw) = call(addr, "POST", "/v0/sandboxes/blink/instances", "", None);
+    assert_eq!(status, 503, "{raw}");
+    let json: serde_json::Value = serde_json::from_str(&raw).expect("JSON");
+    assert_eq!(json["code"], "unavailable");
+    assert_eq!(json["cause"], "sandbox_kernel_missing");
+    // The refusal left nothing behind: only the unrelated instance is in the table.
+    let (status, raw) = get(addr, "/v0/sandboxes/blink/instances");
+    assert_eq!(status, 200, "{raw}");
+    assert_eq!(
+        raw["instances"].as_array().expect("an array").len(),
+        0,
+        "{raw}"
+    );
+}
+
+#[test]
+fn the_instance_writes_need_sandbox_instantiate() {
+    // Reads are `sandbox.read`; the two acts are `sandbox.instantiate`, and a
+    // credential without it is refused before the handler runs.
+    let workspace = temp_workspace("instance-caps");
+    seed_a_definition(&workspace, "blink");
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (addr, _app) = serve_with_state(
+        workspace,
+        Arc::new(FixedCaps {
+            seen: Arc::clone(&seen),
+            held: vec![Capability::SandboxRead],
+        }),
+    );
+
+    let (status, raw) = get(addr, "/v0/sandboxes/blink/instances");
+    assert_eq!(status, 200, "the read it holds: {raw}");
+    let (status, raw) = get(addr, "/v0/sandboxes/blink/capabilities");
+    assert_eq!(status, 200, "{raw}");
+    for (method, path) in [
+        ("POST", "/v0/sandboxes/blink/instances"),
+        ("DELETE", "/v0/sandboxes/blink/instances/local-1-1"),
+    ] {
+        let (status, raw) = call(addr, method, path, "", None);
+        assert_eq!(status, 403, "{method} {path}: {raw}");
+        let json: serde_json::Value = serde_json::from_str(&raw).expect("JSON");
+        assert_eq!(json["code"], "forbidden");
+        assert_eq!(json["cause"], "capability");
+    }
+}
+
 #[test]
 fn the_body_carries_no_secret() {
     let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));

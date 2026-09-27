@@ -13,6 +13,25 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **The instance model has its five endpoints** (v1.0 M2a-2, 2026-09-27). `POST
+  /v0/sandboxes/{name}/instances` derives an instance (`sandbox.instantiate`) and answers `201`
+  with its id; `GET` on the same path lists the instances of that definition (`sandbox.read`);
+  `DELETE /v0/sandboxes/{name}/instances/{id}` reaps one and answers `204`; `GET
+  /v0/sandboxes/{name}/capabilities` answers the definition's `supports_multiplexing`; and `GET
+  /v0/capabilities` answers what the caller's credential may do (`status.read`) — two different
+  questions, deliberately both present. Deriving starts a second VM **beside** what the node
+  runs: it takes neither the switch's one-at-a-time slot nor the in-flight-run check. All four
+  sandbox routes are **pattern routes** (the table compares literal paths), so they resolve
+  through new extractors (`sandbox_instance_path_from`, `sandbox_capabilities_from`) and
+  `Resolution`'s `path_param` became a **`Vec`** — a member route carries both `name` and
+  `instance_id`, which one optional parameter could not. `instances` / `capabilities` are *not*
+  added to the reserved-name list: they are second segments, so a definition may be called
+  either; `requests` still is. The docs moved with it — §5.1 is **33**, the tool-schema tables
+  and definitions grew five rows (patterns 4 → **8**, the hard assertion and
+  `check-tool-schema.mjs`'s named-pattern map updated with them), and the browser gained
+  `SandboxInstanceView` / `NodeCapabilitiesView` (the node-panel probe now checks `InstanceView`
+  field by field too). **Decision §73.**
+
 - **The instance table is on disk — v1.0's first code batch** (v1.0 M2a-1, 2026-09-27). `AppState`'s
   single VM slot is gone: a node now owns an **instance table**
   (`instances: Mutex<HashMap<InstanceId, SandboxInstance>>`) plus a `current_instance` pointer, and

@@ -11,6 +11,20 @@
 
 ## 1. 快照 —— `v0.9.9` 已发布（正式发布时更新本节）
 
+- **实例模型有了它的五个端点**（v1.0 M2a-2，2026-09-27）。`POST /v0/sandboxes/{name}/instances`
+  派生一个实例（`sandbox.instantiate`），以 `201` 回它的 id；同路径的 `GET` 列出该定义下的实例
+  （`sandbox.read`）；`DELETE /v0/sandboxes/{name}/instances/{id}` 回收一个并回 `204`；
+  `GET /v0/sandboxes/{name}/capabilities` 回答该定义的 `supports_multiplexing`；而
+  `GET /v0/capabilities` 回答调用者凭证能做什么（`status.read`）—— 两个不同的问题，故意都存在。
+  派生是在节点正在跑的东西**旁边**再起一台 VM：既不占用切换「一次一个」的槽，也不受飞行中 run 的检查。
+  四条沙箱路由都是**路径参数路由**（路由表比对的是字面路径），因此由新的提取器解析
+  （`sandbox_instance_path_from`、`sandbox_capabilities_from`），而 `Resolution` 的 `path_param`
+  变成了 **`Vec`** —— 成员路由要同时带 `name` 与 `instance_id`，一个可选参数做不到。`instances` /
+  `capabilities` **没有**加进保留名表：它们是第二段，所以定义可以叫这两个名字；`requests` 仍然是保留名。
+  文档同步：§5.1 为 **33**，工具 schema 的表与定义多了五行（路径参数 4 → **8**，硬断言与
+  `check-tool-schema.mjs` 的具名映射一并更新），浏览器侧新增 `SandboxInstanceView` /
+  `NodeCapabilitiesView`（node-panel 探针现在也逐字段核对 `InstanceView`）。**决策 §73。**
+
 - **实例表已落盘 —— v1.0 第一个代码批**（v1.0 M2a-1，2026-09-27）。`AppState` 的单一 VM 槽没了：
   节点现在拥有**实例表**（`instances: Mutex<HashMap<InstanceId, SandboxInstance>>`）加一个
   `current_instance` 指针，而原先属于节点的状态 —— VM 槽、串口发送端、串口缓冲、VM 起始时刻 ——

@@ -291,6 +291,38 @@ export interface SandboxListResponse {
   default: string;
 }
 
+/**
+ * One sandbox instance, as served — the fields of `host-core`'s `InstanceView`
+ * (`state.rs`, v1.0 M2a-2).
+ */
+export interface SandboxInstanceView {
+  /** `<device>-<pid>-<seq>`: the id a task will name (M2a-3). */
+  instance_id: string;
+  /** The definition it was created from; `""` is the node's own instance. */
+  definition: string;
+  /** Is this the node's own instance — the one a switch and a plain run act on? */
+  own: boolean;
+  /** Is a live VM in its slot? */
+  running: boolean;
+  /** The moment its VM started (epoch ms), when one did. */
+  vm_started_at_ms: number | null;
+}
+
+/** `/v0/sandboxes/{name}/instances`: the instances of one definition. */
+export interface SandboxInstanceListResponse {
+  instances: SandboxInstanceView[];
+}
+
+/**
+ * `/v0/capabilities`: what the credential that asked may do, as capability names.
+ *
+ * Not the *node's* capabilities — a definition's are
+ * `/v0/sandboxes/{name}/capabilities`. This is the caller's own set.
+ */
+export interface NodeCapabilitiesView {
+  capabilities: string[];
+}
+
 /** `/v0/sandboxes/current`. */
 export interface CurrentSandboxResponse {
   current: string | null;

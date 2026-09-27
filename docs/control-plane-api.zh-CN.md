@@ -8,7 +8,7 @@
 
 **这是什么。** RiscDom v0.9 的主线是控制平面：人监督 AI 与 AI 监督 AI 走**同一套** HTTP 接口。在内核看来，来自监工 AI 的指令和来自人的指令都是控制平面授权的指令；审计链靠 `agent_id` 区分二者。本条设计存在的意义，就是避免去建两条会各自演化、最终冲突的控制通道。
 
-**实现状态（v0.9）。** §5 已全部落地——§5.1 的 32 个查询端点、§5.2 的 36 个控制端点、§5.3 的宿主本地端点、§4 的错误模型、带 `Last-Event-ID` 补发与 `gap` 帧的事件 envelope、以及 §3 的 bearer token。仅两条路由为预留：`/v0/resources`（§6 G3）与 `POST /v0/vm/start`（§6 G1），二者都以 `501` 明示。权限**强制**（§3）已落地：每条被服务的路由恰好声明一个 capability，actor 不持有时服务端以 `403` 拒绝。**词汇表里每一个 capability 都在某处被强制**：第 29 个 `sandbox.read` 由下面的沙箱查询服务（并充当两条申请决策的门），第 30 个 `sandbox.switch` 由同一表面上的切换服务，第 31 个 `sandbox.assemble` 则**在申请决策的处理器内部**强制——一条决策需要它的请求 `action` 所隐含的能力，而处理器正是知道该请求的地方。`sandbox.assemble` 自己的路由随装配端点落地。
+**实现状态（v0.9）。** §5 已全部落地——§5.1 的 33 个查询端点、§5.2 的 36 个控制端点、§5.3 的宿主本地端点、§4 的错误模型、带 `Last-Event-ID` 补发与 `gap` 帧的事件 envelope、以及 §3 的 bearer token。仅两条路由为预留：`/v0/resources`（§6 G3）与 `POST /v0/vm/start`（§6 G1），二者都以 `501` 明示。权限**强制**（§3）已落地：每条被服务的路由恰好声明一个 capability，actor 不持有时服务端以 `403` 拒绝。**词汇表里每一个 capability 都在某处被强制**：第 29 个 `sandbox.read` 由下面的沙箱查询服务（并充当两条申请决策的门），第 30 个 `sandbox.switch` 由同一表面上的切换服务，第 31 个 `sandbox.assemble` 则**在申请决策的处理器内部**强制——一条决策需要它的请求 `action` 所隐含的能力，而处理器正是知道该请求的地方。`sandbox.assemble` 自己的路由随装配端点落地。
 
 ## 1. 定位与协议
 
@@ -96,7 +96,7 @@ pub struct Actor {
 
 查询类命令为 `GET`。控制类命令为 `POST`。「权限」列是服务端在处理器运行前检查的前置条件（§3；§6 缺口 G2）。最后一列是与端点对应的 Tauri 命令名，便于集成者把两个面对齐。
 
-### 5.1 查询类（32）
+### 5.1 查询类（33）
 
 | 端点 | 方法 | 权限 | 请求 | 响应 | 对应 Tauri 命令 |
 |---|---|---|---|---|---|
@@ -131,8 +131,13 @@ pub struct Actor {
 | `/v0/sandboxes/current` | GET | `sandbox.read` | — | `{ "current": string \| null, "default": string }` | `current_sandbox` |
 | `/v0/sandboxes/candidates` | GET | `sandbox.read` | — | `CandidatesView` | `sandbox_candidates` |
 | `/v0/sandboxes/{name}` | GET | `sandbox.read` | path: `name` | `SandboxView`，或 `404` | `get_sandbox` |
+| `/v0/sandboxes/{name}/instances` | GET | `sandbox.read` | path: `name` | `{ "instances": [InstanceView] }`，或 `404` | — |
+| `/v0/sandboxes/{name}/instances` | POST | `sandbox.instantiate` | path: `name` | `{ "instance_id", "definition", "vm_started_at_ms" }`，或 `404` / `500` / `503` | — |
+| `/v0/sandboxes/{name}/instances/{id}` | DELETE | `sandbox.instantiate` | path: `name`、`id` | `204`，或 `404` | — |
+| `/v0/sandboxes/{name}/capabilities` | GET | `sandbox.read` | path: `name` | `{ "name", "supports_multiplexing" }`，或 `404` | — |
 | `/v0/sandboxes/requests` | GET | `sandbox.read` | query: `status`? | `{ "requests": [SandboxRequestView] }`，`status` 未知时 `400` | `list_sandbox_requests` |
 | `/v0/executors` | GET | `agent.run` | 无 | `{ "executors": [{ "agent_id": string }] }` | `list_executors` |
+| `/v0/capabilities` | GET | `status.read` | 无 | `{ "capabilities": [string] }` | — |
 
 ### 5.2 控制类（36）—— 已于 v0.9 批次 4 实装，沙箱 F1、F2b-2、F2c、项目进出与任务端点扩充
 
@@ -208,11 +213,12 @@ pub struct Actor {
 - **报成功的控制操作可能什么都没改。** 宿主的会话改名与删除是幂等的：未知 `session_id` 不算错误（端点回 `204`），而 `/v0/sessions/open` 回 `404`。端点是照搬宿主，而不是另造一套差异。
 - **`POST /v0/toolchain/download` 会真的开始下载**固定的 RISC-V GCC 归档并回 `202`；进度以 `toolchain:download` 事件抵达。
 - **沙箱查询读的是合并后的注册表，且从不写它**（v0.9 沙箱 F2a-2）。`/v0/sandboxes` 把三个来源摆进一个列表——手写定义、扫描所得、内置 `default`——每项携带 `source`（`manual` / `discovered`）、`runnable`（每次读取现算，从不存储）与 `shadowed`。同名时手写者胜，而被遮的那项**留在列表里并标出**。`/v0/sandboxes/candidates` 答的是原始扫描（两个互相独立的列表），其中没有任何一项是定义。`/v0/sandboxes/{name}` 在没有这个名字的定义时答 `404`，并在 `cause` 指出参数；字面子路径（`current`、`candidates`，以及 F2 线后面才落的两个：`requests`、`assemble`）永不被当作名字读。切换现在是它自己的路由（`POST`，见上表），故对它发 `GET` 是 `405`。
+- **实例是「派生」出来的，不是「收养」的**（v1.0 M2a-2）。`POST /v0/sandboxes/{name}/instances` 在节点正在跑的东西旁边再起一台 VM，并以 `201` 回新实例的 id —— 它**不改**节点在跑什么，因此既不占用「一次一个」的切换槽，也不会因为有一个 run 在飞而拒绝（`POST /v0/sandboxes/switch` 仍然是接管，也仍然会拒绝）。`GET /v0/sandboxes/{name}/instances` 列出**由该定义**派生出来的实例；节点自己的那个实例只有在有东西从定义跑过之后才会出现。`DELETE /v0/sandboxes/{name}/instances/{id}` 停掉一个并回 `204`，而不属于该定义的 id 是 `404`、`cause` 为 `"instance"`。不能跑的定义是环境的回答（`503`，与切换给的一致），不存在的定义是 `404` 并点名该参数。两个 capability 端点**问的不是同一件事**：`GET /v0/capabilities` 回答**这个调用者**能做什么 —— 它的凭证持有的词汇表；而 `GET /v0/sandboxes/{name}/capabilities` 回答**定义**能做什么（`supports_multiplexing`）。把这些实例派给某个 run 的字段 `Task.instance` 随 M2a-3 到来。
 - **沙箱申请是一条请求，不是一条命令**（v0.9 沙箱 F2c）。`POST /v0/sandboxes/requests` 需要 `agent.run`——能跑 agent 的 actor 就是可以表达它所想的 actor——并答 `201` 带新 id。`GET /v0/sandboxes/requests?status=` 读队列（`sandbox.read`），新的在前；`status` 未知时 `400`。两条决策需要 `sandbox.read` 作为**路由的**门（决策者先要看得见队列），然后在**处理器内部**需要该请求自己的 `action` 所隐含的 capability：`switch` 申请需要 `sandbox.switch`，`define` / `assemble` 需要 `sandbox.assemble`。未持有即 `403 forbidden`，`cause: "capability"` 并指名是哪一个。这个区分就是重点：把节点搬走、和给它一个要跑的新定义，是两种不同的权力。**批准不执行任何事**——切换是另一次带授权的 `POST /v0/sandboxes/switch` 调用，所以一个指向不存在定义的申请照样可批。id 未知是 `404 not_found`、`cause: "id"`；对同一请求再次决策是 `409 conflict`——决策不可逆。**v0.9 没有 TTL**：`expired` 在状态词汇里存在，但没有任何路径产生它，pending 请求一直等到有人决它。
 - **沙箱切换为每种失败各答一个状态**（v0.9 沙箱 F2b-2）。`POST /v0/sandboxes/switch` 是沙箱表面上唯一的一写，且是同步的：校验、停止、启动。它的应答都选成让客户端按名字分支、而不是按句子：新沙箱已在跑时 `200` 带 `{from, to}`；没有这个名字的定义时 `404 not_found`、`cause: "name"`（与名字路由同答）；运行中 `409 conflict`、`cause: "run"`（切换会拿走 loop 正在用的 VM），另一次切换进行中 `409 conflict`、`cause: "sandbox"`；定义不能跑时 `503 unavailable`，`cause` 就是原因码（`sandbox_qemu_missing`、`sandbox_toolchain_missing`、`sandbox_kernel_missing`）；每项校验都过而复 VM 仍起不来时 `500 internal`、`cause: "sandbox_start_failed"`——此时节点是**已停**，不是半切换。
 - **项目以一个文件的形式离开、再以一个文件的形式回来**（v0.9 项目进出）。`POST /v0/workspace/export` 把 workspace 以一个 `tar.gz` 作答——**字节，不是 JSON**，是除事件流之外这个表面上的第一个此类 body——带 `Content-Disposition: attachment; filename="workspace.tar.gz"`。空 workspace 导出的是合法的空归档：「导出这个项目」不会因为项目是空的而失败。宿主自己的状态目录（`.riscdom/`：审计库、快照、预检缓存）**不打包**。`POST /v0/workspace/import` 把归档当**请求体**（不是 JSON）收，接受 `application/zip`、`application/gzip`、`application/x-tar`——`Content-Type` 说了它不认识的东西时，改看字节本身，所以一个 `application/octet-stream` 传上去的 `.tar.gz` 照样能用。它答 `{files, bytes}`。一条 entry 不允许做的事全由宿主检查，每件各有自己的应答：逃出 workspace、以符号链接/硬链接到访、命名 `.riscdom/`、或干脆不是可读归档 → `400`、`cause: "archive"`；workspace 里已有同名文件 → `409`、`cause: "exists"`，除非 `?force=true` 说了要替换；请求体超过 **64 MiB** → `413 payload_too_large`——这是 import 自己的上限，不是每个 JSON body 共用的那个 64 KiB。导入需要 `workspace.write`（第 32 个 capability），导出需要 `workspace.read`：读一个项目和替换它是两种权限。导入是**只做包含性检查**（不走扩展名白名单），理由与现有 exports 相同：项目不只有 `.c` / `.h` / `.S` / `.s`。
 - **一次运行可以声明它要用哪个沙箱**（v0.9 沙箱 F2d）。`POST /v0/agent/run` 接受可选的 `sandbox` 名字，而它是**声明，不是切换**：这次运行用它启 VM（它的工具链、它的 QEMU、它的内存），而节点的 `current_sandbox` 原地不动——搬动节点是 `POST /v0/sandboxes/switch`，需要 `sandbox.switch`。三个应答，按此顺序，让调用方听到最具体的那个：没有这个名字的定义 → `404`、`cause: "name"`（拼写错误不能变成在另一个沙箱下的运行）；不是正在跑的 VM 所来自的定义 → `409`、`cause: "sandbox"`（VM 不能在运行时里被替换，报文指名两条出路——停掉它，或切换），而什么都没在跑时声明就被执行；**之后**才问环境，所以没有模型就是文档里的 `503`、`cause: "llm"`。不声明时解析照旧：节点在跑的、然后配置的默认、再是内置兕底——后者意味着「去发现宿主自己的 QEMU 与工具链」，与上一批之前完全一致。声明**不**到内核：启哪个 ELF 仍是模型的 `start_vm` 参数——因为那是运行时启的，而 `def.kernel` 是*切换*时启的。
-- **权限既声明、也强制。** 每条路由在路由表里标注自己的 capability，处理器运行前服务端拿它与钩子返回的 actor 比对；不持有即 `403 forbidden`，`cause` 为 `"capability"`（§3）。v0.9 默认下每个 actor 都持有全部 32 项，故 `403` 只可能来自返回更窄 actor 的钩子——以及来自两条申请决策：它们在本路由自己的门通过之后，再检查该请求 `action` 所隐含的 capability。
+- **权限既声明、也强制。** 每条路由在路由表里标注自己的 capability，处理器运行前服务端拿它与钩子返回的 actor 比对；不持有即 `403 forbidden`，`cause` 为 `"capability"`（§3）。v0.9 默认下每个 actor 都持有整个词汇表（自 v1.0 M2a-1 起 38 个名字），故 `403` 只可能来自返回更窄 actor 的钩子——以及来自两条申请决策：它们在本路由自己的门通过之后，再检查该请求 `action` 所隐含的 capability。
 - **参数。** 必填参数缺失或无法解析 → `400 bad_request`，`cause` 为该参数名。`limit` 在宿主命令要求处为必填、其余为可选：`/v0/runs` 默认 20，`/v0/audit/events` 与 `/v0/sessions` 必填。`/v0/workspace/file` 的 `?path=` 会做百分号解码。
 - **`/v0/audit/status` 不消费失败队列。** Tauri 命令会**取走**待报的审计失败；`GET` 不能取，否则一个轮询客户端会吞掉另一个客户端的告警。该端点按现状报告队列。
 - **`/v0/runs/diff` 遇到不存在的 run 回 `internal`。** 宿主把「找不到 run」报成不透明消息而非有类型的 not-found，控制平面若不臆造规则就无法映射成 `404`。一个宿主侧的类型化错误能闭合它；不在本批内。

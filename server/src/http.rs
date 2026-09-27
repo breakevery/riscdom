@@ -491,7 +491,7 @@ async fn handle(
             action, path_param, ..
         } => {
             let mut params = routes::parse_query(query.as_deref());
-            if let Some((name, value)) = path_param {
+            for (name, value) in path_param {
                 params.insert(name, value);
             }
             // One endpoint takes bytes instead of a JSON object (v0.9 project

@@ -32,7 +32,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 两条写明的例外：
 
 - **同时服务 `GET` 与 `POST` 的路径**（共六条：`toolchain/download`、`qemu/download`、`settings/theme`、`settings/language`、`llm/config`、`sandboxes/requests`）给 `POST` 加后缀 **`_post`**，于是 `POST /v0/settings/theme` → `settings_theme_post`。
-- **四条带路径参数的路由**用一个动词，而不是把路径拼起来，因为 `runs_run_id` 对谁都没帮助：`GET /v0/runs/{run_id}` → `run_get`，`GET /v0/sandboxes/{name}` → `sandbox_get`，两条申请裁决 → `sandbox_request_approve` / `sandbox_request_reject`。
+- **八条带路径参数的路由**用一个动词，而不是把路径拼起来，因为 `runs_run_id` 对谁都没帮助：`GET /v0/runs/{run_id}` → `run_get`，`GET /v0/sandboxes/{name}` → `sandbox_get`，两条申请裁决 → `sandbox_request_approve` / `sandbox_request_reject`，以及实例模型的四条（v1.0 M2a-2）→ `instance_list`、`instance_create`、`instance_delete` 与 `sandbox_capabilities`。
 
 工具名在整个集合里唯一（有检查）。
 
@@ -40,7 +40,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 
 `arguments` 就是请求：`GET` 是查询串，`POST` 是 JSON body。
 
-### 3.1 查询类（32）
+### 3.1 查询类（33）
 
 <!-- tool-routes:queries:begin -->
 | Tool | Method | Path | Capability | Arguments |
@@ -77,6 +77,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | `sandboxes_requests` | GET | `/v0/sandboxes/requests` | `sandbox.read` | `status` (str) |
 | `resources` | GET | `/v0/resources` | `vm.read` | — (reserved: answers `501`) |
 | `executors` | GET | `/v0/executors` | `agent.run` | — |
+| `capabilities` | GET | `/v0/capabilities` | `status.read` | — |
 <!-- tool-routes:queries:end -->
 
 ### 3.2 控制类（36）
@@ -122,7 +123,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | `workspace_export` | POST | `/v0/workspace/export` | `workspace.read` | — (bytes out, not JSON) |
 <!-- tool-routes:controls:end -->
 
-### 3.3 本机端点，与带路径参数的路由（3 + 4）
+### 3.3 本机端点，与带路径参数的路由（3 + 8）
 
 <!-- tool-routes:locals:begin -->
 | Tool | Method | Path | Capability | Arguments |
@@ -139,6 +140,10 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | `sandbox_get` | GET | `/v0/sandboxes/{name}` | `sandbox.read` | `name` (str) |
 | `sandbox_request_approve` | POST | `/v0/sandboxes/requests/{id}/approve` | `sandbox.read`, then the request's action | `id` (str) |
 | `sandbox_request_reject` | POST | `/v0/sandboxes/requests/{id}/reject` | as `approve` | `id` (str) |
+| `instance_list` | GET | `/v0/sandboxes/{name}/instances` | `sandbox.read` | `name` (str) |
+| `instance_create` | POST | `/v0/sandboxes/{name}/instances` | `sandbox.instantiate` | `name` (str) |
+| `instance_delete` | DELETE | `/v0/sandboxes/{name}/instances/{id}` | `sandbox.instantiate` | `name` (str), `id` (str) |
+| `sandbox_capabilities` | GET | `/v0/sandboxes/{name}/capabilities` | `sandbox.read` | `name` (str) |
 <!-- tool-routes:patterns:end -->
 
 ## 4. 定义
@@ -182,6 +187,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 {"type":"function","function":{"name":"sandboxes_requests","description":"The sandbox requests waiting for a decision, newest first.","parameters":{"type":"object","properties":{"status":{"type":"string"}},"required":[]}}}
 {"type":"function","function":{"name":"resources","description":"Reserved: resource accounting. Answers 501 today.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"executors","description":"The executors a task can be routed to.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"capabilities","description":"What this caller may do: the capability names the credential holds.","parameters":{"type":"object","properties":{},"required":[]}}}
 ]
 ```
 <!-- tool-defs:queries:end -->
@@ -250,6 +256,10 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 {"type":"function","function":{"name":"sandbox_get","description":"One sandbox definition, by name.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"sandbox_request_approve","description":"Approve a pending sandbox request. Changes the record and nothing else.","parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}}}
 {"type":"function","function":{"name":"sandbox_request_reject","description":"Reject a pending sandbox request.","parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}}}
+{"type":"function","function":{"name":"instance_list","description":"The instances derived from one sandbox definition.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
+{"type":"function","function":{"name":"instance_create","description":"Derive an instance from a definition and start its VM. Does not change what the node is running.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
+{"type":"function","function":{"name":"instance_delete","description":"Reap one instance of a definition: stop its VM and forget it.","parameters":{"type":"object","properties":{"name":{"type":"string"},"id":{"type":"string"}},"required":["name","id"]}}}
+{"type":"function","function":{"name":"sandbox_capabilities","description":"What one sandbox definition can do: whether it multiplexes.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 ]
 ```
 <!-- tool-defs:patterns:end -->
@@ -277,7 +287,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 
 三项检查，各有各的归属：
 
-- **路由表对代码**：`server/src/routes.rs` 自己的测试读上面三张带标记的表，与服务端的路由表（`ROUTES` + `LOCAL_ROUTES` + 四条带路径参数的路由，后者还必须能 `resolve`）比对。给服务端加了一条路由而这里没加行，构建就会失败。
+- **路由表对代码**：`server/src/routes.rs` 自己的测试读上面三张带标记的表，与服务端的路由表（`ROUTES` + `LOCAL_ROUTES` + 八条带路径参数的路由，后者还必须能 `resolve`）比对。给服务端加了一条路由而这里没加行，构建就会失败。
 - **定义对路由表**：`scripts/check-tool-schema.mjs` 在以下情况失败：某张表的一行在定义里没有对应的 `"name"`、两条工具重名、或某个名字不是 §2 的推导结果。
 - **本文件对它的译文**：同一个脚本要求带标记的块在 `tool-schema-control-plane.md` 里逐字相同。
 
