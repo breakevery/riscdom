@@ -9,7 +9,17 @@
 `main`。每个批次的收尾流程一致：gate 全绿 → `scripts\commit.ps1 "<msg>"`（它自己会跑 gate）→ push ——
 而这些面向远端的动作，只在当轮请求明确授权时才做（见 §2）。
 
-## 1. 快照 —— `v0.9.9` 已做好、是下一个发行版（正式发布时更新本节）
+## 1. 快照 —— `v0.9.9` 已发布（正式发布时更新本节）
+
+- **v1.0 纲领已落盘，网络页「开关点不动」的修复也已推送**（v1.0 纲领落盘，2026-09-27）。
+  [roadmap-v1.0.zh-CN.md](roadmap-v1.0.zh-CN.md) 把花了好几个对话才收敛的讨论记了下来，以免再讨论一次：
+  **三层**（单设备 → 连接 → 跨设备派发）、连接层（workgroup 加一台**专用**的跨区域服务器，四个角色 ——
+  信令、转发、管理、审计汇聚 —— 其中转发是主路径）、**冻结级需要的六件事**、沙箱插件接口、**M** 的形态、
+  全走 HTTP 的设置统一，以及生态起步。**audit v2 须单独授权** —— 它触红线 5 —— 文中已标明。十四条待决
+  被记成**可改的默认值**（§14），而每条决策都带三个标签之一（已定 / 默认 / 待定）。同一批推送
+  **`dd599c0`** —— `fix(ui): the network page keeps its edits`：三个 effect 依赖了整个 store 对象、而不是
+  store 里那些稳定的 `useCallback` 函数，于是表单在每次渲染时被重建、两个开关与两个输入框都在毫秒内被
+  还原，页面在空闲时占掉约三分之一核。推送前已在本机修好并再验一遍，它随本批进入 `main`。
 
 - **`v0.9.9` 已发布**（2026-09-25 本地准备，2026-09-26 切版）：版本 bump 到 `0.9.9`（7 个文件：`Cargo.toml`、两个 `Cargo.lock` —— 根 lock **8** 个工作区条目、外壳 lock **7** 个，而 `hashlink` / `memoffset` / `miniz_oxide` 留在 `0.9.1`，因为它们是别人的 crate —— `ui/package.json`、`ui/package-lock.json`、`ui/src-tauri/Cargo.toml`、`ui/src-tauri/tauri.conf.json`；wix 守卫要求纯数字正式版不带 `bundle.windows.wix.version`，当前确实没有），`CHANGELOG` 的 `[Unreleased]` 归入 `[0.9.9] - 2026-09-25`（**有意**记为变更集冻结日，比切版早一天），[RELEASE_NOTES.zh-CN.md](../RELEASE_NOTES.zh-CN.md) 按**功能版**重写 —— **GitHub Release 的正文就是该文件（英文版 `RELEASE_NOTES.md`）的逐字拷贝**（12,254 字符，已与文件核对）。**已在 2026-09-26 发布**：annotated tag `v0.9.9`（对象 `6357f43c60848541c3259eca351110b11b3e3f46` → `b1dc2fb`）、正文为该文件逐字拷贝的 GitHub Release、**7 个附件**（本机构建的两个 Windows 安装包 + 本地新打的 `riscdom-server-0.9.9-win-x64.zip`（server 可执行文件 + 作为 `dist/` 的前端）+ CI `bundle` job 的 macOS `.dmg` 与 Linux `.deb` / `.rpm` / `.AppImage`），**Latest 标记已移过来**，`v0.9.1` 降为前任。这一版带三件事：**连出去**（桌面端接入内网节点）、**服务进来**（桌面端自己的看板在局域网上）、以及从根上修掉的**第五个「本地绿、CI 红」机制**（`ui/dist/app`）。规模：**688 个用例 / 118 个套件**、**16** 个 UI 探针、**18 步**门禁。
 

@@ -11,7 +11,22 @@ branch `main`. The close-out of every batch is the same: gate green → `scripts
 (which runs the gate itself) → push — and none of those remote-facing steps happens without the
 current request authorising it (§2).
 
-## 1. Snapshot — `v0.9.9` is prepared as the next release (update this section when a release ships)
+## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
+
+- **The v1.0 roadmap is on disk, and the network page's dead-switch fix is pushed** (v1.0 纲领落盘,
+  2026-09-27). [roadmap-v1.0.md](roadmap-v1.0.md) records the discussion that converged over several
+  conversations so that it does not have to be held again: the **three layers** (one device → connection
+  → cross-device dispatch), the connection layer (a workgroup plus a **dedicated** cross-region server
+  with four roles — signalling, relay, management, audit aggregation — where the relay is the main
+  path), the **six things the freeze level needs**, the sandbox plugin interface, the shape of **M**, one
+  settings surface over HTTP, and the start of the ecosystem. **audit v2 needs its own authorisation** —
+  it touches red line 5 — and is marked as such. Fourteen open questions are recorded as **defaults that
+  may change** (§14), and every decision carries one of three tags (settled / default / open). The same
+  batch pushes **`dd599c0`** — `fix(ui): the network page keeps its edits`: three effects depended on the
+  whole store object instead of the store's stable `useCallback` functions, so the form was rebuilt on
+  every render, both switches and both fields reverted within milliseconds, and the page held about a
+  third of a core at idle. It was fixed and re-verified by hand on this machine before the push, and it
+  entered `main` with this batch.
 
 - **`v0.9.9` is released** (prepared 2026-09-25 by the local-preparation batch; cut 2026-09-26): the
   version is bumped to `0.9.9`

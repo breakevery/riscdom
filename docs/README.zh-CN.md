@@ -24,6 +24,7 @@
 |---|---|---|
 | [decisions.md](decisions.md) — [中文](decisions.zh-CN.md) | 决策账本：每个已定问题连同日期、决策、理由与影响。§21 就是本页服务的那条规矩。 | 活跃（只追加） |
 | [architecture-evolution.md](architecture-evolution.md) — [中文](architecture-evolution.zh-CN.md) | **v0.7 快照**：架构怎么走到这里，以及随后的计划。 | 快照 —— **历史，不重写** |
+| [roadmap-v1.0.md](roadmap-v1.0.md) — [中文](roadmap-v1.0.zh-CN.md) | 纲领：v1.0 冻结内核 API 并兑现三层，每条决策标明已定、默认或待定。 | 活跃（纲领 —— 随里程碑推进重写） |
 | [handoff.md](handoff.md) — [中文](handoff.zh-CN.md) | 跨对话交接：§1 是易变快照，§2–12 是新会话不得破坏的稳定约束。 | 活跃（§1）、稳定（§2–12） |
 | [run-provenance.md](run-provenance.md) — [中文](run-provenance.zh-CN.md) | 设计：一次运行记录下关于自己的什么，以及指纹为什么长这样。 | 快照（v0.4 批次 1a） |
 | [multi-agent-foundation.md](multi-agent-foundation.md) — [中文](multi-agent-foundation.zh-CN.md) | v0.8 定下的四个形状：一台机器上多个进程时的身份、按 agent 的快照、派发抽象、共享 workspace。 | 快照（v0.8） |

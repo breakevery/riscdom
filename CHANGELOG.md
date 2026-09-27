@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The v1.0 roadmap is written down, in both languages.** [docs/roadmap-v1.0.md](docs/roadmap-v1.0.md)
+  records the shape the discussion converged on, so that it does not have to be held again: the three
+  layers (one device → connection → cross-device dispatch), the connection layer (a workgroup plus a
+  dedicated cross-region server with four roles), the six things the freeze level needs, audit v2 (which
+  needs its own authorisation — it touches red line 5), the sandbox plugin interface, the shape of M,
+  settings over HTTP, and the start of the ecosystem. Fourteen open questions are recorded as defaults
+  that may change, and every decision carries one of three tags: settled / default / open.
+
 ### Fixed
 
 - **The network page keeps what you type and what you switch — and stops burning CPU** (found on

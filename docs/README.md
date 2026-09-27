@@ -35,6 +35,7 @@ together, why it is that way, and what was settled.
 |---|---|---|
 | [decisions.md](decisions.md) — [中文](decisions.zh-CN.md) | The decision ledger: every settled question with its date, the decision, the why and the impact. §21 is the rule this page serves. | living (append-only) |
 | [architecture-evolution.md](architecture-evolution.md) — [中文](architecture-evolution.zh-CN.md) | **The v0.7 snapshot** of how the architecture got here, and the plan that followed it. | snapshot — **history, not rewritten** |
+| [roadmap-v1.0.md](roadmap-v1.0.md) — [中文](roadmap-v1.0.zh-CN.md) | The plan: v1.0 freezes the kernel API and delivers the three layers, with every decision tagged settled, default or open. | living (a plan — rewritten as milestones land) |
 | [handoff.md](handoff.md) — [中文](handoff.zh-CN.md) | Cross-conversation handoff: §1 is the volatile snapshot, §2–12 the stable constraints a new session must not break. | living (§1), stable (§2–12) |
 | [run-provenance.md](run-provenance.md) — [中文](run-provenance.zh-CN.md) | Design: what a run records about itself, and why the fingerprint is what it is. | snapshot (v0.4 batch 1a) |
 | [multi-agent-foundation.md](multi-agent-foundation.md) — [中文](multi-agent-foundation.zh-CN.md) | The four shapes v0.8 settled for several processes on one machine (identity, per-agent snapshots, the dispatch abstraction, shared workspace). | snapshot (v0.8) |
