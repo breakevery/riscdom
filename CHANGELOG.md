@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A reference dispatcher: `examples/python/supervisor.py`** (v1.0 M2c-1): the client
+  `dispatch.py` already had, with a loop around it — one state snapshot (`status`,
+  `capabilities`, the fleet, every definition's instances, the pending requests), a decision,
+  an action, a report. The decision layer is a stub (`None` means do nothing), the
+  conservative state is a failed read that ends the turn before any write, `--events` resumes
+  the stream with `Last-Event-ID`, and the docstring and README state the five known
+  boundaries (no M identity in the chain; a decision is not recorded; instances and pending
+  requests are in memory; the audit read has no window; five capability names are vocabulary
+  only).
+
 - **An executor picker in the model form and the session list** (v1.0 M2b-3b): one `appStore`
   selection (`executorSelection`), whose empty entry is this node's own, and every
   executor-scoped read and write follows it — the model status and readiness, the

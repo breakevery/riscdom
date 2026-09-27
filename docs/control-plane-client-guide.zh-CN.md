@@ -612,6 +612,8 @@ riscdom toolchain download --wait
 
 那个形状的一个可跑示例是 [`../examples/python/dispatch.py`](../examples/python/dispatch.py)（文档见 [`README`](../examples/python/README.zh-CN.md)）：仅标准库、三个端点、一个用假控制平面自证的 `--self-test`，以及 CLI 的退出码约定。它是骨架，不是产品：一次一条、按顺序。
 
+**调度员**的形状（纲领里的 M）是同一个客户端外面套一个循环，它也已经随附：[`../examples/python/supervisor.py`](../examples/python/supervisor.py) 用一次快照读完节点的状态，决策，行动 —— 决策层留作桩，所以空闲的一轮什么都不写。它的 README 列出这个表面今天有的边界：M 在链上没有自己的身份（token 客户端以 `operator` 行事）、沙箱请求的决定不写进链、实例表与待批槽住在内存里。
+
 ## 9. 远程执行者句柄
 
 §8 讲的是监工从外面抵达一个执行者。这一节是同一件事，从内核这一侧看：一个 [`AgentHandle`](../agent/src/dispatch.rs)，它的执行者是另一个节点，于是 `LocalDispatcher` 能像持有一个 stdio 或进程内句柄那样持有它。可跑示例是 [`worker/examples/remote_executor.rs`](../worker/examples/remote_executor.rs)（以及 [`worker/README.zh-CN.md`](../worker/README.zh-CN.md) 里的那一节）。

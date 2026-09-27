@@ -13,7 +13,7 @@
 # `libdbus-1-dev` through `keyring`; CI installs them (`.github/workflows/ci.yml`).
 # On Windows, QEMU (`qemu-system-riscv64`) and a RISC-V bare-metal GCC must be on PATH,
 # because several tests boot a real guest. Python 3 is optional: it runs
-# `examples/python`'s self-test, which prints a skip when no interpreter is there.
+# `examples/python`'s two self-tests, which print a skip when no interpreter is there.
 #
 # Platform differences are printed, never skipped silently:
 #   - without QEMU + a RISC-V GCC: the tests that need them are `#[ignore]`d, so a plain
@@ -22,8 +22,8 @@
 #     key or the OS keyring (the `--skip` flags below) -- `--skip` matches the *test name*,
 #     which for an integration test is the function name, not the file name.
 #   - Two of `agent`'s unit tests compile C for real and print a skip when no GCC is there.
-#   - without python3/python: the reference supervisor's self-test, and the
-#     encoding scan, are skipped.
+#   - without python3/python: the two reference self-tests under `examples/python` (the
+#     supervisor's and the dispatcher's), and the encoding scan, are skipped.
 #
 # `--no-fail-fast`: one failing test binary must not hide the rest of the workspace.
 #
@@ -138,8 +138,10 @@ python_bin="$(have_python)"
 if [ -n "$python_bin" ]; then
   echo "==> python reference supervisor self-test (examples/python)"
   "$python_bin" examples/python/dispatch.py --self-test || fail "python reference supervisor"
+  echo "==> python reference dispatcher self-test (examples/python)"
+  "$python_bin" examples/python/supervisor.py --self-test || fail "python reference dispatcher"
 else
-  skip "the python reference supervisor self-test (no python3/python on PATH)"
+  skip "the python reference self-tests (no python3/python on PATH)"
 fi
 
 echo "==> remote executor example self-test (worker)"

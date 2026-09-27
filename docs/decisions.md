@@ -1768,3 +1768,37 @@ worker labelled `*` would collide with the wildcard itself. Skipping rather than
 same reading v1.0 M2b-1 chose for a newer settings file: the failure is made **visible** (an audit
 event here, `settings_problem` there) instead of being swallowed or being allowed to brick a
 hand-edited file. The file is left byte-for-byte as the person wrote it.
+
+## 79. The reference dispatcher ships as a skeleton, and its boundaries are printed rather than fixed
+
+**Date**: 2026-09-27 ｜ **Status**: Decided; landed with the v1.0 M2c-1 batch
+
+**Decision**: M's reference implementation lands at `examples/python/supervisor.py` as a
+**skeleton**: the loop (one state snapshot → decide → act → report), the action table, an event
+reader that resumes with `Last-Event-ID`, and a `decide()` that returns `None`. It **imports**
+`dispatch.py` — the transport, `read_token`, the error taxonomy — instead of carrying a second
+copy of the wire format. The **five boundaries** the reconnaissance found are **stated** (in the
+file's docstring, `examples/python/README.md` and the handoff), not fixed: M has no identity of
+its own in the chain, a sandbox-request decision is not recorded, the instance table and the
+approval slot live in memory, the audit read has no window or pagination, and five capability
+names are vocabulary only. Conservative behaviour is the loop's **starting point**: a read that
+fails ends the turn before any write, so "the safe decision" and "the default decision" are the
+same one.
+
+**Why**: The decision layer is the half that needs a model, a prompt and a user's policy;
+shipping it would make the example into a product and its behaviour into somebody else's
+opinion. What can be *proved offline* is everything around it, so that is what this batch
+proves — with the fake node the E3 batch's technique already established. Importing rather than
+copying is the same reasoning one level down (one description of the wire format), and it cost
+exactly one discovery worth recording: this project's interpreter runs with
+`sys.flags.safe_path` on, so a script's own directory is **not** on `sys.path` and the sibling
+import needs two lines to say so. Printing the boundaries rather than fixing them keeps the
+review honest: each one is a property of today's surface (who a token client is, what is
+durable, what the audit read can express), and each fix has a home in a later batch — naming
+them here is what stops them being rediscovered as surprises.
+
+**Impact**: `examples/python/` gains a file and a bilingual README section; the client guide's
+§8 points at it beside `dispatch.py`; the gate gains a second Python step (15 → 16), which the
+`have_python` guard turns into a printed skip where there is no interpreter. `dispatch.py` is
+**untouched** — imported, never edited — and `docs/tool-schema-control-plane.md` stays M's tool
+list, so no third schema document (and no change to `check-tool-schema.mjs`) was needed.

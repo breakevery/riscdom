@@ -764,6 +764,14 @@ A worked example of that shape is [`../examples/python/dispatch.py`](../examples
 `--self-test` that proves itself against a fake control plane, and the CLI's exit-code
 convention. It is the skeleton, not a product: one task at a time, in order.
 
+A **dispatcher's** shape (the roadmap's M) is the same client with a loop around it, and it
+ships too: [`../examples/python/supervisor.py`](../examples/python/supervisor.py) reads the
+node's state in one snapshot, decides, and acts — with the decision layer left as a stub, so
+an idle turn writes nothing at all. Its README lists the boundaries this surface has today:
+M has no identity of its own in the chain (a token client acts as `operator`), a decision on
+a sandbox request is not recorded, and the instance table and the approval slot live in
+memory.
+
 ## 9. A remote executor handle
 
 Section 8 was about a supervisor reaching an executor from outside. This is the same

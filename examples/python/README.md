@@ -1,12 +1,16 @@
 [中文](README.zh-CN.md) | English
 
-# examples/python — a reference supervisor
+# examples/python — a reference supervisor, and a dispatcher
 
 `dispatch.py` is the smallest complete **supervisor** RiscDom ships: a process that is not
 inside the kernel, holds no model of its own, and drives a node through the control plane
 over HTTP. It is the skeleton an AI supervisor wraps around a model — the tool calls are the
 control plane's endpoints ([`docs/tool-schema-control-plane.md`](../../docs/tool-schema-control-plane.md)),
 and the requests below are what a tool call turns into.
+
+`supervisor.py` is the other shape: the same client with a **loop** around it, which is what
+an AI dispatcher (the roadmap's **M**) looks like as a program. There is a section for it
+below.
 
 **Standard library only.** No `requests`, no `httpx`, no SSE library: `urllib.request`,
 `json`, `argparse`. A reference implementation should not teach a dependency it does not
@@ -76,15 +80,85 @@ could not be reached or refused the credential.
 ## Proving it offline
 
 ```bash
-python dispatch.py --self-test
+python dispatch.py --self-test      # the batch client
+python supervisor.py --self-test    # the dispatcher
 ```
 
-No server, no worker, no network beyond loopback: the script starts a **fake control plane**
-on `127.0.0.1:0` (stdlib `http.server`, three endpoints) and runs the real dispatch path
-against it. It asserts the fleet list, a successful outcome, a failed one, a refused target
+Neither needs a server, a worker, or any network beyond loopback: each starts its own
+**fake** node on `127.0.0.1:0` (stdlib `http.server`) and runs its real code path against it.
+
+`dispatch.py`'s asserts the fleet list, a successful outcome, a failed one, a refused target
 (`404` with `cause: "target"`), the `--follow` subscription, a wrong token raising a
-credential error, and a malformed task line being a usage error. `scripts/gate.sh` runs this
-step when a Python interpreter is on `PATH` (and prints a skip when one is not).
+credential error, and a malformed task line being a usage error. `supervisor.py`'s asserts
+that the state snapshot reads every source it claims, that an idle turn sends **no** control
+request, that a read which fails ends the turn before any control request and the next turn
+recovers, that every tool in the action table hits its endpoint, that the event reader keeps
+the last `id` and resumes with `Last-Event-ID`, and that nothing but the standard library is
+imported. `scripts/gate.sh` runs both steps when a Python interpreter is on `PATH` (and
+prints a skip when one is not).
+
+## The dispatcher: `supervisor.py`
+
+`dispatch.py` is handed a task list and sends it. A dispatcher **stays up**, reads the
+node's state, and decides whether to act:
+
+    read the state (one snapshot)  →  decide  →  act  →  report
+
+**The decision layer is a stub.** `decide()` returns `None`, which means "do nothing", and
+that is the point rather than a placeholder: a dispatcher that cannot see the whole picture
+dispatches nothing, so the conservative answer is also the default one, and turning this on
+cannot by itself change a node. The model call that fills `decide()` in is a later batch;
+everything around it is here — the snapshot, the action plumbing, the event reader, and the
+credential and transport (imported from `dispatch.py`, not copied).
+
+```bash
+python supervisor.py --once           # one conservative turn, then exit
+python supervisor.py --interval 30    # stay up, a turn every 30 seconds
+python supervisor.py --events         # just the event stream (read-only)
+python supervisor.py --self-test      # offline, fake node, no server
+```
+
+`--server` and `--token-file` mean what they mean above, and the exit codes are the same
+table: `0` the turn completed (acted, or had nothing to do), `1` the turn did not complete —
+the state could not be read, so it acted on nothing — `2` a usage error, `3` the control
+plane could not be reached or refused the credential.
+
+`import dispatch` is deliberate: the transport, the token rule and the error taxonomy are
+already written once, and a second copy of the wire format would be a second thing to keep
+true. Python does not always put a script's own directory on `sys.path` (`-P`,
+`PYTHONSAFEPATH=1`), so the file adds it explicitly — two lines, with the reason.
+
+### Known boundaries
+
+Stated rather than hidden. The M2c reconnaissance found each one; changing any of them is a
+kernel batch, not this file:
+
+- **M has no identity of its own in the chain.** A token client acts as `operator`, so M's
+  rows and a person's look alike, and the node's own `m.sandbox.*` rows carry
+  `actor: "host"`.
+- **A decision is not written to the chain.** `approve` / `reject` announce a
+  `sandbox:request` event and record nothing durable.
+- **The instance table and the pending-approval slot are in memory.** A node restart loses
+  both; the audit chain is the only durable source.
+- **The audit read has no window and no pagination.** `GET /v0/audit/events` takes `limit`
+  (required), `actor` and `action_prefix`, so "everything since X" is an export, not a
+  query.
+- **Five capability names are vocabulary only** (`task.dispatch`, `task.dispatch.remote`,
+  `sandbox.instantiate.remote`, `audit.read.remote`, `request.approve`): no route requires
+  them. A dispatch needs `agent.run`; deriving an instance needs `sandbox.instantiate`;
+  deciding a request needs `sandbox.read` **and** whatever the request's own action implies.
+- **The tool list is not a new document.** M's tools are
+  [`docs/tool-schema-control-plane.md`](../../docs/tool-schema-control-plane.md) — the same
+  "every endpoint as a function" list the client guide's §8 hands a supervisor.
+
+| | `dispatch.py` | `supervisor.py` |
+|---|---|---|
+| Shape | a batch: a task list in, a report out | a loop: state in, one decision out |
+| Decides | nothing — `--target` or round-robin | `decide()`, a stub here |
+| Writes | `POST /v0/tasks` | nothing yet (the plumbing is there) |
+| Reads | the fleet | status / capabilities / sandboxes / instances / pending requests |
+| Events | `--follow`, no resume | `--events`, resuming with `Last-Event-ID` |
+| Reuses | — | `dispatch.py`'s transport, token rule and errors |
 
 ## Compared with `worker/examples/dispatch.rs`
 

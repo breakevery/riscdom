@@ -1,8 +1,10 @@
 [English](README.md) | 中文
 
-# examples/python — 参考监工
+# examples/python — 参考监工，以及一个调度员
 
 `dispatch.py` 是 RiscDom 自带的最小完整**监工**：一个不在内核里、自己不持有模型、通过 HTTP 上的控制平面驱动一个节点的进程。它就是 AI 监工包在模型外面的骨架——工具调用就是控制平面的端点（[`docs/tool-schema-control-plane.zh-CN.md`](../../docs/tool-schema-control-plane.zh-CN.md)），下面的请求就是一次工具调用会变成的东西。
+
+`supervisor.py` 是另一种形状：同一个客户端外面套了一个**循环**——这正是 AI 调度员（纲领里的 **M**）作为一个程序的样子。下文有它自己的一节。
 
 **只用标准库。** 没有 `requests`、没有 `httpx`、没有 SSE 库：`urllib.request`、`json`、`argparse`。参考实现不该教人一个它并不需要的依赖。
 
@@ -57,10 +59,52 @@ python dispatch.py --server 10.0.0.7:7821 --tasks tasks.jsonl --sandbox blink
 ## 离线自证
 
 ```bash
-python dispatch.py --self-test
+python dispatch.py --self-test      # 批处理客户端
+python supervisor.py --self-test    # 调度员
 ```
 
-没有服务端、没有 worker、除回环外没有网络：脚本在 `127.0.0.1:0` 起一个**假控制平面**（stdlib `http.server`，三个端点），并对它跑真实的派发路径。它断言：队伍列表、一个成功结果、一个失败结果、一个被拒的目标（`404` 带 `cause: "target"`）、`--follow` 的订阅、错 token 触发凭据错误、以及一行畸形任务被当作用法错误。`scripts/gate.sh` 在 `PATH` 上有 Python 解释器时会跑这一步（没有就打印一条 skip）。
+两者都不需要服务端、worker，或除回环外的任何网络：各自在 `127.0.0.1:0` 起一个自己的**假**节点（stdlib `http.server`），并对它跑真实的代码路径。
+
+`dispatch.py` 断言：队伍列表、一个成功结果、一个失败结果、一个被拒的目标（`404` 带 `cause: "target"`）、`--follow` 的订阅、错 token 触发凭据错误、以及一行畸形任务被当作用法错误。`supervisor.py` 断言：状态快照真的读了它声称的每一源；空闲的一轮**不发**任何控制请求；读失败会终止这一轮且不发生任何控制请求、而下一轮能恢复；动作表里每个工具都打到自己的端点；事件读取记住最后一个 `id` 并用 `Last-Event-ID` 续订；以及除标准库外什么都没 import。`scripts/gate.sh` 在 `PATH` 上有 Python 解释器时会跑这两步（没有就打印一条 skip）。
+
+## 调度员：`supervisor.py`
+
+`dispatch.py` 是被塞一份任务清单然后发出去。调度员是**常驻**的：读节点的状态，决定要不要动手：
+
+    读状态（一次快照）  →  决策  →  行动  →  报账
+
+**决策层是桩。** `decide()` 返回 `None`，意思是「什么都不做」，而这是设计而不是占位：一个看不全图的调度员什么都不派，所以保守答案同时就是默认答案，把它打开这件事本身不可能改变一个节点。填 `decide()` 的模型调用是后面的批次；它周围的一切都在这里——快照、动作管道、事件读取，以及凭据与传输（从 `dispatch.py` **import 来的，不是复制**的）。
+
+```bash
+python supervisor.py --once           # 走一轮保守回合，然后退出
+python supervisor.py --interval 30    # 常驻，每 30 秒一轮
+python supervisor.py --events         # 只要事件流（只读）
+python supervisor.py --self-test      # 离线、假节点、不要服务端
+```
+
+`--server` 与 `--token-file` 的含义与上文相同，退出码也是同一张表：`0` 这一轮完成了（动了手，或确实无事可做），`1` 这一轮没完成——状态读不到，于是它什么都没做——`2` 用法错误，`3` 控制平面不可达或拒绝了这个凭据。
+
+`import dispatch` 是故意的：传输、token 规矩与错误分类已经写过一遍，再抄一份线格式就是多一样要维持为真的东西。Python 并不总是把脚本自己的目录放进 `sys.path`（`-P`、`PYTHONSAFEPATH=1`），所以文件里显式加了它——两行，带理由。
+
+### 已知边界
+
+写出来而不是藏起来。M2c 的侦察逐条找到它们；改动其中任何一条都是内核批次，不是这个文件：
+
+- **M 在链上没有自己的身份。** token 客户端以 `operator` 行事，所以 M 的行与人的行长得一样，而节点自己写的 `m.sandbox.*` 行带的是 `actor: "host"`。
+- **一次决定不写进链。** `approve` / `reject` 只发一条 `sandbox:request` 事件，不耐久地记任何东西。
+- **实例表与待批槽是内存里的。** 节点重启两者都丢；审计链是唯一的耐久源。
+- **审计读取没有窗口也没有分页。** `GET /v0/audit/events` 只收 `limit`（必填）、`actor`、`action_prefix`，所以「从 X 以后的一切」是一次导出，不是一次查询。
+- **五个能力名只是词汇**（`task.dispatch`、`task.dispatch.remote`、`sandbox.instantiate.remote`、`audit.read.remote`、`request.approve`）：没有任何路由要求它们。派发要 `agent.run`；派生实例要 `sandbox.instantiate`；决定一个请求要 `sandbox.read` **加上**该请求自己的动作所隐含的那个能力。
+- **工具清单不是新文档。** M 的工具就是 [`docs/tool-schema-control-plane.zh-CN.md`](../../docs/tool-schema-control-plane.zh-CN.md)——与客户指南 §8 交给监工的是同一份「每个端点一个函数」的清单。
+
+| | `dispatch.py` | `supervisor.py` |
+|---|---|---|
+| 形状 | 批处理：一份任务清单进，一份报告出 | 循环：状态进，一个决定出 |
+| 决策 | 没有——`--target` 或轮询 | `decide()`，此处是桩 |
+| 写 | `POST /v0/tasks` | 目前什么都不写（管道已经在） |
+| 读 | 队伍 | status / capabilities / sandboxes / 实例 / 待批请求 |
+| 事件 | `--follow`，不续订 | `--events`，用 `Last-Event-ID` 续订 |
+| 复用 | —— | `dispatch.py` 的传输、token 规矩与错误 |
 
 ## 与 `worker/examples/dispatch.rs` 对照
 

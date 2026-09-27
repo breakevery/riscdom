@@ -13,6 +13,22 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **A dispatcher you can run, with its decision layer still empty** (v1.0 M2c-1, 2026-09-27).
+  `examples/python/supervisor.py` is M's skeleton. It **imports** `dispatch.py`'s transport, token
+  rule and error taxonomy instead of copying them, reads the node's state in one snapshot
+  (`status`, `capabilities`, the fleet, every definition's instances, the pending requests),
+  decides, acts — and `decide()` is a **stub** returning `None`, so an idle turn sends no
+  control request at all. The conservative state is the loop's **starting point**, not an error
+  path: a read that fails ends the turn before anything is written, and the next turn recovers
+  with no restart. `--events` resumes the stream with `Last-Event-ID`, which the E3 reader
+  deliberately did not. The file's docstring and `examples/python/README.md` carry the **five
+  known boundaries** the reconnaissance found (M has no identity of its own in the chain; a
+  sandbox-request decision is not written to it; the instance table and the approval slot live
+  in memory; the audit read has no window or pagination; five capability names are vocabulary
+  only). Two things worth reusing: `import dispatch` needs `sys.path` to be told — this
+  project's interpreter runs with `sys.flags.safe_path` on — and the gate gained a second
+  Python step (15 → 16 steps).
+
 - **The executor picker, and M2b is complete** (v1.0 M2b-3b, 2026-09-27). The model form and the
   session list each carry an **executor** `<select>`, both over one `appStore` field
   (`executorSelection`). The **empty entry is this node's own** — the spelling both transports
