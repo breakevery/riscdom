@@ -39,7 +39,9 @@ pub use dispatch::{
     TaskOutcome,
 };
 pub use error::AgentError;
-pub use identity::{next_agent_id, DEVICE};
+pub use identity::{
+    device, next_agent_id, next_instance_id, set_device, InstanceId, DEFAULT_DEVICE,
+};
 pub use llm::{DeepSeekClient, LlmClient, MockLlm, OpenAiCompatClient};
 pub use message::{
     ChatMessage, ChatRequest, ChatResponse, Choice, FunctionCall, StreamEvent, ToolCall, Usage,

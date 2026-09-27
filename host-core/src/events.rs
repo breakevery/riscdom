@@ -85,6 +85,27 @@ pub const EV_SANDBOX_SWITCH: &str = "sandbox:switch";
 /// the switch is a second, authorised call.
 pub const EV_SANDBOX_REQUEST: &str = "sandbox:request";
 
+// ---- the dispatcher's own events (v1.0 M2a-1) ---------------------------
+//
+// `m` is M, the AI dispatcher of roadmap §9: a *caller* of the control plane,
+// never a part of the kernel (decisions §1). These three are the events its acts
+// emit, so one chain can say which dispatcher derived, reaped or approved
+// something. The audit `action` for each is the same name with dots
+// (`m.sandbox.spawn`), because the audit vocabulary spells its names that way
+// (`agent.tool.result`) while the *event stream* spells them with colons.
+
+/// M derived an instance from a definition (v1.0 M2a-1). The audit action
+/// (`m.sandbox.spawn`) is written by that path already; the stream event waits for
+/// the endpoint that exposes the act (M2a-2).
+pub const EV_M_SANDBOX_SPAWN: &str = "m:sandbox:spawn";
+/// M destroyed an instance (v1.0 M2a-1): the audit action `m.sandbox.reap` is
+/// written by `stop_instance`; the stream event is M2a-2's.
+pub const EV_M_SANDBOX_REAP: &str = "m:sandbox:reap";
+/// M decided a pending request (v1.0 M2a-1). Declared with the other two so the
+/// vocabulary is complete; the act that emits it is the request queue's, and M's
+/// own approval arrives with M itself (M2c).
+pub const EV_M_REQUEST_APPROVE: &str = "m:request:approve";
+
 /// The envelope schema version (v0.9 line). A payload field added later does not
 /// bump it; a change to a field's meaning, type, or presence does.
 pub const ENVELOPE_VERSION: u32 = 1;
@@ -443,10 +464,10 @@ mod tests {
 
     #[test]
     fn all_events_are_named() {
-        // A guard against a name drifting: the doc lists fourteen. The list was
-        // eleven while `qemu:download` (F1) was missing from it, and thirteen
-        // before `sandbox:request` (F2c) — a guard that misses an event is not a
-        // guard (v0.9 sandbox F2b-2, F2c).
+        // A guard against a name drifting: the doc lists seventeen. The list was
+        // eleven while `qemu:download` (F1) was missing from it, thirteen before
+        // `sandbox:request` (F2c) and fourteen before the dispatcher's three
+        // (v1.0 M2a-1) — a guard that misses an event is not a guard.
         let names = [
             EV_AGENT_ITERATION,
             EV_AGENT_TOOL_CALL,
@@ -462,13 +483,22 @@ mod tests {
             EV_QEMU_DOWNLOAD,
             EV_SANDBOX_SWITCH,
             EV_SANDBOX_REQUEST,
+            EV_M_SANDBOX_SPAWN,
+            EV_M_SANDBOX_REAP,
+            EV_M_REQUEST_APPROVE,
         ];
-        assert_eq!(names.len(), 14);
+        assert_eq!(names.len(), 17);
         // Every name is unique, so a copy-paste cannot hide a missing one.
         let mut sorted = names.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
         assert_eq!(sorted.len(), names.len(), "{names:?}");
+        // The dispatcher's three follow the event stream's colon spelling, and
+        // their audit actions are the same names with dots (v1.0 M2a-1).
+        for name in [EV_M_SANDBOX_SPAWN, EV_M_SANDBOX_REAP, EV_M_REQUEST_APPROVE] {
+            assert!(name.starts_with("m:"), "{name}");
+            assert_eq!(name.matches(':').count(), 2, "{name}");
+        }
     }
 
     #[test]

@@ -13,6 +13,27 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **The instance table is on disk — v1.0's first code batch** (v1.0 M2a-1, 2026-09-27). `AppState`'s
+  single VM slot is gone: a node now owns an **instance table**
+  (`instances: Mutex<HashMap<InstanceId, SandboxInstance>>`) plus a `current_instance` pointer, and
+  the state that used to be per node — the VM slot, the serial senders, the serial buffer and the VM
+  start time — is **per instance**. A node creates one instance at construction, **its own**, which a
+  switch and a plain run act on (that is why nothing above had to change meaning); deriving one
+  (`spawn_instance`) starts a second VM in a slot of its own and does **not** change what the node
+  runs. `InstanceId` is `<device>-<pid>-<seq>` (`agent::identity`): the device is settable (default
+  `local`; naming a node is the connection layer's, roadmap §4) and **one counter serves agents and
+  instances**, so the two spaces cannot mint the same string — and the parts are not a path syntax,
+  they are read from the right (`rsplitn(3, '-')`), because a device name may contain a `-`.
+  Snapshots move to `snapshots/<device>/<instance_id>` with the two older layouts still read;
+  `SandboxDef` gains `supports_multiplexing` (default false, and both constructors the host builds
+  say false); the capability vocabulary grows to **38** (+6: three local, three `.remote`), whose
+  endpoints are M2a-2; and the dispatcher's three events (`m:sandbox:spawn`, `m:sandbox:reap`,
+  `m:request:approve`) join the stream's list of **17** — the first two written to the chain as
+  `m.sandbox.spawn` / `m.sandbox.reap` with the instance's identity in `detail` (no new column, no
+  change to the hash formula). **`Capability::ALL.len() == 32` is no longer pinned**: the guard now
+  checks that a known set is present and that the count is at least 38, because a guard that has to be
+  edited for the expected case is a guard that hides the unexpected one. **Decision §72.**
+
 - **M1's first three specifications are on disk** (v1.0 M1, 2026-09-27). [api-compatibility.md](api-compatibility.md),
   [error-model.md](error-model.md) and [security-model.md](security-model.md) turn the
   [v1.0 roadmap](roadmap-v1.0.md) §6's six directions into rules a batch can be held to: what the freeze

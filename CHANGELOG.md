@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A node owns sandbox instances** (v1.0 M2a-1): `AppState`'s single VM slot became an instance table
+  with a current pointer; the VM slot, the serial senders, the serial buffer and the VM start time
+  moved **per instance**; `InstanceId` (`<device>-<pid>-<seq>`, device settable, one counter serving
+  agents and instances) arrived with `register_instance` / `spawn_instance` / `stop_instance`; the
+  node's own instance is what a switch and a plain run act on, and deriving one changes neither.
+  Snapshots moved to `snapshots/<device>/<instance_id>` (the two older layouts stay readable),
+  `SandboxDef` gained `supports_multiplexing` (default false), the capability vocabulary grew to 38,
+  and the dispatcher's three events joined the stream's 17. No new endpoint: the API is M2a-2.
+
 - **The v1.0 roadmap is written down, in both languages.** [docs/roadmap-v1.0.md](docs/roadmap-v1.0.md)
   records the shape the discussion converged on, so that it does not have to be held again: the three
   layers (one device → connection → cross-device dispatch), the connection layer (a workgroup plus a

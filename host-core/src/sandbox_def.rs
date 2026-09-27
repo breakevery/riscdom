@@ -82,6 +82,19 @@ pub struct SandboxDef {
     /// Free-form note for a human (why this definition exists).
     #[serde(default)]
     pub notes: Option<String>,
+    /// Can this definition host **several instances at once**? (v1.0 M2a-1.)
+    ///
+    /// A declaration, not a measurement: it is what an instance API reads before it
+    /// derives a second instance from this definition, and what `GET
+    /// /v0/sandboxes/{name}/capabilities` will answer (M2a-2). Defaults to `false`
+    /// — **false is the honest default**, because a sandbox that runs on the bare
+    /// machine has one host and one port set, and only a definition that says
+    /// otherwise may be multiplexed (roadmap §3).
+    ///
+    /// Additive like every other field here: a file written before this field
+    /// existed loads with `false`, and `SETTINGS_VERSION` does not move.
+    #[serde(default)]
+    pub supports_multiplexing: bool,
 }
 
 impl SandboxDef {
@@ -103,6 +116,8 @@ impl SandboxDef {
             toolchain_path,
             kernel: None,
             notes: None,
+            // A scanned resource is not asked to multiplex anything (M2a-1).
+            supports_multiplexing: false,
         }
     }
 
@@ -116,6 +131,7 @@ impl SandboxDef {
             toolchain_path: None,
             kernel: None,
             notes: None,
+            supports_multiplexing: false,
         }
     }
 }
@@ -151,6 +167,8 @@ pub struct SandboxView {
     pub toolchain_path: Option<String>,
     pub kernel: Option<String>,
     pub notes: Option<String>,
+    /// Can this definition host several instances at once (v1.0 M2a-1)?
+    pub supports_multiplexing: bool,
     /// `manual` or `discovered`.
     pub source: SandboxSource,
     /// Could this definition run **right now**? See the module docs.
@@ -282,6 +300,7 @@ mod tests {
             toolchain_path: Some(PathBuf::from("/opt/gcc/bin/riscv-none-elf-gcc")),
             kernel: Some(PathBuf::from("hello.elf")),
             notes: Some("for the blink example".into()),
+            supports_multiplexing: true,
         };
         let text = serde_json::to_string(&def).expect("serialises");
         let back: SandboxDef = serde_json::from_str(&text).expect("parses");
@@ -299,6 +318,28 @@ mod tests {
         assert_eq!(bare.kernel, None);
         assert_eq!(bare.notes, None);
         assert_eq!(bare.display_name, None);
+        // A definition that says nothing about multiplexing does not multiplex
+        // (v1.0 M2a-1): the field is additive and false until a person says so.
+        assert!(!bare.supports_multiplexing, "false is the default");
+    }
+
+    #[test]
+    fn a_definition_declares_whether_it_multiplexes() {
+        // The field is the declaration an instance API reads (M2a-1); the two
+        // constructors the host builds itself never claim it.
+        assert!(
+            !SandboxDef::for_resource("qemu", "11.1.0", PathBuf::from("/qemu"))
+                .supports_multiplexing
+        );
+        assert!(!SandboxDef::fallback().supports_multiplexing);
+
+        let declared: SandboxDef =
+            serde_json::from_str(r#"{"name":"blink","supports_multiplexing":true}"#)
+                .expect("parses");
+        assert!(declared.supports_multiplexing);
+        assert!(serde_json::to_string(&declared)
+            .expect("serialises")
+            .contains(r#""supports_multiplexing":true"#));
     }
 
     #[test]

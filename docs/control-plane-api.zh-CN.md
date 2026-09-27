@@ -50,7 +50,7 @@ pub struct Actor {
 - **钩子负责认证，服务端负责授权。** `authorise` 回答的是「调用者是谁」；这个 actor 能不能做这件事是另一个决定，且由服务端作出：每条被服务的路由都恰好声明一个 capability，请求路径会问钩子返回的 actor 是否 `allows` 它，不持有即 `403 forbidden`，`cause` 为 `capability`（`server/src/http.rs`）。钩子也能看到这项要求（`ReqMeta.capability`）以便自行判断，但它**不能**凭空授予：只能返回持有更少的 actor。
 - **capability 是路由表的类型化列**，不是处理器记得去查的字符串（`server/src/routes.rs`）。写不出一条不声明 capability 的路由，也就不存在悄悄跳过检查的路由。
 - **默认拒绝。** 除非 actor 确实持有路由所要的权限，否则一律拒绝；空集合的 actor 什么也到不了。「没有 capability」不可表达。
-- **词汇表就是 §5 表格里的 32 个名字**（`agent.run`、`audit.read`、`runs.control`、`settings.write`……）。v0.9 只有两种 actor 形状：token 持有者（`operator`、`human`）持有全部 32 项；`--no-auth` 的默认持有同一集合，因此两者过了钩子之后行为一致。故 `403` 只可能来自返回更窄 actor 的钩子。按能力细分的 token 属 v1.0；这个集合就是它们日后的填充位置。
+- **词汇表有 38 个名字**——就是 §5 表格里在用的那些（`agent.run`、`audit.read`、`runs.control`、`settings.write`……），加上实例模型在 v1.0 M2a-1 新增的六个（`sandbox.instantiate`、`task.dispatch`、`request.approve`，以及它们各自的 `.remote` 半边），它们的端点随 M2a-2 到来。v0.9 只有两种 actor 形状：token 持有者（`operator`、`human`）持有整个词汇表；`--no-auth` 的默认持有同一集合，因此两者过了钩子之后行为一致。故 `403` 只可能来自返回更窄 actor 的钩子。按能力细分的 token 属 v1.0；这个集合就是它们日后的填充位置。
 - 钩子返回的 `Actor` 就是该请求写下的每一行审计所携带的身份。「人做的」与「监工 AI 做的」由 `agent_id` 区分，正是 architecture-evolution.md §6 的要求。
 - **token 永不落日志。** 不进访问日志、不进错误、不进审计 detail。钩子返回 `Actor`，原始 token 随即丢弃；`ReqMeta` 的 `Debug` 亦对其打码，误写的 `{:?}` 也写不出去。
 - **传输安全归调用方（开源版边界）。** 开源版只提供明文 HTTP 加认证钩子，仅此而已。TLS 终止、网络边界、或只绑本地，是部署决策；把控制平面暴露到回环之外的分发方，自行负责把它放在 TLS 之后。这条写在这里，以免有集成者以为开源版替他做了。

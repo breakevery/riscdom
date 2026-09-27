@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     record_llm_request(
         &sink,
-        agent::DEVICE,
+        agent::DEFAULT_DEVICE,
         &req,
         "deepseek-chat",
         "https://api.deepseek.com",
@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             total_tokens: Some(160),
         }),
     };
-    record_llm_response(&sink, agent::DEVICE, &resp);
+    record_llm_response(&sink, agent::DEFAULT_DEVICE, &resp);
 
     let call = ToolCall {
         id: "call_1".into(),
@@ -67,17 +67,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             arguments: "{\"path\":\"hello.c\",\"content\":\"int main(void){}\"}".into(),
         },
     };
-    record_tool_call(&sink, agent::DEVICE, &call);
+    record_tool_call(&sink, agent::DEFAULT_DEVICE, &call);
     record_tool_result(
         &sink,
-        agent::DEVICE,
+        agent::DEFAULT_DEVICE,
         "call_1",
         "wrote 18 bytes to hello.c",
         true,
     );
     record_policy_deny(
         &sink,
-        agent::DEVICE,
+        agent::DEFAULT_DEVICE,
         "path outside workspace",
         serde_json::json!({ "path": "/etc/passwd" }),
     );

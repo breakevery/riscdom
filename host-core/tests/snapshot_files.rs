@@ -58,10 +58,12 @@ fn missing_snapshot_dir_lists_empty() {
 }
 
 #[test]
-fn each_agent_gets_its_own_snapshot_directory() {
-    // v0.8 batch B: two agents sharing one workspace must not overwrite each
-    // other's snapshot names, so each writes its own subdirectory.
-    let workspace = unique_dir("per-agent");
+fn each_instance_gets_its_own_snapshot_directory() {
+    // v0.8 batch B made the directory per *agent* so two agents sharing one
+    // workspace could not overwrite each other's snapshot names; v1.0 M2a-1 moved
+    // it per *instance* (`snapshots/<device>/<instance_id>`), because a node may
+    // now run several guests at once. Both older layouts stay readable.
+    let workspace = unique_dir("per-instance");
     let root = workspace.join(".riscdom").join("snapshots");
     std::fs::create_dir_all(&root).expect("snapshot root");
     // A snapshot written before the per-agent layout lives in the shared root.
@@ -71,16 +73,26 @@ fn each_agent_gets_its_own_snapshot_directory() {
     let b = AppState::in_memory(&workspace).expect("state b");
     assert_ne!(a.agent_id(), b.agent_id(), "one identity per instance");
     assert_ne!(a.snapshot_dir(), b.snapshot_dir());
-    assert_eq!(a.snapshot_dir(), root.join(a.agent_id()));
+    assert_eq!(
+        a.snapshot_dir(),
+        root.join(agent::device())
+            .join(a.current_instance_id().as_str()),
+        "the instance's own directory under the device's"
+    );
 
-    std::fs::create_dir_all(a.snapshot_dir()).expect("a dir");
-    std::fs::create_dir_all(b.snapshot_dir()).expect("b dir");
-    std::fs::write(a.snapshot_dir().join("same.mig"), vec![2u8; 64]).expect("a same");
-    std::fs::write(b.snapshot_dir().join("same.mig"), vec![3u8; 128]).expect("b same");
+    // The layout v0.8 wrote — one directory per agent — is still read.
+    let legacy = root.join(a.agent_id());
+    std::fs::create_dir_all(&legacy).expect("legacy dir");
+    std::fs::write(legacy.join("per-agent.mig"), vec![9u8; 8]).expect("legacy file");
+    assert!(
+        a.list_snapshots()
+            .expect("list")
+            .iter()
+            .any(|s| s.name == "per-agent"),
+        "the per-agent layout is still listed"
+    );
 
-    // Both agents see the same names — the pre-v0.8 one plus their own `same` —
-    // and each `same` is its own file, not the other's.
-    let names = |state: &AppState| {
+    let listing = |state: &AppState| -> Vec<String> {
         let mut names: Vec<String> = state
             .list_snapshots()
             .expect("list")
@@ -90,8 +102,33 @@ fn each_agent_gets_its_own_snapshot_directory() {
         names.sort();
         names
     };
-    assert_eq!(names(&a), vec!["old".to_string(), "same".to_string()]);
-    assert_eq!(names(&b), vec!["old".to_string(), "same".to_string()]);
+    assert_eq!(
+        listing(&a),
+        vec!["old".to_string(), "per-agent".to_string()],
+        "instance {:?}, legacy {:?}, root {:?}",
+        a.snapshot_dir(),
+        legacy,
+        root
+    );
+
+    std::fs::create_dir_all(a.snapshot_dir()).expect("a dir");
+    std::fs::create_dir_all(b.snapshot_dir()).expect("b dir");
+    std::fs::write(a.snapshot_dir().join("same.mig"), vec![2u8; 64]).expect("a same");
+    std::fs::write(b.snapshot_dir().join("same.mig"), vec![3u8; 128]).expect("b same");
+
+    // Both agents see the shared history plus their own `same`, and each `same` is
+    // its own file, not the other's. `per-agent.mig` was written into **a**'s
+    // private legacy directory, so only `a` sees it: the per-agent layout was per
+    // agent exactly because that is what it was.
+    assert_eq!(
+        listing(&a),
+        vec![
+            "old".to_string(),
+            "per-agent".to_string(),
+            "same".to_string()
+        ]
+    );
+    assert_eq!(listing(&b), vec!["old".to_string(), "same".to_string()]);
     let a_same = a
         .list_snapshots()
         .expect("list")
@@ -103,5 +140,8 @@ fn each_agent_gets_its_own_snapshot_directory() {
     // The pre-v0.8 snapshot is still deletable, from the shared root.
     assert!(a.delete_snapshot("old").expect("delete old"));
     assert!(!root.join("old.mig").exists());
+    // So is the per-agent one.
+    assert!(a.delete_snapshot("per-agent").expect("delete per-agent"));
+    assert!(!legacy.join("per-agent.mig").exists());
     assert_eq!(a.list_snapshots().expect("list").len(), 1);
 }

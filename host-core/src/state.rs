@@ -23,7 +23,7 @@ use agent::policy::WorkspacePolicy;
 use agent::presets::{builtin_presets, find_preset, ProviderPreset, DEFAULT_PRESET_ID};
 use agent::{
     AgentConfig, AgentHandle, AgentId, AgentLoop, AgentOutcome, DispatchError, Dispatcher,
-    LocalDispatcher, Task, TaskId, TaskOutcome,
+    InstanceId, LocalDispatcher, Task, TaskId, TaskOutcome,
 };
 use audit::{AuditSink, AuditStore, ChainStatus, SqliteAuditSink, StoredEvent};
 use sandbox::platform::{QmpEndpoint, SerialEndpoint};
@@ -569,6 +569,93 @@ impl From<AgentOutcome> for AgentOutcomeView {
     }
 }
 
+/// One sandbox instance (v1.0 M2a-1).
+///
+/// An instance is **one running thing**: the VM in its slot, the serial stream it
+/// writes, the moment it started and the directory its snapshots live in. What the
+/// node used to keep as four singletons is per instance here, because two guests
+/// in one node must not share a serial buffer or a snapshot name — which is the
+/// whole point of the instance model (roadmap §3).
+///
+/// A value is a **handle**: every field that has state behind it is an `Arc`, so
+/// cloning one (which the table hands out) points at the same VM slot and the same
+/// buffers rather than copying them. `definition` is the one plain field: it is
+/// what the instance was created from, and the **table** stays authoritative if it
+/// later changes (a switch that re-runs the node's own instance).
+pub struct SandboxInstance {
+    /// This instance's identity (`<device>-<pid>-<seq>`, v1.0 M2a-1).
+    pub id: InstanceId,
+    /// The definition it was created from; empty means "the node's own, whatever a
+    /// switch put in charge".
+    pub definition: String,
+    /// Its VM slot. Empty when nothing is running — an instance outlives a VM.
+    pub vm_slot: Arc<Mutex<Option<RiscVVirtualMachine>>>,
+    /// The serial broadcast list this instance's guest writes into.
+    pub serial_senders: Arc<Mutex<Vec<std::sync::mpsc::Sender<Vec<u8>>>>>,
+    /// The serial text accumulated for this instance.
+    pub serial_accum: Arc<Mutex<String>>,
+    /// When this instance's VM started (epoch ms).
+    pub vm_started_at_ms: Arc<Mutex<Option<i64>>>,
+    /// Where this instance's snapshots live.
+    pub snapshot_dir: PathBuf,
+}
+
+impl Clone for SandboxInstance {
+    /// Clone the *handles*, never the state behind them.
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            definition: self.definition.clone(),
+            vm_slot: Arc::clone(&self.vm_slot),
+            serial_senders: Arc::clone(&self.serial_senders),
+            serial_accum: Arc::clone(&self.serial_accum),
+            vm_started_at_ms: Arc::clone(&self.vm_started_at_ms),
+            snapshot_dir: self.snapshot_dir.clone(),
+        }
+    }
+}
+
+impl std::fmt::Debug for SandboxInstance {
+    /// The identity and what it runs — never the VM handle: a `Debug` that walked
+    /// into the slot would print a child process's state, and this type is a
+    /// handle, not a value.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SandboxInstance")
+            .field("id", &self.id)
+            .field("definition", &self.definition)
+            .field("snapshot_dir", &self.snapshot_dir)
+            .finish_non_exhaustive()
+    }
+}
+
+impl SandboxInstance {
+    /// A new instance with empty state and its own snapshot directory.
+    fn new(id: InstanceId, definition: impl Into<String>, snapshot_dir: PathBuf) -> Self {
+        Self {
+            id,
+            definition: definition.into(),
+            vm_slot: Arc::new(Mutex::new(None)),
+            serial_senders: Arc::new(Mutex::new(Vec::new())),
+            serial_accum: Arc::new(Mutex::new(String::new())),
+            vm_started_at_ms: Arc::new(Mutex::new(None)),
+            snapshot_dir,
+        }
+    }
+}
+
+/// Where an instance's snapshots live: `<workspace>/.riscdom/snapshots/<device>/<id>`.
+///
+/// Two levels, because two instances in one workspace must not share a snapshot
+/// name. The pre-M2a layout (`snapshots/<agent_id>/`, one directory per *agent*) is
+/// still read — see [`AppState::find_snapshot`].
+fn instance_snapshot_dir(workspace_root: &Path, id: &InstanceId) -> PathBuf {
+    workspace_root
+        .join(".riscdom")
+        .join("snapshots")
+        .join(agent::device())
+        .join(id.as_str())
+}
+
 /// Shared, thread-safe application state.
 pub struct AppState {
     pub audit: Arc<Mutex<AuditStore>>,
@@ -586,9 +673,23 @@ pub struct AppState {
     /// agent caused what once several agents write to it. Minted once, at
     /// construction: the host is the agent, not the run.
     agent_id: String,
-    /// Host-owned VM slot: a VM started during a run stays here after the run
-    /// ends, so later runs reuse the same guest (v0.2 host-owned lifecycle).
-    pub vm_slot: Arc<Mutex<Option<RiscVVirtualMachine>>>,
+    /// The sandbox instances this node owns (v1.0 M2a-1).
+    ///
+    /// One entry per instance. The node's **own** instance is created at
+    /// construction and is never removed: it is the slot a switch and a plain run
+    /// act on, so every path that existed before the instance model keeps working.
+    /// Other entries arrive from [`AppState::spawn_instance`] and leave through
+    /// [`AppState::stop_instance`].
+    ///
+    /// The table is authoritative. A [`SandboxInstance`] handed out is a handle to
+    /// the same slots, not a second copy of the instance.
+    instances: Mutex<HashMap<InstanceId, SandboxInstance>>,
+    /// Which instance node-level acts apply to (v1.0 M2a-1): the node's own, unless
+    /// something adopted another. `None` is tolerated and falls back to the node's
+    /// own instance, so no path can end up without a slot to act on.
+    current_instance: Mutex<Option<InstanceId>>,
+    /// The node's own instance: created at construction, never removed.
+    own_instance: InstanceId,
     /// User-chosen RISC-V GCC (`set_toolchain_path`); `None` means auto-discovery.
     pub toolchain_path: Mutex<Option<PathBuf>>,
     /// User-chosen Zig executable (`set_zig_path`, v0.9 F3a); `None` means
@@ -633,9 +734,6 @@ pub struct AppState {
     /// means nothing is running, or what is running was not started from a
     /// definition (a restored snapshot on a node with no current sandbox).
     active_sandbox: Mutex<Option<String>>,
-    /// When the host-owned VM started (epoch ms); shared with the audit bridge,
-    /// which learns about VM starts/stops from the sandbox's audit events.
-    vm_started_at_ms: Arc<Mutex<Option<i64>>>,
     /// Last download event seen, kept after the download ends (for polling).
     toolchain_download_last: Mutex<Option<DownloadEvent>>,
     /// The same for QEMU.
@@ -668,11 +766,9 @@ pub struct AppState {
     pub keyring: Arc<dyn KeyringBackend>,
     /// Whether the current key has been persisted to the keyring.
     persisted: Mutex<bool>,
-    /// Serial broadcast list shared by the long-lived forwarder and every run.
-    /// The forwarder owns the matching `Receiver`.
-    pub serial_senders: Arc<Mutex<Vec<std::sync::mpsc::Sender<Vec<u8>>>>>,
-    /// Accumulated serial text from the push stream (for `get_serial_buffer`).
-    pub serial_accum: Arc<Mutex<String>>,
+    /// Serial state lives per instance (v1.0 M2a-1): [`AppState::serial_buffer`]
+    /// reads the current instance's accumulated text, and
+    /// [`AppState::start_serial_forwarder`] attaches the long-lived forwarder to it.
     /// Live LLM stream receiver for the current run.
     pub stream_receiver: Arc<Mutex<Option<Receiver<StreamEvent>>>>,
     /// Persisted conversations.
@@ -1022,13 +1118,24 @@ impl AppState {
         // answers (the switch, and the request queue's status text), so they share
         // one handle (v0.9 sandbox F2c).
         let current_sandbox: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        // The node's own instance (v1.0 M2a-1). It is the slot a switch and a plain
+        // run act on, so creating it here is what lets every pre-M2a path keep
+        // working unchanged — and what makes "the current instance" always exist.
+        let own_id = agent::next_instance_id();
+        let own = SandboxInstance::new(
+            own_id.clone(),
+            String::new(),
+            instance_snapshot_dir(&root, &own_id),
+        );
         let state = Self {
             audit: shared,
             sink,
             audit_failures,
             audit_failures_emitted: Arc::new(AtomicUsize::new(0)),
             agent_id: agent::next_agent_id(),
-            vm_slot: Arc::new(Mutex::new(None)),
+            own_instance: own.id.clone(),
+            instances: Mutex::new(HashMap::from([(own.id.clone(), own.clone())])),
+            current_instance: Mutex::new(Some(own.id.clone())),
             toolchain_path: Mutex::new(None),
             zig_path: Mutex::new(None),
             rust_sysroot: Mutex::new(None),
@@ -1039,7 +1146,6 @@ impl AppState {
             current_sandbox: Arc::clone(&current_sandbox),
             sandbox_requests: SandboxRequests::new(current_sandbox),
             active_sandbox: Mutex::new(None),
-            vm_started_at_ms: Arc::new(Mutex::new(None)),
             toolchain_download_last: Mutex::new(None),
             qemu_download_last: Mutex::new(None),
             settings: Mutex::new(LocalSettings::default()),
@@ -1052,8 +1158,6 @@ impl AppState {
             llm_override: Mutex::new(None),
             keyring,
             persisted: Mutex::new(false),
-            serial_senders: Arc::new(Mutex::new(Vec::new())),
-            serial_accum: Arc::new(Mutex::new(String::new())),
             stream_receiver: Arc::new(Mutex::new(None)),
             sessions: Arc::new(Mutex::new(sessions)),
             current_session_id: Mutex::new(None),
@@ -1078,26 +1182,43 @@ impl AppState {
 
     // ----- Snapshots --------------------------------------------------------
 
-    /// This instance's snapshot directory: `<workspace>/.riscdom/snapshots/<agent_id>`.
+    /// The current instance's snapshot directory:
+    /// `<workspace>/.riscdom/snapshots/<device>/<instance_id>`.
     ///
-    /// Per agent (v0.8 batch B): several agents may share one workspace, and a
-    /// shared directory meant two agents saving `snap1` overwrote each other. New
-    /// writes always land here; reads fall back to [`Self::snapshot_root`] so
-    /// snapshots taken before this change stay usable.
+    /// Per instance (v1.0 M2a-1; per *agent* before that): two instances in one
+    /// workspace must not share a snapshot name. New writes land here, and reads
+    /// walk [`Self::snapshot_dirs`], so a snapshot an earlier layout wrote stays
+    /// findable.
     pub fn snapshot_dir(&self) -> PathBuf {
-        self.snapshot_root().join(&self.agent_id)
+        self.current_instance().snapshot_dir
     }
 
-    /// The directory every agent's snapshot subdirectory lives under
+    /// Every directory a snapshot may live in, newest layout first.
+    ///
+    /// Three layouts: the current instance's directory, the per-agent directory
+    /// v0.8 wrote (`snapshots/<agent_id>/`), and the shared root an even older
+    /// version wrote into. Duplicates are dropped, so a node that adopted neither
+    /// older layout walks one directory.
+    fn snapshot_dirs(&self) -> Vec<PathBuf> {
+        let mut dirs = vec![
+            self.snapshot_dir(),
+            self.snapshot_root().join(&self.agent_id),
+            self.snapshot_root(),
+        ];
+        dirs.dedup();
+        dirs
+    }
+
+    /// The directory every snapshot subdirectory lives under
     /// (`<workspace>/.riscdom/snapshots`) — where an older version wrote them.
     pub fn snapshot_root(&self) -> PathBuf {
         self.workspace_root.join(".riscdom").join("snapshots")
     }
 
-    /// Find `name` on disk: this agent's directory first, then the shared root
-    /// (a snapshot written before the per-agent layout).
+    /// Find `name` on disk: the current instance's directory first, then the older
+    /// layouts in [`Self::snapshot_dirs`].
     fn find_snapshot(&self, name: &str) -> Option<PathBuf> {
-        for dir in [self.snapshot_dir(), self.snapshot_root()] {
+        for dir in self.snapshot_dirs() {
             for ext in [sandbox::SNAPSHOT_MIG_EXT, sandbox::SNAPSHOT_JSON_EXT] {
                 let path = dir.join(format!("{name}.{ext}"));
                 if path.is_file() {
@@ -1116,7 +1237,7 @@ impl AppState {
     pub fn list_snapshots(&self) -> Result<Vec<SnapshotMetaView>, HostError> {
         let mut out = Vec::new();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for dir in [self.snapshot_dir(), self.snapshot_root()] {
+        for dir in self.snapshot_dirs() {
             Self::list_snapshot_dir(&dir, &mut seen, &mut out)?;
         }
         out.sort_by_key(|s| std::cmp::Reverse(s.created_at_ms));
@@ -1176,11 +1297,11 @@ impl AppState {
         Ok(())
     }
 
-    /// Delete a snapshot (either mode) from this agent's directory and from the
-    /// shared root. Returns whether a file was removed.
+    /// Delete a snapshot (either mode) from the current instance's directory and
+    /// from the older layouts. Returns whether a file was removed.
     pub fn delete_snapshot(&self, name: &str) -> Result<bool, HostError> {
         let mut removed = false;
-        for dir in [self.snapshot_dir(), self.snapshot_root()] {
+        for dir in self.snapshot_dirs() {
             for ext in [sandbox::SNAPSHOT_MIG_EXT, sandbox::SNAPSHOT_JSON_EXT] {
                 let path = dir.join(format!("{name}.{ext}"));
                 if path.is_file() {
@@ -1239,7 +1360,8 @@ impl AppState {
     pub fn save_snapshot_real(&self, name: &str) -> Result<u64, HostError> {
         Self::validate_snapshot_name(name)?;
         {
-            let mut slot = self
+            let instance = self.current_instance();
+            let mut slot = instance
                 .vm_slot
                 .lock()
                 .map_err(|_| HostError::Other("vm slot poisoned".into()))?;
@@ -1298,6 +1420,8 @@ impl AppState {
         let run_id = self.begin_run(None, parent.as_deref(), Some(name));
 
         let restored = (|| -> Result<(), HostError> {
+            // The instance this restore acts on: the node's current one (M2a-1).
+            let instance = self.current_instance();
             // Both ports come from the process-wide lease (v0.4 #1) and are handed
             // to QEMU only right before it starts.
             let mut leases = sandbox::relay::lease_local_ports(2)
@@ -1309,9 +1433,9 @@ impl AppState {
                 memory_mb: agent::VM_MEMORY_MB,
                 qmp: QmpEndpoint::tcp("127.0.0.1", qmp_lease.port()),
                 serial: SerialEndpoint::tcp("127.0.0.1", serial_lease.port()),
-                snapshot_dir: self.snapshot_dir(),
+                snapshot_dir: instance.snapshot_dir.clone(),
                 serial_observer: Some(agent::tools::serial_observer_for(Arc::clone(
-                    &self.serial_senders,
+                    &instance.serial_senders,
                 ))),
                 incoming_snapshot: Some(path.clone()),
                 incoming_relay_addr: None,
@@ -1329,7 +1453,7 @@ impl AppState {
                 Arc::clone(&self.sink),
             )
             .map_err(|e| HostError::Other(e.to_string()))?;
-            *self
+            *instance
                 .vm_slot
                 .lock()
                 .map_err(|_| HostError::Other("vm slot poisoned".into()))? = Some(vm);
@@ -2080,6 +2204,7 @@ impl AppState {
             toolchain_path: def.toolchain_path.as_ref().map(|p| p.display().to_string()),
             kernel: def.kernel.as_ref().map(|p| p.display().to_string()),
             notes: def.notes.clone(),
+            supports_multiplexing: def.supports_multiplexing,
             source,
             runnable: self.sandbox_runnable(def),
             shadowed,
@@ -2199,6 +2324,239 @@ impl AppState {
             .lock()
             .map(|slot| slot.is_some())
             .unwrap_or(false)
+    }
+
+    // ----- Instances (v1.0 M2a-1) -------------------------------------------
+
+    /// The node's own instance id: created at construction, never removed.
+    pub fn own_instance_id(&self) -> &InstanceId {
+        &self.own_instance
+    }
+
+    /// The instance node-level acts apply to: the current one, else the node's own.
+    ///
+    /// A **handle**, not a copy: the VM slot and the serial buffers behind it are
+    /// the instance's own, so two handles to one instance see one VM. Locks are
+    /// recovered with `into_inner` on poison rather than panicking, because the
+    /// data behind them is plain state and a getter must not take the host down.
+    pub fn current_instance(&self) -> SandboxInstance {
+        let wanted = self
+            .current_instance
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let table = self.instances.lock().unwrap_or_else(|e| e.into_inner());
+        wanted
+            .as_ref()
+            .and_then(|id| table.get(id))
+            .or_else(|| table.get(&self.own_instance))
+            .cloned()
+            .expect("the node's own instance is created at construction and never removed")
+    }
+
+    /// The identity of the instance node-level acts apply to.
+    pub fn current_instance_id(&self) -> InstanceId {
+        self.current_instance().id
+    }
+
+    /// Every instance this node owns: the node's own first, then by identity.
+    pub fn instance_ids(&self) -> Vec<InstanceId> {
+        let table = self.instances.lock().unwrap_or_else(|e| e.into_inner());
+        let mut ids: Vec<InstanceId> = table.keys().cloned().collect();
+        let own = self.own_instance.clone();
+        ids.sort_by(|a, b| (a != &own, a.as_str()).cmp(&(b != &own, b.as_str())));
+        ids
+    }
+
+    /// The handle to one instance, when this node owns it.
+    pub fn instance(&self, id: &InstanceId) -> Option<SandboxInstance> {
+        self.instances
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned()
+    }
+
+    /// What an instance was created from; `None` when no such instance exists.
+    pub fn instance_definition(&self, id: &InstanceId) -> Option<String> {
+        self.instances
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .map(|instance| instance.definition.clone())
+    }
+
+    /// The current instance's VM slot — the alias the pre-M2a paths use.
+    ///
+    /// A switch, a run, a snapshot and the VM badge all mean "the VM this node is
+    /// running", and since v1.0 M2a-1 that VM sits in an instance's slot rather
+    /// than in the `AppState` itself.
+    pub fn vm_slot(&self) -> Arc<Mutex<Option<RiscVVirtualMachine>>> {
+        self.current_instance().vm_slot
+    }
+
+    /// Register an instance with fresh, empty state: the table half of
+    /// [`Self::spawn_instance`], and what a test can drive without a QEMU.
+    ///
+    /// The instance is **not** made current: deriving one is not adopting one, and
+    /// the node keeps running what it was running (v1.0 M2a-1).
+    pub fn register_instance(&self, definition: &str) -> SandboxInstance {
+        let id = agent::next_instance_id();
+        let instance = SandboxInstance::new(
+            id.clone(),
+            definition,
+            instance_snapshot_dir(&self.workspace_root, &id),
+        );
+        self.instances
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, instance.clone());
+        instance
+    }
+
+    /// Derive an instance from a definition and start its VM (v1.0 M2a-1; the
+    /// endpoint that reaches this is M2a-2).
+    ///
+    /// The difference from a switch is the point of the whole batch: a switch stops
+    /// what is running and starts a replacement, while **deriving starts a second VM
+    /// beside it**. So nothing here touches the current instance, and the ports come
+    /// from the same process-wide lease every VM uses — which is what keeps two
+    /// guests in one process from taking each other's ports.
+    ///
+    /// On failure the instance is forgotten: the table keeps no trace of a VM that
+    /// never ran, and the reason comes back to the caller.
+    pub fn spawn_instance(&self, name: &str) -> Result<InstanceId, HostError> {
+        let def = self
+            .sandbox_def_by_name(name)
+            .ok_or_else(|| HostError::SandboxNotFound(name.to_string()))?;
+        self.sandbox_check(&def)?;
+        let kernel = match &def.kernel {
+            Some(path) => path.clone(),
+            None => self.resume_kernel().map_err(|e| {
+                HostError::SandboxKernelMissing(format!(
+                    "the definition pins none and the workspace has none: {}",
+                    e.user_message()
+                ))
+            })?,
+        };
+
+        let instance = self.register_instance(name);
+        const START_ATTEMPTS: usize = 3;
+        let mut last_error = String::from("unknown error");
+        for attempt in 1..=START_ATTEMPTS {
+            let mut leases = sandbox::relay::lease_local_ports(2)
+                .map_err(|e| HostError::Other(e.to_string()))?;
+            let mut serial_lease = leases.pop().expect("two leases were requested");
+            let mut qmp_lease = leases.pop().expect("two leases were requested");
+            let config = VMConfig {
+                kernel: kernel.clone(),
+                memory_mb: def.memory_mb.unwrap_or(agent::VM_MEMORY_MB),
+                qmp: QmpEndpoint::tcp("127.0.0.1", qmp_lease.port()),
+                serial: SerialEndpoint::tcp("127.0.0.1", serial_lease.port()),
+                snapshot_dir: instance.snapshot_dir.clone(),
+                serial_observer: Some(agent::tools::serial_observer_for(Arc::clone(
+                    &instance.serial_senders,
+                ))),
+                incoming_snapshot: None,
+                incoming_relay_addr: None,
+                qemu_exe: def.qemu_exe.clone().or_else(|| self.manual_qemu_path()),
+            };
+            let mut vm = match RiscVVirtualMachine::new(config, Arc::clone(&self.sink)) {
+                Ok(vm) => vm,
+                Err(e) => {
+                    last_error = format!("attempt {attempt}: {e}");
+                    std::thread::sleep(Duration::from_millis(150));
+                    continue;
+                }
+            };
+            qmp_lease.hand_off();
+            serial_lease.hand_off();
+            match vm.start() {
+                Ok(()) => {
+                    *instance.vm_slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(vm);
+                    if let Ok(mut slot) = instance.vm_started_at_ms.lock() {
+                        if slot.is_none() {
+                            *slot = Some(now_ms());
+                        }
+                    }
+                    // An instance's identity rides in `detail` (v1.0 M2a-1): no new
+                    // column, no change to the hash formula — the same way the
+                    // agent's identity was added (audit/src/event.rs).
+                    self.emit_host(
+                        "m.sandbox.spawn",
+                        serde_json::json!({
+                            "instance_id": instance.id.as_str(),
+                            "definition": name,
+                        }),
+                    );
+                    return Ok(instance.id);
+                }
+                Err(e) => {
+                    last_error = format!("attempt {attempt}: {e}");
+                    std::thread::sleep(Duration::from_millis(150));
+                }
+            }
+        }
+        self.forget_instance(&instance.id);
+        Err(HostError::Other(format!(
+            "instance of {name} did not start: {last_error}"
+        )))
+    }
+
+    /// Stop an instance's VM, and forget the instance unless it is the node's own.
+    ///
+    /// The node's own instance is **not removable**: it is the slot a switch and a
+    /// plain run act on, so stopping it leaves the entry where it is with an empty
+    /// slot — exactly what [`Self::stop_current_vm`] has always done.
+    pub fn stop_instance(&self, id: &InstanceId) -> Result<(), HostError> {
+        let Some(instance) = self.instance(id) else {
+            return Err(HostError::Other(format!("no instance {id}")));
+        };
+        let taken = instance
+            .vm_slot
+            .lock()
+            .map_err(|_| HostError::Other("vm slot poisoned".into()))?
+            .take();
+        if let Some(mut vm) = taken {
+            vm.stop().map_err(|e| HostError::Other(e.to_string()))?;
+        }
+        if let Ok(mut slot) = instance.vm_started_at_ms.lock() {
+            *slot = None;
+        }
+        if id != &self.own_instance {
+            self.forget_instance(id);
+        }
+        self.emit_host(
+            "m.sandbox.reap",
+            serde_json::json!({
+                "instance_id": id.as_str(),
+                "definition": instance.definition,
+            }),
+        );
+        Ok(())
+    }
+
+    /// Note what an instance is running (the table is authoritative).
+    fn set_instance_definition(&self, id: &InstanceId, definition: &str) {
+        if let Some(entry) = self
+            .instances
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_mut(id)
+        {
+            entry.definition = definition.to_string();
+        }
+    }
+
+    /// Drop an instance from the table; the node's own instance is kept.
+    fn forget_instance(&self, id: &InstanceId) {
+        if id == &self.own_instance {
+            return;
+        }
+        self.instances
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
     }
 
     // ----- Sandbox switch (v0.9 sandbox F2b) --------------------------------
@@ -2437,6 +2795,10 @@ impl AppState {
             self.begin_sandbox_switch(name)?;
 
             let switched = (|| -> Result<(), HostError> {
+                // The instance this switch acts on: the node's current one. A switch
+                // replaces the VM *in place* (v1.0 M2a-1), so the same instance
+                // holds the guest before and after.
+                let instance = self.current_instance();
                 // F2b decision 4: a run in flight means the loop is holding this slot.
                 if self.run_in_flight() {
                     return Err(HostError::Other(
@@ -2474,9 +2836,9 @@ impl AppState {
                         memory_mb: def.memory_mb.unwrap_or(agent::VM_MEMORY_MB),
                         qmp: QmpEndpoint::tcp("127.0.0.1", qmp_lease.port()),
                         serial: SerialEndpoint::tcp("127.0.0.1", serial_lease.port()),
-                        snapshot_dir: self.snapshot_dir(),
+                        snapshot_dir: instance.snapshot_dir.clone(),
                         serial_observer: Some(agent::tools::serial_observer_for(Arc::clone(
-                            &self.serial_senders,
+                            &instance.serial_senders,
                         ))),
                         // A switch boots fresh: it is not a restore (F2b decision 3 —
                         // resuming a snapshot stays its own action).
@@ -2499,7 +2861,7 @@ impl AppState {
                     match vm.start() {
                         Ok(()) => {
                             // ⑧ A VM that started *is* the switch; adopt it, then the name.
-                            *self
+                            *instance
                                 .vm_slot
                                 .lock()
                                 .map_err(|_| HostError::Other("vm slot poisoned".into()))? =
@@ -2509,6 +2871,10 @@ impl AppState {
                             if let Ok(mut slot) = self.current_sandbox.lock() {
                                 *slot = Some(name.to_string());
                             }
+                            // The instance holding this VM is now running `name`
+                            // (v1.0 M2a-1): a listing reads the table, not a handle,
+                            // so this is where the instance learns what it runs.
+                            self.set_instance_definition(&self.current_instance_id(), name);
                             // The slot now holds a VM this definition started, which
                             // is what a later task-declared run is compared against
                             // (v0.9 sandbox F2d).
@@ -3902,7 +4268,9 @@ impl AppState {
 
     /// The accumulated serial text pushed by the sandbox so far.
     pub fn serial_buffer(&self) -> String {
-        self.serial_accum
+        let instance = self.current_instance();
+        instance
+            .serial_accum
             .lock()
             .map(|g| g.clone())
             .unwrap_or_default()
@@ -3928,12 +4296,14 @@ impl AppState {
     /// serial output keeps flowing to the UI across runs.
     pub fn start_serial_forwarder(&self, emitter: Arc<dyn EventSink>) -> Result<(), HostError> {
         let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
-        self.serial_senders
+        let instance = self.current_instance();
+        instance
+            .serial_senders
             .lock()
             .map_err(|_| HostError::Other("serial senders poisoned".into()))?
             .push(tx);
 
-        let accum = Arc::clone(&self.serial_accum);
+        let accum = Arc::clone(&instance.serial_accum);
         std::thread::spawn(move || loop {
             match rx.recv_timeout(Duration::from_millis(200)) {
                 Ok(bytes) => {
@@ -4173,8 +4543,9 @@ impl AppState {
     /// from a path that needs the dead handle to survive. Use the slot directly
     /// when a side-effect-free check is required.
     pub fn vm_is_running(&self) -> bool {
+        let instance = self.current_instance();
         let (had_vm, alive) = {
-            let mut slot = match self.vm_slot.lock() {
+            let mut slot = match instance.vm_slot.lock() {
                 Ok(g) => g,
                 Err(_) => return false,
             };
@@ -4185,7 +4556,8 @@ impl AppState {
         };
         if had_vm && !alive {
             // The lock is released before taking the timestamp lock again.
-            if let Ok(mut slot) = self.vm_slot.lock() {
+            let slot_arc = instance.vm_slot.clone();
+            if let Ok(mut slot) = slot_arc.lock() {
                 *slot = None;
             }
             self.clear_vm_started();
@@ -4199,7 +4571,8 @@ impl AppState {
     /// dropped here too.
     pub fn vm_status(&self) -> VmStatusView {
         let running = self.vm_is_running();
-        let since_ms = self
+        let instance = self.current_instance();
+        let since_ms = instance
             .vm_started_at_ms
             .lock()
             .ok()
@@ -4219,23 +4592,29 @@ impl AppState {
 
     /// Remember when a VM (re)appeared in the slot.
     fn mark_vm_started(&self) {
-        if let Ok(mut slot) = self.vm_started_at_ms.lock() {
+        // The `Arc` is bound first: an `if let` over a temporary that borrows a
+        // local would outlive the local (the same reason the guard pattern below
+        // repeats).
+        let started_at = self.current_instance().vm_started_at_ms;
+        if let Ok(mut slot) = started_at.lock() {
             if slot.is_none() {
                 *slot = Some(now_ms());
             }
-        }
+        };
     }
 
     /// Forget the VM start time (the slot is empty again).
     fn clear_vm_started(&self) {
-        if let Ok(mut slot) = self.vm_started_at_ms.lock() {
+        let started_at = self.current_instance().vm_started_at_ms;
+        if let Ok(mut slot) = started_at.lock() {
             *slot = None;
-        }
+        };
     }
 
     /// Stop the host-owned VM and clear the slot (no-op when empty).
     pub fn stop_current_vm(&self) -> Result<(), HostError> {
-        let taken = self
+        let current = self.current_instance();
+        let taken = current
             .vm_slot
             .lock()
             .map_err(|_| HostError::Other("vm slot poisoned".into()))?
@@ -4284,6 +4663,11 @@ impl AppState {
         user_input: &str,
         sandbox: Option<&str>,
     ) -> Result<AgentOutcomeView, HostError> {
+        // The instance this run acts on: the node's current one (v1.0 M2a-1). A
+        // task that names another instance is M2a-3's, so today every run belongs
+        // to the node's own instance — which is why nothing above had to change
+        // its meaning.
+        let instance = self.current_instance();
         // Which definition this run uses (F2d), and whether the node can honour the
         // declaration at all. Both are the **caller's** side of the question — a name
         // nobody has, or a clash with the running VM — so they are answered before
@@ -4349,13 +4733,13 @@ impl AppState {
             self.agent_config(),
             policy,
             Arc::clone(&self.sink),
-            Arc::clone(&self.vm_slot),
+            Arc::clone(&instance.vm_slot),
             system_prompt,
             self.agent_id.clone(),
         )?;
         // Host-owned VM: the loop works on `vm_slot`; serial bytes go to the
         // same broadcast list that the long-lived forwarder reads from.
-        agent.attach_serial(Arc::clone(&self.serial_senders));
+        agent.attach_serial(Arc::clone(&instance.serial_senders));
         // Host-configured toolchain (falls back to auto-discovery).
         agent.set_compiler(self.toolchain_config());
         // The AI's sandbox tools: this agent may **ask** for a sandbox change, not
@@ -4407,7 +4791,7 @@ impl AppState {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_bridge = Arc::clone(&stop);
         let audit = Arc::clone(&self.audit);
-        let vm_started_at = Arc::clone(&self.vm_started_at_ms);
+        let vm_started_at = Arc::clone(&instance.vm_started_at_ms);
         let bridge_emitter = Arc::clone(&emitter);
         let bridge = std::thread::spawn(move || {
             let mut bridge = AuditBridge::new(audit, bridge_emitter, Arc::clone(&vm_started_at));

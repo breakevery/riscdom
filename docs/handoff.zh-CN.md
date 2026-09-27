@@ -11,6 +11,22 @@
 
 ## 1. 快照 —— `v0.9.9` 已发布（正式发布时更新本节）
 
+- **实例表已落盘 —— v1.0 第一个代码批**（v1.0 M2a-1，2026-09-27）。`AppState` 的单一 VM 槽没了：
+  节点现在拥有**实例表**（`instances: Mutex<HashMap<InstanceId, SandboxInstance>>`）加一个
+  `current_instance` 指针，而原先属于节点的状态 —— VM 槽、串口发送端、串口缓冲、VM 起始时刻 ——
+  变成**每实例一份**。节点在构造时创建一个实例，**它自己的那个**，「切换」与一次普通运行作用的就是它
+  （这也是为什么上层什么都不必改含义）；派生一个（`spawn_instance`）会在它自己的槽里起第二台 VM，
+  **不改**节点在跑的东西。`InstanceId` 是 `<device>-<pid>-<seq>`（`agent::identity`）：device 可设
+  （默认 `local`；给节点命名是连接层的事，纲领 §4），且**一个计数器同时服务 agent 与实例**，于是两个
+  空间不会铸出同一个字符串 —— 而三段不是路径语法，要从右往左读（`rsplitn(3, '-')`），因为 device
+  名字里可能带 `-`。快照挪到 `snapshots/<device>/<instance_id>`，两种更旧的布局仍可读；`SandboxDef`
+  新增 `supports_multiplexing`（默认 false，宿主自己造的两个构造器都给 false）；capability 词汇表升到
+  **38**（+6：三个本地，三个 `.remote`），其端点属 M2a-2；而调度员的三个事件（`m:sandbox:spawn`、
+  `m:sandbox:reap`、`m:request:approve`）加入事件流的 **17** 个名单 —— 前两个以 `m.sandbox.spawn` /
+  `m.sandbox.reap` 写进链，实例身份走 `detail`（不加列、不改哈希公式）。
+  **`Capability::ALL.len() == 32` 不再被钉死**：守卫改为「已知集合必须在、且数量 ≥38」，因为一条
+  为预期情况就得改的守卫，是会藏住非预期情况的守卫。**决策 §72。**
+
 - **M1 的头三份规范已落盘**（v1.0 M1，2026-09-27）。[api-compatibility.zh-CN.md](api-compatibility.zh-CN.md)、
   [error-model.zh-CN.md](error-model.zh-CN.md) 与 [security-model.zh-CN.md](security-model.zh-CN.md) 把
   [v1.0 纲领](roadmap-v1.0.zh-CN.md) §6 的六个方向变成可以拿来验收的规矩：冻结覆盖什么、什么可改而不需

@@ -113,9 +113,19 @@ fn save_then_resume_round_trip() {
 
     let bytes = state.save_snapshot_real("s20c").expect("save");
     assert!(bytes > 0, "the .mig snapshot must not be empty");
-    // v0.8 batch B: new snapshots land in this agent's own subdirectory.
-    let path = state.snapshot_dir().join("s20c.mig");
-    assert!(path.is_file(), "expected {path:?}");
+    // The VM this snapshot came from was started by the **agent's own tool**, so
+    // the stream lands in the directory that tool builds
+    // (`snapshots/<agent_id>/` — v0.8's per-agent layout). Carrying the instance's
+    // directory into the agent is M2a-2/M2a-3 (v1.0 M2a-1 changed the host's own
+    // paths and kept every older layout readable); what matters here is that the
+    // host finds the snapshot wherever it landed, which the listing below checks.
+    let legacy = state.snapshot_root().join(state.agent_id());
+    assert!(
+        legacy.join("s20c.mig").is_file() || state.snapshot_dir().join("s20c.mig").is_file(),
+        "the snapshot must be where the host looks: {:?} or {:?}",
+        legacy,
+        state.snapshot_dir()
+    );
 
     let listed = state.list_snapshots().expect("list");
     let meta = listed.iter().find(|s| s.name == "s20c").expect("listed");

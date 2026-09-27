@@ -1559,3 +1559,37 @@ this, and the probe's list checks did not move.
 **Why**: batch 4/N knew the load-time `const impl` could not answer "which host" — that is a *configuration* fact, not an environment one. The forwarders keep the property the `const` bought: one `SharedApi` type holds both implementations to each other at compile time, and a forwarder for a name one of them lacks does not compile (`probe-ui-remote.mjs` counts 68 forwarders, 60 of them through the mode). The exemption is the load-bearing part: in remote mode the forwarded `getNetwork` would ask *the remote server* to rewire itself — the one thing that has no endpoint and never will — so a window whose server is unreachable could never come back. Wiring a node is a local act; that is why these eight, and only these eight, ignore the mode.
 
 **Impact**: the mode is settled **before the shell mounts** (`App.tsx`), so the store's existing mount-time pulls are the re-read and nothing has to be re-fetched mid-session; changing the mode is a **restart**, which is why `restart_app` exists. The screens had to stop asking `isTauriRuntime()` where they meant `isLocalHost()`: the gate, the settings page's tab table and the top bar's badge; `DesktopOnly` / `WebOnly` keep their old meaning ("does this build have a Tauri runtime") on purpose. A remote window is read-only over HTTP for the same reason the browser is — the remote server's own copies of the controls are refusals.
+
+## 72. A node owns sandbox instances, and its own is what a switch acts on
+
+**Date**: 2026-09-27 ｜ **Status**: Decided; landed with the v1.0 M2a-1 batch (the instance table)
+
+**Decision**: `AppState`'s single VM slot becomes an **instance table**
+(`instances: Mutex<HashMap<InstanceId, SandboxInstance>>`) with a `current_instance` pointer, and the
+state that used to be per node — the VM slot, the serial broadcast list, the accumulated serial text
+and the VM start time — is **per instance**. A node creates exactly one instance at construction:
+**its own**, which is never removed and is what a switch and a plain run act on. Deriving an instance
+(`spawn_instance`) starts a second VM in a slot of its own and does **not** change what the node is
+running. `InstanceId` is `<device>-<pid>-<seq>` (`agent::identity`), the device is settable (default
+`local`; naming a node is the connection layer's, roadmap §4), and **one counter serves agents and
+instances** so the two spaces cannot mint the same string. The parts are not a path syntax: they are
+read from the right (`rsplitn(3, '-')`), because a device name may contain a `-`.
+
+**Why**: v0.9.9's model was one node, one VM — a slot, a serial buffer and a start time as singletons,
+which make a second guest *impossible* rather than unlikely (decision §68 kept the node's own
+`Arc<AppState>` for exactly this reason). The cheapest correct change was already half built:
+`AgentLoop::with_vm` takes an `Arc<Mutex<Option<VM>>>`, so an instance that owns its slot is handed to
+the loop **unchanged**. The node's own instance exists so that no pre-M2a path had to learn a new
+meaning — a switch replaces the VM inside it, exactly as it replaced the slot's VM — and so that
+"which instance is current" always has an answer (`current_instance` falls back to it).
+
+**Impact**: `vm_slot()` is a **method** now (the current instance's slot), because a field cannot
+alias a per-instance `Arc`; `spawn_instance` is the derive path and `stop_instance` the reap path (the
+node's own instance is emptied, never removed). Snapshots move to
+`snapshots/<device>/<instance_id>` — one directory per instance — and the two older layouts (per
+agent, and the shared root) stay **readable**, which is what a node upgrading from v0.9.9 needs.
+Ports were never the obstacle: `HELD_PORTS` leases a pair per VM, so two guests in one process cannot
+take each other's (the shape of decision §65 holds). The audit chain is untouched: an instance's
+identity rides in `detail`, the same way `agent_id` was added as a field that is deliberately not in
+the hash formula. The endpoint that reaches all of this is M2a-2 and `Task.instance` is M2a-3; until
+then the table is reachable only from inside the host.

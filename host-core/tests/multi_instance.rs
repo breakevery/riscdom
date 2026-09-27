@@ -77,10 +77,11 @@ fn two_instances_keep_separate_chains_and_vm_slots() {
     assert_eq!(a.audit_status().expect("a status").count, 0);
     assert_eq!(b.audit_status().expect("b status").count, 0);
 
-    // One VM slot per AppState (the dead-end this batch named): the two slots are
-    // distinct objects, so a future run on one instance cannot see the other's VM.
+    // The two AppStates in one process still keep their own chains and their own
+    // slots — since v1.0 M2a-1 a "slot" belongs to an instance, and the VM a node
+    // acts on is its current instance's (see `vm_slot()`).
     assert!(
-        !Arc::ptr_eq(&a.vm_slot, &b.vm_slot),
+        !Arc::ptr_eq(&a.vm_slot(), &b.vm_slot()),
         "one VM slot per instance"
     );
     assert!(!a.vm_is_running());
@@ -98,10 +99,12 @@ fn each_instance_has_its_own_agent_identity_and_host_events_carry_it() {
 
     assert_ne!(a.agent_id(), b.agent_id(), "one identity per instance");
     for id in [a.agent_id(), b.agent_id()] {
-        let parts: Vec<&str> = id.split('-').collect();
+        // Read from the right (v1.0 M2a-1): a device name may contain a `-`.
+        let parts: Vec<&str> = id.rsplitn(3, '-').collect();
         assert_eq!(parts.len(), 3, "device-pid-seq: {id}");
-        assert_eq!(parts[0], agent::DEVICE);
+        assert_eq!(parts[2], agent::DEFAULT_DEVICE);
         assert_eq!(parts[1], std::process::id().to_string());
+        assert!(parts[0].parse::<u64>().is_ok(), "seq: {id}");
     }
 
     // A host event (setting the theme is enough) carries this instance's id.

@@ -103,6 +103,10 @@ pub enum Capability {
     AgentRun,
     AuditExport,
     AuditRead,
+    /// Reading the chain **on another node** (v1.0 M2a-1): the remote half of
+    /// [`Capability::AuditRead`], kept a separate name because "I may read this
+    /// node's history" and "I may read the network's" are different powers.
+    AuditReadRemote,
     EventsSubscribe,
     HealthRead,
     LlmConfigure,
@@ -111,9 +115,17 @@ pub enum Capability {
     PreflightRun,
     QemuConfigure,
     QemuRead,
+    /// Deciding a pending sandbox request (v1.0 M2a-1): the act that was
+    /// `sandbox.read` plus the request's own implied capability (decisions §36),
+    /// now named.
+    RequestApprove,
     RunsControl,
     RunsRead,
     SandboxAssemble,
+    /// Deriving an instance from a definition (v1.0 M2a-1, roadmap §3).
+    SandboxInstantiate,
+    /// Deriving an instance **on another node** (v1.0 M2a-1).
+    SandboxInstantiateRemote,
     SandboxRead,
     SandboxSwitch,
     SerialExport,
@@ -125,6 +137,12 @@ pub enum Capability {
     SnapshotRead,
     SnapshotWrite,
     StatusRead,
+    /// Dispatching a task (v1.0 M2a-1). It sits beside [`Capability::AgentRun`]
+    /// rather than replacing it: running on *this* node and handing work to a
+    /// dispatcher are different acts (decisions §1 — mechanism, not policy).
+    TaskDispatch,
+    /// Dispatching a task **to another node** (v1.0 M2a-1).
+    TaskDispatchRemote,
     ToolchainConfigure,
     ToolchainInstall,
     ToolchainRead,
@@ -141,6 +159,7 @@ impl Capability {
         Capability::AgentRun,
         Capability::AuditExport,
         Capability::AuditRead,
+        Capability::AuditReadRemote,
         Capability::EventsSubscribe,
         Capability::HealthRead,
         Capability::LlmConfigure,
@@ -149,9 +168,12 @@ impl Capability {
         Capability::PreflightRun,
         Capability::QemuConfigure,
         Capability::QemuRead,
+        Capability::RequestApprove,
         Capability::RunsControl,
         Capability::RunsRead,
         Capability::SandboxAssemble,
+        Capability::SandboxInstantiate,
+        Capability::SandboxInstantiateRemote,
         Capability::SandboxRead,
         Capability::SandboxSwitch,
         Capability::SerialExport,
@@ -163,6 +185,8 @@ impl Capability {
         Capability::SnapshotRead,
         Capability::SnapshotWrite,
         Capability::StatusRead,
+        Capability::TaskDispatch,
+        Capability::TaskDispatchRemote,
         Capability::ToolchainConfigure,
         Capability::ToolchainInstall,
         Capability::ToolchainRead,
@@ -178,6 +202,7 @@ impl Capability {
             Capability::AgentRun => "agent.run",
             Capability::AuditExport => "audit.export",
             Capability::AuditRead => "audit.read",
+            Capability::AuditReadRemote => "audit.read.remote",
             Capability::EventsSubscribe => "events.subscribe",
             Capability::HealthRead => "health.read",
             Capability::LlmConfigure => "llm.configure",
@@ -186,9 +211,12 @@ impl Capability {
             Capability::PreflightRun => "preflight.run",
             Capability::QemuConfigure => "qemu.configure",
             Capability::QemuRead => "qemu.read",
+            Capability::RequestApprove => "request.approve",
             Capability::RunsControl => "runs.control",
             Capability::RunsRead => "runs.read",
             Capability::SandboxAssemble => "sandbox.assemble",
+            Capability::SandboxInstantiate => "sandbox.instantiate",
+            Capability::SandboxInstantiateRemote => "sandbox.instantiate.remote",
             Capability::SandboxRead => "sandbox.read",
             Capability::SandboxSwitch => "sandbox.switch",
             Capability::SerialExport => "serial.export",
@@ -200,6 +228,8 @@ impl Capability {
             Capability::SnapshotRead => "snapshot.read",
             Capability::SnapshotWrite => "snapshot.write",
             Capability::StatusRead => "status.read",
+            Capability::TaskDispatch => "task.dispatch",
+            Capability::TaskDispatchRemote => "task.dispatch.remote",
             Capability::ToolchainConfigure => "toolchain.configure",
             Capability::ToolchainInstall => "toolchain.install",
             Capability::ToolchainRead => "toolchain.read",
@@ -365,17 +395,55 @@ mod tests {
 
     #[test]
     fn the_capability_vocabulary_is_well_formed() {
-        assert_eq!(
-            Capability::ALL.len(),
-            32,
-            "the vocabulary the document lists"
+        // The vocabulary grows; the *contract* is which names exist, never how many
+        // (v1.0 M2a-1: the count used to be pinned here, and adding a capability is
+        // an expected act — a guard that has to be edited for the expected case is a
+        // guard that hides the unexpected one).
+        const MUST_HAVE: &[&str] = &[
+            // The v0.9 vocabulary's load-bearing names: if one of these disappears,
+            // `ALL` was rewritten rather than extended.
+            "agent.run",
+            "audit.read",
+            "events.subscribe",
+            "sandbox.read",
+            "sandbox.switch",
+            "settings.write",
+            "vm.control",
+            "workspace.write",
+            // The v1.0 M2a-1 additions (instance model): three local, three remote.
+            "sandbox.instantiate",
+            "task.dispatch",
+            "request.approve",
+            "sandbox.instantiate.remote",
+            "task.dispatch.remote",
+            "audit.read.remote",
+        ];
+        assert!(
+            Capability::ALL.len() >= 38,
+            "the vocabulary the document lists (32) plus M2a-1's six: {}",
+            Capability::ALL.len()
         );
+        for name in MUST_HAVE {
+            assert!(
+                Capability::ALL.iter().any(|c| c.as_str() == *name),
+                "{name} is missing from ALL"
+            );
+        }
         let mut names: Vec<&str> = Capability::ALL.iter().map(Capability::as_str).collect();
         names.sort_unstable();
         let unique = names.len();
         names.dedup();
         assert_eq!(names.len(), unique, "every name is used once: {names:?}");
         assert!(names.iter().all(|name| name.contains('.')), "{names:?}");
+        // A `.remote` name is always the local name plus the suffix, so the two
+        // halves of one power cannot drift apart.
+        for name in names.iter().filter(|name| name.ends_with(".remote")) {
+            let local = name.trim_end_matches(".remote");
+            assert!(
+                Capability::ALL.iter().any(|c| c.as_str() == local),
+                "{name} has no local half ({local})"
+            );
+        }
         // The owner holds the whole vocabulary, by construction and by check.
         let owner = Actor::owner();
         assert_eq!(owner.capabilities.len(), Capability::ALL.len());

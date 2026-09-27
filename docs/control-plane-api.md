@@ -100,10 +100,12 @@ pub struct Actor {
   its capability, so there is no route that silently skips the check.
 - **Default deny.** An actor is refused unless it positively holds what the route asks for;
   an actor with an empty set can reach nothing. "No capability" is not expressible.
-- **The vocabulary is the 32 names in the §5 tables** (`agent.run`, `audit.read`,
-  `runs.control`, `settings.write`, …). v0.9 ships two actor shapes: the token holder
-  (`operator`, `human`) holds all 32, and the `--no-auth` default holds the same set, so
-  both behave identically once past the hook. A `403` therefore only comes from a hook
+- **The vocabulary is 38 names** — the ones the §5 tables use (`agent.run`, `audit.read`,
+  `runs.control`, `settings.write`, …) plus the six the instance model added in v1.0 M2a-1
+  (`sandbox.instantiate`, `task.dispatch`, `request.approve`, and their three `.remote`
+  halves), whose endpoints arrive with M2a-2. v0.9 ships two actor shapes: the token holder
+  (`operator`, `human`) holds the whole vocabulary, and the `--no-auth` default holds the same
+  set, so both behave identically once past the hook. A `403` therefore only comes from a hook
   that returns a narrower actor. Per-capability tokens are v1.0 work; the set is the shape
   they will fill in.
 - The `Actor` returned by the hook is what every audit row this request writes carries.

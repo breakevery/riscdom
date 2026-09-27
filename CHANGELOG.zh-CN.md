@@ -11,6 +11,14 @@
 
 ### 新增
 
+- **一个节点拥有若干沙箱实例**（v1.0 M2a-1）：`AppState` 的单一 VM 槽变成一张带当前指针的实例表；
+  VM 槽、串口发送端、串口缓冲与 VM 起始时刻改为**每实例一份**；`InstanceId`
+  （`<device>-<pid>-<seq>`，device 可设，agent 与实例共用一个计数器）连同 `register_instance` /
+  `spawn_instance` / `stop_instance` 一起到来；节点自己的那个实例是「切换」与一次普通运行作用的对象，
+  而派生一个两者都不改。快照挪到 `snapshots/<device>/<instance_id>`（两种更旧的布局仍可读），
+  `SandboxDef` 新增 `supports_multiplexing`（默认 false），capability 词汇表升到 38，调度员的三个事件
+  加入事件流的 17。没有新端点：对外 API 是 M2a-2。
+
 - **v1.0 纲领落盘，双语成对。** [docs/roadmap-v1.0.md](docs/roadmap-v1.0.md) 记录讨论收敛到的形状，
   以免再讨论一次：三层（单设备 → 连接 → 跨设备派发）、连接层（workgroup 加一台专用跨区域服务器、
   四个角色）、冻结级需要的六件事、audit v2（须单独授权 —— 它触红线 5）、沙箱插件接口、M 的形态、

@@ -270,6 +270,12 @@ export interface SandboxView {
   toolchain_path: string | null;
   kernel: string | null;
   notes: string | null;
+  /**
+   * Can this definition host several instances at once? (v1.0 M2a-1.) False is
+   * the default and the honest one: a definition says so only if a person wrote
+   * it, and the two constructors the host builds itself never claim it.
+   */
+  supports_multiplexing: boolean;
   /** `"manual"` (hand-written) or `"discovered"` (a scan found it). */
   source: string;
   /** Could this definition run **right now**? */
