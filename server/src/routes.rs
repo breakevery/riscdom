@@ -1391,9 +1391,12 @@ pub(crate) fn dispatch(
             // from `run_agent_for`, in that order, because a run refused for its
             // parameter should say so rather than blame the environment.
             let sandbox = params.get("sandbox");
+            // The finer declaration (v1.0 M2a-3): which of this node's instances the
+            // run should act on. `None` runs on the node's own, exactly as before.
+            let instance = params.get("instance").map(InstanceId::new);
             let sink: Arc<dyn host_core::EventSink> =
                 Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
-            match app.run_agent_for(sink, user_input, sandbox) {
+            match app.run_agent_for(sink, user_input, sandbox, instance.as_ref()) {
                 Ok(view) => ok_json(&view),
                 Err(e) => run_error(e),
             }
@@ -1401,7 +1404,7 @@ pub(crate) fn dispatch(
         // Dispatch one task to the executor its `target` names (v0.9 interface
         // E0). Synchronous, exactly like `/v0/agent/run`: the answer is the
         // outcome, and there is no task table to poll (E0 decision 2). The body is
-        // a `Task`'s four scalar fields, so a missing `id` is filled here rather
+        // a `Task`'s five scalar fields, so a missing `id` is filled here rather
         // than refused — the id's job is to match the answer to the ask.
         Action::Tasks => {
             let target = match params.required("target") {
@@ -1413,8 +1416,12 @@ pub(crate) fn dispatch(
                 Err(response) => return *response,
             };
             let sandbox = params.get("sandbox");
+            // The finer declaration (v1.0 M2a-3): which of this node's instances the
+            // task wants. A stdio executor's instances belong to its own table, so
+            // the id travels with the task and is checked where it arrives.
+            let instance = params.get("instance");
             let id = params.get("id");
-            match app.dispatch_task(target, input, sandbox, id) {
+            match app.dispatch_task(target, input, sandbox, instance, id) {
                 Ok(outcome) => ok_json(&outcome),
                 Err(e) => task_error(e),
             }
@@ -1884,6 +1891,15 @@ fn run_error(error: HostError) -> Response<RespBody> {
         | HostError::SandboxStart(_) => sandbox_switch_error(error),
         HostError::SandboxConflict(_) => {
             error_response(409, "conflict", &error.user_message(), Some("sandbox"))
+        }
+        // A declared instance this node does not own is the caller's parameter, and
+        // an instance that contradicts the sandbox the task also named is a clash
+        // — the same two readings the sandbox declaration already gets (v1.0 M2a-3).
+        HostError::InstanceNotFound(_) => {
+            error_response(404, "not_found", &error.user_message(), Some("instance"))
+        }
+        HostError::InstanceConflict(_) => {
+            error_response(409, "conflict", &error.user_message(), Some("instance"))
         }
         // No usable model: the documented `503 unavailable`, and the cause names
         // what is missing (`llm`) rather than the mechanism.

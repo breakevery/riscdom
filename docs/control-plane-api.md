@@ -218,8 +218,8 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
-| `/v0/agent/run` | POST | `agent.run` | `{ "user_input": string, "sandbox"? }` | `AgentOutcomeView` | `run_agent` |
-| `/v0/tasks` | POST | `agent.run` | `{ "target": string, "input": string, "sandbox"?, "id"? }` | `TaskOutcome`, `404` on an unknown `target` | `dispatch_task` |
+| `/v0/agent/run` | POST | `agent.run` | `{ "user_input": string, "sandbox"?, "instance"? }` | `AgentOutcomeView` | `run_agent` |
+| `/v0/tasks` | POST | `agent.run` | `{ "target": string, "input": string, "sandbox"?, "instance"?, "id"? }` | `TaskOutcome`, `404` on an unknown `target` | `dispatch_task` |
 | `/v0/runs/export` | POST | `audit.export` | `{ "run_id", "path" }` | `{ "events_exported": number }` | `export_run_audit` |
 | `/v0/vm/stop` | POST | `vm.control` | — | `204 No Content` | `stop_current_vm` |
 | `/v0/snapshots/save` | POST | `snapshot.write` | `{ "name": string }` | `{ "bytes_written": number }` | `save_snapshot_real` |
@@ -388,7 +388,12 @@ the tables above. They are part of this document's surface all the same.
   takes an optional `sandbox` name, and it is a **declaration, not a switch**: the run
   uses that definition for the VM it starts (its toolchain, its QEMU, its memory) and
   the node's `current_sandbox` is left alone — moving the node is
-  `POST /v0/sandboxes/switch`, which needs `sandbox.switch`. Three answers, in this
+  `POST /v0/sandboxes/switch`, which needs `sandbox.switch`. A run may also name an
+  **instance** (v1.0 M2a-3) — the finer declaration, and the one that decides **which VM**
+  runs: an id this node does not own is `404` with `cause: "instance"`, and an instance
+  whose definition is not the sandbox the run also named is `409` with `cause: "instance"`
+  (a silent preference for one of the two is what the check exists to prevent). `Task.instance`
+  carries the same id for a dispatched task. Four answers, in this
   order, so the caller hears the most specific one: a name nobody has is `404` with
   `cause: "name"` (a typo must not become a run under some other sandbox); a name that
   is not what the running VM came from is `409` with `cause: "sandbox"` (a VM cannot be

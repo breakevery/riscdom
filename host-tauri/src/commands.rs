@@ -664,11 +664,13 @@ pub async fn run_agent(
     state: State<'_, Arc<AppState>>,
     user_input: String,
     sandbox: Option<String>,
+    instance: Option<String>,
 ) -> Result<AgentOutcomeView, String> {
     let emitter: Arc<dyn crate::events::EventSink> =
         Arc::new(TauriEventSink::new(app, state.agent_id()));
+    let instance = instance.map(host_core::InstanceId::new);
     state
-        .run_agent_for(emitter, &user_input, sandbox.as_deref())
+        .run_agent_for(emitter, &user_input, sandbox.as_deref(), instance.as_ref())
         .map_err(|e| e.user_message())
 }
 
@@ -768,9 +770,16 @@ pub async fn dispatch_task(
     target: String,
     input: String,
     sandbox: Option<String>,
+    instance: Option<String>,
     id: Option<String>,
 ) -> Result<host_core::TaskOutcome, String> {
     state
-        .dispatch_task(&target, &input, sandbox.as_deref(), id.as_deref())
+        .dispatch_task(
+            &target,
+            &input,
+            sandbox.as_deref(),
+            instance.as_deref(),
+            id.as_deref(),
+        )
         .map_err(|e| e.user_message())
 }

@@ -105,8 +105,8 @@ Tool names are unique across the whole set (checked).
 <!-- tool-routes:controls:begin -->
 | Tool | Method | Path | Capability | Arguments |
 |---|---|---|---|---|
-| `agent_run` | POST | `/v0/agent/run` | `agent.run` | `user_input` (str), `sandbox` (str) |
-| `tasks` | POST | `/v0/tasks` | `agent.run` | `target` (str), `input` (str), `sandbox` (str), `id` (str) |
+| `agent_run` | POST | `/v0/agent/run` | `agent.run` | `user_input` (str), `sandbox` (str), `instance` (str) |
+| `tasks` | POST | `/v0/tasks` | `agent.run` | `target` (str), `input` (str), `sandbox` (str), `instance` (str), `id` (str) |
 | `runs_export` | POST | `/v0/runs/export` | `audit.export` | `run_id` (str), `path` (str, workspace-relative truth) |
 | `runs_abandon_stale` | POST | `/v0/runs/abandon-stale` | `runs.control` | — |
 | `vm_start` | POST | `/v0/vm/start` | `vm.control` | — (reserved: answers `501`) |
@@ -219,8 +219,8 @@ say what the model may ask for.
 <!-- tool-defs:controls:begin -->
 ```json
 [
-{"type":"function","function":{"name":"agent_run","description":"Run one agent turn on this node and answer its outcome.","parameters":{"type":"object","properties":{"user_input":{"type":"string"},"sandbox":{"type":"string"}},"required":["user_input"]}}}
-{"type":"function","function":{"name":"tasks","description":"Dispatch one task to the executor its target names, and answer the TaskOutcome.","parameters":{"type":"object","properties":{"target":{"type":"string"},"input":{"type":"string"},"sandbox":{"type":"string"},"id":{"type":"string"}},"required":["target","input"]}}}
+{"type":"function","function":{"name":"agent_run","description":"Run one agent turn on this node and answer its outcome.","parameters":{"type":"object","properties":{"user_input":{"type":"string"},"sandbox":{"type":"string"},"instance":{"type":"string"}},"required":["user_input"]}}}
+{"type":"function","function":{"name":"tasks","description":"Dispatch one task to the executor its target names, and answer the TaskOutcome.","parameters":{"type":"object","properties":{"target":{"type":"string"},"input":{"type":"string"},"sandbox":{"type":"string"},"instance":{"type":"string"},"id":{"type":"string"}},"required":["target","input"]}}}
 {"type":"function","function":{"name":"runs_export","description":"Write one run's audit interval as JSONL into the workspace.","parameters":{"type":"object","properties":{"run_id":{"type":"string"},"path":{"type":"string"}},"required":["run_id","path"]}}}
 {"type":"function","function":{"name":"runs_abandon_stale","description":"Mark the runs a previous process left open as abandoned. Idempotent.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"vm_start","description":"Reserved: a standalone VM start. Answers 501 today.","parameters":{"type":"object","properties":{},"required":[]}}}

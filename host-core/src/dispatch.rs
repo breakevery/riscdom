@@ -65,6 +65,9 @@ impl AgentHandle for HostAgentHandle {
                 // A task that declares a sandbox runs under it (v0.9 sandbox F2d);
                 // one that does not gets the node's own, exactly as before.
                 task.sandbox.as_deref(),
+                // And a task that names an **instance** runs on it (v1.0 M2a-3),
+                // which is checked strictly inside `run_agent_for`.
+                task.instance.as_ref(),
             )
             .map_err(|error| DispatchError::Failed(error.to_string()))?;
         // The host instance is the executor here; the identity is the one every

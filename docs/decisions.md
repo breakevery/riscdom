@@ -1629,3 +1629,36 @@ cause "sandbox_start_failed"`, and an id that is not that definition's `404 caus
 The browser's `SandboxInstanceView` is checked field by field against the host's `InstanceView`
 by the node-panel probe, and `Task.instance` — the field that routes a run to one of these
 instances — arrives with M2a-3.
+
+## 74. An instance outranks a sandbox declaration, and the pair is checked
+
+**Date**: 2026-09-27 ｜ **Status**: Decided; landed with the v1.0 M2a-3 batch
+
+**Decision**: `Task` gains `instance: Option<InstanceId>` beside `sandbox: Option<String>` (both
+`#[serde(default)]`), and a run that names an instance runs on **that** instance's VM slot — the
+finer declaration decides. The pair is validated **strictly, before anything moves**: an id this
+node does not own is `InstanceNotFound` → `404 cause "instance"`, and an instance whose definition
+is not the sandbox the task also named is `InstanceConflict` → `409 cause "instance"`. The rule
+lives in `task_instance_conflict`, a pure function beside `task_sandbox_conflict` (F2d's), so it can
+be pinned without a live instance. `run_agent_for` takes the id as a fourth parameter and resolves it
+through `task_instance`; **`AgentLoop::with_vm` is unchanged** — it already took a slot.
+
+**Why**: the two declarations are not alternatives but two levels of one statement (*which
+definition*, and *which running thing made from it*), and a run that honoured one while ignoring the
+other would silently contradict what the caller asked for. A silent fallback is exactly what F2d
+refused for the sandbox name, so the instance gets the same treatment. The routing shape follows from
+the existing code instead of a new abstraction: `AgentHandle::run` already receives the whole `Task`,
+`HostAgentHandle` already holds the `Arc<AppState>` whose table can answer it, and the loop already
+accepts an `Arc<Mutex<Option<VM>>>` — so "which instance" is decided inside `run_agent_for` and
+nothing above it changes shape. The id is validated where the executor runs, never by the
+dispatcher: a stdio executor's instances belong to *its* table.
+
+**Impact**: `/v0/agent/run` and `/v0/tasks` accept `instance` (the Tauri `run_agent` command grew an
+optional argument; the front-end wrapper takes it and no call site changed); the id travels the
+stdio protocol unchanged, and a worker validates it against its own node. The agent's `start_vm` tool
+writes its `.mig` into the **instance's** directory (`ToolContext.snapshot_dir`, set by the host
+through `AgentLoop::set_snapshot_dir`), which closes the inconsistency M2a-1 recorded. `run.start`'s
+detail now carries `sandbox` and `instance` (`null` when a run had neither), written by a new
+`run_start_detail_with`; an older detail still parses, because `parse_run_start` reads each key with
+`get` — and **`detail` is part of each event's own hash**, so the two keys move *new* events' hashes
+and no old row's; the hash *formula* is what does not change.

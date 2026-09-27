@@ -200,6 +200,9 @@ fn run(args: &Args, task: Option<&Task>) -> TaskOutcome {
         // the line this process already reads, so nothing else about the protocol
         // changed.
         task.sandbox.as_deref(),
+        // And its instance (v1.0 M2a-3): the id names one of **this** process's
+        // instances, because the executor is the node the task was addressed to.
+        task.instance.as_ref(),
     ) {
         Ok(view) => host_core::dispatch::outcome_from_view(view),
         // A host-level refusal (not ready, no toolchain, no QEMU, …) is an

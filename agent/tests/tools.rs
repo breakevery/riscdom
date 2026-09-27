@@ -59,6 +59,7 @@ fn write_source_writes_file_and_audits_three_events() {
         qemu_exe: &None,
         requester: None,
         agent_id: TEST_AGENT_ID,
+        snapshot_dir: &policy.root,
         memory_mb: VM_MEMORY_MB,
     };
 
@@ -112,6 +113,7 @@ fn compile_fixture_succeeds() {
         qemu_exe: &None,
         requester: None,
         agent_id: TEST_AGENT_ID,
+        snapshot_dir: &policy.root,
         memory_mb: VM_MEMORY_MB,
     };
 
@@ -153,6 +155,7 @@ fn policy_denies_traversal_and_bad_extension() {
         qemu_exe: &None,
         requester: None,
         agent_id: TEST_AGENT_ID,
+        snapshot_dir: &policy.root,
         memory_mb: VM_MEMORY_MB,
     };
 

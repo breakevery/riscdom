@@ -1055,6 +1055,7 @@ impl AppState {
         target: &str,
         input: &str,
         sandbox: Option<&str>,
+        instance: Option<&str>,
         id: Option<&str>,
     ) -> Result<TaskOutcome, HostError> {
         let task = Task {
@@ -1062,6 +1063,10 @@ impl AppState {
             target: AgentId::new(target),
             input: input.to_string(),
             sandbox: sandbox.map(str::to_string),
+            // The finer declaration (v1.0 M2a-3): which of this node's instances the
+            // task wants, if any. Checked when the executor runs it, not here — a
+            // stdio executor's instances belong to *its* table, not ours.
+            instance: instance.map(InstanceId::new),
         };
         self.dispatch_task_value(task)
     }
@@ -1455,7 +1460,7 @@ impl AppState {
             .lock()
             .ok()
             .and_then(|producers| producers.get(name).cloned());
-        let run_id = self.begin_run(None, parent.as_deref(), Some(name));
+        let run_id = self.begin_run(None, parent.as_deref(), Some(name), None, None);
 
         let restored = (|| -> Result<(), HostError> {
             // The instance this restore acts on: the node's current one (M2a-1).
@@ -2702,6 +2707,35 @@ impl AppState {
             .lock()
             .ok()
             .and_then(|slot| slot.clone())
+    }
+
+    /// The instance a run acts on, or the refusal a declared one earns (v1.0 M2a-3).
+    ///
+    /// A declared instance is **strictly** checked: the node must own it, and a task
+    /// that also names a sandbox must name a pair that belongs together. A silent
+    /// fallback is what the check exists to prevent — the run would use one
+    /// declaration and ignore the other.
+    fn task_instance(
+        &self,
+        instance: &Option<&InstanceId>,
+        sandbox: Option<&str>,
+    ) -> Result<SandboxInstance, HostError> {
+        let Some(id) = instance else {
+            return Ok(self.current_instance());
+        };
+        let handle = self
+            .instance(id)
+            .ok_or_else(|| HostError::InstanceNotFound(format!("no instance {id} on this node")))?;
+        match task_instance_conflict(Some(&handle.definition), sandbox) {
+            // `Unknown` cannot happen for a handle just taken out of the table.
+            Some(InstanceRefusal::NotThatDefinition {
+                definition,
+                requested,
+            }) => Err(HostError::InstanceConflict(format!(
+                "instance {id} was made from {definition:?}, not {requested:?}"
+            ))),
+            _ => Ok(handle),
+        }
     }
 
     /// Which definition a run should use, in order of authority (F2d).
@@ -4495,14 +4529,21 @@ impl AppState {
         session_id: Option<&str>,
         parent_run_id: Option<&str>,
         resumed_from_snapshot: Option<&str>,
+        sandbox: Option<&str>,
+        instance: Option<&str>,
     ) -> Option<String> {
         let run_id = Self::new_run_id();
         let config = self.run_fingerprint();
-        let detail = audit::run_start_detail(
+        // The two declarations travel with the run's own record (v1.0 M2a-3): which
+        // sandbox it resolved to, and which instance it ran on — `null` for a run that
+        // had neither, which is the case for a restore.
+        let detail = audit::run_start_detail_with(
             &run_id,
             session_id,
             parent_run_id,
             resumed_from_snapshot,
+            sandbox,
+            instance,
             &config,
         );
         let stored = self.append_host_event(audit::ACTION_RUN_START, detail)?;
@@ -4713,7 +4754,7 @@ impl AppState {
         emitter: Arc<dyn EventSink>,
         user_input: &str,
     ) -> Result<AgentOutcomeView, HostError> {
-        self.run_agent_for(emitter, user_input, None)
+        self.run_agent_for(emitter, user_input, None, None)
     }
 
     /// Run one agent turn under a sandbox the caller declares (v0.9 sandbox F2d).
@@ -4737,12 +4778,13 @@ impl AppState {
         emitter: Arc<dyn EventSink>,
         user_input: &str,
         sandbox: Option<&str>,
+        instance: Option<&InstanceId>,
     ) -> Result<AgentOutcomeView, HostError> {
-        // The instance this run acts on: the node's current one (v1.0 M2a-1). A
-        // task that names another instance is M2a-3's, so today every run belongs
-        // to the node's own instance — which is why nothing above had to change
-        // its meaning.
-        let instance = self.current_instance();
+        // Which instance this run acts on (v1.0 M2a-3): the one the task named, or
+        // the node's current one. A declared instance is checked **before** anything
+        // moves — a parameter the node cannot honour is answered like a bad `sandbox`
+        // name is, rather than left to fail later in the environment.
+        let instance = self.task_instance(&instance, sandbox)?;
         // Which definition this run uses (F2d), and whether the node can honour the
         // declaration at all. Both are the **caller's** side of the question — a name
         // nobody has, or a clash with the running VM — so they are answered before
@@ -4843,6 +4885,10 @@ impl AppState {
                 agent.set_memory_mb(memory_mb);
             }
         }
+        // The VM this run starts writes its snapshots into the **instance's**
+        // directory (v1.0 M2a-3), which closes the gap M2a-1 recorded: the agent's
+        // `start_vm` tool used to compute a per-*agent* path of its own.
+        agent.set_snapshot_dir(instance.snapshot_dir.clone());
 
         // Sessions: restore prior turns, then persist whatever this turn adds.
         let session_id = self.ensure_session(user_input)?;
@@ -4855,7 +4901,13 @@ impl AppState {
         // Run provenance (v0.4 1c): one run = one `run_agent` call. The markers
         // are ordinary chained events; the id itself stays host-side and is never
         // handed to the agent or the sandbox.
-        let run_id = self.begin_run(Some(&session_id), None, None);
+        let run_id = self.begin_run(
+            Some(&session_id),
+            None,
+            None,
+            resolved_name.as_deref(),
+            Some(instance.id.as_str()),
+        );
 
         // Stream subscription: forwarded as `agent:stream:delta` / `:done`.
         if let Ok(mut slot) = self.stream_receiver.lock() {
@@ -5214,6 +5266,46 @@ fn task_sandbox_conflict(
     ))
 }
 
+/// Which refusal a task's declared instance earns (v1.0 M2a-3).
+///
+/// A pure function of what the node knows, so the rule can be pinned without a live
+/// instance — the shape [`task_sandbox_conflict`] already has.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum InstanceRefusal {
+    /// The node owns no instance with that id.
+    Unknown,
+    /// The instance exists, but not from the definition the task also named.
+    NotThatDefinition {
+        definition: String,
+        requested: String,
+    },
+}
+
+/// What a task's instance declaration means for a node whose table says
+/// `instance_definition` (v1.0 M2a-3).
+///
+/// `None` for the definition means the node owns no such instance; `None` for the
+/// requested sandbox means the task named none, and then there is nothing for the
+/// instance to contradict — it is the finer declaration.
+fn task_instance_conflict(
+    instance_definition: Option<&str>,
+    requested_sandbox: Option<&str>,
+) -> Option<InstanceRefusal> {
+    let Some(definition) = instance_definition else {
+        return Some(InstanceRefusal::Unknown);
+    };
+    // The instance is the finer declaration: with no sandbox named there is nothing
+    // for it to contradict.
+    let requested = requested_sandbox?;
+    if definition == requested {
+        return None;
+    }
+    Some(InstanceRefusal::NotThatDefinition {
+        definition: definition.to_string(),
+        requested: requested.to_string(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5305,6 +5397,35 @@ mod tests {
         assert!(
             unknown.contains("from a snapshot or an earlier run"),
             "{unknown}"
+        );
+    }
+
+    #[test]
+    fn an_instance_declaration_is_checked_strictly() {
+        // v1.0 M2a-3, as a rule: the node must own the instance, and a task that
+        // also names a sandbox must name a pair that belongs together.
+        assert!(task_instance_conflict(Some("blink"), Some("blink")).is_none());
+        // The instance is the finer declaration: with no sandbox named there is
+        // nothing for it to contradict.
+        assert!(task_instance_conflict(Some("blink"), None).is_none());
+
+        // An id this node does not own.
+        assert_eq!(
+            task_instance_conflict(None, None),
+            Some(InstanceRefusal::Unknown)
+        );
+        assert_eq!(
+            task_instance_conflict(None, Some("blink")),
+            Some(InstanceRefusal::Unknown)
+        );
+
+        // Owned, but made from another definition.
+        assert_eq!(
+            task_instance_conflict(Some("scratch"), Some("blink")),
+            Some(InstanceRefusal::NotThatDefinition {
+                definition: "scratch".to_string(),
+                requested: "blink".to_string(),
+            })
         );
     }
 

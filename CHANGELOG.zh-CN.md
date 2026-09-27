@@ -11,6 +11,14 @@
 
 ### 新增
 
+- **一次运行可以点名一个实例**（v1.0 M2a-3）：`Task` 新增 `instance`（`#[serde(default)]`，更老的任务行
+  仍可解析），`HostAgentHandle` 与 `worker` 把它传给 `run_agent_for`，由实例决定这次运行拿到哪个 VM 槽 ——
+  而 `AgentLoop::with_vm` 原样不动。被点名的实例严格校验：未知 id 是 `404 cause "instance"`，它的定义
+  与任务同时点名的 sandbox 矛盾是 `409`；`POST /v0/agent/run` 与 `POST /v0/tasks` 都接受该字段
+  （Tauri 命令多一个可选参数）。agent 的 `start_vm` 工具现在把快照写进**实例的**目录
+  （`ToolContext.snapshot_dir`、`AgentLoop::set_snapshot_dir`），而 `run.start` 的 detail 记录下这次运行
+  解析到的定义与它跑在哪个实例上。
+
 - **节点的沙箱实例有了五个端点**（v1.0 M2a-2）：`POST /v0/sandboxes/{name}/instances` 派生一个
   （`sandbox.instantiate`，`201`），同路径的 `GET` 列出该定义下的实例（`sandbox.read`），
   `DELETE /v0/sandboxes/{name}/instances/{id}` 回收一个（`204`），

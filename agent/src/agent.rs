@@ -58,6 +58,11 @@ pub struct AgentLoop {
     external_vm: Option<Arc<Mutex<Option<RiscVVirtualMachine>>>>,
     /// Host-injected QEMU executable (v0.3 5b-1b); `None` = discover it.
     qemu_exe: Option<std::path::PathBuf>,
+    /// Where a VM this loop starts writes its snapshots (v1.0 M2a-3). The host sets
+    /// it from the **instance** the run belongs to; `None` keeps the legacy
+    /// per-agent directory under the workspace, which is what every caller before
+    /// this batch got.
+    snapshot_dir: Option<std::path::PathBuf>,
     /// Guest memory in MiB for a VM this loop starts (v0.9 sandbox F2d): the host
     /// sets it from the sandbox the run resolved to, and `VM_MEMORY_MB` stays the
     /// default when nothing said otherwise.
@@ -142,6 +147,7 @@ impl AgentLoop {
             stream_observers: Arc::new(Mutex::new(Vec::new())),
             external_vm,
             qemu_exe: None,
+            snapshot_dir: None,
             memory_mb: crate::tools::VM_MEMORY_MB,
             sandbox_requester: None,
         })
@@ -177,6 +183,15 @@ impl AgentLoop {
     /// here; auto-discovery stays the default).
     pub fn set_qemu_path(&mut self, path: std::path::PathBuf) {
         self.qemu_exe = Some(path);
+    }
+
+    /// Replace the directory a VM this loop starts writes its snapshots into
+    /// (v1.0 M2a-3).
+    ///
+    /// The host injects the **instance's** directory, exactly as it injects the
+    /// compiler and the QEMU path; not calling this keeps the legacy per-agent path.
+    pub fn set_snapshot_dir(&mut self, path: std::path::PathBuf) {
+        self.snapshot_dir = Some(path);
     }
 
     /// Guest memory for the VM this loop starts (v0.9 sandbox F2d).
@@ -354,6 +369,17 @@ impl AgentLoop {
                 });
             }
 
+            // Where a VM this loop starts writes its snapshots (v1.0 M2a-3): the
+            // host's directory for this run, or the legacy per-agent one.
+            let snapshot_dir = match &self.snapshot_dir {
+                Some(dir) => dir.clone(),
+                None => self
+                    .policy
+                    .root
+                    .join(".riscdom")
+                    .join("snapshots")
+                    .join(&self.agent_id),
+            };
             for call in &tool_calls {
                 let text = if let Some(slot) = self.external_vm.clone() {
                     // Host-owned VM: operate directly on the shared slot.
@@ -368,6 +394,7 @@ impl AgentLoop {
                         serial_observers: Arc::clone(&self.serial_observers),
                         qemu_exe: &self.qemu_exe,
                         agent_id: &self.agent_id,
+                        snapshot_dir: &snapshot_dir,
                         requester: self.sandbox_requester.as_ref(),
                         memory_mb: self.memory_mb,
                     };
@@ -384,6 +411,7 @@ impl AgentLoop {
                         serial_observers: Arc::clone(&self.serial_observers),
                         qemu_exe: &self.qemu_exe,
                         agent_id: &self.agent_id,
+                        snapshot_dir: &snapshot_dir,
                         requester: self.sandbox_requester.as_ref(),
                         memory_mb: self.memory_mb,
                     };

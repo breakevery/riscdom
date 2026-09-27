@@ -55,7 +55,7 @@ fn a_node_with_no_fleet_refuses_every_target() {
     assert!(state.executors().is_empty(), "no executors configured");
 
     let error = state
-        .dispatch_task("executor-0", "say hi", None, None)
+        .dispatch_task("executor-0", "say hi", None, None, None)
         .expect_err("a node with no fleet owns nobody");
     match error {
         HostError::NoSuchExecutor(target) => assert_eq!(target, "executor-0"),
@@ -114,7 +114,7 @@ fn the_node_is_never_one_of_its_own_executors() {
         "the node registered itself: {own}"
     );
     let error = state
-        .dispatch_task(&own, "say hi", None, None)
+        .dispatch_task(&own, "say hi", None, None, None)
         .expect_err("the node is not its own executor");
     assert!(matches!(error, HostError::NoSuchExecutor(_)), "{error:?}");
 }
@@ -138,7 +138,7 @@ fn a_program_that_cannot_start_is_a_task_failure_not_a_missing_target() {
     let state = AppState::with_data_dir(&workspace, &data_dir).expect("state");
 
     let error = state
-        .dispatch_task("executor-0", "say hi", None, None)
+        .dispatch_task("executor-0", "say hi", None, None, None)
         .expect_err("nothing can start");
     match &error {
         // Not `NoSuchExecutor`: the endpoint answers `500 cause "task"` here, and
@@ -200,7 +200,7 @@ fn a_child_that_answers_reports_the_identity_it_announced() {
     let state = AppState::with_data_dir(&workspace, &data_dir).expect("state");
 
     let outcome = state
-        .dispatch_task("executor-0", "say hi", None, Some("task-1-1"))
+        .dispatch_task("executor-0", "say hi", None, None, Some("task-1-1"))
         .expect("the fake executor answers");
 
     // The id the caller sent comes back unchanged — that is what matches the two
@@ -239,7 +239,7 @@ fn a_task_without_an_id_gets_one_from_the_server() {
     // No id: the server mints one, and the executor echoes it back — so the two
     // ids agreeing is the proof that the minted one travelled the whole way.
     let outcome = state
-        .dispatch_task("executor-0", "say hi", None, None)
+        .dispatch_task("executor-0", "say hi", None, None, None)
         .expect("the fake executor answers");
     assert!(
         outcome.task_id.as_str().starts_with("task-"),

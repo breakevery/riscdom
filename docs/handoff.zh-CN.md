@@ -11,6 +11,23 @@
 
 ## 1. 快照 —— `v0.9.9` 已发布（正式发布时更新本节）
 
+- **一次运行可以点名一个实例，而链会记下它**（v1.0 M2a-3，2026-09-27 —— M2a 的最后一块）。`Task` 新增
+  `instance: Option<InstanceId>`（`#[serde(default)]`，与 `sandbox` 当初同形，所以更老的任务行仍可解析）；
+  `HostAgentHandle` 与 `worker` 把它传给 `run_agent_for`（它现在是第四个参数），而 loop 拿到的**仍然是
+  一个槽** —— `AgentLoop::with_vm` 一字未改。用哪个槽由 `task_instance` 决定：任务点名的那个实例，或节点
+  当前的实例。被点名的实例在动任何东西**之前**就被严格校验：本节点不拥有的 id 是
+  `404 cause "instance"`；而实例的定义、与任务同时点名的 sandbox 不一致是 `409 cause "instance"` ——
+  那条检查存在的意义就是不让两个声明中的一个被静默忽略（决策 §74）。两条 `Task` 路径都带它
+  （`/v0/agent/run` 与 `/v0/tasks`），Tauri 的 `run_agent` 命令多了一个可选参数（前端 wrapper 也接上；
+  **调用点一处未改**）—— 而 agent 的 `start_vm` 工具现在把 `.mig` 写进**实例的**目录，不再自算 per-*agent*
+  一个，M2a-1 记下的那个不一致就此闭环：`ToolContext` 新增 `snapshot_dir`、`AgentLoop` 新增
+  `set_snapshot_dir`、`run_agent_for` 按实例设它。`run.start` 的 detail 终于写明一次运行解析到了哪个
+  定义、跑在哪个实例上（`sandbox` / `instance`，此前都是 `null`）—— 新的 `run_start_detail_with` 负责写，
+  `run_start_detail` 保留为测试用的短形式，而更老的 detail 仍可解析（解码器用 `get` 取每个键）。
+  **对本批前提的一处更正**：`detail` **是**被每条事件自己的哈希覆盖的
+  （`sha256(prev_hash|ts|actor|action|detail_json)`），所以这两个键改变的是**新**事件的哈希、旧的任何一行都不动
+  —— 不动的是哈希**公式**。
+
 - **实例模型有了它的五个端点**（v1.0 M2a-2，2026-09-27）。`POST /v0/sandboxes/{name}/instances`
   派生一个实例（`sandbox.instantiate`），以 `201` 回它的 id；同路径的 `GET` 列出该定义下的实例
   （`sandbox.read`）；`DELETE /v0/sandboxes/{name}/instances/{id}` 回收一个并回 `204`；

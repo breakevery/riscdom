@@ -152,8 +152,13 @@ export const clearLlmConfig = () => invoke<void>("clear_llm_config");
 export const getLlmConfigStatus = () =>
   invoke<LlmStatus>("get_llm_config_status");
 
-export const runAgent = (userInput: string) =>
-  invoke<AgentOutcomeView>("run_agent", { userInput });
+export const runAgent = (
+  userInput: string,
+  /** The sandbox definition the run declares (v0.9 F2d); omitted = the node's own. */
+  sandbox?: string,
+  /** The instance the run acts on (v1.0 M2a-3); omitted = the node's current one. */
+  instance?: string,
+) => invoke<AgentOutcomeView>("run_agent", { userInput, sandbox, instance });
 
 export const getWorkspaceFiles = () => invoke<string[]>("get_workspace_files");
 

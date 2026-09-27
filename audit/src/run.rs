@@ -244,6 +244,13 @@ pub struct RunStartPayload {
     pub session_id: Option<String>,
     pub parent_run_id: Option<String>,
     pub resumed_from_snapshot: Option<String>,
+    /// The sandbox definition the run resolved to (v1.0 M2a-3).
+    ///
+    /// `None` on a `run.start` written before the key existed — the decoder reads
+    /// it with `get`, so an older detail keeps parsing.
+    pub sandbox: Option<String>,
+    /// The instance the run ran on (v1.0 M2a-3); `None` as above.
+    pub instance: Option<String>,
 }
 
 /// A decoded `run.end` payload.
@@ -281,6 +288,34 @@ pub fn run_start_detail(
     resumed_from_snapshot: Option<&str>,
     config: &serde_json::Value,
 ) -> serde_json::Value {
+    run_start_detail_with(
+        run_id,
+        session_id,
+        parent_run_id,
+        resumed_from_snapshot,
+        None,
+        None,
+        config,
+    )
+}
+
+/// Build the `detail` of a `run.start` event, with the run's two declarations
+/// (v1.0 M2a-3).
+///
+/// `sandbox` is the definition the run resolved to and `instance` the instance it
+/// ran on; both are `null` when it had neither. They are **detail**, so they are
+/// covered by that event's own hash like every other detail key: the hash *formula*
+/// is unchanged (`sha256(prev_hash|ts|actor|action|detail_json)`), and no earlier
+/// row moves — verification recomputes each row from its own stored `detail_json`.
+pub fn run_start_detail_with(
+    run_id: &str,
+    session_id: Option<&str>,
+    parent_run_id: Option<&str>,
+    resumed_from_snapshot: Option<&str>,
+    sandbox: Option<&str>,
+    instance: Option<&str>,
+    config: &serde_json::Value,
+) -> serde_json::Value {
     let canonical = canonical_json(config);
     serde_json::json!({
         "run_id": run_id,
@@ -290,6 +325,8 @@ pub fn run_start_detail(
         "session_id": session_id,
         "parent_run_id": parent_run_id,
         "resumed_from_snapshot": resumed_from_snapshot,
+        "sandbox": sandbox,
+        "instance": instance,
     })
 }
 
@@ -320,6 +357,8 @@ pub fn parse_run_start(detail: &serde_json::Value) -> Result<RunStartPayload, Au
         session_id: opt("session_id"),
         parent_run_id: opt("parent_run_id"),
         resumed_from_snapshot: opt("resumed_from_snapshot"),
+        sandbox: opt("sandbox"),
+        instance: opt("instance"),
     })
 }
 

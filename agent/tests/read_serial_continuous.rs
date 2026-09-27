@@ -35,6 +35,7 @@ fn a_guest_that_never_goes_quiet_returns_its_output() {
         qemu_exe: &None,
         requester: None,
         agent_id: "local-0-test",
+        snapshot_dir: &policy.root,
         memory_mb: VM_MEMORY_MB,
     };
 

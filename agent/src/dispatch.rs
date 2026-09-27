@@ -16,6 +16,7 @@
 
 use crate::agent::{AgentLoop, AgentOutcome};
 use crate::error::AgentError;
+use crate::identity::InstanceId;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -92,6 +93,18 @@ pub struct Task {
     /// an older build must not be told its task is malformed.
     #[serde(default)]
     pub sandbox: Option<String>,
+    /// The **instance** this task wants to run on (v1.0 M2a-3).
+    ///
+    /// The sibling of `sandbox`, one level finer: `sandbox` names a *definition*,
+    /// and `instance` names one running thing made from one. The instance decides
+    /// **which VM** runs, so it outranks the declaration — and a task that names
+    /// both must name a pair that belongs together: an instance this node owns,
+    /// whose definition is the sandbox it also declared.
+    ///
+    /// `#[serde(default)]` for the same reason `sandbox` has it: a task written
+    /// before this field existed is still a readable task, not a malformed one.
+    #[serde(default)]
+    pub instance: Option<InstanceId>,
 }
 
 impl Task {
@@ -102,12 +115,19 @@ impl Task {
             target,
             input: input.into(),
             sandbox: None,
+            instance: None,
         }
     }
 
     /// The same task, declaring the sandbox it wants to run under (F2d).
     pub fn with_sandbox(mut self, name: impl Into<String>) -> Self {
         self.sandbox = Some(name.into());
+        self
+    }
+
+    /// The same task, declaring the **instance** it wants to run on (v1.0 M2a-3).
+    pub fn with_instance(mut self, instance: InstanceId) -> Self {
+        self.instance = Some(instance);
         self
     }
 }
@@ -278,7 +298,35 @@ mod tests {
         );
         let parsed = serde_json::from_str::<Task>(&old).expect("an older task");
         assert_eq!(parsed.sandbox, None);
+        assert_eq!(parsed.instance, None, "an older task names no instance");
         assert_eq!(parsed.input, "hi");
+
+        // The instance declares a running thing, next to the definition the task
+        // already could name (v1.0 M2a-3). Same round trip, same empty default.
+        let on_instance = Task::new(AgentId::new("local-1-1"), "say hi")
+            .with_sandbox("blink")
+            .with_instance(InstanceId::new("local-1-1-7"));
+        assert_eq!(
+            on_instance.instance.as_ref().map(InstanceId::as_str),
+            Some("local-1-1-7")
+        );
+        let json = serde_json::to_string(&on_instance).expect("task json");
+        assert!(json.contains(r#""instance":"local-1-1-7""#), "{json}");
+        assert_eq!(
+            serde_json::from_str::<Task>(&json).expect("task"),
+            on_instance
+        );
+        // A line that names only an instance is readable too: the two fields are
+        // independent declarations, not a pair the parser demands.
+        let only_instance = serde_json::from_str::<Task>(
+            r#"{"id":"task-1-1","target":"local-1-1","input":"hi","instance":"local-1-1-7"}"#,
+        )
+        .expect("an instance-only task");
+        assert_eq!(only_instance.sandbox, None);
+        assert_eq!(
+            only_instance.instance.as_ref().map(InstanceId::as_str),
+            Some("local-1-1-7")
+        );
 
         for outcome in [
             AgentOutcome::Final {

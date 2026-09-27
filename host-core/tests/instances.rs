@@ -16,9 +16,13 @@
 //! `tests/sandbox_switch.rs`'s for the switch, and is deliberately not pretended at
 //! for spawn.
 
+use agent::llm::MockLlm;
+use agent::message::{ChatMessage, ChatResponse, Choice};
 use agent::InstanceId;
+use host_core::events::RecordingEventSink;
 use host_core::state::AppState;
-use std::path::PathBuf;
+use host_core::{EventSink, HostError};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 fn unique_dir(tag: &str) -> PathBuf {
@@ -39,6 +43,57 @@ fn state(tag: &str) -> AppState {
     let workspace = unique_dir(&format!("{tag}-ws"));
     let data_dir = unique_dir(&format!("{tag}-data"));
     AppState::with_data_dir(&workspace, &data_dir).expect("state")
+}
+
+/// A runnable binary that is not the tool it pretends to be, so a definition
+/// passes the host's checks and fails later.
+fn stand_in(dir: &Path, name: &str) -> PathBuf {
+    let path = dir.join(name);
+    #[cfg(target_os = "windows")]
+    {
+        std::fs::copy(r"C:\Windows\System32\cmd.exe", &path).expect("copy cmd.exe");
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::fs::copy("/bin/echo", &path).expect("copy echo");
+    }
+    path
+}
+
+/// An LLM that answers once with a final message, so a run can be driven
+/// hermetically (the same shape `task_sandbox.rs` uses).
+fn scripted_llm(text: &str) -> Box<dyn agent::LlmClient> {
+    Box::new(MockLlm::new(vec![ChatResponse {
+        id: Some("resp-final".into()),
+        model: Some("mock".into()),
+        choices: vec![Choice {
+            index: Some(0),
+            message: ChatMessage::text("assistant", text),
+            finish_reason: Some("stop".into()),
+        }],
+        usage: None,
+    }]))
+}
+
+/// Seed `<data_dir>/settings.json` with one definition the host's checks accept
+/// without a real QEMU or GCC: a runnable stand-in and a file.
+fn seed_runnable_definition(data_dir: &Path, name: &str) {
+    let compiler = data_dir.join("stand-in-gcc");
+    std::fs::write(&compiler, b"not really a compiler").expect("compiler");
+    std::fs::write(
+        data_dir.join("settings.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "version": 1,
+            "sandboxes": [{
+                "name": name,
+                "qemu_exe": stand_in(data_dir, "stand-in-qemu").display().to_string(),
+                "toolchain_path": compiler.display().to_string(),
+            }],
+            "default_sandbox": name,
+        }))
+        .expect("json"),
+    )
+    .expect("settings");
 }
 
 #[test]
@@ -203,11 +258,7 @@ fn a_derive_that_cannot_start_leaves_no_trace() {
     std::fs::write(workspace.join("hello.elf"), b"not really an ELF").expect("kernel");
     let data_dir = unique_dir("derive-fail-data");
 
-    let stand_in = data_dir.join("stand-in-qemu");
-    #[cfg(target_os = "windows")]
-    std::fs::copy(r"C:\Windows\System32\cmd.exe", &stand_in).expect("copy cmd.exe");
-    #[cfg(not(target_os = "windows"))]
-    std::fs::copy("/bin/echo", &stand_in).expect("copy echo");
+    let qemu = stand_in(&data_dir, "stand-in-qemu");
     let compiler = data_dir.join("stand-in-gcc");
     std::fs::write(&compiler, b"not really a compiler").expect("compiler");
     std::fs::write(
@@ -216,7 +267,7 @@ fn a_derive_that_cannot_start_leaves_no_trace() {
             "version": 1,
             "sandboxes": [{
                 "name": "blink",
-                "qemu_exe": stand_in.display().to_string(),
+                "qemu_exe": qemu.display().to_string(),
                 "toolchain_path": compiler.display().to_string(),
             }],
         }))
@@ -230,4 +281,114 @@ fn a_derive_that_cannot_start_leaves_no_trace() {
     assert!(refused.is_err(), "a stand-in is not a QEMU: {refused:?}");
     assert_eq!(app.instance_ids(), before, "the table is where it was");
     assert!(!app.vm_is_running(), "nothing is running");
+}
+
+#[test]
+fn a_run_that_names_an_instance_is_checked_before_the_environment() {
+    // v1.0 M2a-3: the instance check is the first thing a run does, so both
+    // refusals hold without a model, a QEMU or a GCC.
+    let workspace = unique_dir("run-check-ws");
+    let data_dir = unique_dir("run-check-data");
+    seed_runnable_definition(&data_dir, "blink");
+    let app = AppState::with_data_dir(&workspace, &data_dir).expect("state");
+    let sink = || Arc::new(RecordingEventSink::new()) as Arc<dyn EventSink>;
+
+    // An id this node does not own: the caller's parameter.
+    let unknown = InstanceId::new("local-0-999999");
+    let err = app
+        .run_agent_for(sink(), "hi", None, Some(&unknown))
+        .expect_err("no such instance");
+    assert!(matches!(err, HostError::InstanceNotFound(_)), "{err:?}");
+
+    // An instance that exists, declared next to a different definition: a clash,
+    // not a silent preference for one of the two.
+    let scratch = app.register_instance("scratch");
+    let err = app
+        .run_agent_for(sink(), "hi", Some("blink"), Some(&scratch.id))
+        .expect_err("not that definition");
+    assert!(matches!(err, HostError::InstanceConflict(_)), "{err:?}");
+
+    // A pair that belongs together gets past the check to the environment, which
+    // has no model configured here — the refusal after it is the environment's.
+    let blink = app.register_instance("blink");
+    let err = app
+        .run_agent_for(sink(), "hi", Some("blink"), Some(&blink.id))
+        .expect_err("no model is configured");
+    assert!(matches!(err, HostError::NotConfigured(_)), "{err:?}");
+}
+
+#[test]
+fn the_run_start_event_records_the_definition_and_the_instance() {
+    // A run that gets all the way through: a definition whose QEMU and compiler are
+    // pinned files (the host's checks only ask whether they are there) and a model
+    // that answers in one turn — so no guest is started and nothing leaves the
+    // machine.
+    let workspace = unique_dir("run-record-ws");
+    let data_dir = unique_dir("run-record-data");
+    seed_runnable_definition(&data_dir, "blink");
+    let app = AppState::with_data_dir(&workspace, &data_dir).expect("state");
+    *app.llm_override.lock().unwrap() = Some(Arc::from(scripted_llm("done")));
+
+    let instance = app.register_instance("blink");
+    let view = app
+        .run_agent_for(
+            Arc::new(RecordingEventSink::new()) as Arc<dyn EventSink>,
+            "hi",
+            Some("blink"),
+            Some(&instance.id),
+        )
+        .expect("a run with a stand-in toolchain and a scripted model");
+    assert_eq!(view.kind, "final", "run failed: {:?}", view.reason);
+
+    // What each `run.start` records: the definition it resolved to and the instance
+    // it ran on (v1.0 M2a-3) — the link the chain could not make before.
+    let run_starts = |app: &AppState| -> Vec<(String, String)> {
+        app.list_events(200, None, None)
+            .expect("events")
+            .into_iter()
+            .filter(|event| event.action == "run.start")
+            .map(|event| {
+                (
+                    event.detail["sandbox"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
+                    event.detail["instance"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
+                )
+            })
+            .collect()
+    };
+    let after_first = run_starts(&app);
+    assert_eq!(after_first.len(), 1, "one run so far");
+    assert_eq!(after_first[0].0, "blink", "the definition it resolved to");
+    assert_eq!(
+        after_first[0].1,
+        instance.id.as_str(),
+        "the instance it ran on"
+    );
+
+    // A plain run records the node's **current** instance, so the chain answers
+    // "which instance ran" even when nobody declared one. It needs its own scripted
+    // model: a `MockLlm` hands out its responses in order, one turn each.
+    *app.llm_override.lock().unwrap() = Some(Arc::from(scripted_llm("done")));
+    let plain = app
+        .run_agent_for(
+            Arc::new(RecordingEventSink::new()) as Arc<dyn EventSink>,
+            "hi",
+            None,
+            None,
+        )
+        .expect("a plain run");
+    assert_eq!(plain.kind, "final", "run failed: {:?}", plain.reason);
+    let after_second = run_starts(&app);
+    assert_eq!(after_second.len(), 2, "two runs");
+    assert!(
+        after_second
+            .iter()
+            .any(|(_, recorded)| recorded == app.current_instance_id().as_str()),
+        "the chain names the node's own instance: {after_second:?}"
+    );
 }

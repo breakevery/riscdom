@@ -42,6 +42,7 @@ fn a_zig_source_boots_and_prints() {
         qemu_exe: &None,
         requester: None,
         agent_id: "local-0-test",
+        snapshot_dir: &policy.root,
         memory_mb: VM_MEMORY_MB,
     };
 

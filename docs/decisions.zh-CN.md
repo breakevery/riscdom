@@ -775,3 +775,13 @@
 **理由**：派生出实例不是收养一个实例（决策 §72），所以创建端点既不占用切换「一次一个」的槽，也不受飞行中 run 的检查 —— 第二台客机不是一次接管 —— 而它的回答也如实如此：`201` 带新 id，而节点的 `current_sandbox` 原地不动。保留名表**不加长**：`instances` 与 `capabilities` 是第二段，所以定义叫这两个名字不会遮住任何东西；而 `requests` 是真正的第一段路由，仍然保留。一个 `Option` 参数装不下成员路径的两半，而把两半拼成一个字符串，等于让处理器重新解析路由已经知道的东西。
 
 **影响**：`docs/control-plane-api.md` §5.1 为 **33**；工具 schema 的表多了五行、定义多了五条，于是 `patterns.len()` 的硬断言从 4 改为 **8**，`scripts/check-tool-schema.mjs` 的 `NAMED_PATTERN_ROUTES` 映射也要跟着改（那个检查器按机械规则推导名字，所以一个动词式的路径参数名要么在映射里，要么就是失败）。五个工具名是 `instance_list`、`instance_create`、`instance_delete`、`sandbox_capabilities` 与 `capabilities`。失败映射：不存在的定义 `404 cause "name"`；不能跑的定义 `503`（与切换对同一条件给的一致）；启动失败 `500 cause "sandbox_start_failed"`；不属于该定义的 id 是 `404 cause "instance"`。浏览器侧的 `SandboxInstanceView` 由 node-panel 探针逐字段核对宿主的 `InstanceView`；而把这些实例派给某个 run 的 `Task.instance` 随 M2a-3 到来。
+
+## 74. 实例压过 sandbox 声明，而这一对要被校验
+
+**日期**：2026-09-27 ｜ **状态**：已定；随 v1.0 M2a-3 批落地
+
+**决策**：`Task` 在 `sandbox: Option<String>` 旁新增 `instance: Option<InstanceId>`（两个都带 `#[serde(default)]`），而点名了实例的运行就跑在**那个**实例的 VM 槽上 —— 更细一层的声明说了算。这一对**在动任何东西之前严格校验**：本节点不拥有的 id → `InstanceNotFound` → `404 cause "instance"`；而实例的定义不是任务同时点名的那个 sandbox → `InstanceConflict` → `409 cause "instance"`。规则住在 `task_instance_conflict` —— 与 F2d 的 `task_sandbox_conflict` 并排的纯函数 —— 所以不需要活实例就能钉住。`run_agent_for` 把 id 作为第四个参数，并由 `task_instance` 解析它；**`AgentLoop::with_vm` 一字未改** —— 它本来就收一个槽。
+
+**理由**：两个声明不是二选一，而是同一句话的两层（*哪个定义*，以及*由它造出的哪个正在跑的东西*）；一个只认一个、静默丢掉另一个的运行，就是在无声地违背调用方要的东西。静默回退正是 F2d 对 sandbox 名字拒绝过的东西，所以实例拿到同一种待遇。路由形状是从现有代码长出来的，不是新抽象：`AgentHandle::run` 本来就收到整个 `Task`，`HostAgentHandle` 本来就持着能回答的 `Arc<AppState>`（它的表），而 loop 本来就收 `Arc<Mutex<Option<VM>>>` —— 于是「哪个实例」在 `run_agent_for` 里定下，它上面的东西形状不变。id 在**执行者跑的地方**被校验，绝不由调度器校验：stdio 执行者的实例属于**它自己**的表。
+
+**影响**：`/v0/agent/run` 与 `/v0/tasks` 接受 `instance`（Tauri 的 `run_agent` 命令多了一个可选参数；前端 wrapper 也接上，而调用点一处未改）；id 原样走 stdio 协议，worker 拿它对自己的节点校验。agent 的 `start_vm` 工具把 `.mig` 写进**实例的**目录（`ToolContext.snapshot_dir`，由宿主经 `AgentLoop::set_snapshot_dir` 设），M2a-1 记下的那处不一致就此闭环。`run.start` 的 detail 现在带 `sandbox` 与 `instance`（一次运行两者都没有时为 `null`），由新的 `run_start_detail_with` 写入；更老的 detail 仍可解析，因为 `parse_run_start` 用 `get` 取每个键 —— 而 **`detail` 属于每条事件自己的哈希**，所以这两个键动的是**新**事件的哈希、旧的任何一行都不动；不动的是哈希**公式**。

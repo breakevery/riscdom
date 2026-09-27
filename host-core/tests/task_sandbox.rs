@@ -192,7 +192,7 @@ fn a_declared_sandbox_reaches_the_loop_and_its_broken_definition_refuses_the_run
     let sink = Arc::new(RecordingEventSink::new());
 
     let err = state
-        .run_agent_for(sink as Arc<dyn EventSink>, "hello", Some("broken"))
+        .run_agent_for(sink as Arc<dyn EventSink>, "hello", Some("broken"), None)
         .expect_err("the definition cannot run");
     assert!(matches!(err, HostError::SandboxQemuMissing(_)), "{err}");
     assert!(err.to_string().starts_with("sandbox_qemu_missing"), "{err}");
@@ -240,6 +240,7 @@ fn a_declared_sandbox_does_not_move_the_node() {
         Arc::new(RecordingEventSink::new()) as Arc<dyn EventSink>,
         "hello",
         Some("blink"),
+        None,
     );
     assert_eq!(
         state.current_sandbox(),

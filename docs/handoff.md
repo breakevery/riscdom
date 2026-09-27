@@ -13,6 +13,27 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **A run can name an instance, and the chain records it** (v1.0 M2a-3, 2026-09-27 — M2a's last piece).
+  `Task` gains `instance: Option<InstanceId>` (`#[serde(default)]`, the shape `sandbox` already had, so
+  an older task line still parses); `HostAgentHandle` and the `worker` pass it to `run_agent_for`,
+  whose fourth parameter it is, and the loop still gets *a slot* — `AgentLoop::with_vm` did not
+  change. Which slot is now decided by `task_instance`: the instance the task named, or the node's
+  current one. A declared instance is checked **strictly** before anything moves: an id this node
+  does not own is `404 cause "instance"`, and an instance whose definition is not the sandbox the
+  task also named is `409 cause "instance"` — a silent preference for one of the two declarations is
+  what the check exists to prevent (decision §74). Both `Task` paths carry it (`/v0/agent/run` and
+  `/v0/tasks`), the Tauri `run_agent` command grew an optional argument (the front-end wrapper takes
+  it too; no call site changed) — and the agent's `start_vm` tool now writes its `.mig` into the
+  **instance's** directory instead of computing a per-*agent* one, which closes the gap M2a-1
+  recorded: `ToolContext` gained `snapshot_dir`, `AgentLoop` gained `set_snapshot_dir`, and
+  `run_agent_for` sets it from the instance. `run.start`'s detail finally says which definition a run
+  resolved to and which instance it ran on (`sandbox` / `instance`, both `null` before) — a new
+  `run_start_detail_with` writes them, `run_start_detail` stays the short form the tests use, and an
+  older detail still parses because the decoder reads each key with `get`. **One correction to the
+  batch's own premise**: `detail` *is* covered by each event's hash
+  (`sha256(prev_hash|ts|actor|action|detail_json)`), so the two keys change *new* events' hashes and
+  no old row's — the hash **formula** is what does not move.
+
 - **The instance model has its five endpoints** (v1.0 M2a-2, 2026-09-27). `POST
   /v0/sandboxes/{name}/instances` derives an instance (`sandbox.instantiate`) and answers `201`
   with its id; `GET` on the same path lists the instances of that definition (`sandbox.read`);

@@ -84,6 +84,7 @@ fn run(
         qemu_exe: &None,
         requester: requester.as_ref(),
         agent_id: "local-0-test",
+        snapshot_dir: &policy.root,
         memory_mb: VM_MEMORY_MB,
     };
     execute_tool(tool, args, &mut ctx).map_err(|e| e.to_string())

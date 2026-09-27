@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A run can name an instance** (v1.0 M2a-3): `Task` gains `instance` (`#[serde(default)]`, so an
+  older task line still parses), `HostAgentHandle` and the `worker` pass it to `run_agent_for`, and
+  the instance decides which VM slot the run gets — while `AgentLoop::with_vm` stays as it was. A
+  declared instance is checked strictly: an unknown id is `404 cause "instance"`, one whose
+  definition contradicts the sandbox the task also named is `409`, and both `POST /v0/agent/run` and
+  `POST /v0/tasks` take the field (the Tauri command grew an optional argument). The agent's
+  `start_vm` tool now writes snapshots into the **instance's** directory (`ToolContext.snapshot_dir`,
+  `AgentLoop::set_snapshot_dir`), and `run.start`'s detail records the definition a run resolved to
+  and the instance it ran on.
+
 - **A node's sandbox instances have five endpoints** (v1.0 M2a-2): `POST
   /v0/sandboxes/{name}/instances` derives one (`sandbox.instantiate`, `201`), `GET` on the same
   path lists the instances of that definition (`sandbox.read`), `DELETE

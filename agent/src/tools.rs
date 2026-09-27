@@ -117,8 +117,15 @@ pub struct ToolContext<'a> {
     /// from the sandbox the run resolved to; it defaults to [`VM_MEMORY_MB`].
     pub memory_mb: u32,
     /// The agent this tool call belongs to (v0.8 batch B): stamped onto the
-    /// events the tools write, and used to keep this agent's snapshots apart.
+    /// events the tools write.
     pub agent_id: &'a str,
+    /// Where a VM this tool starts writes its snapshots (v1.0 M2a-3).
+    ///
+    /// The host sets it from the **instance** the run belongs to. Before this the
+    /// tool computed `<workspace>/.riscdom/snapshots/<agent_id>` itself — one
+    /// directory per *agent*, which is one directory for every instance a node
+    /// runs (M2a-1 named that inconsistency).
+    pub snapshot_dir: &'a std::path::Path,
     /// The host's sandbox request surface (v0.9 sandbox F2c). `None` when the
     /// host injects none — then the two sandbox tools say so instead of
     /// pretending the ask went somewhere.
@@ -408,14 +415,11 @@ fn tool_start_vm(args: &serde_json::Value, ctx: &mut ToolContext) -> Result<Stri
     for attempt in 1..=START_ATTEMPTS {
         let (mut qmp_lease, mut serial_lease) = two_free_ports()?;
         let (qmp_port, serial_port) = (qmp_lease.port(), serial_lease.port());
-        // Snapshots live under this agent's own subdirectory (v0.8 batch B), so
-        // two agents sharing a workspace cannot overwrite each other's names.
-        let snapshot_dir = ctx
-            .policy
-            .root
-            .join(".riscdom")
-            .join("snapshots")
-            .join(ctx.agent_id);
+        // Snapshots land where the **host** says (v1.0 M2a-3): the directory belongs
+        // to the instance this run is on, and one instance's names must not collide
+        // with another's. Before this the tool computed a per-*agent* path here — the
+        // same directory for every instance a node runs.
+        let snapshot_dir = ctx.snapshot_dir.to_path_buf();
         let config = VMConfig {
             kernel: elf.clone(),
             memory_mb: ctx.memory_mb,

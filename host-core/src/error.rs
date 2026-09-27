@@ -73,6 +73,22 @@ pub enum HostError {
     #[error("sandbox_conflict: {0}")]
     SandboxConflict(String),
 
+    /// A task named an instance this node does not own (v1.0 M2a-3).
+    ///
+    /// The caller's *parameter* is unusable, so the endpoint answers `404` with
+    /// `cause: "instance"` — the same reading an unknown sandbox name gets.
+    #[error("instance_not_found: {0}")]
+    InstanceNotFound(String),
+
+    /// A task named an instance and a sandbox that do not belong together
+    /// (v1.0 M2a-3).
+    ///
+    /// An instance outranks a declaration, but it does not get to contradict it: a
+    /// task that names both must name a pair that belongs together, or the run
+    /// would silently use one and ignore the other.
+    #[error("instance_conflict: {0}")]
+    InstanceConflict(String),
+
     /// An archive an import cannot accept (v0.9 project in/out).
     ///
     /// One variant for every way an archive can be unusable or hostile —

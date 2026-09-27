@@ -49,6 +49,7 @@ fn an_empty_buffer_returns_a_notice_not_an_empty_string() {
         qemu_exe: &None,
         requester: None,
         agent_id: "local-0-test",
+        snapshot_dir: &policy.root,
         memory_mb: VM_MEMORY_MB,
     };
 
