@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The connection layer's first code: a `net` crate and the node's identity on disk** (v1.0 M4a):
+  `net/` implements [`docs/connection.md`](docs/connection.md) §2 — `node.key` as one JWK whose first
+  member is `schema_version` (`OKP`/`Ed25519`, 32-byte `x`/`d` base64url), minted on the first start
+  with networking configured, written owner-only with `create_new`, and never minted by a read — plus a
+  reusable versioned-JSON loader (`Missing` / `Current` / `Migrated` / `TooNew`, the last **refused**
+  rather than half-read) that `peers.json` and `rooms.json` will use. The crate depends on `audit` (the
+  chain's canonical JSON and fingerprint), never on `host-core`. New dependencies: `ed25519-dalek` 2,
+  `base64` 0.22, `getrandom` 0.4.
+
 - **The cross-region server is frozen** (v1.0 M4d): [`docs/connection.md`](docs/connection.md) §6 — a
   **dedicated deployment of the same software, run by a deployer** (never by the project), with four roles
   whose knowledge is bounded: signalling (addresses, never payloads), relay (carrying a frame it cannot

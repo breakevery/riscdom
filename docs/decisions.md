@@ -2292,3 +2292,44 @@ a settings field.
 follow. **No source file, no dependency, no capability name, no audit event constant, no hash formula and
 no new persisted format changed** — M4d is a deployment shape, four roles and one routing rule, and the
 digests it will collect are still M4e's to write.
+
+## 93. The connection layer's code starts as a crate that depends on the chain, not the other way round
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; the first piece is implemented (identity on disk)
+
+**Decision**: The connection layer is implemented in a **new crate, `net/`**, and its first piece —
+[connection.md](connection.md) §2, the node's identity — is on disk. `net` depends on **`audit`** and
+on nothing else in this workspace; `host-core` is what will depend on `net`. What landed: a
+versioned-JSON loader (a `Versioned` trait, `VersionedLoad`'s four outcomes, and `TooNew` refused
+rather than half-read) and `NodeKey` — the JWK file (`schema_version` first, `kty`/`crv`, 32-byte
+`x`/`d` as base64url), minted from `getrandom` on the first start with networking configured, written
+owner-only with `create_new`, and **never minted by a read**. New dependencies: **`ed25519-dalek` 2**,
+**`base64` 0.22**, **`getrandom` 0.4** (already in the workspace, used by the bearer token).
+[`audit::canonical_json`](https://github.com/breakevery/riscdom/blob/main/audit/src/run.rs) and
+`audit::fingerprint` are **borrowed**, not re-implemented, for the public-key fingerprint.
+
+**Why**: Three choices were live ones. **The crate depends on `audit`, not on `host-core`**: the
+canonical bytes a signature covers are the chain's own definition, so `net` must sit *below* the host
+— and a dependency on `host-core` would close a cycle the moment the host wants to load a `node.key`
+at startup. **The version rule is implemented once, generically**: §2 requires `schema_version` first
+for `node.key`, and §5.1 requires the same for `peers.json` and `rooms.json`; one loader means one
+reading of *those* rules, and its `Missing`/`Current`/`Migrated`/`TooNew` shape is `LocalSettings`'s,
+which the project has already exercised with a real migration. **A read never mints, and a mint is
+owner-only and `create_new`**: the second half stops two processes racing to mint a key and one of
+them winning silently, and the first is the rule §2 states — a node with no networking configured
+gets no key at all, so nothing is created on a machine that never joins a network. Two smaller things
+are worth recording because they are readings rather than restatements. **The file has no `node_id`**:
+§2 separates the key pair from the *device name*, and the file holds key material — a `node_id` member
+would have been a sixth JWK member §2 does not freeze. **The halves are checked against each other at
+load**: `x` is re-derived from `d` and compared, so a spliced or hand-edited key file is refused when
+it is **read**, rather than the first time something signs with it.
+
+**Impact**: `net/` is a new crate (`Cargo.toml`; `src/{lib,versioned,identity}.rs`; an `identity`
+example with `--self-test`; integration tests; a bilingual README); the workspace's `members` list
+gains it; and the gate gains one step (`cargo run -p net --example identity -- --self-test`) beside
+the existing example proof, with `net` also joining the `cargo clippy` list it would otherwise have
+silently escaped. `docs/README.md`'s crate table gains a row. **No existing source file's logic
+changed, and no hash formula, route, capability name or audit event constant was touched**: `net`
+reads the chain's canonical JSON and hashes it, and writes its own file. Signing, the transport,
+discovery, rooms and the cross-region server are the next pieces, each after the section it
+implements is frozen.

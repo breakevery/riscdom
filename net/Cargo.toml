@@ -1,0 +1,19 @@
+[package]
+name = "net"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# The chain's canonical JSON and its hashing — one description of "what is signed"
+# and "what a fingerprint is", shared rather than re-implemented (connection.md §3).
+audit = { path = "../audit" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Ed25519 in pure Rust: the JWK's `x`/`d` are raw 32-byte keys, which this exposes
+# directly (connection.md §2).
+ed25519-dalek = "2"
+# base64url for the JWK members (RFC 8037).
+base64 = "0.22"
+# The OS random source, for minting a key. The same call `server` already uses for
+# its bearer token, so the two mints cannot drift (server/src/token.rs).
+getrandom = "0.4"

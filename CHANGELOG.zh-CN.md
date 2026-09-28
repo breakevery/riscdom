@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **连接层的第一批代码：一个 `net` crate 与落盘的节点身份**（v1.0 M4a）：`net/` 实现 [`docs/connection.md`](docs/connection.md) §2 —— `node.key` 是一个首成员为 `schema_version` 的 JWK（`OKP`/`Ed25519`，`x`/`d` 是 32 字节 base64url），在**首次配置了联网的启动**时铸出，以 `create_new` + 仅属主写下，且**读绝不生成** —— 外加一个可复用的版本化 JSON 加载器（`Missing` / `Current` / `Migrated` / `TooNew`，最后一个被**拒绝**而非半读），`peers.json` 与 `rooms.json` 将来会用它。该 crate 依赖 `audit`（链的规范 JSON 与指纹），从不依赖 `host-core`。新依赖：`ed25519-dalek` 2、`base64` 0.22、`getrandom` 0.4。
+
 - **跨区域服务器已冻结**（v1.0 M4d）：[`docs/connection.md`](docs/connection.md) §6 —— 一个**同一套软件的专用部署、由部署者运行**（从不由项目运行），四个角色的可知范围都有边界：signalling（地址，从不是负载）、relay（搬一帧它无法改动的帧）、management（**来源、不是权威**）、audit aggregation（只定形状；digest 属 M4e）。路由只按签名内的 `to`，授权是 §3 模型 —— **没有新凭证、没有新 capability** —— 而服务器从不拨向节点，所以不需打洞。§6.5 明确回答了 roadmap §1 的红线：**这不会被读成项目在运营一项服务**。
 
 - **房间已冻结**（v1.0 M4c）：[`docs/connection.md`](docs/connection.md) §5 —— `rooms.json` 是一个 `schema_version` 排第一的文件，装着若干房间，其成员是 **`node_id`**、其规则是 [roadmap §4](docs/roadmap-v1.0.md) 点名的三条：`rate`（`{messages, window_seconds}`、**按成员**）、`mention`（`"members"` / `"nobody"`，默认 **`"nobody"`**）与 `require_signature`（只有 `true` 合法，因为 §3 已让签名在对等路径上普遍成立）。`rooms.json` 与 `peers.json` 是两个文件、两位作者，成员关系从不引入密钥，v1.0 没有加入协议，而发现过滤器那句「被配置为某个房间」现在指：文件点名了那个房间**且**列出了本节点。`docs/decisions.md` §91 记下它。

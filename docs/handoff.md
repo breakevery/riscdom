@@ -35,6 +35,12 @@ current request authorising it (§2).
   `rate` (per member), `mention` (default `"nobody"`) and `require_signature` (only `true`, because §3
   already floors it). Membership is configuration — v1.0 has no join protocol — and the discovery filter
   reads a room the file names **and** lists this node in. **Decision §91.**
+- **The connection layer's implementation has started** (v1.0 M4a-impl-1, 2026-09-28): a new **`net/`**
+  crate, depending on `audit` (never on `host-core`), with [`docs/connection.md`](connection.md) §2 on
+  disk — `node.key` as one JWK (`schema_version` first, `OKP`/`Ed25519`, 32-byte `x`/`d`), minted on
+  the first start with networking, owner-only via `create_new`, and never minted by a read — plus a
+  reusable versioned-JSON loader (`TooNew` refused) and a `--self-test` the gate now runs. **Decision
+  §93.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

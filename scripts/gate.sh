@@ -79,9 +79,9 @@ cargo check -p audit -p sandbox -p agent || fail "cargo check"
 # The two Tauri crates need webkit2gtk / gtk / librsvg on Linux and `host-core` needs
 # `dbus-1` (through `keyring`); CI installs those. `worker` was missing from every clippy
 # list before this batch, on both platforms.
-echo "==> cargo clippy (cli + server + host-core + host-tauri + worker)"
+echo "==> cargo clippy (cli + server + host-core + host-tauri + worker + net)"
 # `--no-deps`: the crates we own are linted, their dependencies are only built.
-cargo clippy -p cli -p server -p host-core -p host-tauri -p worker --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + server + host-core + host-tauri + worker"
+cargo clippy -p cli -p server -p host-core -p host-tauri -p worker -p net --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + server + host-core + host-tauri + worker + net"
 
 echo "==> cargo clippy (ui/src-tauri)"
 cargo clippy --manifest-path ui/src-tauri/Cargo.toml --all-targets -- -D warnings || fail "cargo clippy ui/src-tauri"
@@ -146,6 +146,9 @@ fi
 
 echo "==> remote executor example self-test (worker)"
 cargo run -q -p worker --example remote_executor -- --self-test || fail "remote executor example"
+
+echo "==> node key example self-test (net)"
+cargo run -q -p net --example identity -- --self-test || fail "node key example"
 
 echo "==> wix version guard"
 node scripts/check-wix-version.mjs || fail "wix version guard"

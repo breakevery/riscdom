@@ -69,6 +69,7 @@ together, why it is that way, and what was settled.
 | [host-core/README.md](../host-core/README.md) — [中文](../host-core/README.zh-CN.md) | The portable half of the host: modules, its relationship to `host-tauri`, and its constraints (no Tauri). | living |
 | [host-tauri/README.md](../host-tauri/README.md) — [中文](../host-tauri/README.zh-CN.md) | The desktop shell: commands, events, keyring, snapshots, session persistence, manual verification. | living |
 | [worker/README.md](../worker/README.md) — [中文](../worker/README.zh-CN.md) | The executor process and the supervisor half — including the remote executor handle (v0.9 E4). | living |
+| [net/README.md](../net/README.md) — [中文](../net/README.zh-CN.md) | The connection layer (v1.0 M4): node identity on disk today; signing, discovery, rooms and the cross-region server as the frozen sections land. | living |
 
 ## 3. Distribution integrators
 
