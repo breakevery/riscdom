@@ -15,11 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read-only queries — `GET /v0/identity`, `/v0/peers`, `/v0/rooms` and `/v0/connection` — wrapping the
   same four `AppState` accessors batch AD put in front of the desktop, so the two faces cannot drift.
   All four declare **`status.read`**: they describe this node's own surface, which is what that
-  capability is for, so no capability name was added. `identity` answers **`null`** when the layer is
-  unconfigured (§2 gives such a node no key at all); `peers` and `rooms` answer an **empty list**, the
-  shape batch AD's commands return; `connection` keeps `configured`, `connected` and `problem` apart.
+  capability is for, so no capability name was added. **Absent data is `null`, never a `404`** (§2: a
+  node that never joined a network is a working node with nothing to report): `identity` is `null` when
+  the layer is unconfigured, and `peers` and `rooms` are `null` when there is no `peers.json` or
+  `rooms.json`; `connection` keeps `configured`, `connected` and `problem` apart.
   §5.1 of `docs/control-plane-api.md` now says **37** queries (both languages), and the four rows are
-  in `docs/tool-schema-control-plane.md`'s marked query table, so the route table, the two documents
+  in `docs/tool-schema-control-plane.md`'s marked query table (with the matching definitions), so the route table, the two documents
   and the tool schema stay one set. No hash formula, capability name, audit event constant or
   persisted format changed; AC-3 (CLI) and AC-4 (server role) follow.
 

@@ -3565,6 +3565,7 @@ dependencies = [
  "host-core",
  "http-body-util",
  "hyper",
+ "net",
  "serde",
  "serde_json",
  "subtle",

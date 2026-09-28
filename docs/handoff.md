@@ -123,10 +123,10 @@ current request authorising it (§2).
 - **And the node's connection layer is readable over HTTP** (v1.0 batch AE / AC-2, 2026-09-28):
   `server` serves four read-only queries — `GET /v0/identity`, `/v0/peers`, `/v0/rooms`, `/v0/connection` —
   wrapping the same `AppState` accessors batch AD's commands wrap, so the two faces cannot drift. All four
-  declare **`status.read`** (this node's own surface), so no capability name was added. `identity` answers
-  **`null`** when the layer is unconfigured (§2 gives such a node no key); `peers` and `rooms` answer an
-  **empty list**, the shape AC-1's commands return; `connection` keeps `configured` / `connected` /
-  `problem` apart. `docs/control-plane-api.md` §5.1 moves **33 → 37** in both languages and the four rows
+  declare **`status.read`** (this node's own surface), so no capability name was added. **Absent data is
+  `null`, never a `404`** (§2): `identity` is `null` when the layer is unconfigured, and `peers` and
+  `rooms` are `null` when there is no `peers.json` or `rooms.json`; `connection` keeps `configured` /
+  `connected` / `problem` apart. `docs/control-plane-api.md` §5.1 moves **33 → 37** in both languages and the four rows
   join the tool-schema tables. No hash formula, capability name, audit event constant or persisted format
   changed. This is **AC-2** of V-4's four faces; AC-3 (CLI) and AC-4 (server role) follow. **Decision §106.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —

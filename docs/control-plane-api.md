@@ -15,7 +15,7 @@ instruction from a supervisor AI and one from a human are both authorised instru
 from the control plane; the audit chain tells them apart by `agent_id`. Building two
 control channels instead of one is the mistake this design exists to avoid.
 
-**Implementation status (v0.9).** Everything in §5 is implemented — the 33 query
+**Implementation status (v0.9).** Everything in §5 is implemented — the 37 query
 endpoints of §5.1, the 36 controls of §5.2, the host-local endpoints of §5.3, the error
 model of §4, the event envelope with `Last-Event-ID` replay and `gap` frames, and the
 bearer token of §3. Only two routes are reserved: `/v0/resources` (§6, G3) and
@@ -223,9 +223,9 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/sandboxes/requests` | GET | `sandbox.read` | query: `status`? | `{ "requests": [SandboxRequestView] }`, or `400` on an unknown `status` | `list_sandbox_requests` |
 | `/v0/executors` | GET | `agent.run` | — | `{ "executors": [{ "agent_id": string }] }` | `list_executors` |
 | `/v0/capabilities` | GET | `status.read` | — | `{ "capabilities": [string] }` | — |
-| `/v0/identity` | GET | `status.read` | — | `{ "node_id", "public_jwk", "fingerprint", "short_fingerprint" }`, or `null` | `get_node_key` |
-| `/v0/peers` | GET | `status.read` | — | `[PeerEntry]` (empty when the node knows nobody) | `list_peers` |
-| `/v0/rooms` | GET | `status.read` | — | `[Room]` (empty when none are defined) | `list_rooms` |
+| `/v0/identity` | GET | `status.read` | — | `{ "node_id", "public_jwk", "fingerprint", "short_fingerprint" }`, or `null` (no `node.key`) | `get_node_key` |
+| `/v0/peers` | GET | `status.read` | — | `[PeerEntry]`, or `null` (no `peers.json`) | `list_peers` |
+| `/v0/rooms` | GET | `status.read` | — | `[Room]`, or `null` (no `rooms.json`) | `list_rooms` |
 | `/v0/connection` | GET | `status.read` | — | `{ "configured": bool, "connected": bool, "problem": string \| null }` | `connection_status` |
 
 ### 5.2 Controls (36) — implemented in v0.9 batch 4, extended by sandbox F1, F2b-2, F2c, project in/out and the task endpoint

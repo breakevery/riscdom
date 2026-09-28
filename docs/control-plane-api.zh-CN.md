@@ -8,7 +8,7 @@
 
 **这是什么。** RiscDom v0.9 的主线是控制平面：人监督 AI 与 AI 监督 AI 走**同一套** HTTP 接口。在内核看来，来自监工 AI 的指令和来自人的指令都是控制平面授权的指令；审计链靠 `agent_id` 区分二者。本条设计存在的意义，就是避免去建两条会各自演化、最终冲突的控制通道。
 
-**实现状态（v0.9）。** §5 已全部落地——§5.1 的 33 个查询端点、§5.2 的 36 个控制端点、§5.3 的宿主本地端点、§4 的错误模型、带 `Last-Event-ID` 补发与 `gap` 帧的事件 envelope、以及 §3 的 bearer token。仅两条路由为预留：`/v0/resources`（§6 G3）与 `POST /v0/vm/start`（§6 G1），二者都以 `501` 明示。权限**强制**（§3）已落地：每条被服务的路由恰好声明一个 capability，actor 不持有时服务端以 `403` 拒绝。**词汇表里每一个 capability 都在某处被强制**：第 29 个 `sandbox.read` 由下面的沙箱查询服务（并充当两条申请决策的门），第 30 个 `sandbox.switch` 由同一表面上的切换服务，第 31 个 `sandbox.assemble` 则**在申请决策的处理器内部**强制——一条决策需要它的请求 `action` 所隐含的能力，而处理器正是知道该请求的地方。`sandbox.assemble` 自己的路由随装配端点落地。
+**实现状态（v0.9）。** §5 已全部落地——§5.1 的 37 个查询端点、§5.2 的 36 个控制端点、§5.3 的宿主本地端点、§4 的错误模型、带 `Last-Event-ID` 补发与 `gap` 帧的事件 envelope、以及 §3 的 bearer token。仅两条路由为预留：`/v0/resources`（§6 G3）与 `POST /v0/vm/start`（§6 G1），二者都以 `501` 明示。权限**强制**（§3）已落地：每条被服务的路由恰好声明一个 capability，actor 不持有时服务端以 `403` 拒绝。**词汇表里每一个 capability 都在某处被强制**：第 29 个 `sandbox.read` 由下面的沙箱查询服务（并充当两条申请决策的门），第 30 个 `sandbox.switch` 由同一表面上的切换服务，第 31 个 `sandbox.assemble` 则**在申请决策的处理器内部**强制——一条决策需要它的请求 `action` 所隐含的能力，而处理器正是知道该请求的地方。`sandbox.assemble` 自己的路由随装配端点落地。
 
 ## 1. 定位与协议
 
@@ -140,9 +140,9 @@ pub struct Actor {
 | `/v0/sandboxes/requests` | GET | `sandbox.read` | query: `status`? | `{ "requests": [SandboxRequestView] }`，`status` 未知时 `400` | `list_sandbox_requests` |
 | `/v0/executors` | GET | `agent.run` | 无 | `{ "executors": [{ "agent_id": string }] }` | `list_executors` |
 | `/v0/capabilities` | GET | `status.read` | 无 | `{ "capabilities": [string] }` | — |
-| `/v0/identity` | GET | `status.read` | 无 | `{ "node_id", "public_jwk", "fingerprint", "short_fingerprint" }`，或 `null` | `get_node_key` |
-| `/v0/peers` | GET | `status.read` | 无 | `[PeerEntry]`（节点不认识任何人时为空） | `list_peers` |
-| `/v0/rooms` | GET | `status.read` | 无 | `[Room]`（未定义房间时为空） | `list_rooms` |
+| `/v0/identity` | GET | `status.read` | 无 | `{ "node_id", "public_jwk", "fingerprint", "short_fingerprint" }`，或 `null`（无 `node.key`） | `get_node_key` |
+| `/v0/peers` | GET | `status.read` | 无 | `[PeerEntry]`，或 `null`（无 `peers.json`） | `list_peers` |
+| `/v0/rooms` | GET | `status.read` | 无 | `[Room]`，或 `null`（无 `rooms.json`） | `list_rooms` |
 | `/v0/connection` | GET | `status.read` | 无 | `{ "configured": bool, "connected": bool, "problem": string \| null }` | `connection_status` |
 
 ### 5.2 控制类（36）—— 已于 v0.9 批次 4 实装，沙箱 F1、F2b-2、F2c、项目进出与任务端点扩充

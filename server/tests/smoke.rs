@@ -5,8 +5,10 @@
 //! the wire format is the deliverable, and nothing here may call QEMU or the
 //! network. The heartbeat is disabled so the streams under test are deterministic.
 
+use host_core::settings::{LocalSettings, NetworkSettings, SETTINGS_VERSION};
 use host_core::AppState;
 use host_core::EventSink;
+use net::{NodeKey, PeerEntry, PeersFile, RateRule, Room, RoomRules, RoomsFile};
 use server::{
     Authn, Capability, HttpEventSink, NoAuth, Server, ServerConfig, TokenAuth, MAX_IMPORT_BYTES,
     REPLAY_CAPACITY,
@@ -110,6 +112,28 @@ fn serve_with_state(workspace: PathBuf, authn: Arc<dyn Authn>) -> (SocketAddr, A
         runtime.block_on(std::future::pending::<()>());
     });
     (addr, app)
+}
+
+/// Serve a workspace whose connection files live in their own data directory, so a test can
+/// seed `node.key` / `peers.json` / `rooms.json` the way a host reads them. `AppState::in_memory`
+/// deliberately keeps the process-wide data directory and never loads them, so `with_data_dir`
+/// (which owns its directory) is what a test that wants the wiring builds state with.
+fn serve_with_data_dir(workspace: PathBuf, data_dir: PathBuf, authn: Arc<dyn Authn>) -> SocketAddr {
+    let app = Arc::new(AppState::with_data_dir(&workspace, &data_dir).expect("data-dir state"));
+    let cfg = ServerConfig::new("127.0.0.1:0".parse().expect("addr"))
+        .with_heartbeat(None)
+        .with_authn(authn);
+    let server = Server::new(Arc::clone(&app), cfg);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .build()
+        .expect("runtime");
+    let running = runtime.block_on(async { server.start().await.expect("bind") });
+    let addr = running.local_addr();
+    std::thread::spawn(move || {
+        runtime.block_on(std::future::pending::<()>());
+    });
+    addr
 }
 
 /// Write `settings.json` into a workspace, before a state reads it.
@@ -500,9 +524,9 @@ fn every_query_endpoint_answers() {
         ("/v0/sandboxes/requests", 200, "requests"),
         // Reserved: served, and answers 501 until the aggregate lands.
         ("/v0/resources", 501, "code"),
-        // The connection layer, read-only (v1.0 batch AE / AC-2). A fresh workspace has
-        // no key and knows nobody, so `identity` is `null` and the two lists are empty;
-        // the shapes themselves are asserted in `the_connection_layer_answers_over_http`.
+        // The connection layer, read-only (v1.0 batch AE / AC-2). A fresh node has no key and
+        // knows nobody, so all three are `null`; the shapes themselves (and the configured
+        // case) are asserted in `the_connection_layer_answers_over_http`.
         ("/v0/identity", 200, ""),
         ("/v0/peers", 200, ""),
         ("/v0/rooms", 200, ""),
@@ -524,29 +548,83 @@ fn every_query_endpoint_answers() {
 
 #[test]
 fn the_connection_layer_answers_over_http() {
-    // v1.0 batch AE / AC-2: the four items batch AD put in front of the desktop, served
-    // over HTTP. A fresh workspace has no `node.key`, no `peers.json`, no `rooms.json` and
-    // names no server, so the honest answer is `null` for the key and empty shapes for the
-    // rest — none of it an error (§2: a node that never joined a network is a working node).
+    // v1.0 batch AE / AC-2: the four items batch AD put in front of the desktop, served over
+    // HTTP. A node with nothing configured has `null` for each — absent data is `null`, never a
+    // `404` (§2: a node that never joined a network is a working node that has nothing to say).
     let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
-
-    let (status, raw) = get(addr, "/v0/identity");
-    assert_eq!(status, 200, "{raw}");
-    assert!(raw.is_null(), "no key, so `null`: {raw}");
-
-    let (status, raw) = get(addr, "/v0/peers");
-    assert_eq!(status, 200, "{raw}");
-    assert_eq!(raw.as_array().expect("an array").len(), 0, "{raw}");
-
-    let (status, raw) = get(addr, "/v0/rooms");
-    assert_eq!(status, 200, "{raw}");
-    assert_eq!(raw.as_array().expect("an array").len(), 0, "{raw}");
-
+    for path in ["/v0/identity", "/v0/peers", "/v0/rooms"] {
+        let (status, raw) = get(addr, path);
+        assert_eq!(status, 200, "{path}: {raw}");
+        assert!(raw.is_null(), "{path}: nothing to report, so `null`: {raw}");
+    }
     let (status, raw) = get(addr, "/v0/connection");
     assert_eq!(status, 200, "{raw}");
     assert_eq!(raw["configured"], false, "{raw}");
     assert_eq!(raw["connected"], false, "{raw}");
     assert!(raw["problem"].is_null(), "{raw}");
+
+    // And once the layer is configured the same four report what its files hold. `with_data_dir`
+    // is what reads them: `in_memory` keeps the process-wide data directory, so it can neither
+    // mint a key into a real deployment nor see this test's files.
+    let workspace = temp_workspace("connection-ws");
+    let data_dir = temp_workspace("connection-data");
+    let settings = LocalSettings {
+        version: SETTINGS_VERSION,
+        network: Some(NetworkSettings {
+            lan_enabled: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    settings
+        .save(&data_dir.join("settings.json"))
+        .expect("settings.json");
+    let key = NodeKey::generate().expect("key");
+    NodeKey::save_new_in(&data_dir, &key).expect("node.key");
+    let mut peers = PeersFile::empty();
+    peers.peers.push(PeerEntry::new(
+        "dev-b",
+        "127.0.0.1:2",
+        NodeKey::generate().expect("peer key").public_jwk(),
+    ));
+    PeersFile::save_in(&data_dir, &peers).expect("peers.json");
+    let mut rooms = RoomsFile::empty();
+    rooms.rooms.push(Room {
+        name: "lab".to_string(),
+        members: vec!["dev-b".to_string()],
+        rules: RoomRules::new(RateRule {
+            messages: 10,
+            window_seconds: 60,
+        }),
+    });
+    RoomsFile::save_in(&data_dir, &rooms).expect("rooms.json");
+
+    let addr = serve_with_data_dir(workspace, data_dir, Arc::new(NoAuth));
+
+    let (status, raw) = get(addr, "/v0/identity");
+    assert_eq!(status, 200, "{raw}");
+    assert!(!raw.is_null(), "a key is on disk: {raw}");
+    assert!(raw["node_id"].is_string(), "{raw}");
+    assert!(
+        raw["public_jwk"].is_object(),
+        "the public half is a JWK: {raw}"
+    );
+    assert!(raw["fingerprint"].is_string(), "{raw}");
+    assert!(raw["short_fingerprint"].is_string(), "{raw}");
+    assert!(
+        raw.get("d").is_none(),
+        "the private half must not leak: {raw}"
+    );
+
+    let (status, raw) = get(addr, "/v0/peers");
+    assert_eq!(status, 200, "{raw}");
+    assert_eq!(raw.as_array().expect("an array").len(), 1, "{raw}");
+    assert_eq!(raw[0]["node_id"], "dev-b", "{raw}");
+
+    let (status, raw) = get(addr, "/v0/rooms");
+    assert_eq!(status, 200, "{raw}");
+    assert_eq!(raw.as_array().expect("an array").len(), 1, "{raw}");
+    assert_eq!(raw[0]["name"], "lab", "{raw}");
 }
 
 #[test]

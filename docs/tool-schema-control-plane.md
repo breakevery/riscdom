@@ -219,8 +219,8 @@ say what the model may ask for.
 {"type":"function","function":{"name":"executors","description":"The executors a task can be routed to.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"capabilities","description":"What this caller may do: the capability names the credential holds.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"identity","description":"The node's public identity: its node_id and the public key's fingerprints. Null until the connection layer is configured.","parameters":{"type":"object","properties":{},"required":[]}}}
-{"type":"function","function":{"name":"peers","description":"Who this node knows: the entries of its peers.json. Empty when it knows nobody.","parameters":{"type":"object","properties":{},"required":[]}}}
-{"type":"function","function":{"name":"rooms","description":"The rooms this node's rooms.json defines. Empty when none are defined.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"peers","description":"Who this node knows: the entries of its peers.json. Null when there is no peers.json.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"rooms","description":"The rooms this node's rooms.json defines. Null when there is no rooms.json.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"connection","description":"The connection layer's state: is a cross-region server configured, is a session live, and any problem.","parameters":{"type":"object","properties":{},"required":[]}}}
 ]
 ```

@@ -1339,11 +1339,10 @@ pub(crate) fn dispatch(
             ok_json(&serde_json::json!({ "capabilities": names }))
         }
         // The connection layer, read-only (v1.0 batch AE / AC-2). These are the four items
-        // batch AD put in front of the desktop, over HTTP. `identity` answers **`null`** when
-        // the layer is unconfigured — §2 gives such a node no key at all, so this is not an
-        // error — while `peers` and `rooms` answer an **empty list**, because a node that
-        // knows nobody is a working node (connection.md §2), not a broken one. This is the
-        // same shape batch AD's commands return, so the two faces cannot drift.
+        // batch AD put in front of the desktop, over HTTP. **Absent data is `null`, not a
+        // `404`**: a node with no `node.key`, no `peers.json` or no `rooms.json` is a working
+        // node (connection.md §2) that simply has nothing to report, so each of the three
+        // answers `null` rather than inventing an empty shape or an error.
         Action::Identity => match app.node_key() {
             Some(key) => ok_json(&serde_json::json!({
                 "node_id": app.local_executor_id(),
@@ -1353,8 +1352,14 @@ pub(crate) fn dispatch(
             })),
             None => ok_json(&serde_json::Value::Null),
         },
-        Action::Peers => ok_json(&app.peers().map(|peers| peers.peers).unwrap_or_default()),
-        Action::Rooms => ok_json(&app.rooms().map(|rooms| rooms.rooms).unwrap_or_default()),
+        Action::Peers => match app.peers() {
+            Some(peers) => ok_json(&peers.peers),
+            None => ok_json(&serde_json::Value::Null),
+        },
+        Action::Rooms => match app.rooms() {
+            Some(rooms) => ok_json(&rooms.rooms),
+            None => ok_json(&serde_json::Value::Null),
+        },
         Action::Connection => ok_json(&serde_json::json!({
             "configured": app
                 .network()

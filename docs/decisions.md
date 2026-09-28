@@ -2894,27 +2894,28 @@ capability name, `net`/`host-core`/`server`/`cli` file or persisted format chang
 `GET /v0/peers`, `GET /v0/rooms` and `GET /v0/connection` (new `Action`s `Identity`, `Peers`, `Rooms`,
 `Connection`) — each wrapping the same `AppState` accessor batch AD put in front of the desktop, and
 each declaring **`status.read`**: the four describe *this node's own* surface, which is what that
-capability is for, so **no capability name was added**. `identity` answers **`null`** when the layer is
-unconfigured (§2 gives such a node no key at all, so this is not an error); `peers` and `rooms` answer
-an **empty list** — the shape batch AD's commands return — because a node that knows nobody is a
-working node (§2); `connection` answers `{configured, connected, problem}`, unchanged. §5.1 of
+capability is for, so **no capability name was added**. **Absent data is `null`, never a `404`** (§2: a
+node that never joined a network is a working node with nothing to report): `identity` is `null` when
+the layer is unconfigured, and `peers` and `rooms` are `null` when there is no `peers.json` or
+`rooms.json`; `connection` answers `{configured, connected, problem}`, unchanged. §5.1 of
 `docs/control-plane-api.md` now says **37** (both languages) and the four rows sit in
 `docs/tool-schema-control-plane.md`'s marked query table, so the route table, the two documents and
 the tool schema stay one set.
 
-**Why**: Two choices were live. **`null` for the key, an empty list for the tables.** The key is an
-`Option` at the source (§2: no key until networking is configured), so `null` is the honest reading; a
-missing `peers.json` or `rooms.json`, by contrast, is the ordinary state of a node nobody has
-configured, and "knows nobody" is not something to `404` on. Mirroring batch AD's command shapes —
-empty list, never `null` — is what keeps the two faces from drifting, which is the whole point of
-exposing the same four items twice. **No new capability.** §83's rule is that a route declares a
+**Why**: Two choices were live. **`null` for absent data, not an empty shape and not a `404`.** Each of
+the three reads an `Option` at the source — the key until networking is configured, and the two files
+until a deployer writes them — so `null` is the honest reading of "nothing to report"; an unconfigured
+node is a working node (§2), not a broken one, so an error would be a lie. (The desktop's commands
+flatten the two lists to empty; over HTTP the item itself is what is asked for, so its absence is the
+answer.) **No new capability.** §83's rule is that a route declares a
 capability; `status.read` already says "this node's own status", and these four are exactly that, so
 the vocabulary is untouched and the owner's token reaches them as it reaches `/v0/capabilities`.
 
 **Impact**: `server/src/routes.rs` gains the four `Action` variants, the four `ROUTES` rows and the
 four dispatch arms; `server/tests/smoke.rs` adds the four paths to `every_query_endpoint_answers`
-(its count 34 → 38) and one test, `the_connection_layer_answers_over_http`, that pins a fresh node's
-shapes; both `docs/control-plane-api.md` and its translation move §5.1 from **33 to 37**, and both
+(its count 34 → 38) and one test, `the_connection_layer_answers_over_http`, that pins both a fresh
+node's `null`s and a configured node's shapes (seeded with `net`'s own writers, which is why
+`server/Cargo.toml` gains `net` as a **dev-dependency** — an edge, no package); both `docs/control-plane-api.md` and its translation move §5.1 from **33 to 37**, and both
 `docs/tool-schema-control-plane.md` files gain the four rows. **No hash formula, audit event
 constant, capability name, `net`/`host-core`/`host-tauri`/`cli` file or persisted format changed.**
 AC-3 (CLI) and AC-4 (server role) follow.
