@@ -2409,3 +2409,45 @@ the verifier and the transport map onto one definition); the gate gains its thir
 **No existing source file changed, no dependency was added, and no hash formula, route, capability
 name or audit event constant was touched** — and the relay is deliberately inert: nothing in this
 batch forwards a frame anywhere.
+
+## 96. Discovery hands out addresses: a peer file that wins, a table that is a source, and a beacon that introduces no key
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; M4b implemented
+
+**Decision**: [connection.md §4](connection.md) is implemented in `net`. `peers.json` is a
+versioned JSON file (version 1) whose entries are exactly the `{node_id, addresses[], public_key,
+capabilities, rooms[]}` shape a handed-down table carries, and it is **authoritative for the node
+that owns it**; a `PeerEntry` carrying a `d` — a private key — is refused by name, because a peer
+table is a file that gets copied between machines. A handed-down table (`NodeTable`) travels as an
+ordinary signed frame, carries a **generation**, and is merged as a **source**: `merge_table`
+answers with the merged view plus a `MergeReport` whose `conflicts` name both sides — local wins,
+and nothing is resolved in silence. The beacon is one datagram carrying one signed frame whose
+effect is to offer an address: `consider_announcement` answers `RefreshedAddresses` for a node
+already known, `ReportedUnknown` for one that is not, and `IgnoredOutOfRoom` when the announced
+rooms miss the receiver's. The room filter is **`RoomFilter`** — an intersection test with
+**default deny**, reading a set of room names (the `rooms.json` *file* is M4c's). The broadcast
+port is a **protocol constant** (`BROADCAST_PORT = 47821`), not a setting.
+
+**Why**: The three rules §4.2 states are the interesting part, and all three are about not growing
+a second trust path. **The file wins, the table is a source**: a handed-down table is another
+machine's opinion, so merging it must not be able to change what a node believes about a peer it
+was configured with — hence a merge that *reports* rather than resolves, the rule
+[plugin-interface.md](plugin-interface.md) §6 already applies to manifest sources. **An
+announcement refreshes an address, it cannot introduce a key**: §9 forbids trust on first use, and
+anyone on the link can send a datagram — the signature proves who wrote it, not that the receiver
+should care — so an unknown node's beacon is reported to the deployer and adopted by nobody.
+`Adoption::introduced_a_key()` is a method that can only return `false`, and that is the point: the
+type makes the invariant visible at the place a future change would have to argue with it. **A
+constant port**: a broadcast must reach a node that knows nothing, so it cannot be discovered, and
+a configurable port would let two nodes on one link fail to see each other in silence. The beacon
+itself is "the only thing in this protocol that travels over UDP", kept honest by having exactly
+one function that sends one and one that receives one, both reusing §3's frame.
+
+**Impact**: `net/` gains `src/peers.rs` (the file, the entry, and the public-JWK rule that refuses
+`d`), `src/discovery.rs` (the table, the merge and its conflict report, the beacon and
+`RoomFilter`), a `discovery` example with `--self-test`, and seventeen tests; the gate gains its
+fourth `net` step. `net/README.md` moves §4 from "not here yet" to "here" and leaves §5 and §6.
+**No existing source file changed, no dependency was added, and nothing in the persisted-format
+table moved** — `peers.json`'s row was added when the format landed (M4a-impl-1), and this batch
+only reads and writes what that row describes. `rooms.json`'s file, the relay's routing and the
+cross-region server are M4c's and M4d's.

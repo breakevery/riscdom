@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **发现**（v1.0 M4b）：`net` 实现了 [`docs/connection.md`](docs/connection.md) §4。`peers.json`（版本 1）装着 `{node_id, addresses[], public_key, capabilities, rooms[]}` 条目，并对**它自己的节点**具有权威 —— 携带私钥的条目被拒；下发的 `NodeTable` 作为带 **generation** 的签名帧旅行、作为**来源**被合并，冲突被报告而不是被解决；而 **UDP 信标**（一个数据报、一个签名帧）只能刷新地址、绝不引入密钥。`RoomFilter` 是默认拒绝的房间过滤器，而广播端口是协议常量（`47821`）。
+
 - **传输：一消息一行 JSON、走 TCP，先直连、后 relay**（v1.0 M4a）：`net` 用 **`std::net`** 实现 [`docs/connection.md`](docs/connection.md) §3.1 —— 不引 async 运行时 —— 且帧只序列化**一次**，所以直连与经 relay 两条路径逐字节相同。`deliver` 先试同侪地址，失败则回落到 `Relay` 这道缝（路由由 M4d 填；`NoRelay` 是诚实的「什么都没接」）。失败按 §3.1 的表述映射到错误模型（连接被拒/超时、被截断的帧、过长的行或缺失的 relay → `network`；解析不了的帧 → `invalid`）。
 
 - **签名与重放防护**（v1.0 M4a）：`net` 实现了 [`docs/connection.md`](docs/connection.md) §3 —— `SignedMessage`（`{v, from, to, ts, body}` 对其规范 JSON 签名，`sig` 在旁边）与 `verify`，后者按冻结顺序跑六步并以错误模型的一个分类作答（`refused` / `invalid` / `network`）。§3.2 的重放记录是 `ReplayGuard`：按同侪、在内存、高水位加上在该水位上见过的负载，窗口 −5 min / +1 min。授权刻意不在其中 —— 这里回答的是「谁发的」，不是「它可以做什么」。

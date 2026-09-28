@@ -20,10 +20,15 @@
 //!   over a TCP socket (std, no async runtime), sent **direct first** and, when that
 //!   fails, through the [`Relay`] seam M4d fills in. The frame is serialised once, so the
 //!   two paths carry identical bytes.
+//! - **§4, discovery** — [`PeersFile`] (the local, authoritative peer table),
+//!   [`NodeTable`] (what an in-network server hands down, merged as a **source** with
+//!   conflicts reported), the UDP beacon ([`sign_announcement`] / [`receive_datagram`]) and
+//!   [`RoomFilter`] — the default-deny filter that keeps a beacon from introducing a key.
 //!
-//! **Not here yet**: discovery (§4), rooms (§5) and the cross-region server (§6) —
-//! including the relay's routing, which is why [`NoRelay`] exists. Each piece lands only
-//! after the section it implements is frozen.
+//! **Not here yet**: rooms' own file (§5 — the filter reads a room set, and `rooms.json`'s
+//! shape is M4c's) and the cross-region server (§6) — including the relay's routing, which
+//! is why [`NoRelay`] exists. Each piece lands only after the section it implements is
+//! frozen.
 //!
 //! **Dependency direction.** `net` depends on [`audit`] and nothing else in this
 //! workspace. The chain's canonical JSON ([`audit::canonical_json`]) is what a
@@ -32,18 +37,28 @@
 //! depend on *this* crate, never the other way round — the workspace's direction is
 //! `audit ← net ← host-core ← server`, so nothing here may reach upward.
 
+mod discovery;
 mod error;
 mod identity;
 mod message;
+mod peers;
 mod replay;
 mod sign;
 mod transport;
 mod versioned;
 
+pub use discovery::{
+    announced_entry, announced_rooms, announcement_body, consider_announcement, discovery_category,
+    merge_table, receive_datagram, send_datagram, sign_announcement, Adoption, Conflict,
+    DiscoveryError, MergeReport, NodeTable, RoomFilter, BROADCAST_PORT, MAX_DATAGRAM_BYTES,
+};
 pub use error::Category;
 pub use identity::{NodeKey, NodeKeyError, NODE_KEY_FILE};
 pub use message::{
     body_hash, now_ms, MessageError, SignedMessage, PROTOCOL_VERSION, SIGNATURE_BYTES,
+};
+pub use peers::{
+    peers_category, public_key_from_jwk, PeerEntry, PeersError, PeersFile, PEERS_FILE,
 };
 pub use replay::{ReplayError, ReplayGuard, Window, REPLAY_WINDOW_AHEAD_MS, REPLAY_WINDOW_BACK_MS};
 pub use sign::{verify, verify_at, PeerKeys, VerifiedMessage, VerifyError};

@@ -48,6 +48,10 @@ current request authorising it (§2).
   [connection.md](connection.md) §3.1 with **`std::net`** — one JSON line per message, the frame
   serialised once (so direct and relayed bytes are identical), direct first and the `Relay` seam
   second, with the relay's routing left to M4d. **Decision §95.**
+- **Discovery is on disk too** (v1.0 M4b, 2026-09-28): `net` implements [connection.md](connection.md)
+  §4 — `peers.json` (authoritative for its own node, and refusing a private key), a handed-down
+  `NodeTable` merged as a **source** with conflicts reported, a **UDP beacon** that can only refresh
+  an address, and `RoomFilter` (default deny). **Decision §96.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

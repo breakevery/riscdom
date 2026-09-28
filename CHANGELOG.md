@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Discovery** (v1.0 M4b): `net` implements [`docs/connection.md`](docs/connection.md) §4.
+  `peers.json` (version 1) holds `{node_id, addresses[], public_key, capabilities, rooms[]}`
+  entries and is **authoritative for its own node** — an entry carrying a private key is refused;
+  a handed-down `NodeTable` travels as a signed frame with a **generation** and merges as a
+  **source**, reporting conflicts instead of resolving them; and a **UDP beacon** (one datagram,
+  one signed frame) may only refresh an address, never introduce a key. `RoomFilter` is the
+  default-deny room test, and the broadcast port is a protocol constant (`47821`).
+
 - **The transport: one JSON line per message over TCP, direct first and relay second** (v1.0 M4a):
   `net` implements [`docs/connection.md`](docs/connection.md) §3.1 with **`std::net`** — no async
   runtime — with the frame serialised **once**, so the direct and relayed paths carry identical
