@@ -1,5 +1,6 @@
 //! Application state shared by all Tauri commands.
 
+use crate::connection::{self, ConnectionProblem};
 use crate::error::HostError;
 use crate::events::{
     EventSink, EV_AGENT_FINAL, EV_AGENT_ITERATION, EV_AGENT_STREAM_DELTA, EV_AGENT_STREAM_DONE,
@@ -820,6 +821,24 @@ pub struct AppState {
     /// says so here (and in the audit chain) instead of pretending the file was
     /// simply corrupt.
     settings_problem: Mutex<Option<String>>,
+    /// The node's key, loaded at start-up (v1.0 batch W): `<data_dir>/node.key`.
+    ///
+    /// `None` when no network wiring is configured (a node that never joins a network grows
+    /// no key, [connection.md §2](../../../docs/connection.md)), or when the file was refused.
+    node_key: Mutex<Option<net::NodeKey>>,
+    /// The peer table, loaded at start-up: `<data_dir>/peers.json`.
+    ///
+    /// `None` when nothing is configured, when there is no file (a node may know nobody) or
+    /// when the file was refused.
+    peers: Mutex<Option<net::PeersFile>>,
+    /// The room definitions, loaded at start-up: `<data_dir>/rooms.json`; the same three
+    /// `None`s as [`Self::peers`].
+    rooms: Mutex<Option<net::RoomsFile>>,
+    /// Why a connection file was not used, if one was refused (v1.0 batch W).
+    ///
+    /// The same shape as [`Self::settings_problem`]: a file from a newer build is **refused**
+    /// rather than half-read, and the host says so instead of pretending it was absent.
+    connection_problem: Mutex<Option<String>>,
     /// The executor handles a task is routed to (v0.9 interface E0).
     ///
     /// Built from `settings.executors` after the settings file is read. The
@@ -989,6 +1008,7 @@ impl AppState {
         state.init_from_env();
         state.load_settings();
         state.register_executors();
+        state.load_connection_files();
         Ok(state)
     }
 
@@ -1018,10 +1038,16 @@ impl AppState {
         state.init_from_env();
         state.load_settings();
         state.register_executors();
+        state.load_connection_files();
         Ok(state)
     }
 
     /// Build state with a private in-memory audit DB and keyring (tests).
+    ///
+    /// Deliberately **not** [`Self::load_connection_files`]: this constructor keeps the
+    /// process-wide default data directory, so reading the connection files here would let a
+    /// test mint a key into (or refuse a file from) a real deployment's directory. A test that
+    /// wants the wiring builds state with [`Self::with_data_dir`], which owns its directory.
     pub fn in_memory(workspace_root: impl Into<PathBuf>) -> Result<Self, HostError> {
         let root = workspace_root.into();
         std::fs::create_dir_all(&root)?;
@@ -1284,6 +1310,10 @@ impl AppState {
             qemu_download_last: Mutex::new(None),
             settings: Mutex::new(LocalSettings::default()),
             settings_problem: Mutex::new(None),
+            node_key: Mutex::new(None),
+            peers: Mutex::new(None),
+            rooms: Mutex::new(None),
+            connection_problem: Mutex::new(None),
             executors: Mutex::new(Vec::new()),
             settings_path: crate::paths::settings_path(),
             data_dir: crate::paths::default_data_dir(),
@@ -3425,6 +3455,103 @@ impl AppState {
         if matches!(outcome, SettingsLoad::Migrated { .. }) {
             self.save_settings();
         }
+    }
+
+    /// Load the connection layer's three files (v1.0 batch W).
+    ///
+    /// Called once per constructor, after [`Self::load_settings`]: whether to read at all is
+    /// the **network settings**' answer (`settings.network.is_some()`), and the files
+    /// themselves are `net`'s to read ([connection.md §2](../../../docs/connection.md), §4, §5).
+    /// Nothing here is fatal — each refusal is logged, recorded and written to the chain, and
+    /// the host carries on with that file absent, the way the keyring degrades
+    /// ([`crate::keyring`]).
+    ///
+    /// Two events, and they are the only two this path has names for: a **mint**
+    /// (`host.connection.key_minted` — a key that did not exist now does, and the deployer needs
+    /// its fingerprint to put in the other nodes' `peers.json`) and a **too-new**
+    /// (`host.connection.data_too_new`). A file that is unusable for any other reason is
+    /// reported in the log and in [`Self::connection_problem`], not under a name that would say
+    /// something else.
+    fn load_connection_files(&self) {
+        let configured = self
+            .settings
+            .lock()
+            .map(|settings| settings.network.is_some())
+            .unwrap_or(false);
+        let files = connection::load(&self.data_dir, configured);
+
+        if files.minted_key {
+            if let Some(key) = &files.node_key {
+                self.emit_host(
+                    "host.connection.key_minted",
+                    serde_json::json!({
+                        "node_id": agent::device(),
+                        "fingerprint": key.short_fingerprint(),
+                    }),
+                );
+            }
+        }
+        if let Some(problem) = files.problems.first() {
+            let message = problem.message();
+            eprintln!("connection: {message}");
+            if let Ok(mut slot) = self.connection_problem.lock() {
+                *slot = Some(message);
+            }
+        }
+        for problem in &files.problems {
+            if let ConnectionProblem::TooNew {
+                file,
+                found,
+                supported,
+            } = problem
+            {
+                self.emit_host(
+                    "host.connection.data_too_new",
+                    serde_json::json!({
+                        "file": file.name(),
+                        "found": found,
+                        "supported": supported,
+                    }),
+                );
+            }
+        }
+
+        if let Ok(mut slot) = self.node_key.lock() {
+            *slot = files.node_key;
+        }
+        if let Ok(mut slot) = self.peers.lock() {
+            *slot = files.peers;
+        }
+        if let Ok(mut slot) = self.rooms.lock() {
+            *slot = files.rooms;
+        }
+    }
+
+    /// The node's key, when the connection layer is configured and one was read or minted
+    /// (v1.0 batch W).
+    ///
+    /// A clone: the key is four short strings, and handing one out is not handing out a handle
+    /// into this state.
+    pub fn node_key(&self) -> Option<net::NodeKey> {
+        self.node_key.lock().ok().and_then(|key| key.clone())
+    }
+
+    /// The peer table, when there is a usable `peers.json` (v1.0 batch W).
+    pub fn peers(&self) -> Option<net::PeersFile> {
+        self.peers.lock().ok().and_then(|peers| peers.clone())
+    }
+
+    /// The room definitions, when there is a usable `rooms.json` (v1.0 batch W).
+    pub fn rooms(&self) -> Option<net::RoomsFile> {
+        self.rooms.lock().ok().and_then(|rooms| rooms.clone())
+    }
+
+    /// Why a connection file was not used, if one was refused (v1.0 batch W).
+    pub fn connection_problem(&self) -> Option<String> {
+        self.connection_problem
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
     }
 
     /// Why this node is not using its settings file, if it is not (v1.0 M2b-1).

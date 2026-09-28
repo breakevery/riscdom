@@ -17,6 +17,7 @@
 //! - File reads and writes go through `agent::WorkspacePolicy`.
 //! - Nothing outside this crate reaches `sandbox` / `agent` directly.
 
+pub mod connection;
 pub mod dispatch;
 pub mod error;
 pub mod events;
@@ -34,6 +35,7 @@ pub mod state;
 pub mod toolchain_download;
 pub mod workspace_io;
 
+pub use connection::{ConnectionFile, ConnectionFiles, ConnectionProblem};
 pub use dispatch::{local_dispatcher, HostAgentHandle};
 pub use error::HostError;
 pub use events::{EventSink, EV_PREFLIGHT, EV_SANDBOX_REQUEST, EV_SANDBOX_SWITCH};

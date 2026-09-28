@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The connection layer reaches the host** (v1.0 batch W): `host-core` takes a dependency on `net`
+  and loads its three files at start-up — `node.key` (minted on the first start with networking
+  configured, never by a read), `peers.json` and `rooms.json` — **only when `settings.network`
+  names a wiring**; an unconfigured node reads nothing and grows no key (`connection.md` §2). A
+  missing peer table is normal, a file from a newer build is refused **without being written over**,
+  and every refusal is logged and readable through `AppState::connection_problem`. Two audit names
+  record what happened: `host.connection.key_minted` (`{node_id, fingerprint}` — the deployer needs
+  the fingerprint for the other nodes' `peers.json`) and `host.connection.data_too_new`
+  (`{file, found, supported}`). `net`'s own logic is untouched, and the dependency adds no package:
+  `Cargo.lock` gains one edge line (534 packages before and after).
+
 - **Signalling and management on the cross-region server** (v1.0 M4d): `net` implements the rest of
   [`docs/connection.md`](docs/connection.md) §6.2. A frame addressed to the server itself is routed to
   the role it asks for: **signalling** answers `{"query": "<node_id>"}` with `{"addresses": [...]}` —

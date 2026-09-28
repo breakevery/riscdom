@@ -70,6 +70,13 @@ current request authorising it (§2).
   the local `peers.json` / `rooms.json` win and conflicts are **reported**. The server signs its answers
   with its own key. So **M4 is complete except M4e** (the audit digests, which wait on M5's
   authorisation). **Decision §99.**
+- **And `net` is no longer a crate nothing uses** (v1.0 batch W, 2026-09-28): `host-core` depends on
+  `net` and loads the connection layer's three files at start-up — `node.key`, `peers.json`,
+  `rooms.json` — **only when `settings.network` names a wiring**; an unconfigured node reads nothing
+  and grows no key (connection.md §2). `AppState` answers `node_key()` / `peers()` / `rooms()` and
+  `connection_problem()`; a newer file is refused and never written over; and two audit names record
+  what happened (`host.connection.key_minted`, `host.connection.data_too_new`). **Decision §100.**
+  V-2 (the cross-region pointer + client) and V-3 (the upper surfaces) follow.
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

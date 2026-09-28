@@ -2583,3 +2583,55 @@ publishes, the generation advances); `src/rooms.rs` gains `merge_rooms`, `RoomCo
 **No new dependency, no new persisted format, no new capability name, no audit event constant, no hash
 formula and no route was touched** — the server still stores no message, draws its authority from §3
 and issues no credential, and §7's digests are unwritten.
+
+## 100. The host loads the connection layer's files — when the network settings say so
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; the wiring shipped (V-1)
+
+**Decision**: `host-core` depends on `net` and loads the connection layer's three files at start-up:
+`<data-dir>/node.key` ([connection.md §2](connection.md)), `<data-dir>/peers.json` (§4) and
+`<data-dir>/rooms.json` (§5). One condition decides whether any of them is touched —
+**`settings.network.is_some()`** — and an unconfigured node reads nothing and **grows no key**, which
+is what §2 asks for and what every version before this one did. The host keeps what it loaded on
+`AppState` (`node_key()`, `peers()`, `rooms()`, each answering a clone) plus `connection_problem()
+for the first refusal, in the shape `settings_problem()` already has. A `peers.json` or `rooms.json`
+that is **absent** is normal (a node may know nobody and be in no room); a file from a **newer** build
+is refused and **nothing is written over it**; anything else is reported. Two names join the audit
+vocabulary: **`host.connection.key_minted`** (`{node_id, fingerprint}`) and
+**`host.connection.data_too_new`** (`{file, found, supported}`). `net` itself is untouched.
+
+**Why**: Three choices carry it. **The condition is the settings, and it is one line.** §2 ties a key
+to "the first start that has networking configured", and the settings are where that is already
+written down: `NetworkSettings` is an `Option`, so `is_some()` *is* "this node is on a network".
+Nothing new is persisted, `SETTINGS_VERSION` does not move, and a node that never joins a network has
+no key file to leak. **The format knowledge stays in `net`, the policy stays here.** Every read goes
+through `net`'s own loaders — the version rules, the four outcomes, the refusal of a newer file —
+and this batch only decides *when* to read and *what to say*; that is [§93](decisions.md)'s direction
+applied one layer up, and it is why the host grows no parser. The one thing worth naming is that
+`net`'s `load_or_create_in` answers the **key**, not which of "read" and "minted" happened — so
+whether the file existed first is what tells the host a mint happened, and a too-new key reaches the
+same error channel as a broken one, so the refusal is read once more to name the case. **A refusal is
+visible, and the two refusals are named apart.** A mint writes a row — a silently created key is a key
+no deployer can put in the other nodes' `peers.json` — and a too-new file writes one naming the file
+and both versions, the shape `host.settings.data_too_new` already has. A file that is unusable for
+any other reason (**a spliced JWK, a peer entry carrying a private key, a room that lowers §3's
+floor**) is logged and readable through `connection_problem()` but deliberately **not** recorded under
+the too-new name: one event name meaning two things is worse than one name and an honest log. Nothing
+here is fatal, for the reason the keyring degrades silently: a host that will not start because a peer
+table is malformed is a host that cannot be repaired.
+
+**Impact**: `host-core/Cargo.toml` gains `net = { path = "../net" }` (no new package — the lock file
+gains one edge line, 534 packages before and after); `src/connection.rs` is new (the loader, the three
+`ConnectionFile` names, `ConnectionProblem`, `ConnectionFiles` and three unit tests); `src/state.rs`
+gains four fields, four accessors and `load_connection_files()` — called after `load_settings()` by
+`AppState::new` and `AppState::with_data_dir`, and deliberately **not** by `AppState::in_memory`, which
+keeps the process-wide data directory and must never mint into it — and it is where the two rows are
+written; `src/lib.rs` re-exports the new type; `tests/connection.rs` adds seven integration tests
+(nothing configured, a mint that happens once, files that load, a too-new `peers.json` / `rooms.json` /
+`node.key`, and an unusable table that is *not* reported as too new); `host-core/README.md` gains the
+module and the constraint. **No hash formula, route, capability name or existing audit event constant
+changed, `net`'s logic is untouched, and nothing is persisted that was not already** — the two new
+names live where `host.settings.data_too_new` already lives (this document, `CHANGELOG.md` and
+`docs/handoff.md`), and *not* in `docs/control-plane-events.md`, whose twenty names are the **stream**
+events that document normalises and whose count that document and its guard test both assert. V-2 (the
+cross-region pointer and the client) and V-3 (the upper surfaces) are still to come.

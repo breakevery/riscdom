@@ -8,6 +8,11 @@ edition.workspace = true
 agent = { path = "../agent" }
 sandbox = { path = "../sandbox" }
 audit = { path = "../audit" }
+# The connection layer (v1.0 batch W): the node's key, its peer table, its rooms and the
+# cross-region session. `net` depends on `audit` and on nothing else in this workspace, so this
+# edge closes no cycle — and it adds **no package**: `ed25519-dalek`, `base64` and `getrandom`
+# were already in `Cargo.lock` (net is a workspace member since M4a).
+net = { path = "../net" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"

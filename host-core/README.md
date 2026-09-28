@@ -6,9 +6,11 @@ The **portable half** of the RiscDom host: everything the kernel facade does tha
 need a webview. No Tauri crate appears in its dependency tree — that is the point of the
 crate, not a coincidence of today's imports.
 
-Dependency direction: `host-core → {agent, sandbox, audit}`; `host → host-core`;
+Dependency direction: `host-core → {agent, sandbox, audit, net}`; `host → host-core`;
 `ui/src-tauri → host`. Nothing here depends on the Tauri half, so the portable code can be
 driven by the CLI, by `worker` and by the control plane without linking a GUI toolkit.
+`net` is the connection layer (v1.0 batch W): it depends on `audit` and on nothing else, so
+this edge closes no cycle.
 
 ## Modules
 
@@ -23,6 +25,8 @@ driven by the CLI, by `worker` and by the control plane without linking a GUI to
 - `run_diff` — run fingerprint comparison
 - `session` / `settings` — sessions and local settings
 - `keyring` — the API-key store
+- `connection` — the connection layer's three files (`node.key`, `peers.json`, `rooms.json`),
+  read at start-up **only when the network settings configure a wiring** (v1.0 batch W)
 - `paths` — workspace and data-directory paths
 - `error` — `HostError`
 
@@ -37,6 +41,9 @@ unchanged. The dependency runs one way only — `host-tauri → host-core` — a
 ## Constraints
 
 - **No Tauri.** A change that needs a webview belongs in `host-tauri`, not here.
+- **No network, no key.** The connection files are read only when `settings.network` names a
+  wiring: a node that never joins a network grows no `node.key`
+  ([connection.md §2](../docs/connection.md)).
 - The API key exists in memory only: never written to disk, never logged, never audited.
 - File reads and writes go through `agent::WorkspacePolicy`.
 - Nothing outside this crate reaches `sandbox` / `agent` directly.

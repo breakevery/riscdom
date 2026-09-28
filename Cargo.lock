@@ -1574,6 +1574,7 @@ dependencies = [
  "audit",
  "flate2",
  "keyring",
+ "net",
  "reqwest 0.12.28",
  "rusqlite",
  "sandbox",
