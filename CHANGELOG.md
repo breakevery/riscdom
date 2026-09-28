@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Node registration and heartbeat, frozen** (v1.0 batch X): [`docs/connection.md`](docs/connection.md) gains
+  **§6.6**, the reporting half of a server's node list. A node **registers** — an ordinary §3 frame addressed
+  to the server, verified by §3's six steps, whose body is
+  `{"register": 1, "addresses": [...], "capabilities": [...], "rooms": [...]}`, with **no key in the frame**
+  (the server already holds it, which is what makes a registration possible at all) — and then
+  **heartbeats** every **15 seconds** with `{"heartbeat": 1}`. The server keeps an **online-status table**
+  (`node_id`, the addresses the node last reported, `last_heartbeat_ms`, and a `state` that is `online`
+  within **45 s** and `offline` after); a row is created by a registration, refreshed by a heartbeat, and
+  **never deleted by going offline**. The same frames serve **both levels** — a node to its in-network
+  server, and an in-network server to the cross-region server above it — and an in-network server registers
+  as **itself**, not as the nodes behind it: a key cannot arrive by frame, and a LAN address is no use to a
+  remote peer. Joining is configuration (the administrator adds the node to the server's `peers.json`; **no
+  automatic approval**). Documentation only: no source file, no dependency and no persisted format changed.
+
 - **The connection layer reaches the host** (v1.0 batch W): `host-core` takes a dependency on `net`
   and loads its three files at start-up — `node.key` (minted on the first start with networking
   configured, never by a read), `peers.json` and `rooms.json` — **only when `settings.network`

@@ -2635,3 +2635,47 @@ names live where `host.settings.data_too_new` already lives (this document, `CHA
 `docs/handoff.md`), and *not* in `docs/control-plane-events.md`, whose twenty names are the **stream**
 events that document normalises and whose count that document and its guard test both assert. V-2 (the
 cross-region pointer and the client) and V-3 (the upper surfaces) are still to come.
+
+## 101. A node registers upward and heartbeats, at two levels and in one shape
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; the protocol is frozen (V-proto-1), unimplemented
+
+**Decision**: [connection.md §6.6](connection.md) is written. A node **registers** with the server it was
+configured with — an ordinary §3 frame addressed to that server, verified by §3's six steps, whose body is
+`{"register": 1, "addresses": [...], "capabilities": [...], "rooms": [...]}` — and then **heartbeats** it
+every **15 seconds** with the smallest frame there is, `{"heartbeat": 1}`. The server keeps an
+**online-status table** per node it knows: `node_id`, the addresses the node last reported,
+`last_heartbeat_ms`, and a `state` that is `online` while `now − last_heartbeat_ms ≤ 45 s` and `offline`
+after. A row is created by a registration, refreshed by a heartbeat, and **never deleted by going
+offline**. The same frames serve **both levels** — a node to its in-network server, and an in-network
+server to the cross-region server above it — and an in-network server registers as **itself**, not as
+itself plus the nodes below it. Joining is **configuration**: an administrator adds the node to the
+server's `peers.json` before it can register, and there is no automatic approval. This finishes §6.2's
+model in its second direction: **management is what a server hands down, §6.6 is what a node reports up**,
+and the deployer's files stay authoritative while what a node reports is a **source**.
+
+**Why**: Four choices carry it. **Registration is a §3 frame, so it needs no permission.** §6.3 already
+says who may ask — a node the server knows, with a verifying signature — and a registration is that same
+question one level up: it authenticates, it authorises nothing, and no capability is added. That also makes
+"a key cannot arrive by frame" **structural** rather than promised: the server can only accept a
+registration from a node whose key it already holds in its own `peers.json`, so §4.2's and §9's rule
+arrives on its own. **The heartbeat is not the session opener.** `{"hello": 1}` binds a socket; a
+heartbeat says a node is still *there* — different questions, and a node can hold a session open and still
+be gone — so coupling them would make the transport answer a presence question that the liveness work
+(V-proto-2) would inherit. **15 s and 45 s are chosen against §3.2, not for comfort**: the backward window
+is five minutes, so a delayed beat is a beat rather than `stale`; 15 s is not so fast that a fleet's beats
+dominate a link; and it is a third of the offline threshold, which is what lets three missed beats be the
+threshold. The **ratio** is frozen and the numbers are v1.0's defaults, of the same kind §3.1's timeouts
+are. **An in-network server reports itself alone**, and the first reason is arithmetic rather than policy:
+the top server can only verify frames from keys it holds, so a frame naming the nodes below would ask it to
+trust identities that arrived by message — §4.2's forbidden thing — and it could not verify one of them. The
+addresses below are also LAN addresses, of no use to a remote peer; and identity comes from configuration
+everywhere else in this document (§5.2's membership, §6.4's server entry). One rule, applied once more.
+
+**Impact**: `docs/connection.md` gains **§6.6** — its ten H2 sections stay **ten** (§6 keeps §6.1–§6.5, so
+every existing citation of §6.x and §7 still points where it did) — plus one sentence in the introduction
+and two clauses in §6's closing summary; `CHANGELOG.md` and `docs/handoff.md` §1 follow, bilingual as
+always. **No source file, no dependency, no capability name, no audit event constant, no hash formula, no
+route and no new persisted format changed** — this is a section of a frozen document written after the
+freeze. V-proto-2 (liveness: collective confirmation, an in-network server noticing its own loss, and what
+follows the judgement) and V-2 (the pointer and the client) are the batches that will use it.

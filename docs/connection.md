@@ -16,7 +16,9 @@ device-partitioned ids).
 **It is written in parts.** M4 is split into five pieces, and this document grows with them:
 **M4a identity and signing** (written below), M4b discovery, M4c rooms, M4d the cross-region server,
 M4e audit digests. A section that is not written yet says **deferred** and names the piece it
-belongs to; nothing deferred is a promise about its shape.
+belongs to; nothing deferred is a promise about its shape. The **V batches** — the connection layer's
+wiring into the host — then added **§6.6**, the reporting half of a server's node list
+(registration and heartbeat): the one part of this document written **after** M4 was closed.
 
 **Its companions.** [decisions §13](decisions.md) (credentials and key management) and
 [§7](decisions.md) (cross-device) are the decisions behind §2 and §3;
@@ -285,10 +287,129 @@ signed `to` and nothing else; authorisation being the §3 model (a known `node_i
 signature) and **not** a new credential or capability; a relay forwarding only to a destination it knows;
 what "stateless" does and does not mean; a direct connection taking the data path off the relay; the
 server never dialling a node; the configuration shape being a `peers.json` entry plus a settings field
-with no new format; and the red-line answer of §6.5. **Not frozen**: the routing algorithm's data
-structure and the server's **capacity limits**; how a deployment publishes its address to its own users;
-what the aggregation role does with a digest (that is §7); and how several servers would be run together
-(a commercialisation-layer item).
+with no new format; the red-line answer of §6.5; and the **reporting half** of the same model — §6.6's
+registration, heartbeat and online-status table, with its two directions kept apart. **Not frozen**: the
+routing algorithm's data structure and the server's **capacity limits**; how a deployment publishes its
+address to its own users; what the aggregation role does with a digest (that is §7); how several servers
+would be run together (a commercialisation-layer item); the **numbers** §6.6 freezes for v1.0 (15 s and
+45 s are defaults of the kind §3.1's timeouts are); and where §6.6's table is kept.
+
+### 6.6 Reporting upward: registration and heartbeat
+
+**[settled]** **A node tells its server it is here, and goes on telling it.** §6.2's four roles are what a
+server *does*; this subsection is the other direction — **what a node reports**. It is one mechanism at two
+levels: a node to the server it was configured with, and an in-network server to the cross-region server
+above it. Nothing here is a new frame *type*: a registration is an ordinary §3 frame addressed to the
+server, and so is a heartbeat.
+
+**[settled]** **The registration frame** — sent when the node connects, from a node the server already
+knows (§6.3's authorisation):
+
+```json
+{
+  "v": 1, "from": "dev-a", "to": "<the server's node_id>", "ts": 1737970000000,
+  "body": {
+    "register": 1,
+    "addresses": ["10.0.0.7:47821"],
+    "capabilities": [],
+    "rooms": ["lab"]
+  },
+  "sig": "…"
+}
+```
+
+- **`from` is who is speaking**, and it is what the server binds the row to: the identity is in the
+  preamble, not in the body, so a registration cannot name somebody else.
+- **`addresses`** is where the node says it can be dialled — empty is legal, and is what a node reachable
+  only through the relay reports. **`capabilities`** and **`rooms`** are what the node *claims about
+  itself*: the same fields `peers.json` carries, with the same standing — **a claim, not a fact**.
+- **No key travels in a registration.** The server already holds the node's public key, because it is in
+  the server's own `peers.json` — which is what made step 1 of §3 succeed. A key arrives through
+  configuration and never through a frame, so §4.2's rule ("an announcement refreshes an address, it cannot
+  introduce a key") holds here **by construction**: a node the server does not know cannot register at all.
+- The server verifies it the way it verifies anything — §3's six steps: it knows the sender, the signature
+  verifies, `v` is spoken, `to` is itself, `ts` is inside the window, and it is not a replay — and then
+  records the row below. A registration is **idempotent**: sending it twice is not an error and the second
+  one changes nothing.
+
+**[settled]** **The heartbeat frame** — the smallest thing a node can say:
+
+```json
+{ "v": 1, "from": "dev-a", "to": "<the server's node_id>", "ts": 1737970015000,
+  "body": { "heartbeat": 1 }, "sig": "…" }
+```
+
+- **Every 15 seconds**, and that number is a *default*, not a law. A beat that is lost costs nothing: the
+  next one arrives 15 seconds later and refreshes the row.
+- **Why 15 s**: it is comfortably inside §3.2's backward window (five minutes), so a delayed beat is still
+  a beat and never a `stale` frame; it is not so fast that a fleet's beats become the busiest thing on a
+  link; and it is three times smaller than the offline threshold below, which is what lets that threshold
+  ride out one lost beat and one slow round trip.
+- **The heartbeat is not the session opener.** `{"hello": 1}` binds a socket (the transport's business); a
+  heartbeat is a **signalling** fact — it says a node is still *there*, which is a different question from
+  whether a socket is open, and a node may hold a session open and still be gone. Coupling the two would
+  make the transport answer a presence question, and the liveness judgement that reads this table
+  (V-proto-2) must not inherit that.
+
+**[settled]** **The online-status table** — what the server keeps, per node it knows:
+
+| field | meaning |
+|---|---|
+| `node_id` | the key, and the row's only identity |
+| `addresses[]` | the addresses the node **last reported** (empty when it reported none) |
+| `last_heartbeat_ms` | when the last heartbeat arrived — or the registration, which counts as one |
+| `state` | `online` while `now − last_heartbeat_ms ≤ 45 s`, and `offline` after that |
+
+- **The offline rule is the ratio, and 45 s is v1.0's value**: three missed intervals. Both are written
+  down here so the liveness work has a number rather than a guess.
+- **A row is created by a registration, refreshed by a heartbeat, and never deleted by going offline.**
+  Deleting it would make "offline" indistinguishable from "never registered", and *who was here* is
+  exactly what the liveness judgement needs. A restart forgets the whole table — the same trade §3.2's
+  record makes — and a node re-registers when it reconnects.
+- **The table is the signalling role's data** (§6.2): where a node is, right now. It holds **no payload**,
+  and nothing in it is a message.
+- **The claims are a source, and the files stay authorities.** What a node reports feeds the registry a
+  server may publish (§6.2's management) **as a source**: the deployer's `peers.json` and `rooms.json`
+  remain authoritative for their own node, and a disagreement is **reported, never silently resolved** —
+  §4.1's and §6.2's rule, unchanged. A node cannot become known, or gain a key, by registering.
+
+**[settled]** **One mechanism, two levels.** The frames above are the same when a node talks to its
+in-network server and when an in-network server talks to the cross-region server above it: same §3 frames,
+same table, same numbers. What differs is only *who is the node* and *who keeps the table* — the same
+kernel, differentiated by deployment (§6.1). One shape, so the two levels cannot drift apart.
+
+**[settled]** **An in-network server registers as *itself*, not as itself plus its nodes.** Its frame names
+its own `node_id` and reports its own addresses; the nodes below it are **not** disclosed upward. Three
+reasons, and the first is structural:
+
+- **A key cannot arrive by frame.** The cross-region server must hold the in-network server's key in *its*
+  `peers.json` for step 1 of §3 to succeed. If the frame also named the nodes below, the top server would be
+  expected to know identities that arrived through a message rather than through configuration — the thing
+  §4.2 and §9 forbid — so it could not verify a single one of them.
+- **The addresses below are not reachable from above.** A node behind an in-network server has a LAN
+  address; publishing it to a remote peer is a topology leak with nothing on the other side of it. What
+  makes the cascade work is that the in-network server's **own** address is reachable: **one public endpoint
+  is enough**, which is the model this section is built on.
+- **Identity comes from configuration here as everywhere.** If a deployer wants the top server to know the
+  nodes below, they go in *that* server's `peers.json` — out of band, by the deployer, which is also how a
+  new node joins at all.
+
+**[settled]** **A new node joins by configuration, not by asking.** An administrator adds the node to the
+server's `peers.json` **before** it can register; there is **no automatic approval**, and no request a node
+can send that makes itself known. That is §5.2's rule ("membership is configuration; v1.0 has no join
+protocol") applied to the server's node list — and the place a *dynamic* join would be decided is
+[decisions §33](decisions.md)'s territory, put to M6/M7 rather than settled here.
+
+**Frozen**: that a node registers and then heartbeats; both being ordinary §3 frames addressed to the
+server and verified by §3's six steps; the registration body's members (`register`, `addresses`,
+`capabilities`, `rooms`) and that **no key travels in a frame**; the heartbeat's body (`heartbeat`) and that
+it is distinct from the session opener; the online-status table's four fields, and that a row is never
+deleted by going offline; the offline rule (three missed intervals) and v1.0's numbers (15 s, 45 s); the two
+levels sharing one shape; an in-network server registering as itself; and joining being configuration with
+no automatic approval. **Not frozen**: the numbers themselves (15 s and 45 s are v1.0's defaults, of the kind
+§3.1's timeouts are); where the table is kept (memory-only is this section's reading of §6.3, not a format);
+how a server *publishes* what it holds (that is §6.2's management, unchanged); what a node or a server does
+when it concludes a peer is gone (**V-proto-2**); and whether anything ever prunes the table.
 
 ## 7. Audit digests — deferred (M4e, and authorised separately)
 

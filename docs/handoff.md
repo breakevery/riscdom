@@ -77,6 +77,13 @@ current request authorising it (§2).
   `connection_problem()`; a newer file is refused and never written over; and two audit names record
   what happened (`host.connection.key_minted`, `host.connection.data_too_new`). **Decision §100.**
   V-2 (the cross-region pointer + client) and V-3 (the upper surfaces) follow.
+- **And the reporting half is frozen too** (v1.0 batch X, 2026-09-28): [`docs/connection.md`](connection.md)
+  §6.6 — a node **registers** upward (an ordinary §3 frame; **no key in a frame**) and then **heartbeats**
+  every **15 s**, and the server keeps an **online-status table** (`online` within **45 s**, `offline`
+  after; a row is never deleted by going offline). One shape at **two levels** (node → in-network server,
+  in-network server → cross-region server), an in-network server registering as **itself** rather than as
+  the nodes behind it, and joining by configuration with **no automatic approval**. **Decision §101.**
+  Docs only, no code; V-proto-2 (liveness) and V-2 (the pointer + client) follow.
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

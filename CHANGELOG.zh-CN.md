@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **节点注册与心跳已冻结**（v1.0 批 X）：[`docs/connection.md`](docs/connection.md) 多出 **§6.6** —— 服务器节点表的**上报半边**。节点先**注册** —— 一个普通的、发给服务器自己的 §3 帧，按 §3 的六步验证，体为 `{"register": 1, "addresses": [...], "capabilities": [...], "rooms": [...]}`，**帧里不走密钥**（服务器本来就持有它，这正是注册有可能成立的原因）—— 然后每 **15 秒**用 `{"heartbeat": 1}` **心跳**一次。服务器保留一张**在线状态表**（`node_id`、节点最后一次报的地址、`last_heartbeat_ms`，以及一个在 **45 秒**内为 `online`、之后为 `offline` 的 `state`）；一行由注册创建、由心跳刷新、且**永不**因离线被删除。同一套帧服务**两个层级** —— 节点→内网服务器，内网服务器→上层的跨区域服务器 —— 而内网服务器注册的是**它自己**，不是它背后的节点：密钥无法经帧到来，而局域网地址对远端同侪毫无用处。加入是配置（管理员把节点加进服务器的 `peers.json`；**没有自动审批**）。纯文档：没有源文件、没有依赖、也没有持久化格式变动。
+
 - **连接层接进了宿主**（v1.0 批 W）：`host-core` 新增对 `net` 的依赖，并在启动时加载它的三个文件 —— `node.key`（在首次配置了联网的启动时铸出，**读绝不生成**）、`peers.json` 与 `rooms.json` —— **且只在 `settings.network` 点名了接线时**；未配置的节点什么都不读、也不长密钥（`connection.md` §2）。缺失的 peer 表是正常的，来自更新构建的文件被拒绝且**不被覆写**，每一次拒绝都进日志、并可由 `AppState::connection_problem` 读到。两个审计名记录发生了什么：`host.connection.key_minted`（`{node_id, fingerprint}` —— 部署者需要这个指纹去填别的节点的 `peers.json`）与 `host.connection.data_too_new`（`{file, found, supported}`）。`net` 自身的逻辑一字未改，而这条依赖不引入任何新包：`Cargo.lock` 只多一行边（前后都是 534 个包）。
 
 - **跨区域服务器上的 signalling 与 management**（v1.0 M4d）：`net` 实现了 [`docs/connection.md`](docs/connection.md) §6.2 剩下的部分。发给服务器自己的帧现在被分派到它所要的角色：**signalling** 用 `{"addresses": [...]}` 回答 `{"query": "<node_id>"}` —— 节点拨入所用的地址与它 `peers.json` 条目里的地址，**且别无其他**，因为 §6.2 要 signalling 只知地址、从不知负载 —— 而 **management** 用一个注册表回答注册表请求：§4.1 的下发表加上房间定义，节点用 `Registry::merge` 合并它 —— 本地的 `peers.json` 与 `rooms.json` 赢，而每一处分歧都以一份**报告**回来。发布的房间集合被按 `rooms.json` 自己的检查来要求，所以来源无法携带一个文件会拒的房间。服务器用自己的密钥签它的回答（§6.4：它是一个同侪），hello 仍然不出声，不认识的本地帧得不到任何回答，而授权自始至终是 §3 的模型 —— **零新凭证、零新 capability**。`src/bin/riscdom-relay.rs` 现在会铸或读 `<data-dir>/node.key` 并发布 `rooms.json`。
