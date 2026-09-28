@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The transport: one JSON line per message over TCP, direct first and relay second** (v1.0 M4a):
+  `net` implements [`docs/connection.md`](docs/connection.md) §3.1 with **`std::net`** — no async
+  runtime — with the frame serialised **once**, so the direct and relayed paths carry identical
+  bytes. `deliver` tries the peer's address first and falls back to the `Relay` seam (M4d fills in
+  routing; `NoRelay` is the honest "nothing wired"). Failures map onto the error model as §3.1 says
+  (`network` for a refused/timed-out connect, a cut frame, an over-long line or a missing relay;
+  `invalid` for a frame that does not parse).
+
 - **Signing and replay protection** (v1.0 M4a): `net` implements [`docs/connection.md`](docs/connection.md)
   §3 — `SignedMessage` (`{v, from, to, ts, body}` signed over its canonical JSON, `sig` beside it) and
   `verify`, which runs the six steps in the frozen order and answers with an error-model category

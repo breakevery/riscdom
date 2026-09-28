@@ -19,38 +19,11 @@
 //! ([security-model.md §4](../../docs/security-model.md)) — deliberately not this crate's, and
 //! deliberately not this batch's.
 
+use crate::error::Category;
 use crate::message::{body_hash, now_ms, SignedMessage, PROTOCOL_VERSION};
 use crate::replay::{ReplayError, ReplayGuard};
 use ed25519_dalek::VerifyingKey;
 use std::collections::HashMap;
-
-/// The error model's categories ([error-model.md](../../docs/error-model.md) §3).
-///
-/// All five are here so the mapping is total and stable for a caller that branches on
-/// it; verification itself can only ever produce three of them — `Refused`, `Invalid`
-/// and `Network`. `Crashed` is a dead process and `Partial` is a batch that half
-/// finished, and neither is something a single verified frame can be.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Category {
-    Network,
-    Refused,
-    Crashed,
-    Partial,
-    Invalid,
-}
-
-impl Category {
-    /// The wire word the error model uses.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Category::Network => "network",
-            Category::Refused => "refused",
-            Category::Crashed => "crashed",
-            Category::Partial => "partial",
-            Category::Invalid => "invalid",
-        }
-    }
-}
 
 /// Why a message was not accepted.
 #[derive(Debug, Clone, PartialEq, Eq)]

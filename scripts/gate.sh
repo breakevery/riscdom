@@ -153,6 +153,9 @@ cargo run -q -p net --example identity -- --self-test || fail "node key example"
 echo "==> signed message example self-test (net)"
 cargo run -q -p net --example sign -- --self-test || fail "signed message example"
 
+echo "==> transport example self-test (net)"
+cargo run -q -p net --example transport -- --self-test || fail "transport example"
+
 echo "==> wix version guard"
 node scripts/check-wix-version.mjs || fail "wix version guard"
 

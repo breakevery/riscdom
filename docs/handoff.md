@@ -44,6 +44,10 @@ current request authorising it (§2).
   [connection.md](connection.md) §3 — `SignedMessage` and the six verification steps in the frozen
   order, each refusal carrying an error-model category, and §3.2's per-peer, in-memory replay record.
   **Decision §94.**
+- **The transport is on disk too** (v1.0 M4a-impl-3, 2026-09-28): `net` implements
+  [connection.md](connection.md) §3.1 with **`std::net`** — one JSON line per message, the frame
+  serialised once (so direct and relayed bytes are identical), direct first and the `Relay` seam
+  second, with the relay's routing left to M4d. **Decision §95.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

@@ -2371,3 +2371,41 @@ existing source file changed, and no hash formula, route, capability name or aud
 was touched** — and authorisation is deliberately absent: this batch answers *who sent this*, and
 whether that node may do the thing stays the capability model's question
 ([security-model.md](security-model.md) §4), so nothing here is a permission check.
+
+## 95. The transport is std TCP with one JSON line per message, and the relay is a seam
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; the direct path implemented
+
+**Decision**: [connection.md §3.1](connection.md) is implemented in `net` with **`std::net`** — no
+async runtime. `Connection` and `Listener` send and receive **one JSON line per message**; the
+frame is serialised **once** (`SignedMessage::to_line`) so the direct and relayed paths carry
+identical bytes; and `deliver` tries the peer's address **first** and hands the frame to the
+`Relay` seam when that fails. The relay's *routing* is M4d's: this batch fixes the trait
+(`fn forward(&self, frame: &str)`), one honest implementation of "nothing wired" (`NoRelay`), and
+the direct path. Ports and timeouts are not frozen by §3.1 and live in `TransportConfig`.
+Failures map onto the error model exactly as §3.1's table says: a refused or timed-out connect, a
+cut-short frame, an over-long line and a missing relay are **`network`**; a complete frame that
+does not parse is **`invalid`**; and **`partial` is not used**, because one frame is one message
+rather than a batch.
+
+**Why**: Three choices. **`std` rather than a runtime**: `sandbox/relay.rs` already runs a framed
+protocol on std sockets, so a runtime would be a scheduler every caller pays for and few use — and
+the plugin interface's transport is stdio, not TCP, so there is nothing to share with an async
+stack anyway. **One encoder**: the byte-identity §3.1 requires is not a convention here but a fact
+of the code — there is exactly one function that turns a message into a frame, and the relay
+receives its output verbatim; the test asserts that the bytes the direct path wrote equal the bytes
+the relay was handed. **A trait, not a stub that compiles and lies**: M4d owns routing, so `Relay`
+is one method wide and `NoRelay` answers `RelayUnavailable` (`network`) rather than pretending a
+frame went somewhere. Two smaller notes: `receive` refuses a line longer than a configurable cap
+instead of allocating without bound, and that refusal is `network` (a transport that did not
+deliver a frame) rather than `invalid`, because the cap is this build's limit and not a protocol
+rule; and a read timeout arrives as `WouldBlock` on Unix and `TimedOut` on Windows, so both kinds
+are matched — which a test on one platform only half-proves.
+
+**Impact**: `net/` gains `src/transport.rs`, a `transport` example with `--self-test`, ten
+integration tests, and `src/error.rs` (the error model's five categories, moved out of `sign.rs` so
+the verifier and the transport map onto one definition); the gate gains its third `net` step.
+`net/README.md` moves §3.1 from "not here yet" to "here", and lists M4d as what is still missing.
+**No existing source file changed, no dependency was added, and no hash formula, route, capability
+name or audit event constant was touched** — and the relay is deliberately inert: nothing in this
+batch forwards a frame anywhere.
