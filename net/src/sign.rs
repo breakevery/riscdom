@@ -185,26 +185,8 @@ pub fn verify_at(
     guard: &mut ReplayGuard,
     now: i64,
 ) -> Result<VerifiedMessage, VerifyError> {
-    // 1. we know the sender.
-    if !peers.knows(&message.from) {
-        return Err(VerifyError::UnknownSender(message.from.clone()));
-    }
-    // 2. one of that peer's keys verifies the signature over the canonical bytes.
-    if !peers
-        .keys_of(&message.from)
-        .iter()
-        .any(|key| message.verify_with(key))
-    {
-        return Err(VerifyError::BadSignature(message.from.clone()));
-    }
-    // 3. the protocol version is one we speak. A newer major is refused, not guessed at;
-    //    an older one is refused for the same reason — we do not speak it either.
-    if message.v != PROTOCOL_VERSION {
-        return Err(VerifyError::UnsupportedVersion {
-            found: message.v,
-            supported: PROTOCOL_VERSION,
-        });
-    }
+    // 1–3. the sender is known, its signature verifies, and the version is ours.
+    check_identity(message, peers)?;
     // 4. it is addressed here.
     if message.to != this_node {
         return Err(VerifyError::NotAddressedToUs {
@@ -231,4 +213,59 @@ pub fn verify(
     guard: &mut ReplayGuard,
 ) -> Result<VerifiedMessage, VerifyError> {
     verify_at(message, this_node, peers, guard, now_ms())
+}
+
+/// §3's **steps 1–3**: the receiver knows the sender, one of that peer's keys verifies the
+/// signature over the canonical bytes, and `v` is a version this build speaks.
+///
+/// Shared by [`verify_at`], which continues to step 4, and
+/// [`authenticate_forwarded`], which must not — so the two cannot drift apart about what
+/// "the sender is who it says" means.
+pub(crate) fn check_identity(message: &SignedMessage, peers: &PeerKeys) -> Result<(), VerifyError> {
+    // 1. we know the sender.
+    if !peers.knows(&message.from) {
+        return Err(VerifyError::UnknownSender(message.from.clone()));
+    }
+    // 2. one of that peer's keys verifies the signature over the canonical bytes.
+    if !peers
+        .keys_of(&message.from)
+        .iter()
+        .any(|key| message.verify_with(key))
+    {
+        return Err(VerifyError::BadSignature(message.from.clone()));
+    }
+    // 3. the protocol version is one we speak. A newer major is refused, not guessed at;
+    //    an older one is refused for the same reason — we do not speak it either.
+    if message.v != PROTOCOL_VERSION {
+        return Err(VerifyError::UnsupportedVersion {
+            found: message.v,
+            supported: PROTOCOL_VERSION,
+        });
+    }
+    Ok(())
+}
+
+/// The checks a **relay** runs on a frame it is asked to hand on
+/// ([connection.md §6.3](../../docs/connection.md)).
+///
+/// §6.3 names exactly two: the sender is a node the server knows (step 1) and the
+/// signature verifies (step 2). The version check (step 3) and §3.2's window and record
+/// are the same frame-level rules every receiver applies, so they are here too.
+///
+/// **Step 4 is deliberately absent.** A frame handed to a relay is addressed to somebody
+/// else — that `to` is what the relay routes on — so asking "is `to` me?" is the one
+/// question a relay must not ask. It is the whole difference between this function and
+/// [`verify_at`], and it is why the two share [`check_identity`] rather than one calling
+/// the other.
+pub(crate) fn authenticate_forwarded(
+    message: &SignedMessage,
+    peers: &PeerKeys,
+    guard: &mut ReplayGuard,
+    now: i64,
+) -> Result<(), VerifyError> {
+    check_identity(message, peers)?;
+    // 5 and 6. inside the window, and not a replay — the same record §3.2 gives every
+    // receiver, checked in the same order.
+    guard.accept(&message.from, message.ts, &body_hash(&message.body), now)?;
+    Ok(())
 }

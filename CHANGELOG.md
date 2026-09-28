@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The cross-region server's relay** (v1.0 M4d): `net` implements [`docs/connection.md`](docs/connection.md)
+  §6's **relay** role and the session it needs. `RelayServer` parses a frame, authenticates its sender
+  against its own `peers.json` (§6.3: the §3 model, **no new credential and no new capability**), and routes
+  on the signed `to` and nothing else — a frame for the server itself is the signalling and management
+  roles' business, a frame for a node the server does not know is refused rather than broadcast, and
+  anything else is handed down the destination's **session** in the bytes the sender signed. Because §6.3
+  has the server **wait to be dialled and never dial a node**, `SessionTable` holds the connections nodes
+  dialled *out* — which is why this project needs no hole punching. `RelayClient` / `RelaySession` are the
+  node's half (`hello` opens a session, and a hello does not consume the sender's §3.2 record, since a
+  session is opened *after* the frame it carries was signed). `src/bin/riscdom-relay.rs` is the program a
+  **deployer** runs: it names no endpoint, binds only what `--bind` says, and stores no message. No new
+  persisted format, no new dependency, and nothing touched in the capability names, audit event constants,
+  hash formulas or routes.
+
 - **Rooms** (v1.0 M4c): `net` implements [`docs/connection.md`](docs/connection.md) §5. `rooms.json`
   (version 1) holds `{name, members[], rules}` with members as **`node_id`s** and §5.2's three rules:
   `rate` (`{messages, window_seconds}`, **per member**, over budget `refused`), `mention`

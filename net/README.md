@@ -6,7 +6,7 @@ The **connection layer** (v1.0, [roadmap §4](../docs/roadmap-v1.0.md)), as
 [`docs/connection.md`](../docs/connection.md) freezes it: a node's identity (§2), signing
 (§3), discovery (§4), rooms (§5) and the cross-region server (§6).
 
-**What is here today: §2, §3, §3.1, §4 and §5.** A node's identity is an Ed25519 key pair in
+**What is here today: §2, §3, §3.1, §4, §5, and §6's relay.** A node's identity is an Ed25519 key pair in
 `<data-dir>/node.key` — one JWK whose first member is `schema_version`, written owner-only,
 minted on the first start that has networking configured and never minted by a read. A
 message is `{v, from, to, ts, body}` signed over its canonical JSON, with `sig` beside it,
@@ -17,9 +17,14 @@ runtime), **direct first** and through the `Relay` seam when that fails. Discove
 to dial: `peers.json` is authoritative for its own node, a handed-down `NodeTable` merges as a
 **source** with conflicts reported, and a **UDP beacon** may only refresh an address — never
 introduce a key. And `rooms.json` says who is in which room: membership, plus the three rules
-(`rate` per member, `mention` defaulting to `nobody`, `require_signature`).
-**Not here yet: the cross-region server (§6)** — including the relay's routing, which is why
-`NoRelay` exists. Each piece arrives only after the section it implements is frozen, which is
+(`rate` per member, `mention` defaulting to `nobody`, `require_signature`). The cross-region
+server's **relay** stands up as `RelayServer`: it authenticates a frame's sender against its own
+`peers.json` (the §3 model, and no new credential), routes on the signed `to` and nothing else,
+and hands the frame down the destination's **session** — because §6.3 has the server wait to be
+dialled and **never dial a node**, which is why this project needs no hole punching.
+**Not here yet: §6's signalling and management roles** — the address query, and publishing the
+registry and room definitions — which land on the same server next; §7's audit digests wait on
+M5. Each piece arrives only after the section it implements is frozen, which is
 what [decisions §3](../docs/decisions.md) asks for and what keeps the cross-device work from having
 to be done twice.
 
@@ -45,6 +50,7 @@ description of those bytes instead of two. `host-core` is what will depend on *t
 | `src/peers.rs` | `peers.json`: the entry shape a handed-down table shares, the local file that wins, and the rule that a peer table holds **public** keys only. |
 | `src/discovery.rs` | `NodeTable` (the hand-down, with its generation, merged as a **source** and reporting conflicts), the UDP beacon (`sign_announcement` / `receive_datagram`) and `RoomFilter` — the default-deny test that keeps a beacon from introducing a key. |
 | `src/rooms.rs` | `rooms.json`: membership (a member is a **`node_id`**), the three rules (`RateRule` and `RateCounters`, `Mention`, `require_signature`), and the checks a room must pass to load. |
+| `src/relay.rs` | The cross-region server's relay: `RelayServer` (parse, authenticate, route on `to`, hand the frame down the destination's session), `SessionTable` (who is dialled in — which is what the server never dials around), `RelayClient` / `RelaySession` (the node's half, and the `hello` that opens a session), and `Forwarder`, the one-method seam that keeps the routing rule testable with no socket near it. `src/bin/riscdom-relay.rs` is the program a **deployer** runs. |
 
 ## Running it
 
@@ -54,22 +60,29 @@ cargo run -p net --example sign -- --self-test
 cargo run -p net --example transport -- --self-test
 cargo run -p net --example discovery -- --self-test
 cargo run -p net --example rooms -- --self-test
+cargo run -p net --example relay -- --self-test
 ```
 
-All five are the shape the gate uses for the other example-level proofs
+All six are the shape the gate uses for the other example-level proofs
 (`worker/examples/remote_executor.rs`): they work in a scratch directory, in memory, or on
 loopback, and check what the protocol freezes — the key file's shape and permissions; all six
 verification refusals plus the rule that a key rotation does not reset a peer's replay mark;
 that a message round-trips, that both transport paths carry **identical** bytes and that a
 failure maps onto the error model's category; that a peer file reads back, that a conflict is
-reported, that a beacon verifies over UDP and that a filter denies by default; and, for `rooms`,
+reported, that a beacon verifies over UDP and that a filter denies by default; for `rooms`,
 that the file loads, that a room may not drop the signature floor, that the budget is per member
-and that the filter reads membership out of the file. `scripts/gate.sh` runs all five.
+and that the filter reads membership out of the file; and, for `relay`, that a frame reaches a
+dialled-in destination **byte for byte**, that a frame addressed to the server itself is never
+handed on, that an unknown sender or destination is refused, that a replay arrives once, and that
+the server **never dials** a destination that has not dialled in. `scripts/gate.sh` runs all six;
+the deployer's program is `cargo run -p net --bin riscdom-relay -- --help`.
 
 ## What this crate does not do yet
 
-The cross-region server (§6) — the four roles, and the relay's routing, which is why
-[`NoRelay`](src/transport.rs) is the only `Relay` implementation here. The keyring route for
+The **signalling and management** roles of §6.2 — the address query, and publishing the registry
+and room definitions — which land on the same server next, and §7's audit aggregation, which waits
+on M5's authorisation. [`NoRelay`](src/transport.rs) remains what a deployment with no cross-region
+server configured wires: §6.1 says such a deployment loses only the wide-area lane. The keyring route for
 `node.key` — §2 allows the key to live in the OS keyring — is also not wired: the file path
 landed first, and `NodeKey` is a value a caller can hand to whichever store it prefers. **The
 node's peer port is configuration** (§4.3) and belongs to the host's settings, which this crate

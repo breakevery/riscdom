@@ -2490,3 +2490,47 @@ source file changed, no dependency was added, and no hash formula, route, capabi
 event constant was touched** — and authorisation is still absent, as in every `net` batch: this crate
 answers *who sent this* and *what the room permits*, and whether a node may do a thing stays the
 capability model's question.
+
+## 98. The relay carries a frame down the destination's session, because the server never dials
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; M4d's relay implemented
+
+**Decision**: [connection.md §6](connection.md)'s **relay** role is implemented in `net`, together with the
+session it needs. `RelayServer` parses a frame, authenticates its sender against its own `peers.json` —
+§3's steps 1–3 and §3.2's record, and **not** step 4 — routes on the signed `to` and nothing else, and hands
+the frame down the destination's session **in the bytes that arrived**. A frame addressed to the server
+itself is `Routed::Local` (the signalling and management roles' business, next batch); a destination the
+server cannot place is refused rather than broadcast; and a destination that is known but **not dialled
+in** is refused too, because §6.3 has the server wait to be dialled and **never dial a node**.
+`SessionTable` is that knowledge — `node_id → the socket it dialled in on` — which is §6.3's "who is
+where" read as a transport fact. `RelaySession` / `RelayClient` are the node's half, and `hello_body()` is
+the one wire shape this batch invents: an ordinary signed frame addressed to the server, carrying the
+protocol version, which is how a session says who it is and how a node with nothing to send yet can still
+be found. `src/bin/riscdom-relay.rs` is the deployer's program — `--data-dir`, `--bind` and `--node-id`, no
+default address, and a banner that states the runner, the storage rule and the no-dial rule. **A hello does
+not consume the sender's §3.2 record**, and that is a rule rather than an oversight.
+
+**Why**: Four choices carry this. **A session, not a dial-back**: §6.3 says the server never dials a node
+and that "both sides dial out", so a relay that reached a destination at its `addresses[]` would contradict
+the sentence and bring back the inbound-path problem the no-hole-punching claim is made of; the destination
+holds the connection open and the frame goes down it. **Step 4 is dropped, and only step 4**: §6.3 names
+steps 1 and 2, and a relayed frame is addressed to somebody else by design — so the relay and the receiver
+now share `check_identity` (steps 1–3) rather than one calling the other, and the difference between them is
+exactly one question, written where it is answered. **A hello the record cannot see**: a session is opened
+*after* the frame it is about to carry was signed — the failed direct attempt is what comes just before it
+— so a record the hello advanced would make the relay refuse the very frame it was handed, for being older
+than the hello that carried it there. It was found by a failing test rather than by review, which is the
+argument for the record being a rule with a test rather than a line of code. And **§6.5's answer is made
+checkable in the program**: the banner states that a deployer runs it, that `--bind` is required so the
+software names no address, and that no message is stored; two tests hold the rest — an unknown sender gets
+no session, and a destination with a live, reachable address hears nothing until it dials in.
+
+**Impact**: `net/` gains `src/relay.rs` (`RelayServer`, `SessionTable`, `Forwarder`, `RelayError`,
+`route`, `RelaySession`, `RelayClient`), `src/bin/riscdom-relay.rs`, a `relay` example with `--self-test`,
+and seventeen tests; `sign.rs` grows `check_identity` (steps 1–3, shared) and `authenticate_forwarded`
+(steps 1–3 plus §3.2, without step 4), and `transport.rs` grows `frame_bytes` and
+`Connection::writer_clone` / `set_read_timeout` — refactors with no behaviour change to §3 or §3.1; the
+gate gains its sixth `net` step. `net/README.md` moves §6's relay from "not here yet" to "here". **No new
+dependency, no new persisted format, no new capability name, no audit event constant, no hash formula and
+no route was touched** — the server keeps no message store, draws its authority from §3 and issues no
+credential, and signalling, management and §7's digests are still unwritten.

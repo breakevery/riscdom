@@ -27,9 +27,17 @@
 //! - **§5, rooms** — [`RoomsFile`]: membership plus the three rules ([`RateRule`] and
 //!   [`RateCounters`], [`Mention`], `require_signature`). [`RoomFilter::from_rooms`] is
 //!   where §4's filter meets §5's file.
+//! - **§6, the cross-region server** — [`RelayServer`] and [`route`]: a frame is
+//!   authenticated (§3's model, and no new credential), routed on its signed `to`, and
+//!   handed down the destination's session — [`SessionTable`] — while a frame addressed to
+//!   the server itself is left to the signalling and management roles. [`RelayClient`] and
+//!   [`RelaySession`] are the node's half: the session **both sides dial out** (§6.3),
+//!   which is why the server never dials and this project needs no hole punching.
 //!
-//! **Not here yet**: the cross-region server (§6) — including the relay's routing, which is
-//! why [`NoRelay`] exists. Each piece lands only after the section it implements is frozen.
+//! **Not here yet**: §6's **signalling** and **management** roles — the address query and
+//! the registry and room publishing — which land next on the same server and session. §7's
+//! audit digests wait on M5's authorisation. Each piece lands only after the section it
+//! implements is frozen.
 //!
 //! **Dependency direction.** `net` depends on [`audit`] and nothing else in this
 //! workspace. The chain's canonical JSON ([`audit::canonical_json`]) is what a
@@ -43,6 +51,7 @@ mod error;
 mod identity;
 mod message;
 mod peers;
+mod relay;
 mod replay;
 mod rooms;
 mod sign;
@@ -62,6 +71,10 @@ pub use message::{
 pub use peers::{
     peers_category, public_key_from_jwk, PeerEntry, PeersError, PeersFile, PEERS_FILE,
 };
+pub use relay::{
+    client_for_server, hello_body, is_hello, route, Forwarder, RelayClient, RelayError,
+    RelayServer, RelaySession, Routed, SessionTable,
+};
 pub use replay::{ReplayError, ReplayGuard, Window, REPLAY_WINDOW_AHEAD_MS, REPLAY_WINDOW_BACK_MS};
 pub use rooms::{
     rooms_category, Mention, RateCounters, RateError, RateRule, Room, RoomRules, RoomsError,
@@ -69,9 +82,9 @@ pub use rooms::{
 };
 pub use sign::{verify, verify_at, PeerKeys, VerifiedMessage, VerifyError};
 pub use transport::{
-    deliver, send_direct, Connection, Listener, NoRelay, Op, Path, Relay, TransportConfig,
-    TransportError, DEFAULT_CONNECT_TIMEOUT, DEFAULT_MAX_FRAME_BYTES, DEFAULT_READ_TIMEOUT,
-    DEFAULT_WRITE_TIMEOUT, FRAME_TERMINATOR,
+    deliver, frame_bytes, send_direct, Connection, Listener, NoRelay, Op, Path, Relay,
+    TransportConfig, TransportError, DEFAULT_CONNECT_TIMEOUT, DEFAULT_MAX_FRAME_BYTES,
+    DEFAULT_READ_TIMEOUT, DEFAULT_WRITE_TIMEOUT, FRAME_TERMINATOR,
 };
 pub use versioned::{
     save, save_new_private, Versioned, VersionedError, VersionedLoad, FIRST_SCHEMA_VERSION,

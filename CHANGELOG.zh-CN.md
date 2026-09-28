@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **跨区域服务器的 relay**（v1.0 M4d）：`net` 实现了 [`docs/connection.md`](docs/connection.md) §6 的 **relay** 角色与它所需的会话。`RelayServer` 解析一帧、用自己那份 `peers.json` 认证发送者（§6.3：§3 的模型，**零新凭证、零新 capability**），并只按签名内的 `to` 路由 —— 发给服务器自己的帧是 signalling 与 management 两个角色的事，发给服务器并不认识的节点的帧被拒绝而**不是**广播，其余一律按发送者签过的字节**沿目的地的会话**交下去。因为 §6.3 要服务器**等着被拨、从不拨向节点**，`SessionTable` 装的是节点**拨出去**的那些连接 —— 这正是本项目不需要打洞的原因。`RelayClient` / `RelaySession` 是节点那一半（`hello` 开一条会话；而 hello 不消耗发送者的 §3.2 记录，因为会话是在它所承载的那帧**签名之后**才开的）。`src/bin/riscdom-relay.rs` 是**部署者**运行的程序：它不点名任何端点、只绑 `--bind` 说的地址、且不存任何消息。没有新的持久化格式、没有新依赖，也没有碰任何 capability 名、审计事件常量、哈希公式或路由。
+
 - **房间**（v1.0 M4c）：`net` 实现了 [`docs/connection.md`](docs/connection.md) §5。`rooms.json`（版本 1）装着 `{name, members[], rules}`，成员是 **`node_id`**，规则是 §5.2 的三条：`rate`（`{messages, window_seconds}`、**按成员**，超限为 `refused`）、`mention`（`members` / `nobody`，默认 **`nobody`**）与 `require_signature`（只有 `true`；`false` 在加载时被拒，因为 §3 垫了底）。`RoomFilter::from_rooms` 合上了 M4b 留下的那个环：信标过滤器现在读部署者的文件 —— 文件点名、且列出本节点的那些房间。
 
 - **发现**（v1.0 M4b）：`net` 实现了 [`docs/connection.md`](docs/connection.md) §4。`peers.json`（版本 1）装着 `{node_id, addresses[], public_key, capabilities, rooms[]}` 条目，并对**它自己的节点**具有权威 —— 携带私钥的条目被拒；下发的 `NodeTable` 作为带 **generation** 的签名帧旅行、作为**来源**被合并，冲突被报告而不是被解决；而 **UDP 信标**（一个数据报、一个签名帧）只能刷新地址、绝不引入密钥。`RoomFilter` 是默认拒绝的房间过滤器，而广播端口是协议常量（`47821`）。

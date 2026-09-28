@@ -29,6 +29,21 @@ use std::time::Duration;
 /// The byte that ends a frame. §3.1's "one JSON line": the newline is the boundary.
 pub const FRAME_TERMINATOR: u8 = b'\n';
 
+/// The bytes of one frame: the line's own bytes, then the terminator when the caller did
+/// not already include it.
+///
+/// **The one place a frame is framed.** [`Connection::send_frame`] and the cross-region
+/// server's push down a session ([`crate::relay`]) both go through it, so §3.1's
+/// "byte-identical on both paths" is held by there being one encoder rather than by two
+/// call sites agreeing.
+pub fn frame_bytes(frame: &str) -> Vec<u8> {
+    let mut bytes = frame.as_bytes().to_vec();
+    if !bytes.ends_with(&[FRAME_TERMINATOR]) {
+        bytes.push(FRAME_TERMINATOR);
+    }
+    bytes
+}
+
 /// Connect timeout, when the caller does not choose one.
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// Read timeout: a connection that cannot deliver a **complete** frame in this long is
@@ -347,15 +362,40 @@ impl Connection {
     /// Write a frame that is already serialised — the relay's path uses this, so a
     /// forwarded frame cannot be re-encoded on the way.
     pub fn send_frame(&mut self, frame: &str) -> Result<usize, TransportError> {
-        let mut bytes = frame.as_bytes().to_vec();
-        if !bytes.ends_with(&[FRAME_TERMINATOR]) {
-            bytes.push(FRAME_TERMINATOR);
-        }
+        let bytes = frame_bytes(frame);
         self.writer
             .write_all(&bytes)
             .and_then(|()| self.writer.flush())
             .map_err(|e| self.write_error(e))?;
         Ok(bytes.len())
+    }
+
+    /// A **write-only clone** of this connection's socket.
+    ///
+    /// The cross-region server needs it ([`crate::relay`]): a session's reader sits in a
+    /// read on its own thread, while pushing a frame down that session is a write from
+    /// somebody else. The clone is the same socket, so a push lands on the connection its
+    /// peer dialled in on, and neither half has to hold the other's lock.
+    pub fn writer_clone(&self) -> Result<TcpStream, TransportError> {
+        self.writer.try_clone().map_err(|e| TransportError::Io {
+            op: Op::Write,
+            why: e.to_string(),
+        })
+    }
+
+    /// Change the read timeout in force.
+    ///
+    /// The relay needs `None` for a session: §6.3 has the server wait to be dialled and
+    /// the node keep the connection open, and a node may be silent between messages — a
+    /// session that timed out while idle would be a session that could never be reached.
+    pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<(), TransportError> {
+        self.reader
+            .get_ref()
+            .set_read_timeout(timeout)
+            .map_err(|e| TransportError::Io {
+                op: Op::Read,
+                why: e.to_string(),
+            })
     }
 
     /// Read one message: one complete frame, then the `\n` that ends it.

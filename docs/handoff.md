@@ -56,6 +56,13 @@ current request authorising it (§2).
   — `rooms.json` (`{name, members[], rules}`), the three rules (`rate` per member, `mention` defaulting
   to `nobody`, `require_signature` only `true`) — and `RoomFilter::from_rooms` reads membership out of
   that file, closing the loop M4b left open. **Decision §97.**
+- **The cross-region server's relay is on disk too** (v1.0 M4d, 2026-09-28): `net` implements
+  [connection.md](connection.md) §6's **relay** — `RelayServer` authenticates a frame's sender against
+  its own `peers.json` (the §3 model, no new credential), routes on the signed `to` alone, and hands the
+  frame down the destination's **session** (`SessionTable`), because §6.3 has the server wait to be
+  dialled and never dial a node. `RelayClient` / `RelaySession` are the node's half; `hello_body()` opens
+  a session and does **not** consume the sender's §3.2 record; `src/bin/riscdom-relay.rs` is the
+  deployer's program. **Decision §98.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

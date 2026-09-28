@@ -162,6 +162,9 @@ cargo run -q -p net --example discovery -- --self-test || fail "discovery exampl
 echo "==> rooms example self-test (net)"
 cargo run -q -p net --example rooms -- --self-test || fail "rooms example"
 
+echo "==> relay example self-test (net)"
+cargo run -q -p net --example relay -- --self-test || fail "relay example"
+
 echo "==> wix version guard"
 node scripts/check-wix-version.mjs || fail "wix version guard"
 
