@@ -40,7 +40,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 
 `arguments` 就是请求：`GET` 是查询串，`POST` 是 JSON body。
 
-### 3.1 查询类（33）
+### 3.1 查询类（37）
 
 <!-- tool-routes:queries:begin -->
 | Tool | Method | Path | Capability | Arguments |
@@ -78,6 +78,10 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | `resources` | GET | `/v0/resources` | `vm.read` | — (reserved: answers `501`) |
 | `executors` | GET | `/v0/executors` | `agent.run` | — |
 | `capabilities` | GET | `/v0/capabilities` | `status.read` | — |
+| `identity` | GET | `/v0/identity` | `status.read` | — |
+| `peers` | GET | `/v0/peers` | `status.read` | — |
+| `rooms` | GET | `/v0/rooms` | `status.read` | — |
+| `connection` | GET | `/v0/connection` | `status.read` | — |
 <!-- tool-routes:queries:end -->
 
 ### 3.2 控制类（36）
@@ -190,6 +194,10 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 {"type":"function","function":{"name":"resources","description":"Reserved: resource accounting. Answers 501 today.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"executors","description":"The executors a task can be routed to.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"capabilities","description":"What this caller may do: the capability names the credential holds.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"identity","description":"The node's public identity: its node_id and the public key's fingerprints. Null until the connection layer is configured.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"peers","description":"Who this node knows: the entries of its peers.json. Empty when it knows nobody.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"rooms","description":"The rooms this node's rooms.json defines. Empty when none are defined.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"connection","description":"The connection layer's state: is a cross-region server configured, is a session live, and any problem.","parameters":{"type":"object","properties":{},"required":[]}}}
 ]
 ```
 <!-- tool-defs:queries:end -->

@@ -180,7 +180,7 @@ Query commands are `GET`. Control commands are `POST`. "Capability" is the preco
 the server checks before the handler runs (§3; §6 gap G2). The last column names the
 Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 
-### 5.1 Queries (33)
+### 5.1 Queries (37)
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
@@ -223,6 +223,10 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/sandboxes/requests` | GET | `sandbox.read` | query: `status`? | `{ "requests": [SandboxRequestView] }`, or `400` on an unknown `status` | `list_sandbox_requests` |
 | `/v0/executors` | GET | `agent.run` | — | `{ "executors": [{ "agent_id": string }] }` | `list_executors` |
 | `/v0/capabilities` | GET | `status.read` | — | `{ "capabilities": [string] }` | — |
+| `/v0/identity` | GET | `status.read` | — | `{ "node_id", "public_jwk", "fingerprint", "short_fingerprint" }`, or `null` | `get_node_key` |
+| `/v0/peers` | GET | `status.read` | — | `[PeerEntry]` (empty when the node knows nobody) | `list_peers` |
+| `/v0/rooms` | GET | `status.read` | — | `[Room]` (empty when none are defined) | `list_rooms` |
+| `/v0/connection` | GET | `status.read` | — | `{ "configured": bool, "connected": bool, "problem": string \| null }` | `connection_status` |
 
 ### 5.2 Controls (36) — implemented in v0.9 batch 4, extended by sandbox F1, F2b-2, F2c, project in/out and the task endpoint
 

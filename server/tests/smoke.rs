@@ -500,10 +500,17 @@ fn every_query_endpoint_answers() {
         ("/v0/sandboxes/requests", 200, "requests"),
         // Reserved: served, and answers 501 until the aggregate lands.
         ("/v0/resources", 501, "code"),
+        // The connection layer, read-only (v1.0 batch AE / AC-2). A fresh workspace has
+        // no key and knows nobody, so `identity` is `null` and the two lists are empty;
+        // the shapes themselves are asserted in `the_connection_layer_answers_over_http`.
+        ("/v0/identity", 200, ""),
+        ("/v0/peers", 200, ""),
+        ("/v0/rooms", 200, ""),
+        ("/v0/connection", 200, "connected"),
     ];
     assert_eq!(
         cases.len(),
-        34,
+        38,
         "the served queries (the table's rows and the three path-parameter ones), and the reserved aggregate"
     );
     for (path, want_status, key) in cases {
@@ -513,6 +520,33 @@ fn every_query_endpoint_answers() {
             assert!(body.get(key).is_some(), "{path} must carry {key}: {body}");
         }
     }
+}
+
+#[test]
+fn the_connection_layer_answers_over_http() {
+    // v1.0 batch AE / AC-2: the four items batch AD put in front of the desktop, served
+    // over HTTP. A fresh workspace has no `node.key`, no `peers.json`, no `rooms.json` and
+    // names no server, so the honest answer is `null` for the key and empty shapes for the
+    // rest — none of it an error (§2: a node that never joined a network is a working node).
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+
+    let (status, raw) = get(addr, "/v0/identity");
+    assert_eq!(status, 200, "{raw}");
+    assert!(raw.is_null(), "no key, so `null`: {raw}");
+
+    let (status, raw) = get(addr, "/v0/peers");
+    assert_eq!(status, 200, "{raw}");
+    assert_eq!(raw.as_array().expect("an array").len(), 0, "{raw}");
+
+    let (status, raw) = get(addr, "/v0/rooms");
+    assert_eq!(status, 200, "{raw}");
+    assert_eq!(raw.as_array().expect("an array").len(), 0, "{raw}");
+
+    let (status, raw) = get(addr, "/v0/connection");
+    assert_eq!(status, 200, "{raw}");
+    assert_eq!(raw["configured"], false, "{raw}");
+    assert_eq!(raw["connected"], false, "{raw}");
+    assert!(raw["problem"].is_null(), "{raw}");
 }
 
 #[test]

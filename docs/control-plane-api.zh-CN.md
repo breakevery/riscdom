@@ -97,7 +97,7 @@ pub struct Actor {
 
 查询类命令为 `GET`。控制类命令为 `POST`。「权限」列是服务端在处理器运行前检查的前置条件（§3；§6 缺口 G2）。最后一列是与端点对应的 Tauri 命令名，便于集成者把两个面对齐。
 
-### 5.1 查询类（33）
+### 5.1 查询类（37）
 
 | 端点 | 方法 | 权限 | 请求 | 响应 | 对应 Tauri 命令 |
 |---|---|---|---|---|---|
@@ -140,6 +140,10 @@ pub struct Actor {
 | `/v0/sandboxes/requests` | GET | `sandbox.read` | query: `status`? | `{ "requests": [SandboxRequestView] }`，`status` 未知时 `400` | `list_sandbox_requests` |
 | `/v0/executors` | GET | `agent.run` | 无 | `{ "executors": [{ "agent_id": string }] }` | `list_executors` |
 | `/v0/capabilities` | GET | `status.read` | 无 | `{ "capabilities": [string] }` | — |
+| `/v0/identity` | GET | `status.read` | 无 | `{ "node_id", "public_jwk", "fingerprint", "short_fingerprint" }`，或 `null` | `get_node_key` |
+| `/v0/peers` | GET | `status.read` | 无 | `[PeerEntry]`（节点不认识任何人时为空） | `list_peers` |
+| `/v0/rooms` | GET | `status.read` | 无 | `[Room]`（未定义房间时为空） | `list_rooms` |
+| `/v0/connection` | GET | `status.read` | 无 | `{ "configured": bool, "connected": bool, "problem": string \| null }` | `connection_status` |
 
 ### 5.2 控制类（36）—— 已于 v0.9 批次 4 实装，沙箱 F1、F2b-2、F2c、项目进出与任务端点扩充
 

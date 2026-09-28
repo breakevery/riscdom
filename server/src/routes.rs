@@ -70,6 +70,15 @@ pub(crate) enum Action {
     /// `GET /v0/capabilities`: what **this caller** may do (the one query that is
     /// not about a resource at all).
     Capabilities,
+    // ---- the connection layer, read-only (v1.0 batch AE / AC-2) ----
+    /// `GET /v0/identity`: the node's public identity (never the private half).
+    Identity,
+    /// `GET /v0/peers`: who this node knows.
+    Peers,
+    /// `GET /v0/rooms`: the rooms this node's `rooms.json` defines.
+    Rooms,
+    /// `GET /v0/connection`: configured, connected, and any problem.
+    Connection,
     /// The reserved aggregate (§6, G3): answers 501.
     Resources,
     /// `/v0/executors`: the fleet this node dispatches to (v0.9 interface E0).
@@ -355,6 +364,23 @@ const ROUTES: &[(&str, &str, Capability, Action)] = &[
         "/v0/capabilities",
         Capability::StatusRead,
         Action::Capabilities,
+    ),
+    // The connection layer, read-only (v1.0 batch AE / AC-2). Four queries over the data
+    // AC-1 exposed to the desktop, and they need no new capability: they describe this
+    // node's own surface, which is what `status.read` is for.
+    (
+        "GET",
+        "/v0/identity",
+        Capability::StatusRead,
+        Action::Identity,
+    ),
+    ("GET", "/v0/peers", Capability::StatusRead, Action::Peers),
+    ("GET", "/v0/rooms", Capability::StatusRead, Action::Rooms),
+    (
+        "GET",
+        "/v0/connection",
+        Capability::StatusRead,
+        Action::Connection,
     ),
     // ---- controls ----
     (
@@ -1312,6 +1338,34 @@ pub(crate) fn dispatch(
             names.sort_unstable();
             ok_json(&serde_json::json!({ "capabilities": names }))
         }
+        // The connection layer, read-only (v1.0 batch AE / AC-2). These are the four items
+        // batch AD put in front of the desktop, over HTTP. `identity` answers **`null`** when
+        // the layer is unconfigured — §2 gives such a node no key at all, so this is not an
+        // error — while `peers` and `rooms` answer an **empty list**, because a node that
+        // knows nobody is a working node (connection.md §2), not a broken one. This is the
+        // same shape batch AD's commands return, so the two faces cannot drift.
+        Action::Identity => match app.node_key() {
+            Some(key) => ok_json(&serde_json::json!({
+                "node_id": app.local_executor_id(),
+                "public_jwk": key.public_jwk(),
+                "fingerprint": key.fingerprint(),
+                "short_fingerprint": key.short_fingerprint(),
+            })),
+            None => ok_json(&serde_json::Value::Null),
+        },
+        Action::Peers => ok_json(&app.peers().map(|peers| peers.peers).unwrap_or_default()),
+        Action::Rooms => ok_json(&app.rooms().map(|rooms| rooms.rooms).unwrap_or_default()),
+        Action::Connection => ok_json(&serde_json::json!({
+            "configured": app
+                .network()
+                .and_then(|network| network.cross_region_server)
+                .is_some(),
+            "connected": app
+                .connection_client()
+                .map(|client| client.is_connected())
+                .unwrap_or(false),
+            "problem": app.connection_problem(),
+        })),
         // The one write on the sandbox surface (v0.9 sandbox F2b-2). The switch is
         // synchronous — validation, a stop, a start — so it runs inline here (and
         // inline in a Tauri command), and the two pre-checks exist so a refusal

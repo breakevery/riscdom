@@ -1129,3 +1129,13 @@ trait 属 v1.x 工作。
 **缘由**：三点承担重量。**视图，因为密钥不是线上形状。** 本批的前提是「`NodeKey` 非 `Serialize`」；真相相反、也更危险 —— 它*就是* `Serialize`，因为它*就是*那个 JWK 文件，而它的 `d` 是私钥。所以规则不是「为一个不透明类型写序列化器」，而是「绝不把密钥本身交出去」：`NodeKeyView` 是唯一那个只带公钥半边（`public_jwk`、指纹）而把 `d` 留下的形状。**`configured` 是设置事实，不是客户端事实。** 一个指向本节点并不持有的同侪的指针既不会产出客户端、又会设下 `connection_problem`，所以「有没有客户端？」会把一个**配错**的节点报成未配置；读 `network().cross_region_server` 才回答部署者问的那个问题。**`connected` 多数时候诚实地是 `false`。** 会话是惰性打开的（§103），所以一个心跳循环尚未跑过的节点是 `configured: true, connected: false`（循环一跳便成 `true`）—— 这正是 §103 选的状态，照实报告而不是抹平。
 
 **影响**：`host-tauri/Cargo.toml` 多出两条依赖边 —— `net = { path = "../net" }`（为了 `PeerEntry` / `Room` / `NodeKey`，`host-core` 未再导出它们）与 `serde = { version = "1", features = ["derive"] }`（为了那两个视图；`host-tauri` 此前两者皆无）—— **不新增包**（锁文件只多边）；`host-tauri/src/commands.rs` 多出四个命令与两个视图；`ui/src-tauri/src/lib.rs` 登记四个名字。**不加任何测试**：`host-tauri` 按设计没有自己的测试（`Cargo.toml`：「this crate has no tests of its own」；那 39 条集成测试住在 `host-core/tests`），而一个 `#[tauri::command]` 要调用就得有活的 Tauri `State`，所以本批靠编译、`clippy -D warnings` 与 gate 验证。**没有哈希公式、审计事件常量、路由定义、capability 名、`net`/`host-core`/`server`/`cli` 文件或持久化格式被改动。** 接在后的是 AC-2（server 路由）、AC-3（CLI）与 AC-4（服务端角色）。
+
+## 106. 连接层经 HTTP 被读取，而一个不认识任何人的节点答空列表
+
+**日期**：2026-09-28 ｜ **状态**：已定；已实现（批 AE / AC-2）
+
+**决策**：`server` 为连接层提供**四条只读查询** —— `GET /v0/identity`、`GET /v0/peers`、`GET /v0/rooms` 与 `GET /v0/connection`（新增 `Action`：`Identity`、`Peers`、`Rooms`、`Connection`）—— 每一条都包装批 AD 交给桌面的同一个 `AppState` 访问子，且每条都声明 **`status.read`**：这四条描述的是*本节点自身*的外表面，那正是这个 capability 的用途，所以**没有新增 capability 名**。层未配置时 `identity` 答 **`null`**（§2 给这样的节点根本没有密钥，所以这不是错误）；`peers` 与 `rooms` 答**空列表** —— 批 AD 命令返回的形状 —— 因为一个不认识任何人的节点是一个能用的节点（§2）；`connection` 答 `{configured, connected, problem}`，不变。`docs/control-plane-api.md` 的 §5.1 现在写 **37**（两种语言一致），四条路由落在 `docs/tool-schema-control-plane.md` 的标记查询表里，于是路由表、两份文档与 tool schema 始终是同一套。
+
+**缘由**：两个选择承担重量。**密钥用 `null`，两张表用空列表。** 密钥在源头是 `Option`（§2：未配置联网就没有密钥），所以 `null` 是诚实的读法；而缺一个 `peers.json` 或 `rooms.json`，反过来，是一个没人配置过的节点的寻常状态，「不认识任何人」不是该 `404` 的事。镜像批 AD 命令的形状 —— 空列表、绝不 `null` —— 正是让两个面不会漂开的东西，而这正是把同样四项暴露两次的全部意义。**不加新 capability。** §83 的规矩是一条路由必须声明 capability；`status.read` 本就说的是「本节点自己的状态」，而这四条恰是那个，所以词表未动，所有者的令牌像够到 `/v0/capabilities` 一样够到它们。
+
+**影响**：`server/src/routes.rs` 多出四个 `Action` 变体、四行 `ROUTES` 与四个 dispatch 臂；`server/tests/smoke.rs` 把四条路径加进 `every_query_endpoint_answers`（其计数 34 → 38），并新增一条测试 `the_connection_layer_answers_over_http`，钉住新节点的形状；`docs/control-plane-api.md` 及其译文把 §5.1 从 **33 挪到 37**，两份 `docs/tool-schema-control-plane.md` 各多出四行。**没有哈希公式、审计事件常量、capability 名、`net`/`host-core`/`host-tauri`/`cli` 文件或持久化格式被改动。** 接在后的是 AC-3（CLI）与 AC-4（服务端角色）。

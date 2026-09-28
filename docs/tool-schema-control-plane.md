@@ -62,7 +62,7 @@ Tool names are unique across the whole set (checked).
 
 `arguments` is the request: a query string for a `GET`, a JSON body for a `POST`.
 
-### 3.1 Queries (33)
+### 3.1 Queries (37)
 
 <!-- tool-routes:queries:begin -->
 | Tool | Method | Path | Capability | Arguments |
@@ -100,6 +100,10 @@ Tool names are unique across the whole set (checked).
 | `resources` | GET | `/v0/resources` | `vm.read` | — (reserved: answers `501`) |
 | `executors` | GET | `/v0/executors` | `agent.run` | — |
 | `capabilities` | GET | `/v0/capabilities` | `status.read` | — |
+| `identity` | GET | `/v0/identity` | `status.read` | — |
+| `peers` | GET | `/v0/peers` | `status.read` | — |
+| `rooms` | GET | `/v0/rooms` | `status.read` | — |
+| `connection` | GET | `/v0/connection` | `status.read` | — |
 <!-- tool-routes:queries:end -->
 
 ### 3.2 Controls (36)
@@ -214,6 +218,10 @@ say what the model may ask for.
 {"type":"function","function":{"name":"resources","description":"Reserved: resource accounting. Answers 501 today.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"executors","description":"The executors a task can be routed to.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"capabilities","description":"What this caller may do: the capability names the credential holds.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"identity","description":"The node's public identity: its node_id and the public key's fingerprints. Null until the connection layer is configured.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"peers","description":"Who this node knows: the entries of its peers.json. Empty when it knows nobody.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"rooms","description":"The rooms this node's rooms.json defines. Empty when none are defined.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"connection","description":"The connection layer's state: is a cross-region server configured, is a session live, and any problem.","parameters":{"type":"object","properties":{},"required":[]}}}
 ]
 ```
 <!-- tool-defs:queries:end -->
