@@ -40,7 +40,10 @@ current request authorising it (§2).
   disk — `node.key` as one JWK (`schema_version` first, `OKP`/`Ed25519`, 32-byte `x`/`d`), minted on
   the first start with networking, owner-only via `create_new`, and never minted by a read — plus a
   reusable versioned-JSON loader (`TooNew` refused) and a `--self-test` the gate now runs. **Decision
-  §93.**
+  §93.** **Its signing half is on disk too** (v1.0 M4a-impl-2, 2026-09-28): `net` implements
+  [connection.md](connection.md) §3 — `SignedMessage` and the six verification steps in the frozen
+  order, each refusal carrying an error-model category, and §3.2's per-peer, in-memory replay record.
+  **Decision §94.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

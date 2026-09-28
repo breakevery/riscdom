@@ -2333,3 +2333,41 @@ changed, and no hash formula, route, capability name or audit event constant was
 reads the chain's canonical JSON and hashes it, and writes its own file. Signing, the transport,
 discovery, rooms and the cross-region server are the next pieces, each after the section it
 implements is frozen.
+
+## 94. A signed message is verified in the frozen order, and its refusals carry the error model's categories
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; M4a's signing and replay protection implemented
+
+**Decision**: [connection.md §3](connection.md) and its §3.2 are implemented in `net/`.
+`SignedMessage` is `{v, from, to, ts, body}` plus `sig`, and what is signed is the **canonical
+JSON of those five members** — `audit::canonical_json`'s bytes, not a second serialisation.
+`verify` runs the six steps in the frozen order — knows the sender, signature verifies, `v` is
+spoken, `to` is this node, `ts` is inside the window, not a replay — and every failure answers
+with a category from the error model: **`refused`** for an unknown sender or a replay,
+**`invalid`** for a broken signature, an unsupported version or a message addressed elsewhere,
+**`network`** for a stale or future timestamp. The replay record is `net`'s `ReplayGuard`: per
+peer, in memory, a high-water mark plus the payload hashes seen at it, over **−5 min / +1 min**,
+with the set discarded when the mark advances.
+
+**Why**: Three points were live. **The version is inside the signed bytes.** §3 checks `v` at
+step 3, *after* the signature — and that is the only order that tells "wrong version" apart from
+"forged": a version checked first would answer the same way to a lie and to a real message from
+a newer build. The test says so explicitly: a message **signed at** v2 is refused as a version,
+while a v2 **edited into** a v1 message is refused as a signature. **`to` is `invalid`, and §3
+did not say so.** The frozen sentence names three mappings and leaves step 4 out; it is filled as
+`invalid` because a message addressed to another node is a wrong input rather than a policy
+refusal — and the gap is recorded here rather than chosen in silence. **The record is keyed by
+the peer, never by the key.** §3.2 says a rotation must not reset it, and the implementation
+cannot get that wrong by accident: the map is `from → record`, and the keys live in a different
+structure (`PeerKeys`, a **set** per peer, so the grey period's several keys all verify). The
+test proves it the only way that matters: a message signed by a **new** key, at an old timestamp,
+is refused as a **replay** — not as an unknown sender and not as a bad signature.
+
+**Impact**: `net/` gains `src/message.rs` (the frame and the canonical bytes), `src/sign.rs` (the
+six steps, `PeerKeys`, and `VerifyError`'s mapping to `Category`) and `src/replay.rs`
+(`ReplayGuard`), a `sign` example with `--self-test`, and thirteen integration tests; the gate
+gains its second `net` step. `net/README.md` moves §3 from "not here yet" to "here". **No
+existing source file changed, and no hash formula, route, capability name or audit event constant
+was touched** — and authorisation is deliberately absent: this batch answers *who sent this*, and
+whether that node may do the thing stays the capability model's question
+([security-model.md](security-model.md) §4), so nothing here is a permission check.

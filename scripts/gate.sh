@@ -150,6 +150,9 @@ cargo run -q -p worker --example remote_executor -- --self-test || fail "remote 
 echo "==> node key example self-test (net)"
 cargo run -q -p net --example identity -- --self-test || fail "node key example"
 
+echo "==> signed message example self-test (net)"
+cargo run -q -p net --example sign -- --self-test || fail "signed message example"
+
 echo "==> wix version guard"
 node scripts/check-wix-version.mjs || fail "wix version guard"
 

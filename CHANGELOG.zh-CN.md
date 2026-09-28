@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **签名与重放防护**（v1.0 M4a）：`net` 实现了 [`docs/connection.md`](docs/connection.md) §3 —— `SignedMessage`（`{v, from, to, ts, body}` 对其规范 JSON 签名，`sig` 在旁边）与 `verify`，后者按冻结顺序跑六步并以错误模型的一个分类作答（`refused` / `invalid` / `network`）。§3.2 的重放记录是 `ReplayGuard`：按同侪、在内存、高水位加上在该水位上见过的负载，窗口 −5 min / +1 min。授权刻意不在其中 —— 这里回答的是「谁发的」，不是「它可以做什么」。
+
 - **连接层的第一批代码：一个 `net` crate 与落盘的节点身份**（v1.0 M4a）：`net/` 实现 [`docs/connection.md`](docs/connection.md) §2 —— `node.key` 是一个首成员为 `schema_version` 的 JWK（`OKP`/`Ed25519`，`x`/`d` 是 32 字节 base64url），在**首次配置了联网的启动**时铸出，以 `create_new` + 仅属主写下，且**读绝不生成** —— 外加一个可复用的版本化 JSON 加载器（`Missing` / `Current` / `Migrated` / `TooNew`，最后一个被**拒绝**而非半读），`peers.json` 与 `rooms.json` 将来会用它。该 crate 依赖 `audit`（链的规范 JSON 与指纹），从不依赖 `host-core`。新依赖：`ed25519-dalek` 2、`base64` 0.22、`getrandom` 0.4。
 
 - **跨区域服务器已冻结**（v1.0 M4d）：[`docs/connection.md`](docs/connection.md) §6 —— 一个**同一套软件的专用部署、由部署者运行**（从不由项目运行），四个角色的可知范围都有边界：signalling（地址，从不是负载）、relay（搬一帧它无法改动的帧）、management（**来源、不是权威**）、audit aggregation（只定形状；digest 属 M4e）。路由只按签名内的 `to`，授权是 §3 模型 —— **没有新凭证、没有新 capability** —— 而服务器从不拨向节点，所以不需打洞。§6.5 明确回答了 roadmap §1 的红线：**这不会被读成项目在运营一项服务**。

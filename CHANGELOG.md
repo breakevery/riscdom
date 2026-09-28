@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Signing and replay protection** (v1.0 M4a): `net` implements [`docs/connection.md`](docs/connection.md)
+  §3 — `SignedMessage` (`{v, from, to, ts, body}` signed over its canonical JSON, `sig` beside it) and
+  `verify`, which runs the six steps in the frozen order and answers with an error-model category
+  (`refused` / `invalid` / `network`). §3.2's replay record is `ReplayGuard`: per peer, in memory, a
+  high-water mark plus the payloads seen at it, over −5 min / +1 min. Authorisation is deliberately
+  not here — this answers *who sent this*, not *what they may do*.
+
 - **The connection layer's first code: a `net` crate and the node's identity on disk** (v1.0 M4a):
   `net/` implements [`docs/connection.md`](docs/connection.md) §2 — `node.key` as one JWK whose first
   member is `schema_version` (`OKP`/`Ed25519`, 32-byte `x`/`d` base64url), minted on the first start
