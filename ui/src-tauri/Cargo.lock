@@ -1582,6 +1582,8 @@ name = "host-tauri"
 version = "0.9.9"
 dependencies = [
  "host-core",
+ "net",
+ "serde",
  "serde_json",
  "tauri",
 ]

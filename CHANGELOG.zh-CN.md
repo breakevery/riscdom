@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **桌面可以读取节点的连接状态**（v1.0 批 AD / AC-1）：`host-tauri` 多出四个只读命令 —— `get_node_key`、`list_peers`、`list_rooms`、`connection_status` —— 而 `ui/src-tauri` 的 `generate_handler!` 登记它们。每个都是对既有 `AppState` 方法的包装、不写任何东西。`NodeKeyView` 是**视图、不是密钥**：`net::NodeKey` *就是* `Serialize`（它就是那个 JWK 文件）但它的 `d` 是私钥，所以视图只带 `node_id`、`public_jwk`、`fingerprint` 与 `short_fingerprint`。`ConnectionStatusView` 把 `configured`（设置点名了跨区域服务器）、`connected`（活会话 —— 惰性打开）与 `problem` 分开。接在后的是 AC-2（server 路由）、AC-3（CLI）与 AC-4（服务端角色）。没有哈希公式、路由、capability 名、审计事件常量或持久化格式被改动；`host-tauri` 多出 `net` 与 `serde` 两条依赖边。
+
 - **一个节点由同侪的全体一致判为不在**（v1.0 批 AB / V-3a）：`net` 在**节点层**实现了
   [connection.md](docs/connection.md) §6.7。节点**探测**它 workgroup 里的同侪（`{"probe": 1}` → `{"alive": 1}`；
   每 15 秒，连失三拍 = 它自己的*不可达*），并向上**报告**视图（`{"unreachable": …}` / `{"reachable": …}`，每拍脉冲）；

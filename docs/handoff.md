@@ -110,6 +110,16 @@ current request authorising it (§2).
   runs a **probe thread** beside the beat thread on the node's single session; recovery is being heard from;
   the protocol defines **no removal**. Sibling confirmation is **V-3b** (it needs V-4's surfaces).
   **Decision §104.** V-4 (the upper surfaces) follows.
+- **And the desktop can read the connection layer** (v1.0 batch AD / AC-1, 2026-09-28): `host-tauri`
+  gains four read-only commands — `get_node_key` (`NodeKeyView`: `node_id`, `public_jwk`,
+  `fingerprint`, `short_fingerprint` — a **view, not the key**, because `net::NodeKey` derives
+  `Serialize` and carries the private `d`), `list_peers` (`Vec<net::PeerEntry>`), `list_rooms`
+  (`Vec<net::Room>`) and `connection_status` (`configured` / `connected` / `problem`) — and
+  `ui/src-tauri`'s `generate_handler!` registers them. Every one wraps an existing `AppState` method
+  and writes nothing; the settings still decide and the wiring acts. This is **AC-1** of V-4's four
+  faces; AC-2 (server routes), AC-3 (CLI) and AC-4 (a server-role surface, which V-3b needs) follow.
+  No hash formula, route, capability name, audit event constant or persisted format changed.
+  **Decision §105.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

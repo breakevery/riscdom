@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The desktop can read the node's connection state** (v1.0 batch AD / AC-1): `host-tauri` gains
+  four read-only commands — `get_node_key`, `list_peers`, `list_rooms`, `connection_status` — and
+  `ui/src-tauri`'s `generate_handler!` registers them. Each wraps an existing `AppState` method and
+  writes nothing. `NodeKeyView` is a **view, not the key**: `net::NodeKey` *is* `Serialize` (it is the
+  JWK file) but its `d` member is private, so the view carries `node_id`, `public_jwk`, `fingerprint`
+  and `short_fingerprint` and nothing else. `ConnectionStatusView` keeps `configured` (the settings
+  name a cross-region server), `connected` (a live session — opened lazily) and `problem` apart. AC-2
+  (server routes), AC-3 (CLI) and AC-4 (server role) follow. No hash formula, route, capability name,
+  audit event constant or persisted format changed; `host-tauri` gains the `net` and `serde`
+  dependency edges.
+
 - **A node is judged gone by its peers' unanimity** (v1.0 batch AB / V-3a): `net` implements
   [connection.md](docs/connection.md) §6.7 at the **node level**. A node **probes** its workgroup peers
   (`{"probe": 1}` → `{"alive": 1}`; every 15 s, three misses = its own *unreachable*) and **reports** the

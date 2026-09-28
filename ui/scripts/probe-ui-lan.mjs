@@ -64,8 +64,8 @@ const commands = code(read(COMMANDS));
 check(
   "every host command takes the shared handle",
   !/State<'_, AppState>/.test(commands) &&
-    (commands.match(/State<'_, Arc<AppState>>/g) ?? []).length === 68,
-  `${(commands.match(/State<'_, Arc<AppState>>/g) ?? []).length} of 68`,
+    (commands.match(/State<'_, Arc<AppState>>/g) ?? []).length === 72,
+  `${(commands.match(/State<'_, Arc<AppState>>/g) ?? []).length} of 72`,
 );
 check(
   "...including the three that resolve it from the app",

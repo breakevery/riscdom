@@ -17,6 +17,7 @@ use crate::SessionMeta;
 use crate::{CandidatesView, SandboxRequestView, SandboxView};
 use host_core::SandboxAction;
 use host_core::UnpackReport;
+use net::{PeerEntry, Room};
 use std::sync::Arc;
 use tauri::{Manager, State};
 
@@ -834,4 +835,100 @@ pub async fn dispatch_task(
             emitter,
         )
         .map_err(|e| e.user_message())
+}
+
+/// The node's identity, as the interface may read it (v1.0 batch AD / AC-1).
+///
+/// **A view, not the key.** `net::NodeKey` *is* `Serialize` — it is the JWK file itself — but
+/// one of its members, `d`, is the **private** half, so serialising the key would put the
+/// private key on the wire. This shape carries only the public half and its fingerprints:
+/// what a deployer needs to fill another node's `peers.json`
+/// ([connection.md §2](../../docs/connection.md)) and nothing that leaves the machine.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeKeyView {
+    /// The **device name** this key signs as. §2 keeps the key pair and the name apart: the
+    /// key outlives every rename, and the name is what a peer stores.
+    pub node_id: String,
+    /// The public half as a JWK — what another node stores in its `peers.json`.
+    pub public_jwk: serde_json::Value,
+    /// SHA-256 of the public half's canonical JSON, as hex.
+    pub fingerprint: String,
+    /// The display form of [`Self::fingerprint`].
+    pub short_fingerprint: String,
+}
+
+/// The node's connection state, as the interface may read it (v1.0 batch AD / AC-1).
+///
+/// Three separate facts, kept apart on purpose: whether a **cross-region server** is
+/// configured at all, whether this node holds a **live session** to it right now, and the
+/// **problem** V-1/V-2 recorded when a pointer or a file was refused.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ConnectionStatusView {
+    /// Does this node's network settings name a cross-region server
+    /// (`settings.network.cross_region_server`, [connection.md §6.4](../../docs/connection.md))?
+    pub configured: bool,
+    /// Does it hold a live session to that server right now? The session opens **lazily**, so
+    /// this is `false` until something needs it — the beat loop is usually what opens it.
+    pub connected: bool,
+    /// The connection problem V-1/V-2 last reported, if any (a refused pointer, or a
+    /// connection file that could not be used).
+    pub problem: Option<String>,
+}
+
+/// The node's Ed25519 identity, when the connection layer is configured (v1.0 batch AD).
+///
+/// `None` is the honest answer for a node that never joined a network: §2 gives such a node
+/// no key at all, so this is not an error. The view carries the **public** half only — see
+/// [`NodeKeyView`].
+#[tauri::command]
+pub async fn get_node_key(state: State<'_, Arc<AppState>>) -> Result<Option<NodeKeyView>, String> {
+    Ok(state.node_key().map(|key| NodeKeyView {
+        node_id: state.local_executor_id(),
+        public_jwk: key.public_jwk(),
+        fingerprint: key.fingerprint(),
+        short_fingerprint: key.short_fingerprint(),
+    }))
+}
+
+/// Who this node knows: the entries of its `peers.json` (v1.0 batch AD).
+///
+/// An empty list is normal — a node may know nobody, and there may be no file at all. The
+/// entries are `net`'s own shape ([connection.md §4.1](../../docs/connection.md)): one grammar
+/// for "a peer I was configured with" and "a peer I was told about".
+#[tauri::command]
+pub async fn list_peers(state: State<'_, Arc<AppState>>) -> Result<Vec<PeerEntry>, String> {
+    Ok(state.peers().map(|peers| peers.peers).unwrap_or_default())
+}
+
+/// The rooms this node's `rooms.json` defines (v1.0 batch AD).
+///
+/// An empty list is normal. Membership is **configuration**
+/// ([connection.md §5.2](../../docs/connection.md)): this is what the deployer wrote, not
+/// what the network said.
+#[tauri::command]
+pub async fn list_rooms(state: State<'_, Arc<AppState>>) -> Result<Vec<Room>, String> {
+    Ok(state.rooms().map(|rooms| rooms.rooms).unwrap_or_default())
+}
+
+/// The node's connection state (v1.0 batch AD): configured, connected, and any problem.
+///
+/// Read-only. Nothing here starts, stops or changes a connection; the settings decide and the
+/// wiring acts on them.
+#[tauri::command]
+pub async fn connection_status(
+    state: State<'_, Arc<AppState>>,
+) -> Result<ConnectionStatusView, String> {
+    let configured = state
+        .network()
+        .and_then(|network| network.cross_region_server)
+        .is_some();
+    let connected = state
+        .connection_client()
+        .map(|client| client.is_connected())
+        .unwrap_or(false);
+    Ok(ConnectionStatusView {
+        configured,
+        connected,
+        problem: state.connection_problem(),
+    })
 }

@@ -2837,3 +2837,51 @@ only with a workgroup and stops). **No hash formula, route, capability name, aud
 `net` logic or persisted format changed** — the two names are additions to the `host.connection.*`
 vocabulary. **V-3b — the sibling confirmation, and the cross-region server that judges by the same rule — is
 next**, after V-4 wires the node's upper surfaces.
+
+## 105. The desktop can read the node's connection state
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; V-4's first face (batch AD / AC-1) shipped
+
+**Decision**: `host-tauri` gains four **read-only** commands, and `ui/src-tauri`'s
+`generate_handler!` registers them: `get_node_key` (`Option<NodeKeyView>`), `list_peers`
+(`Vec<net::PeerEntry>`), `list_rooms` (`Vec<net::Room>`) and `connection_status`
+(`ConnectionStatusView`). Every one is a thin wrapper over an `AppState` method that already
+existed — `node_key()`, `peers()`, `rooms()`, `network()`, `connection_client()`,
+`connection_problem()` — and none of them writes anything: the settings still decide and the
+wiring still acts. `NodeKeyView` is a **view, not the key**: `net::NodeKey` **is** `Serialize`
+(it is the JWK file), but its `d` member is the private half, so the view carries `node_id`
+(the device name), `public_jwk`, `fingerprint` and `short_fingerprint` and nothing else.
+`ConnectionStatusView` keeps three facts apart: `configured`
+(`network().cross_region_server.is_some()`), `connected`
+(`connection_client().map(RelayClient::is_connected)` — the session opens lazily, so this is
+`false` until something needs it), and `problem` (what V-1/V-2 recorded). **The upper surfaces
+are split**: AC-1 (this batch) is the desktop; **AC-2** is the server routes (which move
+`docs/control-plane-api.md` §5.1/§5.2's counts and the tool-schema tables), **AC-3** is the
+CLI, and **AC-4** is a server-role surface, which is what V-3b really needs. Nothing here
+touches the route table, the capability vocabulary, an audit event constant, a hash formula,
+`net`, `host-core`, `server` or `cli`.
+
+**Why**: Three points carry it. **A view, because the key is not the wire shape.** The batch's
+premise was "`NodeKey` is not `Serialize`"; the truth is the opposite and more dangerous — it
+*is* `Serialize`, because it *is* the JWK file, whose `d` is the private key. So the rule is not
+"write a serialiser for an opaque type" but "never hand the key itself out": `NodeKeyView` is
+the one shape that carries the public half (`public_jwk`, the fingerprints) and leaves `d`
+behind. **`configured` is a settings fact, not a client fact.** A pointer naming a peer this
+node does not hold produces no client and sets a `connection_problem`, so "is there a client?"
+would report a *misconfigured* node as unconfigured; reading `network().cross_region_server`
+answers the question the deployer asked. **`connected` is honestly `false` most of the time.**
+The session is opened lazily (decision §103), so a node whose beat loop has not run yet is
+`configured: true, connected: false` (or `true` once it beats) — which is the state §103 chose,
+reported as it is rather than smoothed over.
+
+**Impact**: `host-tauri/Cargo.toml` gains two dependency edges — `net = { path = "../net" }`
+(for `PeerEntry` / `Room` / `NodeKey`, which `host-core` does not re-export) and
+`serde = { version = "1", features = ["derive"] }` (for the two views; `host-tauri` had
+neither before) — with **no new package** (the lock gains edges); `host-tauri/src/commands.rs`
+gains the four commands and the two views; `ui/src-tauri/src/lib.rs` registers the four names.
+**No test is added**: `host-tauri` has no tests of its own by design (`Cargo.toml`: "this crate
+has no tests of its own"; the 39 integration tests live in `host-core/tests`) and a
+`#[tauri::command]` needs a live Tauri `State` to call, so the batch is verified by compilation,
+`clippy -D warnings` and the gate. **No hash formula, audit event constant, route definition,
+capability name, `net`/`host-core`/`server`/`cli` file or persisted format changed.** AC-2
+(server routes), AC-3 (CLI) and AC-4 (server role) follow.

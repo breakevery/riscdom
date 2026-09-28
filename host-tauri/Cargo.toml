@@ -12,6 +12,13 @@ host-core = { path = "../host-core" }
 tauri = { version = "2", features = [] }
 # `Value` in the `TauriEventSink` impl; `host-core` owns the envelope itself.
 serde_json = "1"
+# The connection layer's own types: the four read-only connection commands
+# (v1.0 batch AD / AC-1) answer with `net`'s view types (`PeerEntry`, `Room`) and
+# read the node's `NodeKey`. `host-tauri` did not depend on `net` before this
+# batch; the edge is one line and adds no package (the lock gains one edge).
+net = { path = "../net" }
+# The connection commands' own wire shapes derive `Serialize` (v1.0 batch AD).
+serde = { version = "1", features = ["derive"] }
 # `tokio` used to sit here as a direct edge with no user anywhere in this crate or
 # its tests; removed in A1 wave 4. (`cargo tree` still shows tokio through Tauri.)
 
