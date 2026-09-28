@@ -225,6 +225,31 @@ pub struct NetworkSettings {
     /// existed loads with `None`, and `SETTINGS_VERSION` does not move.
     #[serde(default)]
     pub cross_region_server: Option<String>,
+    /// Serve this node's **workgroup** as its in-network server (v1.0 AC-4), or `None` for a node
+    /// that is only a client.
+    ///
+    /// The same role the standalone `riscdom-relay` binary runs
+    /// ([connection.md §6.1](../docs/connection.md)), embedded in a node instead of standing alone:
+    /// one mechanism, two deployment shapes. **A deployer configures it** — the project never
+    /// starts a server and there is no default address. Additive like every field above.
+    #[serde(default)]
+    pub server_role: Option<ServerRoleSettings>,
+}
+
+/// This node's **server role**: it serves its workgroup as the network's server (v1.0 AC-4).
+///
+/// [connection.md §6.5](../docs/connection.md) is why this is a **deployment shape** and not a
+/// new program: the in-network server is a node that also serves, running the same `RelayServer`
+/// the dedicated `riscdom-relay` deployment runs. What that server knows is its own `peers.json`
+/// and `rooms.json`, and it signs with its own `node.key` — all of them this node's files, which
+/// is exactly why the role can be turned on here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerRoleSettings {
+    /// Where the server role listens, e.g. `"0.0.0.0:7443"`.
+    ///
+    /// **Required, and deliberately with no default**: a default would be the project naming
+    /// where a server is, which is what §6.1 forbids. The deployer writes the address.
+    pub bind: String,
 }
 
 /// One executor the node can dispatch a task to (v0.9 interface E0).

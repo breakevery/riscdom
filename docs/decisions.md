@@ -2919,3 +2919,40 @@ node's `null`s and a configured node's shapes (seeded with `net`'s own writers, 
 `docs/tool-schema-control-plane.md` files gain the four rows. **No hash formula, audit event
 constant, capability name, `net`/`host-core`/`host-tauri`/`cli` file or persisted format changed.**
 AC-3 (CLI) and AC-4 (server role) follow.
+
+## 107. The server role is a node's own deployment shape, configured in settings and started from its own files
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; implemented (batch AF / AC-4)
+
+**Decision**: A node can now **be the network's server**. `NetworkSettings` gains
+**`server_role: Option<ServerRoleSettings>`** (additive, `#[serde(default)]`, `SETTINGS_VERSION`
+unmoved), whose one field is **`bind`** — required, and deliberately without a default. When it is
+present, `AppState::load_connection_files` starts a **`RelayServer`** from the node's own
+`node.key` / `peers.json` / `rooms.json`, binds `network.server_role.bind` **synchronously** (a bind
+that cannot be taken is recorded in `connection_problem`, not left to a thread that dies quietly),
+and serves on a thread. `AppState::server_role_addr()` reports where it is bound and
+`AppState::server_role()` hands out the handle, so a deployment that runs a chain can install
+§6.7's `AppState::connection_judgement_sink` on it. Nothing starts a server on a node that did not
+configure one.
+
+**Why**: Three points carry it. **The role is configuration, not a program.** §6.1 makes the server a
+**deployer-run** deployment and §33's cell-differentiation makes a node-with-a-role a shape, not a
+second binary, so the in-network server of §6.5 is the *same* `RelayServer` the standalone
+`riscdom-relay` runs — one mechanism, two deployment shapes — and the node starts it from the files
+it already loaded (its key, its peer table, its rooms). **`bind` has no default on purpose.** A
+default address would be the project naming where a server is, which §6.1 forbids; the deployer
+writes it, exactly as `riscdom-relay` requires `--bind`. **It binds before it serves.** Binding
+inside `load_connection_files`, synchronously, turns "the port is taken" into a reported problem on a
+node that otherwise runs, instead of a role that silently never came up.
+
+**Impact**: `host-core/src/settings.rs` gains `ServerRoleSettings` and the `server_role` field;
+`host-core/src/state.rs` gains two fields, `start_server_role`, `note_connection_problem`,
+`server_role_addr` and `server_role`, and calls the starter from `load_connection_files`;
+`host-core/tests/connection.rs` adds three tests (the role binds and a node registers and beats into
+it; a node without a role serves nobody; a bind that cannot be taken is reported) and
+`host-core/tests/settings.rs` one (the field is configured or absent, and the version does not move);
+`net/README.md` and its translation say the role can now run in-node as well as standalone. **`net`'s
+code is unchanged** — `RelayServer`, `Listener` and the §6.6 handling already serve it — and no hash
+formula, route, capability name, audit event constant or persisted format moved. §6.7's **sibling**
+confirmation — the second level, a server's own loss judged by its siblings through the cross-region
+server — is **V-3b**, and the sink this batch exposes is the hook it installs.

@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A node can be the network's server** (v1.0 batch AF / AC-4): `NetworkSettings` gains
+  **`server_role: Option<ServerRoleSettings>`** — additive, no `SETTINGS_VERSION` move — whose one
+  field is **`bind`**, required and deliberately without a default. When it is present, `host-core`
+  starts a **`RelayServer`** from the node's own `node.key` / `peers.json` / `rooms.json`, binds
+  synchronously (a port that cannot be taken is reported, not left to a dying thread) and serves on a
+  thread; `AppState::server_role_addr()` reports where, and `AppState::server_role()` hands the handle
+  out so a chain-bearing deployment can install §6.7's judgement sink. This is the **in-network
+  server** of §6.5 — the same `RelayServer` the standalone `riscdom-relay` runs, one mechanism and two
+  deployment shapes — and the **deployer** configures it; nothing starts on a node that did not ask.
+  §6.7's **sibling** confirmation is V-3b. No hash formula, route, capability name, audit event
+  constant or persisted format changed, and `net`'s code is unchanged.
+
 - **The node's connection state is readable over HTTP** (v1.0 batch AE / AC-2): `server` serves four
   read-only queries — `GET /v0/identity`, `/v0/peers`, `/v0/rooms` and `/v0/connection` — wrapping the
   same four `AppState` accessors batch AD put in front of the desktop, so the two faces cannot drift.

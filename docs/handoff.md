@@ -129,6 +129,13 @@ current request authorising it (§2).
   `connected` / `problem` apart. `docs/control-plane-api.md` §5.1 moves **33 → 37** in both languages and the four rows
   join the tool-schema tables. No hash formula, capability name, audit event constant or persisted format
   changed. This is **AC-2** of V-4's four faces; AC-3 (CLI) and AC-4 (server role) follow. **Decision §106.**
+- **And a node can serve its workgroup** (v1.0 batch AF / AC-4, 2026-09-28): `NetworkSettings` gains
+  **`server_role`** (`bind`, required, no default), and `host-core` starts a **`RelayServer`** from the
+  node's own `node.key` / `peers.json` / `rooms.json` — §6.5's **in-network server**, the same
+  mechanism the standalone `riscdom-relay` runs. It binds synchronously (a taken port is a reported
+  problem) and serves on a thread; `server_role_addr()` reports where and `server_role()` hands the
+  handle out for §6.7's sink. The **deployer** configures it, and **a node that did not ask starts
+  nothing**. §6.7's sibling confirmation is V-3b. **Decision §107.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

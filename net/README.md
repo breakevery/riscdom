@@ -30,7 +30,10 @@ itself upward, the server keeps an [`OnlineTable`], and a row that goes `offline
 the view upward, and the server **judges** by unanimity among the witnesses that remain — recording
 `judged_at_ms` (kept apart from the heartbeat-based `state`) and handing the two transitions to a **sink** that
 writes `host.connection.peer_offline` / `peer_recovered`. The **sibling confirmation** — a server noticing its
-own loss — is still to come (V-3b).
+own loss — is still to come (V-3b). The **server role can also run inside a node** (v1.0 AC-4):
+`host-core`'s `network.server_role` starts this same `RelayServer` from the node's own `node.key` /
+`peers.json` / `rooms.json`, which is §6.5's in-network server — the standalone `riscdom-relay` stays
+the deployer's dedicated cross-region deployment.
 **Not here yet: §7 — the audit digests** a server aggregates on a timer, which wait on M5's
 authorisation. §6.7's **sibling confirmation** — the other in-network servers reporting a server's own loss to
 the cross-region server, which judges by the same rule — is **V-3b**'s. Each piece arrives only after the section it implements is frozen, which is

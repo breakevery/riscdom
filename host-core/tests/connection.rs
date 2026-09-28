@@ -6,7 +6,7 @@
 //! what a refusal does (nothing is written over a newer file, and the refusal is visible), and
 //! what the host says about it (two event names, and a problem a caller can read).
 
-use host_core::settings::{LocalSettings, NetworkSettings, SETTINGS_VERSION};
+use host_core::settings::{LocalSettings, NetworkSettings, ServerRoleSettings, SETTINGS_VERSION};
 use host_core::state::AppState;
 use host_core::{ConnectionFile, EventFilter};
 use std::path::{Path, PathBuf};
@@ -578,4 +578,109 @@ fn the_probe_thread_starts_only_with_a_workgroup_and_stops() {
         "the prober can be started again"
     );
     state.stop_connection_probe();
+}
+
+/// A data directory whose settings give the node a **server role** (v1.0 AC-4).
+fn configured_server_role(tag: &str, bind: &str) -> PathBuf {
+    let dir = unique_dir(tag);
+    let settings = LocalSettings {
+        version: SETTINGS_VERSION,
+        network: Some(NetworkSettings {
+            lan_enabled: true,
+            server_role: Some(ServerRoleSettings {
+                bind: bind.to_string(),
+            }),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    settings
+        .save(&dir.join("settings.json"))
+        .expect("settings.json");
+    dir
+}
+
+#[test]
+fn a_configured_server_role_binds_and_registers_a_node() {
+    // v1.0 AC-4: a node whose settings give it a **server role** serves its workgroup — the same
+    // `RelayServer` the standalone `riscdom-relay` deployment runs, started from this node's own
+    // files (`node.key`, `peers.json`, `rooms.json`). The bind is `127.0.0.1:0`, so the test reads
+    // the address the operating system chose rather than fixing one.
+    let data_dir = configured_server_role("server-role", "127.0.0.1:0");
+    let server_key = net::NodeKey::generate().expect("key");
+    net::NodeKey::save_new_in(&data_dir, &server_key).expect("node.key");
+
+    // The node the server will authenticate, in the server's own `peers.json` (§6.3), and the
+    // room it claims, in `rooms.json`.
+    let client_key = net::NodeKey::generate().expect("key");
+    let mut peers = net::PeersFile::empty();
+    peers.peers.push(net::PeerEntry::new(
+        "dev-b",
+        "127.0.0.1:2",
+        client_key.public_jwk(),
+    ));
+    net::PeersFile::save_in(&data_dir, &peers).expect("peers.json");
+    let mut rooms = net::RoomsFile::empty();
+    rooms.rooms.push(net::Room {
+        name: "lab".to_string(),
+        members: vec!["dev-b".to_string()],
+        rules: net::RoomRules::new(net::RateRule {
+            messages: 10,
+            window_seconds: 60,
+        }),
+    });
+    net::RoomsFile::save_in(&data_dir, &rooms).expect("rooms.json");
+
+    let state = state_in(&unique_dir("server-role-ws"), &data_dir);
+    let addr = state
+        .server_role_addr()
+        .expect("the configured server role is serving");
+    let server = state.server_role().expect("the handle is kept");
+    assert_eq!(state.connection_problem(), None);
+
+    // A node dials it and registers (§6.6); the row lands in *this node's* server.
+    let entry = net::PeerEntry::new(&agent::device(), &addr, server_key.public_jwk());
+    let client =
+        net::RelayClient::new("dev-b", client_key, &entry, net::TransportConfig::default())
+            .expect("client");
+    client
+        .register(&net::Registration::in_rooms(["lab".to_string()]))
+        .expect("register");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while server.online().is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the node never registered"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let row = server.online().into_iter().next().expect("a row");
+    assert_eq!(row.node_id, "dev-b");
+    assert_eq!(row.rooms, vec!["lab".to_string()]);
+    assert_eq!(row.state, net::Online::Online);
+
+    // A beat is accepted too — §6.6 answers it with nothing, so the row is what says it landed.
+    client.heartbeat().expect("heartbeat");
+}
+
+#[test]
+fn a_node_without_a_server_role_serves_nobody() {
+    // The other half of the switch: nothing is configured, so nothing is bound and no address
+    // exists — the project never starts a server a deployer did not ask for.
+    let state = state_in(&unique_dir("no-role-ws"), &configured("no-role"));
+    assert_eq!(state.server_role_addr(), None);
+    assert!(state.server_role().is_none());
+}
+
+#[test]
+fn a_server_role_that_cannot_bind_is_reported_and_the_node_runs() {
+    // A bind that cannot be taken is a reported problem, not a silent thread: the state is still
+    // built, and `connection_problem` says what happened.
+    let data_dir = configured_server_role("server-role-bad-bind", "256.256.256.256:1");
+    let key = net::NodeKey::generate().expect("key");
+    net::NodeKey::save_new_in(&data_dir, &key).expect("node.key");
+    let state = state_in(&unique_dir("server-role-bad-bind-ws"), &data_dir);
+    assert_eq!(state.server_role_addr(), None);
+    let problem = state.connection_problem().expect("a reported problem");
+    assert!(problem.contains("server_role"), "{problem}");
 }

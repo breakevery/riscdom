@@ -853,6 +853,16 @@ pub struct AppState {
     /// The probe thread (§6.7), when one is running (v1.0 V-3a). Dropping the state drops this,
     /// which is what stops it.
     connection_probe: Mutex<Option<Probe>>,
+    /// This node's **server role**, when its settings configure one (v1.0 AC-4).
+    ///
+    /// The same `RelayServer` the standalone `riscdom-relay` deployment runs, embedded in this
+    /// node: the in-network server of [connection.md §6.5](../../../docs/connection.md) is a node
+    /// that also serves its workgroup. `None` when nothing is configured, or when the files or the
+    /// bind made it impossible — [`Self::connection_problem`] says which. Kept so a deployment that
+    /// runs a chain can install (§6.7) its judgement sink on it.
+    connection_server: Mutex<Option<net::RelayServer>>,
+    /// Where the server role is bound, when it is serving (v1.0 AC-4). `None` otherwise.
+    connection_server_addr: Mutex<Option<String>>,
     /// The executor handles a task is routed to (v0.9 interface E0).
     ///
     /// Built from `settings.executors` after the settings file is read. The
@@ -1514,6 +1524,8 @@ impl AppState {
             connection_client: Mutex::new(None),
             connection_beat: Mutex::new(None),
             connection_probe: Mutex::new(None),
+            connection_server: Mutex::new(None),
+            connection_server_addr: Mutex::new(None),
             executors: Mutex::new(Vec::new()),
             settings_path: crate::paths::settings_path(),
             data_dir: crate::paths::default_data_dir(),
@@ -3728,6 +3740,9 @@ impl AppState {
         // v1.0 V-2: the server pointer is checked against `peers.json`, and the beat loop is started.
         // Neither dials, so nothing here can hold up a start-up.
         self.connect_cross_region();
+        // v1.0 AC-4: a node whose settings give it a **server role** starts serving its workgroup
+        // here. Like the pointer above, nothing dials: it binds and waits to be dialled (§6.3).
+        self.start_server_role();
     }
 
     /// The node's key, when the connection layer is configured and one was read or minted
@@ -3766,6 +3781,30 @@ impl AppState {
             .lock()
             .ok()
             .and_then(|slot| slot.clone())
+    }
+
+    /// The address this node's **server role** is bound to, when it is serving (v1.0 AC-4).
+    ///
+    /// `None` when `network.server_role` is not configured, and when it was configured but could
+    /// not be served — [`Self::connection_problem`] says why.
+    pub fn server_role_addr(&self) -> Option<String> {
+        self.connection_server_addr
+            .lock()
+            .ok()
+            .and_then(|addr| addr.clone())
+    }
+
+    /// This node's in-process **server role**, when it is serving (v1.0 AC-4).
+    ///
+    /// A clone of the handle: the in-network server of §6.5 is a node that also serves, so a
+    /// deployment that runs a chain beside it can install [`Self::connection_judgement_sink`] on
+    /// it and have §6.7's judgements recorded — the standalone `riscdom-relay` holds no chain and
+    /// installs none.
+    pub fn server_role(&self) -> Option<net::RelayServer> {
+        self.connection_server
+            .lock()
+            .ok()
+            .and_then(|server| server.clone())
     }
 
     /// Wire this node to its cross-region server, if its settings name one (v1.0 V-2).
@@ -3826,6 +3865,89 @@ impl AppState {
         }
         self.start_beat(Arc::clone(&client), net::HEARTBEAT_INTERVAL);
         self.start_probe(client, net::PROBE_INTERVAL);
+    }
+
+    /// Start this node's **server role**, if its settings configure one (v1.0 AC-4).
+    ///
+    /// The in-network server of §6.5 is a node that also serves its workgroup, so the role is the
+    /// same `RelayServer` the standalone `riscdom-relay` deployment runs, bound to
+    /// `network.server_role.bind`. **A deployer configures it**: there is no default address, and
+    /// nothing here starts a server on a node that did not ask for one (red line: the project never
+    /// runs a server).
+    ///
+    /// Called from [`Self::load_connection_files`] once the three files are loaded. It binds
+    /// **here, synchronously**, so an address that cannot be taken is reported rather than left to a
+    /// thread that would die quietly; serving then runs on its own thread, and waits to be dialled
+    /// (§6.3 — a server never dials a node). §6.7's **sibling** confirmation is V-3b; this serves
+    /// §6.6.
+    fn start_server_role(&self) {
+        let bind = self.settings.lock().ok().and_then(|settings| {
+            settings
+                .network
+                .as_ref()
+                .and_then(|network| network.server_role.as_ref().map(|role| role.bind.clone()))
+        });
+        let Some(bind) = bind else {
+            return;
+        };
+        let (Some(key), Some(peers), Some(rooms)) = (self.node_key(), self.peers(), self.rooms())
+        else {
+            self.note_connection_problem(
+                "server_role is configured, but the connection files are not usable, so the node \
+                 is running without its server role",
+            );
+            return;
+        };
+        let server = match net::RelayServer::new(
+            &agent::device(),
+            key,
+            peers,
+            rooms,
+            net::TransportConfig::default(),
+        ) {
+            Ok(server) => server,
+            Err(error) => {
+                self.note_connection_problem(&format!(
+                    "server_role cannot be served from this data directory: {error}"
+                ));
+                return;
+            }
+        };
+        let listener = match net::Listener::bind(bind.as_str()) {
+            Ok(listener) => listener,
+            Err(error) => {
+                self.note_connection_problem(&format!(
+                    "server_role was configured to bind {bind}, which could not be taken: {error}"
+                ));
+                return;
+            }
+        };
+        let addr = listener
+            .local_addr()
+            .map(|bound| bound.to_string())
+            .unwrap_or_else(|_| bind.clone());
+        let serving = server.clone();
+        std::thread::spawn(move || {
+            if let Err(error) = serving.serve(listener) {
+                eprintln!("connection: the server role stopped: {error}");
+            }
+        });
+        if let Ok(mut slot) = self.connection_server_addr.lock() {
+            *slot = Some(addr);
+        }
+        if let Ok(mut slot) = self.connection_server.lock() {
+            *slot = Some(server);
+        }
+    }
+
+    /// Record a connection-layer problem, if none is recorded yet (v1.0 AC-4).
+    fn note_connection_problem(&self, message: &str) {
+        eprintln!("connection: {message}");
+        if let Ok(mut slot) = self.connection_problem.lock() {
+            if slot.is_none() {
+                *slot = Some(message.to_string());
+            }
+        }
     }
 
     /// Start (or restart) the registration-and-heartbeat loop with this interval (v1.0 V-2).

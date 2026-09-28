@@ -1,6 +1,9 @@
 //! Stage 25a — local settings file (`settings.json`) and toolchain persistence.
 
-use host_core::settings::{ExecutorSpecSettings, LocalSettings, SettingsLoad, SETTINGS_VERSION};
+use host_core::settings::{
+    ExecutorSpecSettings, LocalSettings, NetworkSettings, ServerRoleSettings, SettingsLoad,
+    SETTINGS_VERSION,
+};
 use host_core::state::AppState;
 use std::path::PathBuf;
 
@@ -462,4 +465,41 @@ fn settings_json_never_carries_an_api_key() {
     assert!(status.configured);
     assert!(status.config_persisted, "the non-secret half is on disk");
     assert!(!status.persisted, "…and the key was not remembered");
+}
+
+#[test]
+fn a_server_role_is_configured_or_absent_without_moving_the_version() {
+    // v1.0 AC-4. The field is additive: a file written before it existed loads with no role,
+    // and nothing is guessed from the machine.
+    let older = unique_dir("server-role-old").join("settings.json");
+    std::fs::write(
+        &older,
+        format!("{{\"version\":{SETTINGS_VERSION},\"network\":{{\"lan_enabled\":true}}}}"),
+    )
+    .expect("write");
+    let settings = LocalSettings::load(&older);
+    assert_eq!(settings.version, SETTINGS_VERSION, "no version move");
+    let network = settings.network.expect("the network section");
+    assert!(network.server_role.is_none(), "no role is guessed");
+
+    // A file that names a bind round-trips it, unchanged.
+    let role = ServerRoleSettings {
+        bind: "127.0.0.1:7443".into(),
+    };
+    let path = unique_dir("server-role").join("settings.json");
+    let settings = LocalSettings {
+        network: Some(NetworkSettings {
+            server_role: Some(role.clone()),
+            ..Default::default()
+        }),
+        ..LocalSettings::default()
+    };
+    settings.save(&path).expect("save");
+    assert_eq!(LocalSettings::load(&path), settings);
+    assert_eq!(
+        LocalSettings::load(&path)
+            .network
+            .and_then(|n| n.server_role),
+        Some(role)
+    );
 }

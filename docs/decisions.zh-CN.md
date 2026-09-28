@@ -1139,3 +1139,13 @@ trait 属 v1.x 工作。
 **缘由**：两个选择承担重量。**缺数据用 `null`，既不是空形状也不是 `404`。** 这三项在源头都读一个 `Option` —— 密钥直到配置了联网，两个文件直到部署者写下它们 —— 所以「没什么可报」的诚实读法就是 `null`；未配置的节点是能用的节点（§2），不是坏掉的，报错就是撒谎。（桌面的命令把两张表压成空列表；经 HTTP 时问的就是这一项本身，所以它的缺席就是答案。）**不加新 capability。** §83 的规矩是一条路由必须声明 capability；`status.read` 本就说的是「本节点自己的状态」，而这四条恰是那个，所以词表未动，所有者的令牌像够到 `/v0/capabilities` 一样够到它们。
 
 **影响**：`server/src/routes.rs` 多出四个 `Action` 变体、四行 `ROUTES` 与四个 dispatch 臂；`server/tests/smoke.rs` 把四条路径加进 `every_query_endpoint_answers`（其计数 34 → 38），并新增一条测试 `the_connection_layer_answers_over_http`，同时钉住新节点的 `null` 与已配置节点的形状（用 `net` 自己的写入器播种，所以 `server/Cargo.toml` 多出 `net` 这条 **dev-dependency** —— 一条边、不新增包）；`docs/control-plane-api.md` 及其译文把 §5.1 从 **33 挪到 37**，两份 `docs/tool-schema-control-plane.md` 各多出四行。**没有哈希公式、审计事件常量、capability 名、`net`/`host-core`/`host-tauri`/`cli` 文件或持久化格式被改动。** 接在后的是 AC-3（CLI）与 AC-4（服务端角色）。
+
+## 107. 服务端角色是节点自己的一种部署形态，写在设置里、用自己的文件启动
+
+**日期**：2026-09-28 ｜ **状态**：已定；已实现（批 AF / AC-4）
+
+**决策**：一个节点现在可以**就是那张网络的服务器**。`NetworkSettings` 多出 **`server_role: Option<ServerRoleSettings>`**（加法式、`#[serde(default)]`、`SETTINGS_VERSION` 不动），它只有一个字段 **`bind`** —— 必填，且**刻意没有默认值**。它一出现，`AppState::load_connection_files` 就用本节点自己的 `node.key` / `peers.json` / `rooms.json` 起一个 **`RelayServer`**，**同步**绑定 `network.server_role.bind`（绑不上会记进 `connection_problem`，而不是留给一条悄悄死掉的线程），再在一条线程上服务。`AppState::server_role_addr()` 报它绑在哪，`AppState::server_role()` 交出句柄，于是带链的部署可以把 §6.7 的 `AppState::connection_judgement_sink` 装上。没有配置过的节点，什么都不会起。
+
+**缘由**：三点承担重量。**角色是配置，不是程序。** §6.1 让服务器成为**部署者运行**的部署，而 §33 的细胞分化让「带角色的节点」是一种形态、不是第二个二进制，所以 §6.5 的内网服务器就是独立 `riscdom-relay` 跑的那个**同一个** `RelayServer` —— 一套机制、两种部署形态 —— 而节点用它已经加载的文件（自己的密钥、自己的同伴表、自己的房间）把它起起来。**`bind` 故意没有默认值。** 一个默认地址就是项目在指定服务器在哪，正是 §6.1 禁止的；地址由部署者写，和 `riscdom-relay` 要求 `--bind` 一样。**先绑，再服务。** 在 `load_connection_files` 里同步绑定，把「端口被占」变成节点照常运行时的一条已报告问题，而不是一个悄悄没起来的角色。
+
+**影响**：`host-core/src/settings.rs` 多出 `ServerRoleSettings` 与 `server_role` 字段；`host-core/src/state.rs` 多出两个字段、`start_server_role`、`note_connection_problem`、`server_role_addr` 与 `server_role`，并在 `load_connection_files` 里调用启动器；`host-core/tests/connection.rs` 新增三条测试（角色绑定成功、且有节点注册并心跳进去；没有角色的节点谁也不服务；绑不上会被报告），`host-core/tests/settings.rs` 一条（字段有/无都被正确读出，且版本不动）；`net/README.md` 及其译文写明该角色现在也能跑在节点里、不只是独立部署。**`net` 的代码未改** —— `RelayServer`、`Listener` 与 §6.6 的处理本来就能服务它 —— 也没有哈希公式、路由、capability 名、审计事件常量或持久化格式被改动。§6.7 的**兄弟确认** —— 第二层、服务器自身失联由兄弟经跨区域服务器判定 —— 是 **V-3b**，而本批暴露的那个 sink 正是它要装的钩子。
