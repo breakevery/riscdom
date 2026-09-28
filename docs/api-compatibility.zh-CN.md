@@ -98,6 +98,7 @@
 | 凭据文件 | `<data-dir>/token` | 无：一行 hex，只做形状检查 | 手工放置的 token 永不被改写 |
 | 节点身份 | `<data-dir>/node.key`，或 OS keyring | `schema_version` = **1**（v1.0 M4a）—— JWK 的首成员（[connection.md](connection.zh-CN.md) §2） | v1.0 M4a 新增，所以它之前没有东西可迁移；**更新**的文件以 `data_too_new` 被拒——不读、不写 |
 | 同侪表 | `<data-dir>/peers.json` | `schema_version` = **1**（v1.0 M4a）—— 文件的首成员 | v1.0 M4a 新增；**更新**的文件以 `data_too_new` 被拒，而更旧的在后批移动标记后**打开时**迁移 |
+| 房间表 | `<data-dir>/rooms.json` | `schema_version` = **1**（v1.0 M4c）—— 文件的首成员（[connection.md](connection.zh-CN.md) §5.1） | v1.0 M4c 新增；**更新**的文件以 `data_too_new` 被拒，而更旧的在后批移动标记后**打开时**迁移 |
 
 - **[已定]** **标记不是对其他节点的承诺。** 不同版本的两个节点只共用协议允许共用的部分；较旧的那个
   拒绝较新的文件，而不是去猜。

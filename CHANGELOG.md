@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rooms are frozen** (v1.0 M4c): [`docs/connection.md`](docs/connection.md) §5 — `rooms.json` is one
+  `schema_version`-first file holding rooms whose members are **`node_id`s** and whose rules are the three
+  [roadmap §4](docs/roadmap-v1.0.md) names: `rate` (`{messages, window_seconds}`, **per member**),
+  `mention` (`"members"` / `"nobody"`, defaulting to **`"nobody"`**) and `require_signature` (only `true`
+  is legal, because §3 already makes a signature universal on the peer path). `rooms.json` and
+  `peers.json` are two files with two authors, membership never introduces a key, v1.0 has no join
+  protocol, and the discovery filter's "configured for a room" now means the file names the room **and**
+  lists this node. `docs/decisions.md` §91 records it.
+
 - **Discovery is frozen** (v1.0 M4b): [`docs/connection.md`](docs/connection.md) §4 — the in-network
   server hands down a table whose entries **are** `peers.json` entries (at startup, on reconnect, and on
   a change, stamped with a generation, carried as an ordinary signed frame), and a **UDP broadcast** is

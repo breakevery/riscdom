@@ -28,8 +28,8 @@ Each written section ends with what it **freezes** and what it **leaves open**.
 
 ## 1. What is frozen, and what is not
 
-- **[settled]** **Frozen here**: node identity (the key pair, its file, its generation) in §2, signing (`@`, the signed bytes, verification, how it sits beside the bearer token, and its transport and replay protection in §3.1–§3.2) in §3, and **discovery** — where an address comes from — in §4, plus the two standing constraints in §8 and the trust model in §9 and the red-line test in §10.
-- **[open]** **Deferred**: rooms (M4c), the cross-region server (M4d) and audit digests (M4e — which also waits on M5's authorisation). §5–§7 are titles, not shapes.
+- **[settled]** **Frozen here**: node identity (the key pair, its file, its generation) in §2, signing (`@`, the signed bytes, verification, its transport and replay protection in §3.1–§3.2, how it sits beside the bearer token) in §3, **discovery** — where an address comes from — in §4, and **rooms** — membership and the rules a room carries — in §5, plus the two standing constraints in §8 and the trust model in §9 and the red-line test in §10.
+- **[open]** **Deferred**: the cross-region server (M4d) and audit digests (M4e — which also waits on M5's authorisation). §6–§7 are titles, not shapes.
 - **[open]** **Not frozen even inside §2–§3**: the **port numbers** a node listens on, the
   connect/read/write **timeouts**, the replay record's in-memory shape and whether a later batch
   persists it (§3.1, §3.2 — the *shape* of the transport and of the window **is** frozen), and the
@@ -182,12 +182,54 @@ fixed. **Not frozen**: the announce interval and how long a node keeps announcin
 be cached before the node asks again; the server's publication policy; the port **numbers** themselves;
 and retries, back-off, or how a deployment enables broadcast at all.
 
-## 5. Rooms — deferred (M4c)
+## 5. Rooms
 
-**Deferred to M4c.** `rooms.json`, membership and the rules a room carries — rate, who may `@` whom,
-whether a signature is required ([roadmap §4](roadmap-v1.0.md), [decisions §7](decisions.md)). §3
-already fixes what a *signature* is, and §4.2 fixes the discovery **filter** that reads a room set;
-M4c fixes the **file** and what a room *demands of* a signature.
+**A room is a membership list plus its rules**, and its landing place is `rooms.json` ([roadmap §4](roadmap-v1.0.md), [decisions §7](decisions.md)). §4.2 already froze the discovery **filter** that reads a room set; this section freezes the **file** the filter reads, and what a room *demands of* a message.
+
+### 5.1 The file
+
+- **[settled]** **One JSON file, `schema_version` first**, exactly as [`node.key`](connection.md) and `peers.json` do ([§2](#2-node-identity)):
+
+  ```json
+  {
+    "schema_version": 1,
+    "rooms": [
+      {
+        "name": "lab",
+        "members": ["dev-a", "dev-b"],
+        "rules": { "rate": { "messages": 60, "window_seconds": 60 },
+                   "mention": "members",
+                   "require_signature": true }
+      }
+    ]
+  }
+  ```
+
+- **[settled]** **A member is a `node_id`** — the **device name** `peers.json` already keys on ([§2](#2-node-identity)), not a key and not an address. One fact, one home: **a room names who; `peers.json` says what a node is.** A member entry therefore carries no key, and adding one would be a second place a key could come from.
+- **[settled]** **`rooms.json` and `peers.json` are two files, not one.** A `peers.json` entry's `rooms[]` is what that node *announces about itself* (§4.2); a room's `members[]` is what the **local deployer** says about who is in it. They are different claims from different authors, and neither overwrites the other: the announcement path only ever **refreshes an address** (§4.2), and the membership file only ever says **who may address the room** (§5.2).
+- **[settled]** **A member that `peers.json` does not know is reported, not adopted** — the same rule §4.2 applies to announcements and [plugin-interface.md](plugin-interface.md) §6 to manifest sources. Membership never introduces a key, so it cannot introduce a trust either.
+
+### 5.2 The rules
+
+- **[settled]** **`rate` is `{messages, window_seconds}`, and it is per member.** Each member gets its own budget of messages per window, because a room-wide budget would let one member starve the others. Exceeding it is **`refused`** — [error-model.md](error-model.md) §4 already gives that category to "a policy the deployer set" and to a full queue, so **no new category is needed** and none is added.
+- **[settled]** **`mention` is `"members"` or `"nobody"`**, and it governs `@` **from one member to another inside this room**. It **defaults to `"nobody"`**: a room that does not say otherwise forbids `@`, which is the default-deny the rest of the project uses ([security-model.md](security-model.md) §4). Addressing a node that is not a member is not a room act at all, and is refused by membership rather than by `mention`.
+- **[settled]** **`require_signature` records [roadmap §4](roadmap-v1.0.md)'s third rule, and it cannot lower the floor §3 set.** §3 makes a signature **universal on the peer path** — verification step 2 rejects a frame whose signature does not verify — so in v1.0 `true` is the only value a file may carry and a `false` is **refused at load**. The field stays because the roadmap names it, and because a future version that wanted to allow unsigned traffic inside a room would have to say so here, in a decision, rather than by quietly setting a flag.
+- **[settled]** **The rules are mechanism here and values there.** The kernel is what enforces a rate, a `@` permission and the signature floor; **the numbers and the choices are the deployer's** ([decisions §7](decisions.md): rate, rooms and `@` permissions are mechanism in the kernel and policy in the caller). Nothing in this section picks a default rate.
+- **[settled]** **Membership is configuration, and v1.0 has no join protocol.** A room's members are what the deployer wrote in the file; there is no wire request to join, and a node cannot add itself. A dynamic membership protocol would be a new mechanism with its own authority question — the territory of [decisions §33](decisions.md) — so it is **not** invented here, and is left open below.
+
+### 5.3 How the discovery filter reads it
+
+- **[settled]** **"Configured for a room" means two things at once**: `rooms.json` **names** the room, **and** the room's `members[]` lists **this node's own `node_id`**. §4.2's filter adopts an announcement only when the rooms it names intersect the rooms the receiver is configured for — a room the node is merely *listed beside* is not one it is in, and it does not widen what the node will adopt.
+- **[settled]** **The default-deny is concrete**: no `rooms.json`, an empty `rooms` array, or rooms that do not list this node all mean the node is configured for **no room**, so it **adopts no announcement** and works from the handed-down table alone (§4.1). Discovery is therefore usable before any room exists, which is what let §4.2 be frozen first.
+
+**Frozen**: the file and its `schema_version`-first shape; a member being a `node_id`; `rooms.json` and
+`peers.json` being two files with two authors and neither overwriting the other; an unknown member being
+reported; the `rate` shape being per member and its refusal being `refused`; `mention`'s two values and
+its `"nobody"` default; `require_signature` being unable to lower §3's floor; membership being
+configuration with no join protocol; and the filter's reading of "configured for". **Not frozen**: the
+rate **numbers** a deployment chooses; whether a room may have more rule kinds later; the wire flow a
+future dynamic membership would use; how a member is *notified* that it was added; and anything about
+cost metering ([decisions §7](decisions.md) names it beside rate, and it is not this section's).
 
 ## 6. The cross-region server — deferred (M4d)
 

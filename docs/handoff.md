@@ -30,6 +30,11 @@ current request authorising it (§2).
   with a generation, as a §3.1 frame), and a **UDP broadcast** supplements it: one datagram, one signed
   frame, and an announcement **refreshes an address but cannot introduce a key**, so §9 still holds.
   Room isolation is a default-deny filter that reads membership whose shape is M4c's. **Decision §90.**
+- **Rooms are frozen** (v1.0 M4c, 2026-09-28): [`docs/connection.md`](connection.md) §5 — `rooms.json`
+  (one file, `schema_version` first) holds rooms whose members are **`node_id`s** and whose rules are
+  `rate` (per member), `mention` (default `"nobody"`) and `require_signature` (only `true`, because §3
+  already floors it). Membership is configuration — v1.0 has no join protocol — and the discovery filter
+  reads a room the file names **and** lists this node in. **Decision §91.**
 
 - **The plugin interface is frozen** (v1.0 M3, 2026-09-28). [`docs/plugin-interface.md`](plugin-interface.md)
   is the specification [roadmap §8](roadmap-v1.0.md) described and decisions §3 required to freeze before

@@ -2217,3 +2217,37 @@ constant, no hash formula, and — because the peer port is a field of the exist
 persisted format changed.** The transport's own open items (port numbers, timeouts) stay where §3.1 left
 them; what M4b fixes is the **rule** that a node's peer port is configuration and the broadcast port is a
 constant.
+
+## 91. A room is membership plus rules, and membership never introduces a key
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; M4c's protocol frozen (unimplemented)
+
+**Decision**: §5 of [`docs/connection.md`](connection.md) is written. `rooms.json` is **one JSON file**
+with `schema_version` first — the shape [`node.key`](connection.md) and `peers.json` already use — holding
+rooms, each with a `name`, a `members[]` of **`node_id`s** and a `rules` object. The rules are
+[roadmap §4](roadmap-v1.0.md)'s three: **`rate`** = `{messages, window_seconds}`, **per member**;
+**`mention`** = `"members"` or `"nobody"`, defaulting to `"nobody"`; and **`require_signature`**, whose
+only legal value in v1.0 is `true`. `rooms.json` and `peers.json` are **two files with two authors** — a
+room names *who*, `peers.json` says what a node *is*, and neither overwrites the other. **Membership is
+configuration**: v1.0 has no join protocol. And the discovery filter's phrase "configured for a room" now
+has a definition: `rooms.json` names the room **and** its `members[]` lists this node's own `node_id`.
+
+**Why**: §4.2 froze a filter that read a room set and left the file to this batch, so closing it means
+saying what a room **is**. Four choices carry the weight. **A member is a `node_id`, and membership never
+introduces a key**: [decisions §13](decisions.md) already puts a node's key in `peers.json`, and a second
+place a key could come from would be a second place trust could be granted — so membership names, and
+`peers.json` proves. **`require_signature` cannot lower §3's floor**: §3 made a signature universal on
+the peer path, so a room flag that could admit unsigned traffic would contradict a frozen section; it is
+recorded as `true` and a `false` is **refused at load**, which keeps [roadmap §4](roadmap-v1.0.md)'s third
+rule visible without letting a config file undo the signature. **Membership is configuration, not a
+protocol**: a dynamic join would be a mechanism with its own authority question — [decisions §33](decisions.md)'s
+territory — and inventing one here would settle by accident what belongs to the centre. **The `rate`
+refusal maps onto `refused`**: [error-model.md](error-model.md) §4 already gives that category to a
+deployer's policy and to a full queue, so no sixth category appears and its neighbours stay what they
+were.
+
+**Impact**: `docs/connection.md` §5 gains §5.1–§5.3; its §1 list moves rooms from *deferred* to *frozen*,
+leaving §6–§7 as the only deferred sections; `docs/api-compatibility.md` §6 and `docs/upgrade.md` §2 gain
+a **`rooms.json`** row; `CHANGELOG.md` and `handoff.md` §1 follow. **No source file, no dependency, no
+capability name, no audit event constant and no hash formula changed** — M4c is a file shape and three
+rules, and a room's members are read by the same discovery filter §4.2 already froze.

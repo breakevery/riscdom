@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **房间已冻结**（v1.0 M4c）：[`docs/connection.md`](docs/connection.md) §5 —— `rooms.json` 是一个 `schema_version` 排第一的文件，装着若干房间，其成员是 **`node_id`**、其规则是 [roadmap §4](docs/roadmap-v1.0.md) 点名的三条：`rate`（`{messages, window_seconds}`、**按成员**）、`mention`（`"members"` / `"nobody"`，默认 **`"nobody"`**）与 `require_signature`（只有 `true` 合法，因为 §3 已让签名在对等路径上普遍成立）。`rooms.json` 与 `peers.json` 是两个文件、两位作者，成员关系从不引入密钥，v1.0 没有加入协议，而发现过滤器那句「被配置为某个房间」现在指：文件点名了那个房间**且**列出了本节点。`docs/decisions.md` §91 记下它。
+
 - **发现已冻结**（v1.0 M4b）：[`docs/connection.md`](docs/connection.md) §4 —— 内网服务器下发一张表，其条目**就是** `peers.json` 条目（在启动时、重连时与变更时下发，带 generation，作为一个普通的签名帧承载），而 **UDP 广播**是补充 —— 一个数据报、一个签名帧，其唯一被允许的效果是提供一个地址。房间隔离是一个带**默认拒绝**的过滤器，而报名**能刷新地址、无法引入密钥**，所以 §9 的「在被认识之前不被信任」仍然成立。`docs/decisions.md` §90 记下它。
 
 - **签名消息的传输与重放防护已冻结**（v1.0 M4a，§3 的两个开放项）：[`docs/connection.md`](docs/connection.md) §3.1 把一条签名消息放在 **TCP 上、一行 JSON**，先直连、失败走 relay，**两条路径上逐字节相同**（这正是 relay 无状态的原因），明文、完整由签名承担、同侪之间不发 token；§3.2 用**每同侪、内存里的高水位**在 **−5 min / +1 min** 窗口上封顶重放，推进水位即丢弃集合。`partial` 在这一层刻意不用，传输失败到错误模型的映射已写明。`docs/decisions.md` §89 记下这些选择。

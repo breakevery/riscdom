@@ -117,6 +117,7 @@ keeps for exactly this, read before anything else and written with the migration
 | Credential files | `<data-dir>/token` | none: one line of hex, shape-checked | a hand-provisioned token is never rewritten |
 | Node identity | `<data-dir>/node.key`, or the OS keyring | `schema_version` = **1** (v1.0 M4a) — the JWK's first member ([connection.md](connection.md) §2) | new in v1.0 M4a, so there is nothing before it to migrate; a **newer** file is refused with `data_too_new` — nothing read, nothing written |
 | Peer table | `<data-dir>/peers.json` | `schema_version` = **1** (v1.0 M4a) — the file's first member | new in v1.0 M4a; a **newer** file is refused with `data_too_new`, and an older one migrates **on open** once a later batch moves the marker |
+| Room table | `<data-dir>/rooms.json` | `schema_version` = **1** (v1.0 M4c) — the file's first member ([connection.md](connection.md) §5.1) | new in v1.0 M4c; a **newer** file is refused with `data_too_new`, and an older one migrates **on open** once a later batch moves the marker |
 
 - **[settled]** **A marker is not a promise about other nodes.** Two nodes on different versions may
   share only what the protocol says; the older one refuses the newer one's files rather than guessing.

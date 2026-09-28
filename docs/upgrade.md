@@ -38,6 +38,7 @@ procedure can act on — and a new one adds its row in the same batch that creat
 | Credential files | `<data-dir>/token` | none (a shape-checked hex line) | a hand-provisioned token is **never rewritten** |
 | Node identity | `<data-dir>/node.key`, or the OS keyring | `schema_version` = **1** (v1.0 M4a) | new in v1.0 M4a; a **newer** file is refused |
 | Peer table | `<data-dir>/peers.json` | `schema_version` = **1** (v1.0 M4a) | new in v1.0 M4a; a **newer** file is refused, an older one migrates **on open** |
+| Room table | `<data-dir>/rooms.json` | `schema_version` = **1** (v1.0 M4c) | new in v1.0 M4c; a **newer** file is refused, an older one migrates **on open** |
 
 Two properties of that table decide the procedure below:
 

@@ -33,6 +33,7 @@ v0.9.9（`3365970`）｜ **读者** 发行集成者 —— 发布或操作一次
 | 凭据文件 | `<data-dir>/token` | 无（一行只做形状检查的 hex） | 手工放置的 token **永不被改写** |
 | 节点身份 | `<data-dir>/node.key`，或 OS keyring | `schema_version` = **1**（v1.0 M4a） | v1.0 M4a 新增；**更新**的文件被拒 |
 | 同侪表 | `<data-dir>/peers.json` | `schema_version` = **1**（v1.0 M4a） | v1.0 M4a 新增；**更新**的文件被拒，更旧的**打开时**迁移 |
+| 房间表 | `<data-dir>/rooms.json` | `schema_version` = **1**（v1.0 M4c） | v1.0 M4c 新增；**更新**的文件被拒，更旧的**打开时**迁移 |
 
 这张表的两个性质决定了下面的流程：
 
