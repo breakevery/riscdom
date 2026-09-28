@@ -287,8 +287,10 @@ signed `to` and nothing else; authorisation being the §3 model (a known `node_i
 signature) and **not** a new credential or capability; a relay forwarding only to a destination it knows;
 what "stateless" does and does not mean; a direct connection taking the data path off the relay; the
 server never dialling a node; the configuration shape being a `peers.json` entry plus a settings field
-with no new format; the red-line answer of §6.5; and the **reporting half** of the same model — §6.6's
-registration, heartbeat and online-status table, with its two directions kept apart. **Not frozen**: the
+with no new format; the red-line answer of §6.5; the **reporting half** of the same model — §6.6's
+registration, heartbeat and online-status table, with its two directions kept apart; and §6.7's **liveness
+judgement** — a fact about reachability, unanimous among the witnesses that remain, and never a removal.
+**Not frozen**: the
 routing algorithm's data structure and the server's **capacity limits**; how a deployment publishes its
 address to its own users; what the aggregation role does with a digest (that is §7); how several servers
 would be run together (a commercialisation-layer item); the **numbers** §6.6 freezes for v1.0 (15 s and
@@ -408,8 +410,140 @@ deleted by going offline; the offline rule (three missed intervals) and v1.0's n
 levels sharing one shape; an in-network server registering as itself; and joining being configuration with
 no automatic approval. **Not frozen**: the numbers themselves (15 s and 45 s are v1.0's defaults, of the kind
 §3.1's timeouts are); where the table is kept (memory-only is this section's reading of §6.3, not a format);
-how a server *publishes* what it holds (that is §6.2's management, unchanged); what a node or a server does
-when it concludes a peer is gone (**V-proto-2**); and whether anything ever prunes the table.
+how a server *publishes* what it holds (that is §6.2's management, unchanged); what a deployment does about
+a peer that has been judged gone (§6.7 — the judgement is frozen there; the acting is not); and whether
+anything ever prunes the table.
+
+### 6.7 Liveness: who decides a node is gone
+
+**[settled]** **§6.6 gives every node a *report*; this subsection gives the deployment a *judgement*.** They
+are different facts and must not be confused. A row that has gone `offline` says **the server stopped
+hearing from a node** — one observer, one silence. A **judgement** says **everybody who could still reach it
+has said they cannot**, which is the only statement strong enough to act on. Like §6.6, nothing here is a new
+frame type: a probe is an ordinary §3 frame, and so is a report.
+
+**[settled]** **Who judges what, and at which level.** Two levels, the shapes of §6.6:
+
+- **A node's peers are its own workgroup** — the peers that share its in-network server, which is why the
+  server's own knowledge *is* the membership ([roadmap §4](roadmap-v1.0.md): a workgroup is one LAN plus its
+  server). A node asks about **its peers**; the in-network server judges **the nodes it knows**.
+- **A server's peers are its sibling servers** — the other in-network servers registered with the same
+  cross-region server, learned from that server's registry (§6.2's management, which already publishes the
+  node list it holds). A sibling asks about **its siblings**; the cross-region server judges **the servers it
+  knows**.
+
+**[settled]** **The probe — a question with an answer, direct first.**
+
+```json
+{ "v": 1, "from": "dev-a", "to": "dev-b", "ts": 1737970030000,
+  "body": { "probe": 1 }, "sig": "…" }
+```
+
+- The peer answers **`{"alive": 1}`**, addressed back and signed by the peer — so what a prober gets is
+  **evidence about the peer's key-holder and its clock**, not merely an open socket. A wedged process still
+  accepts a connection; only an answer says the node behind it is working.
+- **Direct first, and the relay when that fails** — §3.1's ordinary rule, unchanged. That is also what lets a
+  probe cross a NAT: a probe is a frame like any other.
+- **Every 15 seconds** — the same interval as §6.6's heartbeat — and **three consecutive unanswered probes
+  (45 s)** is what makes a prober conclude **"I cannot reach it"**. The numbers are §6.6's on purpose: the
+  node's own evidence and the server's table have to cross the same line at the same moment, or the two
+  halves of the judgement would disagree about when 45 seconds have passed.
+- What a prober keeps is **its own view** — per peer, when the last answer arrived, how many probes in a row
+  went unanswered, and whether it currently holds the peer *reachable* or *unreachable*. It is **runtime
+  state**: memory-only, like the server's table (§6.6) and §3.2's record — and it is written to **no chain**,
+  because a suspicion is not an event (the last bullet below says why).
+
+**[settled]** **The report: what a prober tells its server, and how often.**
+
+```json
+{ "v": 1, "from": "dev-a", "to": "<server>", "ts": 1737970030000,
+  "body": { "unreachable": "dev-b" }, "sig": "…" }
+```
+
+- **`{"unreachable": "<node_id>"}`** when the view turns unreachable, and **`{"reachable": "<node_id>"}`**
+  when it turns back. A prober **repeats the report every probe cycle (15 s) while its view stands**, so a
+  report is a *pulse* rather than a one-off: a witness that goes quiet stops being a witness.
+- A report counts **only while it is fresh** — inside the same 45 s — so a stale "I cannot reach it" cannot
+  outlive the view that produced it.
+
+**[settled]** **The threshold: unanimity among the witnesses that remain.** A node is judged gone when
+**(1)** there is at least one **witness** — another node this server knows, itself reachable right now, and
+not the subject — and **(2)** every witness has reported it unreachable, freshly.
+
+- **A witness of life vetoes.** One node that can reach the subject is proof it is *alive*, and a failure has
+  innocent explanations (a route that broke, a blocked port, a full backlog) while a success has none. So a
+  failure is never proof and a success always is: the rule can only be unanimity among failures.
+- **A majority would be wrong exactly where it matters.** In a partition, half a workgroup can reach the
+  subject and half cannot; a majority would declare a **live** node gone, which is the worst error this
+  mechanism can make. Unanimity claims no more than "those of us who are here cannot reach it", which is
+  true.
+- **The witness set is what keeps the rule from being vacuous**, and it is why the question is not "how many
+  reported". A node that is itself down cannot report; a node that is itself unreachable must not be counted
+  as a witness, because it cannot testify. So the threshold is unanimity **among those still able to speak** —
+  and a node alone in its workgroup is **never** judged, because nobody can testify: the honest answer.
+- **The judgement is about reachability and touches no identity.** A judged node stays in `peers.json`, stays
+  in the server's table and keeps its key (§6.6: a row is never deleted). Nothing is revoked by being judged
+  gone.
+
+**[settled]** **An in-network server's own loss is confirmed by its siblings, not by the nodes below it.** A
+server that stops being reachable is judged by the **other in-network servers**, reporting to the
+cross-region server above them — and the reason the nodes below cannot do it is physical: **they share a LAN
+and a power feed with their server, so they die with it.** A silence that includes the witnesses is not
+evidence.
+
+- **How a sibling knows**: it probes the siblings it knows (from the registry above it, §6.2) with the same
+  probe and the same numbers; a sibling behind a NAT is reached through the cross-region server's relay,
+  because a probe is a §3.1 frame and the relay is what carries a frame a direct path cannot.
+- **How it reports**: the same two bodies, addressed to the cross-region server instead of an in-network
+  one. There is no second vocabulary for the second level.
+- **How the cross-region server judges**: the same rule, unchanged — unanimity among the sibling witnesses
+  that remain. It **aggregates rather than probes**, and that is not a choice: §6.3's rule that the server
+  never dials applies to it too, so its own evidence is what it already has (the heartbeats of §6.6) plus
+  what its siblings tell it.
+
+**[settled]** **After the judgement: record it, and leave the acting to the deployer.**
+
+- **The row gains one field**, `judged_at_ms`: the moment the threshold first held, cleared when the node is
+  heard from again. §6.6's four fields keep their meaning **unchanged** — `state` is still `offline` from
+  silence alone, and `judged_at_ms` is the stronger, collective fact. They are kept apart on purpose: a node
+  can be `offline` because its heartbeats stopped while its peers still reach it, which is a different
+  situation from one nobody can reach.
+- **Two audit names, one per transition** (the vocabulary's additions, recorded in [decisions §102](decisions.md)):
+  **`host.connection.peer_offline`** when the judgement is reached, with `{peer, witnesses, reports}`, and
+  **`host.connection.peer_recovered`** when the node is heard from again, with `{peer, method}` — `method`
+  being `heartbeat` or `probe`. Both are written by the **judging server**, the one holding the table: at the
+  node level by the in-network server, at the server level by the cross-region server.
+- **A prober writes no row.** Its view is runtime state and a suspicion is not a fact: recording "I cannot
+  reach X" per node would make one partition write *"X is gone"* into half the chains — evidence this design
+  explicitly refuses to trust. The chain records the **judgement**, the only statement strong enough to act
+  on.
+- **The protocol defines no removal.** There is no automatic kick, no ejection frame, and no rule that a
+  judged node is dropped: the kernel provides the mechanism — the judgement, the row, the event — and **what
+  a deployment does about it is the deployer's policy** (kick it, ignore it, page a human). That is
+  [roadmap §1](roadmap-v1.0.md)'s red line: the kernel gives mechanism, not policy. The deployer's tools
+  already exist and are unchanged — membership is configuration (§5.2), a node joins by being put in
+  `peers.json` (§6.6), and it leaves the same way.
+
+**[settled]** **Recovery is being heard from, not a re-admission.** A judged node that comes back is heard
+from — a heartbeat or an answered probe clears `judged_at_ms`, returns `state` to `online`, and writes
+`host.connection.peer_recovered`. Nothing is restored because nothing was taken: identity was never revoked
+and the row was never deleted (§6.6). A node that restarts re-registers (§6.6, idempotent) and its row is the
+one it had.
+
+**Frozen**: that a judgement is a separate fact from §6.6's `offline`; the scope at each level (a node's
+workgroup; a server's siblings); the probe (`{"probe": 1}` / `{"alive": 1}`, direct first then relay, every
+15 s, three misses = the prober's own *unreachable*); the report (`{"unreachable": …}` / `{"reachable": …}`,
+repeated each cycle while the view stands, counted only while fresh); the threshold (**unanimity among the
+witnesses that remain**, a witness of life vetoing, the subject never judging itself); that a solo node is
+never judged; that the judgement touches no identity, no membership and no key; that a server's own loss is
+confirmed by its **siblings**, and why the nodes below cannot do it; that the judgement is recorded in the
+judging server's row (`judged_at_ms`) and in two audit names; that a prober writes no row; that the protocol
+defines **no removal**; and that recovery is being heard from rather than re-admitted. **Not frozen**: the
+probe's transport timeouts and retransmission details; whether probes are staggered so a large workgroup does
+not probe in lockstep; the freshness number (45 s is v1.0's, §6.6's); whether a **room** may narrow the peer
+scope later (it is a policy grouping, not a transport one); how a deployment acts after a judgement and the
+shape of any kick API (V-3 or later); whether reports are batched; and how a **partition** is resolved at the
+deployment level — that is [decisions §33](decisions.md)'s suppression machinery (M5/M6), not this section's.
 
 ## 7. Audit digests — deferred (M4e, and authorised separately)
 

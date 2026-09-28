@@ -2679,3 +2679,51 @@ always. **No source file, no dependency, no capability name, no audit event cons
 route and no new persisted format changed** — this is a section of a frozen document written after the
 freeze. V-proto-2 (liveness: collective confirmation, an in-network server noticing its own loss, and what
 follows the judgement) and V-2 (the pointer and the client) are the batches that will use it.
+
+## 102. A node is judged gone only by unanimity among the witnesses that remain
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; the protocol is frozen (V-proto-2), unimplemented
+
+**Decision**: [connection.md §6.7](connection.md) is written. **A node's peers are its own workgroup**, and
+each node **probes** them with an ordinary §3 frame — `{"probe": 1}`, answered `{"alive": 1}`, direct first
+and through the relay when that fails, **every 15 seconds**, with **three consecutive unanswered probes
+(45 s)** making the prober hold the peer *unreachable*. The prober **reports** its view upward —
+`{"unreachable": "<node_id>"}` / `{"reachable": "<node_id>"}`, repeated every cycle while the view stands and
+counted only while fresh — and the in-network server **judges**: a node is gone when there is **at least one
+witness** (another node it knows, itself reachable, not the subject) and **every witness has reported it
+unreachable**. A witness of life vetoes, and a node **alone** in its workgroup is never judged. **An
+in-network server's own loss is confirmed by its siblings** — the other in-network servers, reporting the same
+two bodies to the cross-region server, which judges by the same rule — and the nodes below it cannot do it
+because they **share its LAN and its power feed**. After a judgement the row gains **`judged_at_ms`** (a fact
+about reachability, kept apart from §6.6's heartbeat-based `state`) and the judging server writes
+**`host.connection.peer_offline`** (`{peer, witnesses, reports}`) or **`host.connection.peer_recovered`**
+(`{peer, method}`). **Nothing is removed**: the protocol defines no kick, no ejection and no drop.
+
+**Why**: Five choices carry it. **A judgement is not a silence.** §6.6's `offline` is one observer's silence;
+a judgement is everybody-who-can-reach-it's agreement, and only the second is strong enough to act on — so
+they are different fields, not two values of one. **Unanimity, not a majority.** A failure has innocent
+explanations and a success has none, so a witness of life vetoes and the rule can only be unanimity among
+failures; and a majority would be wrong in exactly the case that matters — a partition, where half a
+workgroup can reach a node and half cannot, and a majority would call a **live** node gone. **The witness set
+is what keeps it honest.** A node that is down cannot report, and a node that is itself unreachable cannot
+testify, so the threshold is unanimity *among those still able to speak* — which is also why a solo node is
+never judged (nobody can testify), and why the question is not "how many reported". **Siblings, not
+subordinates.** The nodes below an in-network server share its LAN and its power, so a silence that includes
+the witnesses is not evidence: the confirmation has to come from peers that can be expected to survive it. The
+mechanism is the same one level up, and it needs no new role — the cross-region server only **aggregates**,
+because §6.3's rule that the server never dials binds it too. **Mechanism, not policy.** The kernel records
+the judgement (the row, the event) and defines **no removal at all**: a judged node keeps its key, its
+`peers.json` entry and its table row, and what a deployment does about it is the deployer's policy
+([roadmap §1](roadmap-v1.0.md)'s red line, and the rule §5.2 and §6.6 already keep for joining). Two smaller
+consequences are worth stating: **a prober writes no chain row** — a suspicion is not a fact, and one row per
+node would make a partition write *"X is gone"* into half the chains — and **recovery is being heard from,
+not re-admitted**, because nothing was taken away.
+
+**Impact**: `docs/connection.md` gains **§6.7** — the ten H2 sections stay **ten**, and §6 keeps §6.1–§6.5's
+numbering, so every existing citation still points where it did — plus one clause in §6's closing summary and
+one in §6.6's not-frozen list (which had pointed at V-proto-2). `CHANGELOG.md` and `docs/handoff.md` §1
+follow, bilingual as always. **No source file, no dependency, no capability name, no existing audit event
+constant, no hash formula, no route and no new persisted format changed** — the two new names are additions to
+the audit vocabulary, recorded where the `host.connection.*` family already lives (this document,
+`CHANGELOG.md`, `docs/handoff.md`) and not in `docs/control-plane-events.md`, whose twenty names are the
+**stream** events. V-2 (the pointer and the client) and V-3 (where a kick API would land) are next.

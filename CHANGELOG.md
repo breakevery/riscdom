@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Liveness, frozen: a judgement needs unanimity among the witnesses that remain** (v1.0 batch Y):
+  [`docs/connection.md`](docs/connection.md) gains **§6.7**. A node's peers are its own **workgroup**, and it
+  **probes** them — `{"probe": 1}`, answered `{"alive": 1}`, direct first then relay, **every 15 s**, with three
+  consecutive unanswered probes (45 s) holding the peer *unreachable* — then **reports** its view upward
+  (`{"unreachable": …}` / `{"reachable": …}`, repeated each cycle, counted only while fresh). The in-network
+  server **judges**: gone means **at least one witness** and **every witness** reporting it unreachable — a
+  witness of life vetoes, and a node **alone** in its workgroup is never judged. An in-network server's own
+  loss is confirmed by its **siblings** (not by the nodes below it, which share its LAN and its power), and the
+  cross-region server judges by the same rule as it aggregates. A judgement sets the row's **`judged_at_ms`**
+  (kept apart from §6.6's heartbeat-based `state`) and writes **`host.connection.peer_offline`**
+  (`{peer, witnesses, reports}`) or **`host.connection.peer_recovered`** (`{peer, method}`). The protocol
+  defines **no removal**... a judged node keeps its key, its entry and its row, and the kick is the deployer's.
+  Documentation only: no source file, no dependency and no persisted format changed.
+
 - **Node registration and heartbeat, frozen** (v1.0 batch X): [`docs/connection.md`](docs/connection.md) gains
   **§6.6**, the reporting half of a server's node list. A node **registers** — an ordinary §3 frame addressed
   to the server, verified by §3's six steps, whose body is

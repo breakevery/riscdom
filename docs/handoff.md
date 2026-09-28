@@ -84,6 +84,15 @@ current request authorising it (§2).
   in-network server → cross-region server), an in-network server registering as **itself** rather than as
   the nodes behind it, and joining by configuration with **no automatic approval**. **Decision §101.**
   Docs only, no code; V-proto-2 (liveness) and V-2 (the pointer + client) follow.
+- **And liveness is frozen too** (v1.0 batch Y, 2026-09-28): [`docs/connection.md`](connection.md) §6.7 — a
+  node **probes** its workgroup peers (`{"probe": 1}` / `{"alive": 1}`, every 15 s, three misses = its own
+  *unreachable*), **reports** the view upward, and the server **judges** by **unanimity among the witnesses
+  that remain** (a witness of life vetoes; a solo node is never judged). An in-network server's own loss is
+  confirmed by its **siblings**, not by the nodes below it (they share its LAN and its power), and the
+  cross-region server judges by the same rule as it aggregates. A judgement records `judged_at_ms` and
+  writes `host.connection.peer_offline` / `host.connection.peer_recovered`; **the protocol defines no
+  removal** — the kick is the deployer's. **Decision §102.** Docs only; V-2 (the pointer + client) and V-3
+  (where a kick API would land) follow.
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new
