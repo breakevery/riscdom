@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A signed message's transport and replay protection are frozen** (v1.0 M4a, §3's two open items):
+  [`docs/connection.md`](docs/connection.md) §3.1 puts a signed message on **TCP as one JSON line**,
+  direct first and through the relay when direct fails, **byte-identical on both paths** (which is what
+  keeps the relay stateless), plaintext with the signature carrying integrity and no token between
+  peers; §3.2 bounds replay with a **per-peer, in-memory high-water mark** over a **−5 min / +1 min**
+  window, where advancing the mark discards the set. `partial` is deliberately unused at this layer,
+  and the transport's error mapping onto the error model is written out. `docs/decisions.md` §89 records
+  the choices.
+
 - **The connection layer's identity and signing are frozen** (v1.0 M4a): [`docs/connection.md`](docs/connection.md)
   says what a node *is* — an Ed25519 key pair in `<data-dir>/node.key` (or the keyring), one JWK whose
   first member is `schema_version`, minted on the first start with networking — and what `@` means:

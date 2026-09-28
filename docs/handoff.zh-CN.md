@@ -11,7 +11,7 @@
 
 ## 1. 快照 —— `v0.9.9` 已发布（正式发布时更新本节）
 
-- **连接层的身份与签名已冻结，而 M4 是五块**（v1.0 M4a，2026-09-28）。[`docs/connection.md`](connection.zh-CN.md) 是那份规范：节点身份（`<data-dir>/node.key` 或 keyring 里的 Ed25519 密钥对，一个首成员为 `schema_version` 的 JWK，首次配置联网的启动时铸出）与 `@`（地址 **加**一个对 `{v, from, to, ts, body}` 规范 JSON 的签名、六个验证步骤，以及「签名认证、capability 授权」这条规矩）。发现（M4b）、房间（M4c）、跨区域服务器（M4d）与审计 digest（M4e，需单独授权）**deferred**；临时中心属 M5/M6。`node.key` 与 `peers.json` 是新的持久化格式。**决策 §88。**
+- **连接层的身份与签名已冻结，而 M4 是五块**（v1.0 M4a，2026-09-28）。[`docs/connection.md`](connection.zh-CN.md) 是那份规范：节点身份（`<data-dir>/node.key` 或 keyring 里的 Ed25519 密钥对，一个首成员为 `schema_version` 的 JWK，首次配置联网的启动时铸出）与 `@`（地址 **加**一个对 `{v, from, to, ts, body}` 规范 JSON 的签名、六个验证步骤，以及「签名认证、capability 授权」这条规矩）。发现（M4b）、房间（M4c）、跨区域服务器（M4d）与审计 digest（M4e，需单独授权）**deferred**；临时中心属 M5/M6。`node.key` 与 `peers.json` 是新的持久化格式。**决策 §88。** **它的 §3 开放项也已关闭**（v1.0 M4a，2026-09-28）：一条签名消息是**一行 JSON 走 TCP**，先直连、否则经 relay，**两条路径上逐字节相同**；重放由**每同侪、内存里的高水位**在 −5 min / +1 min 窗口上封顶。**决策 §89。**
 
 - **插件接口已冻结**（v1.0 M3，2026-09-28）。[`docs/plugin-interface.md`](plugin-interface.zh-CN.md) 就是 [roadmap §8](roadmap-v1.0.zh-CN.md) 描述、decisions §3 要求在内核 API 之前冻结的那份规范：stdio / JSON lines 传输、四个必含的机制层操作（`start`/`stop`/`execute`/`output`）及其帧语法、两个可选的语义层操作（`snapshot`/`fingerprint`）、capability 声明的框架、manifest 的必备键、错误与版本规则、架构无关这条约束，以及信任模型 —— 每一节都说明它冻结了什么、留下了什么。有两样东西**刻意开放**：capability 声明的**格式**（draft；roadmap §8 说它最后冻结）与**架构抽象**（要求已冻结，trait 属 v1.x）。**决策 §87。**
 

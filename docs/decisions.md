@@ -2136,3 +2136,44 @@ capability name, no audit event constant and no hash formula changed** — M4a's
 and the Ed25519 dependency belongs to a later batch. §8's two constraints and §9's trust model restate
 what the rest of the project already holds: nothing here names an architecture, and a signature
 authenticates where a capability authorises.
+
+## 89. A signed message travels as a line over TCP, and replay is bounded by a per-peer window
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; M4a's §3 open items closed (unimplemented)
+
+**Decision**: §3 of [`docs/connection.md`](connection.md) left two things open, and both are now
+frozen as that file's **§3.1** and **§3.2**. **Transport**: a signed message is **one JSON line over a
+TCP connection** — the discipline `worker` and the plugin interface already use — sent **direct first**
+and, when that fails, handed to the **relay**, which is the main path; the frame is **byte-identical on
+both paths**, which is what keeps the relay stateless; the connection is plaintext and its integrity
+comes from the signature, with no bearer token between peers; and there is **no separate handshake**,
+because `v` is checked per message. **Replay protection**: a window of **five minutes behind and one
+minute ahead**, enforced with a **per-peer, in-memory high-water mark plus the set of body hashes
+accepted at that mark**, where advancing the mark discards the set — no timer, no sweeper. The record
+is **not persisted**, and the exposure that leaves — a message still inside the window can be replayed
+once across a restart — is written down rather than hidden.
+
+**Why**: Both items had to close here rather than in M4d, because M4b, M4c and M4d all exchange signed
+messages, and a signature protocol without a transport is not a protocol. The choices follow seams that
+already exist. **TCP and JSON lines**: [decisions §7](decisions.md) already names point-to-point TCP
+for a dispatch, and one-object-per-line is what `worker` and [plugin-interface.md](plugin-interface.md)
+parse — reusing it gives this project one wire grammar instead of two. **The frame identical on both
+paths**: [roadmap §4](roadmap-v1.0.md) calls the relay stateless, and the signature is what makes that
+true rather than aspirational — a relay that alters a frame breaks the signature, so the "stateless
+bridge" is enforced by the cryptography instead of promised. **−5 / +1 minutes**: [decisions §33](decisions.md)
+allows 30 s – 2 min of silent retries before anything escalates, so a shorter window would refuse the
+very retries the design depends on; the forward minute is clock skew and no more, because a longer
+future is somewhere to hide a forgery. **A high-water mark rather than a bag of hashes**: it bounds the
+record by "one timestamp's worth from one peer", turns cleanup into a discard instead of a sweep, and
+survives a key rotation by construction — the record belongs to the peer, and [decisions §13](decisions.md)
+has several keys valid at once. **Not persisting it** is the honest choice for a transport defence:
+persisting it would be a new on-disk format with a version marker and a migration, for a bound that is
+already five minutes wide, so it stays open with the cost written beside it.
+
+**Impact**: `docs/connection.md` gains §3.1 and §3.2; its §1 "not frozen" list shrinks to the port
+numbers, the timeouts, the record's data structure and whether a later batch persists it; and its §6
+(M4d) now says the relay's **routing** is what M4d decides, not the transport, which is fixed here.
+`CHANGELOG.md` and `handoff.md` §1 follow. **No source file, no dependency, no new persisted format,
+no capability name, no audit event constant and no hash formula changed** — and `partial`, one of the
+error model's five categories, is explicitly **not** used at this layer, because one frame is one
+message rather than a batch.

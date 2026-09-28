@@ -21,7 +21,10 @@ current request authorising it (§2).
   authenticates where the capability model authorises). Discovery (M4b), rooms (M4c), the
   cross-region server (M4d) and audit digests (M4e, and authorised separately) are **deferred**;
   the temporary centre is M5/M6's. `node.key` and `peers.json` are new persisted formats.
-  **Decision §88.**
+  **Decision §88.** **Its §3 open items are closed too** (v1.0 M4a, 2026-09-28): a signed message is
+  **one JSON line over TCP**, direct first and through the relay otherwise, **byte-identical on both
+  paths**; replay is bounded by a **per-peer, in-memory high-water mark** over a −5 min / +1 min window.
+  **Decision §89.**
 
 - **The plugin interface is frozen** (v1.0 M3, 2026-09-28). [`docs/plugin-interface.md`](plugin-interface.md)
   is the specification [roadmap §8](roadmap-v1.0.md) described and decisions §3 required to freeze before

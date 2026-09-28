@@ -33,9 +33,10 @@ Each written section ends with what it **freezes** and what it **leaves open**.
   two standing constraints in §8 and the trust model in §9 and the red-line test in §10.
 - **[open]** **Deferred**: discovery (M4b), rooms (M4c), the cross-region server (M4d) and audit
   digests (M4e — which also waits on M5's authorisation). §4–§7 are titles, not shapes.
-- **[open]** **Not frozen even inside §2–§3**: the transport a signed message travels over (M4d), the
-  replay window's size and where the seen-set lives ([§3](#3-signing-)), and the wire form of the
-  room a message is addressed to (M4c).
+- **[open]** **Not frozen even inside §2–§3**: the **port numbers** a node listens on, the
+  connect/read/write **timeouts**, the replay record's in-memory shape and whether a later batch
+  persists it (§3.1, §3.2 — the *shape* of the transport and of the window **is** frozen), and the
+  wire form of the room a message is addressed to (M4c).
 
 **Frozen**: identity and signing, as stated in §2 and §3. **Not frozen**: everything §4–§7 name and
 everything marked *open* above. Silence is not a promise.
@@ -101,11 +102,48 @@ name is chosen or changed.
 
 **Frozen**: the `@` meaning; the five-member preamble and the canonical encoding it is signed over;
 the `sig` member; the six verification steps and their order; the error mapping; the
-signature-beside-token rule; and "authentication here, authorisation there". **Not frozen**: the
-transport, the replay window's size and the store that remembers seen messages, the room form of
-`to` (M4c), key rotation and revocation in the wire protocol ([decisions §13](decisions.md) fixes
-their *shape* — parallel rotation, a broadcast revocation list — and M4d is where they travel), and
-whether a message may be signed by more than one key.
+signature-beside-token rule; and "authentication here, authorisation there". Its two open items are
+closed below — the transport in **§3.1**, replay protection in **§3.2**. **Not frozen**: the port
+numbers and the timeouts (§3.1), the replay record's data structure and whether it is ever persisted
+(§3.2), the room form of `to` (M4c), key rotation and revocation in the wire protocol
+([decisions §13](decisions.md) fixes their *shape* — parallel rotation, a broadcast revocation list —
+and M4d is where they travel), and whether a message may be signed by more than one key.
+
+### 3.1 The transport
+
+- **[settled]** **A signed message moves as one JSON line over a TCP connection** — the discipline `worker` and [plugin-interface.md](plugin-interface.md) already use for a stream: one JSON object per line, UTF-8, `\n`-terminated, no embedded newlines. TCP is what [decisions §7](decisions.md) names for a dispatch to a peer, and a line-delimited frame is what the rest of the project already parses without a second grammar.
+- **[settled]** **Direct first, relay second.** A sender tries the peer's own addresses first (the `addresses[]` its `peers.json` entry carries, or whatever M4b discovered). If that fails — connect refused, unreachable, or a timeout — the message is sent to the **relay**, which is the **main path**, not the exception ([roadmap §4](roadmap-v1.0.md), [decisions §7](decisions.md)). RiscDom builds **no hole punching**: the relay is a bridge both sides dial out to.
+- **[settled]** **The frame is the same whether direct or relayed** — byte for byte. That is what makes the relay **stateless**: it forwards a line it cannot usefully alter, because the signature covers `from`, `to`, `v` and `ts` (§3). A relay that rewrote a frame would break the signature, so the relay has no authority over the message.
+- **[settled]** **The connection is plaintext TCP, and its integrity comes from the signature rather than from the transport.** This project ships no TLS on this path ([security-model.md](security-model.md) §3): confidentiality is the deployer's (a private network or a TLS terminator), while *who* and *unaltered* are the signature's job. A peer is never sent the bearer token — two peers share no secret ([§3](#3-signing-)).
+- **[settled]** **No separate transport handshake.** The first frame on a connection is a message; a connection that does not deliver a complete, well-formed frame inside the read timeout is closed. The protocol version is checked **per message** (`v`, §3 step 3) rather than negotiated once, because a connection carries messages and each one stands on its own.
+- **[settled]** **Where the bytes go, and where they do not.** This section fixes the frame and how it moves between **two nodes that can reach each other** — directly, or by handing it to a relay it can reach. **M4d** ([§6](#6-the-cross-region-server--deferred-m4d)) decides the relay's own rules: how it routes a frame it has received, who may ask it to, and how a node learns where it is. The two do not overlap — nothing here says what a relay does with a line, and nothing there changes the line.
+
+**Transport failures map onto [error-model.md](error-model.md)'s categories, and `partial` is not used here** — it describes a batch, and one frame is one message:
+
+| What happened | Category | Retryable |
+|---|---|---|
+| cannot connect, or a read/write times out | `network` | yes ([error-model.md](error-model.md) §4) |
+| the connection ends before a complete frame arrives | `network` | yes |
+| a complete frame does not parse, its `v` is newer, its signature is bad, or `to` is not us | `invalid` | no |
+| the sender is unknown, or the message is a replay | `refused` | no |
+| the peer answers with an explicit refusal | `refused` | no |
+
+**Frozen**: one JSON line per message over TCP; direct-first-then-relay; the frame being identical on both paths, and therefore the relay's statelessness; plaintext-with-signature and no token between peers; no separate handshake, with `v` checked per message; the boundary with M4d; and the error mapping above. **Not frozen**: the **port numbers** a node listens on or a relay uses (a node's addresses are discovery's business, M4b), the connect/read/write **timeouts**, whether one connection carries several messages or one, and any transport-level compression or batching.
+
+### 3.2 Replay protection
+
+- **[settled]** **The window is five minutes behind and one minute ahead** — a `ts` older than *now − 5 min*, or more than *now + 1 min* in the future, is **refused** rather than queued (§3 step 5). The backward side is sized by the design's own longest documented delay: [decisions §33](decisions.md) allows a **30 s – 2 min** silent-retry period before anything escalates, and a window a legitimate retry could fall out of would refuse the retries this project depends on. The forward side exists because clocks differ — a minute is enough for skew and too little to hide a forged future.
+- **[settled]** **The record is per peer, in memory, and it is a high-water mark plus a small set.** For each peer the receiver keeps the **highest `ts` it has accepted** from that peer, and the set of **body hashes accepted at that same `ts`** — a message and its answer, or two messages minted in the same millisecond, share a `ts` and are both legitimate. A message is a replay when its `ts` is **older than** the high-water mark, or **equal to** it and its `(from, ts, body-hash)` is already in the set. A **newer** `ts` is accepted, and the record advances.
+- **[settled]** **Cleanup needs no timer.** Advancing the high-water mark **discards the set**: those hashes sit at a `ts` the window will refuse anyway. Nothing accumulates and nothing is swept — the record's size is bounded by "one timestamp's worth of messages from one peer".
+- **[settled]** **The record is not persisted, and that is stated rather than hidden.** A restart forgets every high-water mark, so a message still inside the five-minute window can be replayed **once** across a restart. The exposure is bounded by the window, and it shrinks as traffic advances the record again. Whether a later batch persists it — which would make it a **new on-disk format**, registered in [api-compatibility.md](api-compatibility.md) §6 like the others — is left open below.
+- **[settled]** **The record belongs to the peer, not to the key.** Key rotation runs several keys in parallel ([decisions §13](decisions.md)), so step 2 verifies against **all** the public keys the peer's entry currently carries — and a rotation must **not** reset the record, or a replayed message would be accepted again the moment a new key appeared. **Revocation** removes a key from the set, after which messages under it are `refused` as from an unknown sender; delivering a revocation is M4d's, and M4a carries none.
+
+**Frozen**: the window (−5 min / +1 min) and the argument that sizes it; the per-peer, in-memory
+high-water-mark-plus-set record; the advance-and-discard cleanup; that the record is per peer and
+survives a rotation; and the honest limit that a restart loses it. **Not frozen**: the record's
+in-memory data structure, whether a later batch persists it (a new format, to be registered), the
+skew allowance a particular deployment may want, and anything about how a revocation is delivered
+(M4d).
 
 ## 4. Discovery — deferred (M4b)
 
@@ -123,8 +161,10 @@ already fixes what a *signature* is; M4c fixes what a room *demands of* one.
 
 **Deferred to M4d.** A dedicated server with four roles — signalling, relay, management and audit
 aggregation — the relay as the **main path** rather than the exception, and a direct connection
-leaving the data path ([roadmap §4](roadmap-v1.0.md)). This is where a signed message's **transport**
-is decided, and therefore where §3's open items (the transport, the replay store) close.
+leaving the data path ([roadmap §4](roadmap-v1.0.md)). §3.1 already fixes what a frame **is** and
+that it is byte-identical on both paths; M4d decides what the relay **does with** a frame it has
+received — how it routes it, who may ask it to, and how a node learns where it is — so the two
+sections do not overlap.
 
 ## 7. Audit digests — deferred (M4e, and authorised separately)
 
