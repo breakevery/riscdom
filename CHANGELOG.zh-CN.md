@@ -11,6 +11,16 @@
 
 ### 新增
 
+- **一个节点由同侪的全体一致判为不在**（v1.0 批 AB / V-3a）：`net` 在**节点层**实现了
+  [connection.md](docs/connection.md) §6.7。节点**探测**它 workgroup 里的同侪（`{"probe": 1}` → `{"alive": 1}`；
+  每 15 秒，连失三拍 = 它自己的*不可达*），并向上**报告**视图（`{"unreachable": …}` / `{"reachable": …}`，每拍脉冲）；
+  服务器按**在剩下的见证者中全体一致**来**判定** —— 至少一个见证者、每个见证者都报不可达、「活着」的见证者**一票否决**、
+  报告只在**新鲜期**内计、见证者只有**自身在线**且**不是被判定者**时才作数。那一行多出 **`judged_at_ms`**
+  （与 §6.6 基于心跳的 `state` 分开），而判定服务器通过一个 **sink** 把转换交给 `host-core`，由它经 `emit_host` 写
+  **`host.connection.peer_offline`**（`{peer, witnesses, reports}`）与 **`host.connection.peer_recovered`**
+  （`{peer, method}`，`heartbeat` 或 `probe`）。`host-core` 在心跳线程旁跑一条**探测线程**，共用节点唯一一条会话；
+  恢复是被听到；协议**不定义移除**。兄弟确认属 V-3b。没有哈希公式、路由、capability 名、审计事件常量或持久化格式被改动。
+
 - **节点会向它的服务器注册，并持续心跳**（v1.0 批 Z / V-2）：`NetworkSettings` 多出 **`cross_region_server`** —— 一个必须出现在本节点 `peers.json` 里的 `node_id`（加法式、不动版本）—— 而 `host-core` 接上它点名的东西：一个**不拨号**就被造出的 `RelayClient`（会话在首次需要时打开），加上一条**注册 + 心跳线程**（`std::thread` + channel），每条会话注册一次、之后每 **15 秒**心跳一次。指针指向本节点并不持有的同侪时**被拒绝**并说明。服务端侧 `net` 多出 `Local::Register` / `Local::Heartbeat` 与一张 **`OnlineTable`**（`node_id → {addresses, capabilities, rooms, last_heartbeat_ms, state}`；**45 秒**内 `online`、之后 `offline`；**行永不因离线被删除**）：注册被答以 `{"registered": 1}`、心跳什么都不答，而心跳**单独不给人落位**。不写任何链行 —— 那张表是运行时状态 —— 也没有依赖、capability 名、路由、哈希公式或持久化格式被改动。
 
 - **活性已冻结：判定要求在剩下的见证者中全体一致**（v1.0 批 Y）：[`docs/connection.md`](docs/connection.md) 多出 **§6.7**。一个节点的同级就是它自己的 **workgroup**，它用 `{"probe": 1}`、被答以 `{"alive": 1}` 去**探测**它们（先直连、失败经 relay，**每 15 秒**），连失三拍（45 秒）则把该同侪记为*不可达*；然后向上**报告**它的视图（`{"unreachable": …}` / `{"reachable": …}`，每拍重发、只在新鲜期内计）。内网服务器**判定**：不在 = **至少有一个见证者** 且 **每个见证者**都报不可达 —— 一个「活着」的见证者一票否决，而**独自**在一个 workgroup 里的节点永不被判。内网服务器自身的失联由它的**兄弟**确认（不是由下级 —— 下级与它共 LAN 与供电），而跨区域服务器按同一条规则汇总判定。一次判定把那一行的 **`judged_at_ms`** 置上（与 §6.6 基于心跳的 `state` 分开），并写 **`host.connection.peer_offline`**（`{peer, witnesses, reports}`）或 **`host.connection.peer_recovered`**（`{peer, method}`）。协议**不定义移除**：被判定的节点保留它的密钥、条目与行，而踢是部署者的事。纯文档：没有源文件、没有依赖、也没有持久化格式变动。

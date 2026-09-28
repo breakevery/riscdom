@@ -850,6 +850,9 @@ pub struct AppState {
     /// The registration-and-heartbeat loop (§6.6), when one is running (v1.0 V-2). Dropping the
     /// state drops this, which is what stops the loop.
     connection_beat: Mutex<Option<Heartbeat>>,
+    /// The probe thread (§6.7), when one is running (v1.0 V-3a). Dropping the state drops this,
+    /// which is what stops it.
+    connection_probe: Mutex<Option<Probe>>,
     /// The executor handles a task is routed to (v0.9 interface E0).
     ///
     /// Built from `settings.executors` after the settings file is read. The
@@ -910,6 +913,18 @@ pub struct AppState {
 /// Messages restored into a fresh `AgentLoop` (never the system prompt).
 const HISTORY_LIMIT: usize = 100;
 
+/// How long the node's session waits for a frame before the reader looks again (v1.0 V-3a).
+///
+/// §3.1 leaves timeouts to the implementation. The probe thread shares the node's one session and
+/// has to read on it (to catch `{"alive": 1}` and to answer a `{"probe": 1}`), so this is short:
+/// it is how often a reader notices "nothing arrived", not how long a session may be quiet. The
+/// write timeout is untouched, and a beat never reads.
+const CONNECTION_READ_TIMEOUT: Duration = Duration::from_millis(100);
+
+/// How often the probe thread looks up for a stop signal while it reads (v1.0 V-3a). Not a
+/// protocol number: §6.7's cadence is the interval, and this is only the stop's responsiveness.
+const PROBE_POLL: Duration = Duration::from_millis(25);
+
 /// The registration-and-heartbeat loop (v1.0 V-2).
 ///
 /// `std::thread`, not a runtime: `net` has no async dependency and this crate is not going to give it
@@ -964,6 +979,118 @@ impl Heartbeat {
 }
 
 impl Drop for Heartbeat {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// The probe thread (v1.0 V-3a): §6.7's prober, at the beat's cadence but a different job.
+///
+/// **Separate from [`Heartbeat`], and sharing its client.** Both are 15 s, but the beat only
+/// *sends* while the prober has to *read* — to catch `{"alive": 1}` and to answer a `{"probe": 1}`
+/// addressed to this node — so folding them into one loop would make each wait on the other's
+/// reads. They share the node's **single** session instead: a second session would replace this
+/// node's entry in the server's `SessionTable` and strand the first, and `net`'s session already
+/// keeps its reader and writer separately locked, so a read here and a beat there do not collide.
+///
+/// The thread holds the **client**, never an `Arc<AppState>` — the same reason [`Heartbeat`] does;
+/// a thread holding the state would keep it alive for as long as it probes. The stop signal is a
+/// channel, so dropping the handle wakes the thread at once.
+struct Probe {
+    stop: Sender<()>,
+    join: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Probe {
+    /// Probe every workgroup peer, catch the answers, answer probes of our own, then report the
+    /// view upward — every `interval`, until the handle is dropped.
+    ///
+    /// What arrives on the session is verified as §3 requires — a probe is an ordinary frame, and
+    /// the answer is evidence about the peer's key-holder, so this is a §3 check and not a
+    /// transport one. A frame that does not verify is dropped rather than acted on.
+    fn start(
+        client: Arc<net::RelayClient>,
+        mut prober: net::Prober,
+        keys: net::PeerKeys,
+        node_id: String,
+        interval: Duration,
+    ) -> Self {
+        let (stop, signal) = std::sync::mpsc::channel::<()>();
+        let join = std::thread::spawn(move || {
+            let mut guard = net::ReplayGuard::new();
+            let mut stopped = false;
+            while !stopped {
+                // §6.7: probe every peer of the workgroup.
+                for peer in prober.peers() {
+                    let _ = client.probe(&peer);
+                }
+                let start = std::time::Instant::now();
+                let mut answered: std::collections::BTreeSet<String> =
+                    std::collections::BTreeSet::new();
+                while start.elapsed() < interval {
+                    match signal.recv_timeout(PROBE_POLL) {
+                        Ok(()) | Err(RecvTimeoutError::Disconnected) => {
+                            stopped = true;
+                            break;
+                        }
+                        Err(RecvTimeoutError::Timeout) => {}
+                    }
+                    // Drain whatever the session holds, and hand it on.
+                    loop {
+                        match client.receive() {
+                            Ok(Some(message)) => {
+                                let now = net::now_ms();
+                                if net::verify_at(&message, &node_id, &keys, &mut guard, now)
+                                    .is_err()
+                                {
+                                    continue;
+                                }
+                                if message.to == node_id && net::is_probe(&message.body) {
+                                    // A probe addressed to this node: answer it (§6.7).
+                                    let _ = client.answer_alive(&message.from);
+                                } else if net::is_alive(&message.body) {
+                                    answered.insert(message.from.clone());
+                                }
+                            }
+                            Ok(None) => break,
+                            Err(_) => break,
+                        }
+                    }
+                }
+                if stopped {
+                    break;
+                }
+                // A cycle's evidence is in: an answer resets a peer, a silence is a miss.
+                let now = net::now_ms();
+                for peer in prober.peers() {
+                    if answered.contains(&peer) {
+                        let _ = prober.record_answer(&peer, now);
+                    } else {
+                        let _ = prober.record_miss(&peer);
+                    }
+                }
+                // §6.7's pulse: the view for every peer, re-sent every cycle while it stands.
+                for report in prober.pulse() {
+                    let _ = client.report(&report);
+                }
+            }
+        });
+        Self {
+            stop,
+            join: Some(join),
+        }
+    }
+
+    /// Ask it to stop, and wait for it to.
+    fn stop(&mut self) {
+        let _ = self.stop.send(());
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
+impl Drop for Probe {
     fn drop(&mut self) {
         self.stop();
     }
@@ -1386,6 +1513,7 @@ impl AppState {
             connection_problem: Mutex::new(None),
             connection_client: Mutex::new(None),
             connection_beat: Mutex::new(None),
+            connection_probe: Mutex::new(None),
             executors: Mutex::new(Vec::new()),
             settings_path: crate::paths::settings_path(),
             data_dir: crate::paths::default_data_dir(),
@@ -3679,18 +3807,25 @@ impl AppState {
             return;
         };
         let node_id = agent::device();
-        let client =
-            match net::RelayClient::new(&node_id, key, &entry, net::TransportConfig::default()) {
-                Ok(client) => Arc::new(client),
-                Err(error) => {
-                    eprintln!("connection: {server_node_id} is not a usable peer: {error}");
-                    return;
-                }
-            };
+        // The session's read timeout is short: the probe thread reads on this session, and a long
+        // wait would make it slow to re-probe and slow to stop (v1.0 V-3a). The write timeout is
+        // untouched, and a beat never reads.
+        let config = net::TransportConfig {
+            read_timeout: CONNECTION_READ_TIMEOUT,
+            ..net::TransportConfig::default()
+        };
+        let client = match net::RelayClient::new(&node_id, key, &entry, config) {
+            Ok(client) => Arc::new(client),
+            Err(error) => {
+                eprintln!("connection: {server_node_id} is not a usable peer: {error}");
+                return;
+            }
+        };
         if let Ok(mut slot) = self.connection_client.lock() {
             *slot = Some(Arc::clone(&client));
         }
-        self.start_beat(client, net::HEARTBEAT_INTERVAL);
+        self.start_beat(Arc::clone(&client), net::HEARTBEAT_INTERVAL);
+        self.start_probe(client, net::PROBE_INTERVAL);
     }
 
     /// Start (or restart) the registration-and-heartbeat loop with this interval (v1.0 V-2).
@@ -3731,6 +3866,99 @@ impl AppState {
         // Dropping the old handle stops the loop it was the handle of; done outside the lock so the
         // join cannot run while it is held.
         drop(previous);
+    }
+
+    /// Start (or restart) the probe thread with this interval (v1.0 V-3a). Answers whether there
+    /// was a **workgroup** to probe for.
+    pub fn start_connection_probe(&self, interval: Duration) -> bool {
+        match self.connection_client() {
+            Some(client) => self.start_probe(client, interval),
+            None => false,
+        }
+    }
+
+    /// Stop the probe thread, if one is running. Also happens when the state is dropped.
+    pub fn stop_connection_probe(&self) {
+        let probe = self
+            .connection_probe
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take());
+        drop(probe);
+    }
+
+    /// Start the probe thread over this node's workgroup (§6.7), if there is one to probe.
+    ///
+    /// The **workgroup** is this node's peers other than itself and its cross-region server — the
+    /// membership this batch reads from the node's own `peers.json`; V-4 wires the server's
+    /// registry in its place. A node alone in its workgroup starts nothing: nobody can testify, so
+    /// there is nothing to probe for.
+    fn start_probe(&self, client: Arc<net::RelayClient>, interval: Duration) -> bool {
+        let server_node_id = client.server_node_id().to_string();
+        let node_id = agent::device();
+        let Some(peers) = self.peers() else {
+            return false;
+        };
+        let workgroup: Vec<String> = peers
+            .peers
+            .iter()
+            .map(|entry| entry.node_id.clone())
+            .filter(|id| id != &server_node_id && id != &node_id)
+            .collect();
+        if workgroup.is_empty() {
+            return false;
+        }
+        let Ok(keys) = peers.peer_keys() else {
+            return false;
+        };
+        let probe = Probe::start(client, net::Prober::new(workgroup), keys, node_id, interval);
+        let previous = self
+            .connection_probe
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.replace(probe));
+        drop(previous);
+        true
+    }
+
+    /// A sink that writes §6.7's two events, for a server running in this process (v1.0 V-3a).
+    ///
+    /// The **judging server** is the one that records a judgement, and a deployment that runs a
+    /// server beside a chain installs this sink on it; the standalone `riscdom-relay` (`net`) holds
+    /// no chain and installs none. The row is written **here**, in host-core, so the two names join
+    /// the `host.connection.*` family where `key_minted` already lives — and not
+    /// `docs/control-plane-events.md`'s twenty stream events.
+    pub fn connection_judgement_sink(self: &Arc<Self>) -> net::TransitionSink {
+        let state = Arc::clone(self);
+        Arc::new(move |transition| state.record_connection_transition(transition))
+    }
+
+    /// Record one judgement transition as its audit row (v1.0 V-3a).
+    ///
+    /// `host.connection.peer_offline` carries `{peer, witnesses, reports}` and
+    /// `host.connection.peer_recovered` carries `{peer, method}` — `method` being `heartbeat` or
+    /// `probe`, the two ways a node is heard from again (§6.7).
+    pub fn record_connection_transition(&self, transition: &net::Transition) {
+        match transition {
+            net::Transition::Judged(judgement) => self.emit_host(
+                "host.connection.peer_offline",
+                serde_json::json!({
+                    "peer": judgement.peer,
+                    "witnesses": judgement.witnesses,
+                    "reports": judgement.reports,
+                }),
+            ),
+            net::Transition::Recovered { peer, method } => self.emit_host(
+                "host.connection.peer_recovered",
+                serde_json::json!({
+                    "peer": peer,
+                    "method": match method {
+                        net::RecoverMethod::Heartbeat => "heartbeat",
+                        net::RecoverMethod::Probe => "probe",
+                    },
+                }),
+            ),
+        }
     }
 
     /// Why this node is not using its settings file, if it is not (v1.0 M2b-1).

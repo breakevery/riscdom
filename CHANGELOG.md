@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A node is judged gone by its peers' unanimity** (v1.0 batch AB / V-3a): `net` implements
+  [connection.md](docs/connection.md) §6.7 at the **node level**. A node **probes** its workgroup peers
+  (`{"probe": 1}` → `{"alive": 1}`; every 15 s, three misses = its own *unreachable*) and **reports** the
+  view upward (`{"unreachable": …}` / `{"reachable": …}`, pulsed each cycle); the server **judges** by
+  **unanimity among the witnesses that remain** — at least one witness, every witness reporting it
+  unreachable, a witness of life **vetoing**, a report counting only while **fresh**, a witness only while
+  **itself online** and **not the subject**. The row gains **`judged_at_ms`** (kept apart from §6.6's
+  heartbeat-based `state`), and the judging server hands the transition out through a **sink** that
+  `host-core` installs, writing **`host.connection.peer_offline`** (`{peer, witnesses, reports}`) and
+  **`host.connection.peer_recovered`** (`{peer, method}`, `heartbeat` or `probe`) via `emit_host`.
+  `host-core` runs a **probe thread** beside the beat thread, sharing the node's single session; recovery
+  is being heard from; the protocol defines **no removal**. Sibling confirmation is V-3b. No hash formula,
+  route, capability name, audit event constant or persisted format changed.
+
 - **A node registers with its server and beats** (v1.0 batch Z / V-2): `NetworkSettings` gains
   **`cross_region_server`** — a `node_id` that must be in this node's `peers.json` (additive, no version
   move) — and `host-core` wires what it names: a `RelayClient` built **without dialling**, whose session

@@ -49,6 +49,7 @@
 use crate::discovery::NodeTable;
 use crate::error::Category;
 use crate::identity::NodeKey;
+use crate::liveness::{RecoverMethod, Report, Transition, TransitionSink, WitnessTable};
 use crate::message::{body_hash, now_ms, SignedMessage, PROTOCOL_VERSION};
 use crate::peers::{PeerEntry, PeersError, PeersFile};
 use crate::registry::{Registry, RegistryError};
@@ -242,6 +243,9 @@ pub struct OnlineEntry {
     pub rooms: Vec<String>,
     /// When the last beat arrived — or the registration, which counts as one (§6.6).
     pub last_heartbeat_ms: i64,
+    /// When the collective judgement first held (§6.7), or `None`. Kept apart from [`Self::state`]
+    /// on purpose: `state` is one observer's silence, this is the agreement of the witnesses.
+    pub judged_at_ms: Option<i64>,
     /// Inside [`ONLINE_WINDOW_MS`] or not.
     pub state: Online,
 }
@@ -269,6 +273,7 @@ struct Row {
     capabilities: Vec<String>,
     rooms: Vec<String>,
     last_heartbeat_ms: i64,
+    judged_at_ms: Option<i64>,
 }
 
 impl OnlineTable {
@@ -304,6 +309,7 @@ impl OnlineTable {
                         capabilities: claims.capabilities.clone(),
                         rooms: claims.rooms.clone(),
                         last_heartbeat_ms: now,
+                        judged_at_ms: None,
                     },
                 );
                 true
@@ -344,6 +350,7 @@ impl OnlineTable {
                 capabilities: row.capabilities.clone(),
                 rooms: row.rooms.clone(),
                 last_heartbeat_ms: row.last_heartbeat_ms,
+                judged_at_ms: row.judged_at_ms,
                 state: state_of(row.last_heartbeat_ms, now),
             })
             .collect();
@@ -379,6 +386,58 @@ impl OnlineTable {
             .filter(|entry| entry.state == Online::Online)
             .count()
     }
+
+    /// Is `node_id` known **and** `online` at `now`? §6.7's test for whether a node may testify.
+    pub fn is_online(&self, node_id: &str, now: i64) -> bool {
+        self.row(node_id, now)
+            .map(|entry| entry.state == Online::Online)
+            .unwrap_or(false)
+    }
+
+    /// Record a judgement (§6.7): set `judged_at_ms` once, and say whether **this** call set it.
+    /// A row must exist — a node the server never knew is not judged.
+    pub fn mark_judged(&self, node_id: &str, now: i64) -> bool {
+        let mut rows = self
+            .inner
+            .rows
+            .lock()
+            .expect("the online table is not poisoned");
+        match rows.get_mut(node_id) {
+            Some(row) if row.judged_at_ms.is_none() => {
+                row.judged_at_ms = Some(now);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Clear a judgement, answering the moment it had held (§6.7's recovery).
+    pub fn clear_judged(&self, node_id: &str) -> Option<i64> {
+        let mut rows = self
+            .inner
+            .rows
+            .lock()
+            .expect("the online table is not poisoned");
+        rows.get_mut(node_id)
+            .and_then(|row| row.judged_at_ms.take())
+    }
+
+    /// The node was heard from again: refresh the row, so a `state` read is `online` (§6.7's
+    /// recovery, for a report rather than a beat).
+    pub fn heard_from(&self, node_id: &str, now: i64) -> bool {
+        let mut rows = self
+            .inner
+            .rows
+            .lock()
+            .expect("the online table is not poisoned");
+        match rows.get_mut(node_id) {
+            Some(row) => {
+                row.last_heartbeat_ms = now;
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 /// §6.6's rule, in one place: inside the window is `online`, past it is `offline`.
@@ -403,6 +462,10 @@ pub enum Local {
     Register(Registration),
     /// A heartbeat: the smallest thing a node can say (§6.6).
     Heartbeat,
+    /// A prober's report that a peer is unreachable (§6.7).
+    UnreachableReport { node_id: String },
+    /// A prober's report that a peer is reachable again (§6.7).
+    ReachableReport { node_id: String },
     /// An address query: where the named node can be reached.
     Addresses { node_id: String },
     /// A registry request: the node table and the room definitions, as they stand.
@@ -425,6 +488,12 @@ impl Local {
         }
         if is_heartbeat(body) {
             return Local::Heartbeat;
+        }
+        if let Some(report) = crate::liveness::report_of(body) {
+            return match report {
+                Report::Unreachable(node_id) => Local::UnreachableReport { node_id },
+                Report::Reachable(node_id) => Local::ReachableReport { node_id },
+            };
         }
         if crate::registry::is_registry_request(body) {
             return Local::Registry;
@@ -451,6 +520,10 @@ pub enum LocalReply {
     /// A heartbeat arrived for a node with no row: §6.6 creates a row by a **registration**, so a
     /// beat alone places nobody. Nothing is answered for it either.
     Unplaced { node_id: String },
+    /// A prober's report that a peer is unreachable was taken (§6.7).
+    UnreachableReported { peer: String },
+    /// A prober's report of life was taken (§6.7).
+    ReachableReported { peer: String },
     /// An address answer went down the session.
     Addresses { addresses: Vec<String> },
     /// The registry went down the session.
@@ -816,6 +889,8 @@ struct ServerInner {
     guard: Mutex<ReplayGuard>,
     sessions: SessionTable,
     online: OnlineTable,
+    witnesses: WitnessTable,
+    transition_sink: RwLock<Option<TransitionSink>>,
 }
 
 impl RelayServer {
@@ -845,6 +920,8 @@ impl RelayServer {
                 guard: Mutex::new(ReplayGuard::new()),
                 sessions: SessionTable::new(),
                 online: OnlineTable::new(),
+                witnesses: WitnessTable::new(),
+                transition_sink: RwLock::new(None),
             }),
         })
     }
@@ -875,6 +952,45 @@ impl RelayServer {
     /// The online-status table itself, for a caller that wants to read it more than once.
     pub fn online_table(&self) -> &OnlineTable {
         &self.inner.online
+    }
+
+    /// Wire where a judgement goes (§6.7). The chain is host-core's, so the server **hands the
+    /// transition out** rather than writing a row itself: a deployment that runs the server in a
+    /// process with a chain installs a sink, and the standalone relay installs none.
+    pub fn set_transition_sink(&self, sink: TransitionSink) {
+        *self
+            .inner
+            .transition_sink
+            .write()
+            .expect("the transition sink is not poisoned") = Some(sink);
+    }
+
+    /// Hand a transition to the sink, when one is wired.
+    fn fire(&self, transition: &Transition) {
+        let sink = self
+            .inner
+            .transition_sink
+            .read()
+            .expect("the transition sink is not poisoned")
+            .clone();
+        if let Some(sink) = sink {
+            sink(transition);
+        }
+    }
+
+    /// Re-read §6.7's threshold for one subject, and record a **new** judgement.
+    ///
+    /// The row's `judged_at_ms` is set once, so a report that keeps arriving while the row is
+    /// already judged is not a second transition.
+    fn judge(&self, subject: &str, now: i64) {
+        let judged = self.inner.witnesses.judge(subject, now, |witness| {
+            self.inner.online.is_online(witness, now)
+        });
+        if let Some(judgement) = judged {
+            if self.inner.online.mark_judged(&judgement.peer, now) {
+                self.fire(&Transition::Judged(judgement));
+            }
+        }
     }
 
     /// The transport configuration sessions inherit.
@@ -1030,6 +1146,14 @@ impl RelayServer {
             // places nobody — §6.6 creates a row by a registration — and is just as silent.
             Local::Heartbeat => {
                 if self.inner.online.beat(from, now) {
+                    // §6.7's recovery: a beat is being heard from, so a judgement clears and the
+                    // transition is named for what was heard.
+                    if self.inner.online.clear_judged(from).is_some() {
+                        self.fire(&Transition::Recovered {
+                            peer: from.to_string(),
+                            method: RecoverMethod::Heartbeat,
+                        });
+                    }
                     Ok(LocalReply::Beat {
                         node_id: from.to_string(),
                     })
@@ -1038,6 +1162,31 @@ impl RelayServer {
                         node_id: from.to_string(),
                     })
                 }
+            }
+            // §6.7: a prober's view, recorded as a witness report about `node_id`, and then the
+            // threshold re-read. The report is a **view**, so the latest one replaces an earlier
+            // one from the same witness.
+            Local::UnreachableReport { node_id } => {
+                self.inner.witnesses.record(from, node_id, false, now);
+                self.judge(node_id, now);
+                Ok(LocalReply::UnreachableReported {
+                    peer: node_id.clone(),
+                })
+            }
+            // A report of life is a veto, and — when the subject had been judged — the recovery:
+            // the node is heard from, so the judgement clears and the row reads `online` again.
+            Local::ReachableReport { node_id } => {
+                self.inner.witnesses.record(from, node_id, true, now);
+                if self.inner.online.clear_judged(node_id).is_some() {
+                    self.inner.online.heard_from(node_id, now);
+                    self.fire(&Transition::Recovered {
+                        peer: node_id.clone(),
+                        method: RecoverMethod::Probe,
+                    });
+                }
+                Ok(LocalReply::ReachableReported {
+                    peer: node_id.clone(),
+                })
             }
             Local::Addresses { node_id } => {
                 let addresses = self.addresses_for(node_id);
@@ -1195,20 +1344,35 @@ impl RelaySession {
         self.ask(heartbeat_body())
     }
 
+    /// Ask a peer whether it is alive (§6.7): an ordinary §3 frame addressed to the peer.
+    pub fn probe(&self, peer: &str) -> Result<(), TransportError> {
+        self.send_body_to(peer, crate::liveness::probe_body())
+    }
+
+    /// Answer a probe (§6.7): the smallest evidence that the node behind this session works.
+    pub fn answer_alive(&self, to: &str) -> Result<(), TransportError> {
+        self.send_body_to(to, crate::liveness::alive_body())
+    }
+
+    /// Report a peer's reachability to the server (§6.7).
+    pub fn report(&self, report: &Report) -> Result<(), TransportError> {
+        self.send_body_to(&self.server_node_id, report.to_body())
+    }
+
     /// Sign one question to the server and hand it over.
     ///
     /// A question is an ordinary §3 frame addressed to the server itself, so the server
     /// authenticates it exactly as it authenticates every other frame: no new credential, and
     /// nothing the capability model has to answer for.
     fn ask(&self, body: Value) -> Result<(), TransportError> {
-        let message = SignedMessage::sign(
-            &self.key,
-            &self.node_id,
-            &self.server_node_id,
-            now_ms(),
-            body,
-        )
-        .map_err(|e| TransportError::Malformed { why: e.to_string() })?;
+        self.send_body_to(&self.server_node_id, body)
+    }
+
+    /// Sign `body` to `to` and hand it over — the general form [`Self::ask`] specialises, and
+    /// what §6.7's probes, answers and reports are built from.
+    fn send_body_to(&self, to: &str, body: Value) -> Result<(), TransportError> {
+        let message = SignedMessage::sign(&self.key, &self.node_id, to, now_ms(), body)
+            .map_err(|e| TransportError::Malformed { why: e.to_string() })?;
         self.send(&message)
     }
 
@@ -1322,6 +1486,21 @@ impl RelayClient {
     /// Beat (§6.6).
     pub fn heartbeat(&self) -> Result<(), TransportError> {
         self.with_session(|session| session.heartbeat())
+    }
+
+    /// Probe a peer (§6.7), opening the session if needed.
+    pub fn probe(&self, peer: &str) -> Result<(), TransportError> {
+        self.with_session(|session| session.probe(peer))
+    }
+
+    /// Answer a probe (§6.7).
+    pub fn answer_alive(&self, to: &str) -> Result<(), TransportError> {
+        self.with_session(|session| session.answer_alive(to))
+    }
+
+    /// Report a peer's reachability to the server (§6.7).
+    pub fn report(&self, report: &Report) -> Result<(), TransportError> {
+        self.with_session(|session| session.report(report))
     }
 
     /// Hand one already-serialised frame to the server, opening the session if needed.

@@ -51,6 +51,7 @@
 mod discovery;
 mod error;
 mod identity;
+mod liveness;
 mod message;
 mod peers;
 mod registry;
@@ -68,6 +69,11 @@ pub use discovery::{
 };
 pub use error::Category;
 pub use identity::{NodeKey, NodeKeyError, NODE_KEY_FILE};
+pub use liveness::{
+    alive_body, is_alive, is_probe, probe_body, reachable_body, report_of, unreachable_body,
+    Judgement, PeerView, Prober, RecoverMethod, Report, Transition, TransitionSink, WitnessTable,
+    PROBE_INTERVAL, PROBE_MISSES, REPORT_WINDOW_MS,
+};
 pub use message::{
     body_hash, now_ms, MessageError, SignedMessage, PROTOCOL_VERSION, SIGNATURE_BYTES,
 };

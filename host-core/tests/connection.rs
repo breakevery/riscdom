@@ -10,6 +10,7 @@ use host_core::settings::{LocalSettings, NetworkSettings, SETTINGS_VERSION};
 use host_core::state::AppState;
 use host_core::{ConnectionFile, EventFilter};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 fn unique_dir(tag: &str) -> PathBuf {
@@ -82,6 +83,41 @@ fn detail_of(state: &AppState, action: &str) -> serde_json::Value {
         .find(|event| event.action == action)
         .unwrap_or_else(|| panic!("no {action} row: {:?}", actions(state)))
         .detail
+}
+
+/// Sign `body` from `from` at `ts` and hand it to the server, without reading the answer.
+///
+/// A registration is answered down the sender's session, which the server here does not have; the
+/// row is created before the acknowledgement is written, so the reply is deliberately ignored.
+fn tell(
+    server: &net::RelayServer,
+    key: &net::NodeKey,
+    from: &str,
+    ts: i64,
+    body: serde_json::Value,
+) {
+    let message = net::SignedMessage::sign(key, from, "server", ts, body).expect("sign");
+    let frame = message.to_line().expect("line");
+    let routed = server.route(&frame, ts).expect("routed");
+    let action = routed.local().expect("a local frame").clone();
+    let _ = server.answer_local(routed.from(), &action, ts);
+}
+
+/// The same, for a frame whose answer is an `Ok` the test reads.
+fn route_local(
+    server: &net::RelayServer,
+    key: &net::NodeKey,
+    from: &str,
+    ts: i64,
+    body: serde_json::Value,
+) -> net::LocalReply {
+    let message = net::SignedMessage::sign(key, from, "server", ts, body).expect("sign");
+    let frame = message.to_line().expect("line");
+    let routed = server.route(&frame, ts).expect("routed");
+    let action = routed.local().expect("a local frame").clone();
+    server
+        .answer_local(routed.from(), &action, ts)
+        .expect("answered")
 }
 
 /// State over an injected workspace *and* data directory. The two are separate on purpose: the
@@ -392,4 +428,154 @@ fn a_pointer_at_a_known_peer_wires_a_client_that_registers_and_beats() {
         stopped,
         "the loop is stopped, so nothing beats"
     );
+}
+
+#[test]
+fn a_judgement_writes_its_two_events_through_the_servers_sink() {
+    // The judging server is the one that records a judgement, and a deployment that runs a server
+    // beside a chain installs this state's sink on it (v1.0 V-3a). The pointer names a peer this
+    // node does not hold, so no client and no threads are wired: the test drives the server with
+    // an explicit `now` instead.
+    let data_dir = configured_pointing("judge-events", "ghost");
+    let workspace = unique_dir("judge-events-ws");
+    let b = net::NodeKey::generate().expect("key");
+    let mut peers = net::PeersFile::empty();
+    peers
+        .peers
+        .push(net::PeerEntry::new("dev-b", "127.0.0.1:2", b.public_jwk()));
+    net::PeersFile::save_in(&data_dir, &peers).expect("peers.json");
+
+    let state = Arc::new(state_in(&workspace, &data_dir));
+    assert!(
+        state.connection_client().is_none(),
+        "a pointer at a peer we do not hold wires no client"
+    );
+    let node_key = state.node_key().expect("a key");
+    let device = agent::device();
+
+    // The server knows this node and dev-b, and its sink is this state's.
+    let server_key = net::NodeKey::generate().expect("key");
+    let mut server_peers = net::PeersFile::empty();
+    server_peers.peers.push(net::PeerEntry::new(
+        &device,
+        "127.0.0.1:1",
+        node_key.public_jwk(),
+    ));
+    server_peers
+        .peers
+        .push(net::PeerEntry::new("dev-b", "127.0.0.1:2", b.public_jwk()));
+    let server = net::RelayServer::new(
+        "server",
+        server_key,
+        server_peers,
+        net::RoomsFile::empty(),
+        net::TransportConfig::default(),
+    )
+    .expect("server");
+    server.set_transition_sink(state.connection_judgement_sink());
+
+    const T0: i64 = 1_700_000_000_000;
+    tell(
+        &server,
+        &node_key,
+        &device,
+        T0,
+        net::register_body(&[], &[], &[]),
+    );
+    tell(&server, &b, "dev-b", T0, net::register_body(&[], &[], &[]));
+
+    // The witness reports the subject unreachable; the server judges, and the row lands in *this*
+    // state's chain.
+    let reply = route_local(
+        &server,
+        &node_key,
+        &device,
+        T0 + 1_000,
+        net::unreachable_body("dev-b"),
+    );
+    assert!(
+        matches!(reply, net::LocalReply::UnreachableReported { .. }),
+        "{reply:?}"
+    );
+    let offline = detail_of(&state, "host.connection.peer_offline");
+    assert_eq!(offline["peer"], "dev-b");
+    assert_eq!(offline["witnesses"], serde_json::json!([device]));
+    assert_eq!(offline["reports"], 1);
+
+    // Recovery is being heard from, and the row names what was heard.
+    let _ = route_local(&server, &b, "dev-b", T0 + 2_000, net::heartbeat_body());
+    let recovered = detail_of(&state, "host.connection.peer_recovered");
+    assert_eq!(recovered["peer"], "dev-b");
+    assert_eq!(recovered["method"], "heartbeat");
+}
+
+#[test]
+fn the_probe_thread_starts_only_with_a_workgroup_and_stops() {
+    // No client (the pointer names a peer this node does not hold): nothing to probe with.
+    let lonely = configured_pointing("probe-no-client", "ghost");
+    let lonely_state = state_in(&unique_dir("probe-no-client-ws"), &lonely);
+    assert!(
+        !lonely_state.start_connection_probe(Duration::from_millis(50)),
+        "a node with no client has no workgroup to probe"
+    );
+
+    // A wired node whose peer table holds a peer other than the server: the prober starts, and
+    // stops. `stop` is called twice on purpose — stopping a stopped prober is a no-op.
+    let data_dir = configured_pointing("probe-wired", "server");
+    let workspace = unique_dir("probe-wired-ws");
+    let node_key = net::NodeKey::generate().expect("key");
+    net::NodeKey::save_new_in(&data_dir, &node_key).expect("node.key");
+    let server_key = net::NodeKey::generate().expect("key");
+    let b = net::NodeKey::generate().expect("key");
+
+    let mut server_peers = net::PeersFile::empty();
+    server_peers.peers.push(net::PeerEntry::new(
+        &agent::device(),
+        "127.0.0.1:1",
+        node_key.public_jwk(),
+    ));
+    server_peers
+        .peers
+        .push(net::PeerEntry::new("dev-b", "127.0.0.1:2", b.public_jwk()));
+    let listener = net::Listener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr").to_string();
+    let server = net::RelayServer::new(
+        "server",
+        server_key.clone(),
+        server_peers,
+        net::RoomsFile::empty(),
+        net::TransportConfig::default(),
+    )
+    .expect("server");
+    let serving = server.clone();
+    std::thread::spawn(move || {
+        let _ = serving.serve(listener);
+    });
+
+    let mut local_peers = net::PeersFile::empty();
+    local_peers.peers.push(net::PeerEntry::new(
+        "server",
+        &addr,
+        server_key.public_jwk(),
+    ));
+    local_peers
+        .peers
+        .push(net::PeerEntry::new("dev-b", "127.0.0.1:2", b.public_jwk()));
+    net::PeersFile::save_in(&data_dir, &local_peers).expect("peers.json");
+
+    let state = state_in(&workspace, &data_dir);
+    assert!(
+        state.connection_client().is_some(),
+        "the pointer wired a client"
+    );
+    assert!(
+        state.start_connection_probe(Duration::from_millis(50)),
+        "a workgroup starts the prober"
+    );
+    state.stop_connection_probe();
+    assert!(
+        state.start_connection_probe(Duration::from_millis(50)),
+        "the prober can be started again"
+    );
+    state.stop_connection_probe();
 }

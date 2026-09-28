@@ -100,6 +100,16 @@ current request authorising it (§2).
   deleted by going offline) — a registration is acknowledged, a beat is not, and a beat places nobody on its
   own. A dangling pointer is refused. No chain row is written. **Decision §103.** V-3 (the liveness
   judgement, and the surfaces above) is next.
+- **And the node-level liveness judgement is on disk** (v1.0 batch AB / V-3a, 2026-09-28):
+  [connection.md](connection.md) §6.7 at the **node level** — a prober **probes** its workgroup peers
+  (`{"probe": 1}` / `{"alive": 1}`; 15 s, three misses = *unreachable*), **reports** the view upward, and
+  the server **judges** by **unanimity among the witnesses that remain** (a witness of life vetoes; a solo
+  node is never judged). The row gains **`judged_at_ms`**, and the judging server hands the transition to a
+  **sink** that writes **`host.connection.peer_offline`** / **`peer_recovered`** through `emit_host` — so the
+  two events land where `host.connection.*` already lives, **not** in `control-plane-events.md`. `host-core`
+  runs a **probe thread** beside the beat thread on the node's single session; recovery is being heard from;
+  the protocol defines **no removal**. Sibling confirmation is **V-3b** (it needs V-4's surfaces).
+  **Decision §104.** V-4 (the upper surfaces) follows.
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

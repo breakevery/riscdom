@@ -26,10 +26,14 @@ table and the room definitions, a **source and not an authority**, merged with t
 `peers.json` and `rooms.json` winning. Authenticating is §3's model in every case — no new
 credential, and no new capability. **Registration and heartbeat** (§6.6) are here too: a node reports
 itself upward, the server keeps an [`OnlineTable`], and a row that goes `offline` is kept. §6.7's
-liveness judgement is not (V-3).
+**liveness judgement** is here at the **node level** too: a prober **probes** its workgroup peers, **reports**
+the view upward, and the server **judges** by unanimity among the witnesses that remain — recording
+`judged_at_ms` (kept apart from the heartbeat-based `state`) and handing the two transitions to a **sink** that
+writes `host.connection.peer_offline` / `peer_recovered`. The **sibling confirmation** — a server noticing its
+own loss — is still to come (V-3b).
 **Not here yet: §7 — the audit digests** a server aggregates on a timer, which wait on M5's
-authorisation. §6.7's **liveness judgement** — the probes, the reports and the collective threshold —
-is **V-3**'s. Each piece arrives only after the section it implements is frozen, which is
+authorisation. §6.7's **sibling confirmation** — the other in-network servers reporting a server's own loss to
+the cross-region server, which judges by the same rule — is **V-3b**'s. Each piece arrives only after the section it implements is frozen, which is
 what [decisions §3](../docs/decisions.md) asks for and what keeps the cross-device work from having
 to be done twice.
 
@@ -57,6 +61,7 @@ description of those bytes instead of two. `host-core` is what will depend on *t
 | `src/rooms.rs` | `rooms.json`: membership (a member is a **`node_id`**), the three rules (`RateRule` and `RateCounters`, `Mention`, `require_signature`), and the checks a room must pass to load. |
 | `src/relay.rs` | The cross-region server's relay: `RelayServer` (parse, authenticate, route on `to`, hand the frame down the destination's session), `SessionTable` (who is dialled in — which is what the server never dials around), `RelayClient` / `RelaySession` (the node's half, and the `hello` that opens a session), and `Forwarder`, the one-method seam that keeps the routing rule testable with no socket near it. `src/bin/riscdom-relay.rs` is the program a **deployer** runs. |
 | `src/registry.rs` | The **management** plane: `Registry` — §4.1's hand-down table with the room definitions beside it, carried as one signed frame — and `merge`, which applies §4.1 to **both** halves so the local `peers.json` and `rooms.json` win and every disagreement is **reported**. A published room set is held to `rooms.json`'s own checks, so a source cannot carry a room a file would refuse. |
+| `src/liveness.rs` | §6.7's liveness at the node level: the probe (`{"probe": 1}` / `{"alive": 1}`), the prober's own **view** (`Prober` — per peer, the last answer, the misses in a row and whether it is held reachable; memory-only, no chain row), the server's **witness table** (`WitnessTable` — unanimity among the witnesses that remain, with a witness of life vetoing) and the two transitions a judgement produces (`Transition`), handed to a `TransitionSink` the deployment wires. |
 
 ## Running it
 
@@ -84,7 +89,8 @@ the server **never dials** a destination that has not dialled in, that an addres
 answered with the addresses the server knows **and nothing else**, and that a published registry
 is a **source** — merged, and merged with the local files winning, that a node **registers** and
 **beats** into the server's online table (§6.6), and that `register` and `registry` are read as two
-different frames. `scripts/gate.sh` runs all six;
+different frames; and, for §6.7, that a probe is answered with `alive`, that an unreachable report is a
+judgement, and that being heard from again clears it and names the method. `scripts/gate.sh` runs all six;
 the deployer's program is `cargo run -p net --bin riscdom-relay -- --help`.
 
 ## What this crate does not do yet

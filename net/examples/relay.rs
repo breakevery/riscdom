@@ -9,16 +9,21 @@
 //!
 //! The two checks that are the point of §6.3 are the third and the eighth: a frame for the
 //! server is never handed to anybody else, and a destination the server can *see* but that
-//! has not dialled in hears nothing — because the server never dials a node. The last four are
+//! has not dialled in hears nothing — because the server never dials a node. Four are
 //! §6.2's other two roles: the **address query** (answered with addresses and nothing else)
-//! and the **published registry** (a **source**, merged with the local files winning).
+//! and the **published registry** (a **source**, merged with the local files winning). Three
+//! are §6.7's **liveness**: a probe is answered with `alive`, an unreachable report becomes a
+//! judgement once every witness agrees, and being heard from again clears it and names the
+//! method.
 
 use net::{
-    deliver, hello_body, now_ms, verify_at, Answer, Listener, NodeKey, Path, PeerEntry, PeerKeys,
-    PeersFile, RateRule, RelayClient, RelayServer, RelaySession, ReplayGuard, Room, RoomRules,
-    RoomsFile, SignedMessage, TransportConfig,
+    deliver, hello_body, is_alive, is_probe, now_ms, verify_at, Answer, Listener, NodeKey, Path,
+    PeerEntry, PeerKeys, PeersFile, RateRule, RecoverMethod, RelayClient, RelayServer,
+    RelaySession, ReplayGuard, Report, Room, RoomRules, RoomsFile, SignedMessage, Transition,
+    TransportConfig,
 };
 use std::net::TcpListener;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 fn check(what: &str, ok: bool, detail: String) {
@@ -394,6 +399,89 @@ fn self_test() {
                 net::Local::Register(_)
             ),
         "register ≠ registry".to_string(),
+    );
+
+    // 17. §6.7's probe: dev-a asks dev-b, and the answer comes back — evidence about the peer's
+    //     key-holder, not merely that a socket is open. A transition sink records the judgements.
+    let seen: Arc<Mutex<Vec<Transition>>> = Arc::new(Mutex::new(Vec::new()));
+    {
+        let captured = Arc::clone(&seen);
+        server.set_transition_sink(Arc::new(move |transition| {
+            captured.lock().expect("seen").push(transition.clone());
+        }));
+    }
+    // Both nodes register, so both have rows a judgement can name.
+    client
+        .register(&net::Registration::in_rooms(["lab"]))
+        .expect("registered");
+    let _ = client.receive();
+    b_session
+        .register(&net::Registration::in_rooms(["lab"]))
+        .expect("registered");
+    let _ = b_session.receive();
+
+    client.probe("dev-b").expect("asked");
+    let probe = b_session.receive().expect("read").expect("a probe arrived");
+    check(
+        "a probe reaches the peer, and carries §6.7's probe body",
+        is_probe(&probe.body) && probe.from == "dev-a",
+        format!("from {} body {}", probe.from, probe.body),
+    );
+    b_session.answer_alive("dev-a").expect("answered");
+    let alive = client.receive().expect("read").expect("an answer arrived");
+    check(
+        "the peer answers with alive, addressed back",
+        is_alive(&alive.body) && alive.from == "dev-b",
+        format!("from {} body {}", alive.from, alive.body),
+    );
+
+    // 18. A report, then the collective judgement (§6.7): unanimity among the witnesses that
+    //     remain. The server judges, and the row gains `judged_at_ms`.
+    client
+        .report(&Report::Unreachable("dev-b".to_string()))
+        .expect("reported");
+    wait_until("dev-b to be judged", || {
+        server
+            .online()
+            .iter()
+            .any(|row| row.node_id == "dev-b" && row.judged_at_ms.is_some())
+    });
+    let judged = seen.lock().expect("seen").clone();
+    check(
+        "an unreachable report is a judgement once every witness agrees",
+        judged.iter().any(
+            |transition| matches!(transition, Transition::Judged(judgement) if judgement.peer == "dev-b"),
+        ),
+        format!("{judged:?}"),
+    );
+
+    // 19. Recovery is being heard from, not a re-admission: the judged node's own beat clears it,
+    //     and the transition names what was heard (§6.7).
+    b_session.heartbeat().expect("beat");
+    wait_until("dev-b to recover", || {
+        seen.lock().expect("seen").iter().any(
+            |transition| matches!(transition, Transition::Recovered { peer, .. } if peer == "dev-b"),
+        )
+    });
+    let recovered_row = server
+        .online()
+        .into_iter()
+        .find(|row| row.node_id == "dev-b")
+        .expect("a row for dev-b");
+    let transitions_now = seen.lock().expect("seen").clone();
+    check(
+        "being heard from again clears the judgement and names the method",
+        recovered_row.judged_at_ms.is_none()
+            && transitions_now.iter().any(|transition| {
+                matches!(
+                    transition,
+                    Transition::Recovered {
+                        method: RecoverMethod::Heartbeat,
+                        ..
+                    }
+                )
+            }),
+        format!("{transitions_now:?}"),
     );
 
     println!("net relay self-test: OK");

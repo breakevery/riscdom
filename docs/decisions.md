@@ -2780,3 +2780,60 @@ collective judgement land. The claims sent today are the node's **rooms** and no
 that would carry an address is a setting §4.3 names and no batch has landed yet, and the server already holds
 this node's configured addresses in its own `peers.json` — which is why `addresses` is empty rather than
 wrong.
+
+## 104. A node is judged gone by its peers' unanimity, and the server hands the transition out
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; V-3a implemented (the node-level half of §6.7)
+
+**Decision**: [connection.md §6.7](connection.md) is implemented in `net` and wired into `host-core`, at the
+**node level** only. A new `net` module (`liveness`) holds the three pieces: the probe (`{"probe": 1}` /
+`{"alive": 1}`), the prober's own **view** (`Prober`: per peer, the last answer, the misses in a row, and
+whether the peer is held reachable; memory-only, no chain row), and the server's **witness table**
+(`WitnessTable`) with its rule — a node is judged gone when **at least one witness** remains and **every**
+remaining witness reported it unreachable, where a witness counts only while **fresh** (inside 45 s),
+**itself online**, and **not the subject**, and a fresh witness of life **vetoes**. The server's `Local`
+gains two frame types (`UnreachableReport` / `ReachableReport`); the `OnlineTable` row gains
+**`judged_at_ms`**, kept apart from §6.6's heartbeat-based `state`; and a judgement is handed out through a
+**transition sink** rather than written by `net`, so `host-core` installs `AppState::connection_judgement_sink`
+and writes **`host.connection.peer_offline`** (`{peer, witnesses, reports}`) and
+**`host.connection.peer_recovered`** (`{peer, method}`, `heartbeat` or `probe`) through `emit_host`. `host-core`
+runs a **probe thread** beside the beat thread — a separate `std::thread` sharing the node's **single** session
+— which probes the node's **workgroup** (its peers other than itself and its cross-region server), answers
+probes addressed to it, and pulses its view upward each cycle. **Recovery is being heard from**: a heartbeat
+or a reachable report clears `judged_at_ms`, returns the row to `online`, and fires the recovered transition.
+**No removal**: the protocol defines no kick. **Sibling confirmation is V-3b**, after V-4 wires the surfaces
+above the node.
+
+**Why**: Four choices carry it. **The events are written by host-core, through a sink.** §6.7 says the
+**judging server** writes the two rows, and in v1.0 the server is a `net` deployment — but the chain is
+`host-core`'s, and `net` must not reach upward. A `TransitionSink` closes that gap the honest way: `net`
+records the judgement and hands the transition out, and a deployment that runs a server beside a chain installs
+`AppState`'s sink, so the rows land where the `host.connection.*` family already lives — and **not** in
+`control-plane-events.md`, whose twenty names are the **stream** events. **The probe thread shares the beat's
+session, and is its own thread.** A second session to the server would replace this node's entry in the
+server's `SessionTable` and strand the first; and the beat only *sends* while the prober must *read* (to catch
+an `alive` and to answer a `probe`), so one thread doing both would make each wait on the other's reads. They
+share the client instead — `net`'s session already keeps its reader and writer separately locked — and the
+prober holds the **client**, never an `Arc<AppState>`, for the reason §103's beat does. **The view starts
+optimistic and the third miss is the line.** A prober has no evidence against a peer until three probes in a
+row go unanswered (§6.7's 45 s), which is why a peer begins *reachable*; and a judgement is set **once**
+(`judged_at_ms` is not re-stamped), so a report that keeps pulsing while the row is already judged is not a
+second transition. **Recovery refreshes the row.** §6.7 says a heartbeat or an answered probe "returns
+`state` to `online`", so a reachable report both clears the judgement and refreshes `last_heartbeat_ms` —
+otherwise the two halves of the same sentence would disagree.
+
+**Impact**: `net` gains `src/liveness.rs` (the bodies, `Report`, `Prober`, `PeerView`, `Judgement`,
+`WitnessTable`, `Transition` / `RecoverMethod` / `TransitionSink`, `PROBE_INTERVAL` / `PROBE_MISSES` /
+`REPORT_WINDOW_MS` for the prober); `src/relay.rs` gains the two `Local` frames, the `OnlineTable`'s
+`judged_at_ms` and its `is_online` / `mark_judged` / `clear_judged` / `heard_from`, the transition sink,
+`judge`, and the `RelayClient` / `RelaySession` senders (`probe` / `answer_alive` / `report`);
+`net/tests/liveness.rs` adds seven integration tests and `src/liveness.rs` five unit tests; the `relay`
+example grows to **20** checks. `host-core` gains the `Probe` thread,
+`AppState::{start_connection_probe, stop_connection_probe}`, `connection_judgement_sink` /
+`record_connection_transition`, the short **connection read timeout** the prober polls on, and
+`tests/connection.rs` two tests (a judgement writes both events through the sink; the probe thread starts
+only with a workgroup and stops). **No hash formula, route, capability name, audit event constant, existing
+`net` logic or persisted format changed** — the two names are additions to the `host.connection.*`
+`net` logic or persisted format changed** — the two names are additions to the `host.connection.*`
+vocabulary. **V-3b — the sibling confirmation, and the cross-region server that judges by the same rule — is
+next**, after V-4 wires the node's upper surfaces.
