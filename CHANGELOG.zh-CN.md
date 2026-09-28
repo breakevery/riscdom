@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **房间**（v1.0 M4c）：`net` 实现了 [`docs/connection.md`](docs/connection.md) §5。`rooms.json`（版本 1）装着 `{name, members[], rules}`，成员是 **`node_id`**，规则是 §5.2 的三条：`rate`（`{messages, window_seconds}`、**按成员**，超限为 `refused`）、`mention`（`members` / `nobody`，默认 **`nobody`**）与 `require_signature`（只有 `true`；`false` 在加载时被拒，因为 §3 垫了底）。`RoomFilter::from_rooms` 合上了 M4b 留下的那个环：信标过滤器现在读部署者的文件 —— 文件点名、且列出本节点的那些房间。
+
 - **发现**（v1.0 M4b）：`net` 实现了 [`docs/connection.md`](docs/connection.md) §4。`peers.json`（版本 1）装着 `{node_id, addresses[], public_key, capabilities, rooms[]}` 条目，并对**它自己的节点**具有权威 —— 携带私钥的条目被拒；下发的 `NodeTable` 作为带 **generation** 的签名帧旅行、作为**来源**被合并，冲突被报告而不是被解决；而 **UDP 信标**（一个数据报、一个签名帧）只能刷新地址、绝不引入密钥。`RoomFilter` 是默认拒绝的房间过滤器，而广播端口是协议常量（`47821`）。
 
 - **传输：一消息一行 JSON、走 TCP，先直连、后 relay**（v1.0 M4a）：`net` 用 **`std::net`** 实现 [`docs/connection.md`](docs/connection.md) §3.1 —— 不引 async 运行时 —— 且帧只序列化**一次**，所以直连与经 relay 两条路径逐字节相同。`deliver` 先试同侪地址，失败则回落到 `Relay` 这道缝（路由由 M4d 填；`NoRelay` 是诚实的「什么都没接」）。失败按 §3.1 的表述映射到错误模型（连接被拒/超时、被截断的帧、过长的行或缺失的 relay → `network`；解析不了的帧 → `invalid`）。

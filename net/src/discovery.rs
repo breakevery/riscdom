@@ -26,6 +26,7 @@
 use crate::error::Category;
 use crate::message::{MessageError, SignedMessage};
 use crate::peers::{PeerEntry, PeersError, PeersFile};
+use crate::rooms::RoomsFile;
 use crate::sign::VerifiedMessage;
 use crate::transport::TransportError;
 use serde_json::Value;
@@ -67,6 +68,17 @@ impl RoomFilter {
     {
         Self {
             rooms: rooms.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    /// The filter [§5.3](../../docs/connection.md) defines, read from the real file: the rooms
+    /// `rooms.json` names **and** whose `members[]` lists this node.
+    ///
+    /// This is what closes M4b's loop — the beacon filter no longer reads a set handed to
+    /// it by a test, but the membership the deployer wrote.
+    pub fn from_rooms(file: &RoomsFile, this_node_id: &str) -> Self {
+        Self {
+            rooms: file.room_names_for(this_node_id),
         }
     }
 

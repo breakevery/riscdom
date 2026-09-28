@@ -2451,3 +2451,42 @@ fourth `net` step. `net/README.md` moves §4 from "not here yet" to "here" and l
 table moved** — `peers.json`'s row was added when the format landed (M4a-impl-1), and this batch
 only reads and writes what that row describes. `rooms.json`'s file, the relay's routing and the
 cross-region server are M4c's and M4d's.
+
+## 97. A room names who; `peers.json` says what a node is — and the filter reads membership
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; M4c implemented
+
+**Decision**: [connection.md §5](connection.md) is implemented in `net`. `rooms.json` is a
+versioned JSON file (version 1) whose rooms are `{name, members[], rules}`, with members being
+**`node_id`s** and rules being §5.2's three: `rate` = `{messages, window_seconds}` **per member**,
+`mention` = `"members"` | `"nobody"` (**default `"nobody"`**), and `require_signature`, whose only
+legal value is `true`. Loading refuses a `false` **by name**, refuses a rate of zero messages or a
+zero-second window, refuses two rooms with one name, and refuses an empty member. `RateCounters`
+keeps the per-member, per-room budget **in memory** and answers "over budget" with `Refused`.
+`Room::allows_mention_from` is membership first and the setting second. And
+`RoomFilter::from_rooms(&RoomsFile, this_node_id)` is where M4b's filter meets this file: the rooms
+the file **names** and whose `members[]` **lists this node**.
+
+**Why**: Two rules carry the weight, and both are about not letting a second source of truth appear.
+**A member is a `node_id`, and `rooms.json` and `peers.json` are two files with two authors.** §5.1
+says a room's `members[]` is what the deployer says, while a `peers.json` entry's `rooms[]` is what
+that node *claims about itself* — so a room holds membership and never identity, and neither file can
+overwrite the other. That is also why membership **never introduces a key**: a name here is a name,
+and the key is wherever `peers.json` says it is. **The signature flag cannot lower §3's floor.** §3
+makes a signature universal on the peer path, so a loadable `require_signature: false` would be a
+config file quietly undoing a frozen section; refusing it at load — rather than ignoring it — is what
+keeps the field honest, and the refusal names the field so an operator sees why. Two smaller choices:
+the **rate budget is per member**, because a room-wide budget would let one member starve the others,
+and over budget is `Refused` because [error-model.md](error-model.md) §4 already gives that word to a
+deployer's policy, so no sixth category appears; and **membership is configuration**, with no join
+protocol, because a dynamic one would be a mechanism with its own authority question
+([decisions §33](decisions.md)) that this batch must not settle by accident.
+
+**Impact**: `net/` gains `src/rooms.rs`, a `rooms` example with `--self-test`, and seven integration
+tests; `RoomFilter::from_rooms` closes the loop M4b left open, so the beacon filter now reads the
+deployer's file instead of a set handed to it by a test; the gate gains its fifth `net` step; and
+`docs/api-compatibility.md` §6 and `docs/upgrade.md` §2 gain a **`rooms.json`** row. **No existing
+source file changed, no dependency was added, and no hash formula, route, capability name or audit
+event constant was touched** — and authorisation is still absent, as in every `net` batch: this crate
+answers *who sent this* and *what the room permits*, and whether a node may do a thing stays the
+capability model's question.

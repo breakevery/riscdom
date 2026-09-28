@@ -24,11 +24,12 @@
 //!   [`NodeTable`] (what an in-network server hands down, merged as a **source** with
 //!   conflicts reported), the UDP beacon ([`sign_announcement`] / [`receive_datagram`]) and
 //!   [`RoomFilter`] — the default-deny filter that keeps a beacon from introducing a key.
+//! - **§5, rooms** — [`RoomsFile`]: membership plus the three rules ([`RateRule`] and
+//!   [`RateCounters`], [`Mention`], `require_signature`). [`RoomFilter::from_rooms`] is
+//!   where §4's filter meets §5's file.
 //!
-//! **Not here yet**: rooms' own file (§5 — the filter reads a room set, and `rooms.json`'s
-//! shape is M4c's) and the cross-region server (§6) — including the relay's routing, which
-//! is why [`NoRelay`] exists. Each piece lands only after the section it implements is
-//! frozen.
+//! **Not here yet**: the cross-region server (§6) — including the relay's routing, which is
+//! why [`NoRelay`] exists. Each piece lands only after the section it implements is frozen.
 //!
 //! **Dependency direction.** `net` depends on [`audit`] and nothing else in this
 //! workspace. The chain's canonical JSON ([`audit::canonical_json`]) is what a
@@ -43,6 +44,7 @@ mod identity;
 mod message;
 mod peers;
 mod replay;
+mod rooms;
 mod sign;
 mod transport;
 mod versioned;
@@ -61,6 +63,10 @@ pub use peers::{
     peers_category, public_key_from_jwk, PeerEntry, PeersError, PeersFile, PEERS_FILE,
 };
 pub use replay::{ReplayError, ReplayGuard, Window, REPLAY_WINDOW_AHEAD_MS, REPLAY_WINDOW_BACK_MS};
+pub use rooms::{
+    rooms_category, Mention, RateCounters, RateError, RateRule, Room, RoomRules, RoomsError,
+    RoomsFile, ROOMS_FILE,
+};
 pub use sign::{verify, verify_at, PeerKeys, VerifiedMessage, VerifyError};
 pub use transport::{
     deliver, send_direct, Connection, Listener, NoRelay, Op, Path, Relay, TransportConfig,

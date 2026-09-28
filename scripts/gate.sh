@@ -159,6 +159,9 @@ cargo run -q -p net --example transport -- --self-test || fail "transport exampl
 echo "==> discovery example self-test (net)"
 cargo run -q -p net --example discovery -- --self-test || fail "discovery example"
 
+echo "==> rooms example self-test (net)"
+cargo run -q -p net --example rooms -- --self-test || fail "rooms example"
+
 echo "==> wix version guard"
 node scripts/check-wix-version.mjs || fail "wix version guard"
 

@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rooms** (v1.0 M4c): `net` implements [`docs/connection.md`](docs/connection.md) §5. `rooms.json`
+  (version 1) holds `{name, members[], rules}` with members as **`node_id`s** and §5.2's three rules:
+  `rate` (`{messages, window_seconds}`, **per member**, over budget `refused`), `mention`
+  (`members` / `nobody`, default **`nobody`**) and `require_signature` (only `true`; a `false` is
+  refused at load, because §3 floors it). `RoomFilter::from_rooms` closes the loop M4b left open: the
+  beacon filter now reads the deployer's file — the rooms it names **and** lists this node in.
+
 - **Discovery** (v1.0 M4b): `net` implements [`docs/connection.md`](docs/connection.md) §4.
   `peers.json` (version 1) holds `{node_id, addresses[], public_key, capabilities, rooms[]}`
   entries and is **authoritative for its own node** — an entry carrying a private key is refused;

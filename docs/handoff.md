@@ -52,6 +52,10 @@ current request authorising it (§2).
   §4 — `peers.json` (authoritative for its own node, and refusing a private key), a handed-down
   `NodeTable` merged as a **source** with conflicts reported, a **UDP beacon** that can only refresh
   an address, and `RoomFilter` (default deny). **Decision §96.**
+- **Rooms are on disk too** (v1.0 M4c, 2026-09-28): `net` implements [connection.md](connection.md) §5
+  — `rooms.json` (`{name, members[], rules}`), the three rules (`rate` per member, `mention` defaulting
+  to `nobody`, `require_signature` only `true`) — and `RoomFilter::from_rooms` reads membership out of
+  that file, closing the loop M4b left open. **Decision §97.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new
