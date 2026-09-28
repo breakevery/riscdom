@@ -40,7 +40,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -837,8 +837,19 @@ pub struct AppState {
     /// Why a connection file was not used, if one was refused (v1.0 batch W).
     ///
     /// The same shape as [`Self::settings_problem`]: a file from a newer build is **refused**
-    /// rather than half-read, and the host says so instead of pretending it was absent.
+    /// rather than half-read, and the host says so instead of pretending it was absent. Since
+    /// v1.0 V-2 it also carries a refused **server pointer** (a `cross_region_server` naming a peer
+    /// this node's `peers.json` does not hold).
     connection_problem: Mutex<Option<String>>,
+    /// The node's client for its cross-region server, when its settings named one (v1.0 V-2).
+    ///
+    /// Built **without dialling**: the session opens the first time something needs it — the
+    /// heartbeat loop's registration, or a later batch's forward. `None` when nothing is configured,
+    /// when the pointer names a peer this node does not know, or when the entry is unusable.
+    connection_client: Mutex<Option<Arc<net::RelayClient>>>,
+    /// The registration-and-heartbeat loop (§6.6), when one is running (v1.0 V-2). Dropping the
+    /// state drops this, which is what stops the loop.
+    connection_beat: Mutex<Option<Heartbeat>>,
     /// The executor handles a task is routed to (v0.9 interface E0).
     ///
     /// Built from `settings.executors` after the settings file is read. The
@@ -898,6 +909,65 @@ pub struct AppState {
 
 /// Messages restored into a fresh `AgentLoop` (never the system prompt).
 const HISTORY_LIMIT: usize = 100;
+
+/// The registration-and-heartbeat loop (v1.0 V-2).
+///
+/// `std::thread`, not a runtime: `net` has no async dependency and this crate is not going to give it
+/// one for a sleep and a socket write. The stop signal is a **channel** rather than a flag: dropping
+/// the handle wakes the thread at once, so a host that stops beating stops within a beat instead of
+/// after whatever interval it happened to be sleeping through.
+struct Heartbeat {
+    stop: Sender<()>,
+    join: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Heartbeat {
+    /// Register, then beat, every `interval` (§6.6's 15 seconds), until the handle is dropped.
+    ///
+    /// The thread holds the **client** and not the state: a thread holding an `Arc<AppState>` would be
+    /// a cycle that keeps the state alive for as long as it beats — exactly the thing that must not
+    /// happen when a host is dropped.
+    fn start(client: Arc<net::RelayClient>, claims: net::Registration, interval: Duration) -> Self {
+        let (stop, signal) = std::sync::mpsc::channel::<()>();
+        let join = std::thread::spawn(move || {
+            // A registration is what makes a beat mean anything (§6.6: a row is created by one), so the
+            // loop registers whenever there is no session to beat on, and beats otherwise. Nothing here
+            // is fatal: the client opens its session lazily, so a server that is not up yet is a beat
+            // that does not land rather than a start-up that fails.
+            let mut registered = false;
+            loop {
+                if !client.is_connected() || !registered {
+                    registered = client.register(&claims).is_ok();
+                } else if client.heartbeat().is_err() {
+                    // The session went away: the next cycle registers on a fresh one.
+                    registered = false;
+                }
+                match signal.recv_timeout(interval) {
+                    Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
+                    Err(RecvTimeoutError::Timeout) => {}
+                }
+            }
+        });
+        Self {
+            stop,
+            join: Some(join),
+        }
+    }
+
+    /// Ask it to stop, and wait for it to.
+    fn stop(&mut self) {
+        let _ = self.stop.send(());
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
+impl Drop for Heartbeat {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
 
 /// A snapshot on disk, shaped for the frontend.
 #[derive(Debug, Clone, Serialize)]
@@ -1314,6 +1384,8 @@ impl AppState {
             peers: Mutex::new(None),
             rooms: Mutex::new(None),
             connection_problem: Mutex::new(None),
+            connection_client: Mutex::new(None),
+            connection_beat: Mutex::new(None),
             executors: Mutex::new(Vec::new()),
             settings_path: crate::paths::settings_path(),
             data_dir: crate::paths::default_data_dir(),
@@ -3525,6 +3597,9 @@ impl AppState {
         if let Ok(mut slot) = self.rooms.lock() {
             *slot = files.rooms;
         }
+        // v1.0 V-2: the server pointer is checked against `peers.json`, and the beat loop is started.
+        // Neither dials, so nothing here can hold up a start-up.
+        self.connect_cross_region();
     }
 
     /// The node's key, when the connection layer is configured and one was read or minted
@@ -3552,6 +3627,110 @@ impl AppState {
             .lock()
             .ok()
             .and_then(|slot| slot.clone())
+    }
+
+    /// The node's client for its cross-region server (v1.0 V-2), when one is wired.
+    ///
+    /// An `Arc` clone: the client is shared with the heartbeat loop, and a caller that forwards through
+    /// it must be able to do so while the loop beats.
+    pub fn connection_client(&self) -> Option<Arc<net::RelayClient>> {
+        self.connection_client
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+    }
+
+    /// Wire this node to its cross-region server, if its settings name one (v1.0 V-2).
+    ///
+    /// Called from [`Self::load_connection_files`] once the three files are loaded. **Nothing dials
+    /// here**: the client is a value that opens its session on first use, so a server that is down or
+    /// slow cannot hold up a start-up — and a beat that does not land is not a start-up failure
+    /// ([§6.6](../../docs/connection.md)).
+    fn connect_cross_region(&self) {
+        let pointer = self.settings.lock().ok().and_then(|settings| {
+            settings
+                .network
+                .as_ref()
+                .and_then(|n| n.cross_region_server.clone())
+        });
+        let Some(server_node_id) = pointer else {
+            return;
+        };
+        // §6.4: the server is a peer, so its entry — and its public key — must be in this node's own
+        // peer table. A pointer at a peer this node does not know is refused and said so: verifying what
+        // the server signs is impossible without that entry.
+        let entry = self
+            .peers()
+            .and_then(|peers| peers.entry(&server_node_id).cloned());
+        let Some(entry) = entry else {
+            let message = format!(
+                "cross_region_server names {server_node_id}, which is not in peers.json; the connection \
+                 layer is running without a server"
+            );
+            eprintln!("connection: {message}");
+            if let Ok(mut slot) = self.connection_problem.lock() {
+                if slot.is_none() {
+                    *slot = Some(message);
+                }
+            }
+            return;
+        };
+        let Some(key) = self.node_key() else {
+            return;
+        };
+        let node_id = agent::device();
+        let client =
+            match net::RelayClient::new(&node_id, key, &entry, net::TransportConfig::default()) {
+                Ok(client) => Arc::new(client),
+                Err(error) => {
+                    eprintln!("connection: {server_node_id} is not a usable peer: {error}");
+                    return;
+                }
+            };
+        if let Ok(mut slot) = self.connection_client.lock() {
+            *slot = Some(Arc::clone(&client));
+        }
+        self.start_beat(client, net::HEARTBEAT_INTERVAL);
+    }
+
+    /// Start (or restart) the registration-and-heartbeat loop with this interval (v1.0 V-2).
+    ///
+    /// `interval` is §6.6's 15 seconds; the parameter exists so a test can beat fast enough to watch.
+    /// Answers whether there was a client to beat for.
+    pub fn start_connection_heartbeat(&self, interval: Duration) -> bool {
+        let Some(client) = self.connection_client() else {
+            return false;
+        };
+        self.start_beat(client, interval);
+        true
+    }
+
+    /// Stop the loop, if one is running. Also happens when the state is dropped.
+    pub fn stop_connection_heartbeat(&self) {
+        let beat = self
+            .connection_beat
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take());
+        drop(beat);
+    }
+
+    /// The loop itself: the claims are read here, so a room change reaches the next registration.
+    fn start_beat(&self, client: Arc<net::RelayClient>, interval: Duration) {
+        let node_id = agent::device();
+        let rooms: Vec<String> = self
+            .rooms()
+            .map(|rooms| rooms.room_names_for(&node_id).into_iter().collect())
+            .unwrap_or_default();
+        let beat = Heartbeat::start(client, net::Registration::in_rooms(rooms), interval);
+        let previous = self
+            .connection_beat
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.replace(beat));
+        // Dropping the old handle stops the loop it was the handle of; done outside the lock so the
+        // join cannot run while it is held.
+        drop(previous);
     }
 
     /// Why this node is not using its settings file, if it is not (v1.0 M2b-1).

@@ -2727,3 +2727,56 @@ constant, no hash formula, no route and no new persisted format changed** — th
 the audit vocabulary, recorded where the `host.connection.*` family already lives (this document,
 `CHANGELOG.md`, `docs/handoff.md`) and not in `docs/control-plane-events.md`, whose twenty names are the
 **stream** events. V-2 (the pointer and the client) and V-3 (where a kick API would land) are next.
+
+## 103. The pointer is a setting, the client is lazy, and the beat is a thread
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; V-2 shipped
+
+**Decision**: A node reaches its cross-region server. `NetworkSettings` gains **`cross_region_server:
+Option<String>`** — a `node_id` that must appear in the node's own `peers.json` (§6.4), additive with
+`SETTINGS_VERSION` unchanged — and `host-core` wires what it names: `RelayClient::new` is built **without
+dialling**, the session opens on first use (`connect`, the beat loop, or a later batch's `forward`), and a
+**registration-and-heartbeat thread** registers once per session and then beats every **15 s** (§6.6's
+interval) until it is stopped. On the server's side `net` grows the two frame types and the table:
+`Local::Register` / `Local::Heartbeat`, an **`OnlineTable`** (`node_id → {addresses[], capabilities[],
+rooms[], last_heartbeat_ms, state}`, `online` inside **45 s** and `offline` after, rows never deleted by
+going offline), a registration answered with `{"registered": 1}` and a beat answered with **nothing**. A
+pointer at a peer the node does not hold is **refused** and said so (`connection_problem`, the slot V-1
+already had). The thread is `std::thread` + a channel, and **this batch writes no chain row**.
+
+**Why**: Four choices carry it. **The pointer is a setting, and one the node can check.** §6.4 makes the
+server a peer whose key lives in `peers.json`; a pointer at a peer this node does not hold could only
+produce frames it cannot verify, so it is refused at load and the deployment runs without a wide-area lane —
+the honest state §6.1 describes. It is additive and moves no version, like every field beside it. **A client
+that dials when it is built is a client that can hold up a start-up.** The session is opened by the first
+thing that needs it, so a server that is down, slow or not yet deployed is a beat that does not land rather
+than a host that will not start — and a beat that does not land costs nothing, because the next one is 15
+seconds later. **The thread is std, and its stop is a channel.** `net` has no async dependency and this crate
+will not give it one for a sleep and a socket write; and a channel rather than a flag means dropping the
+handle wakes the thread **at once**, so a host that stops beating stops within a beat instead of after
+whatever interval it happened to be sleeping through. The thread holds the **client**, never an
+`Arc<AppState>`: a thread holding the state would be a cycle that keeps it alive for as long as it beats,
+which is exactly what must not happen when a host is dropped. **A beat is a statement, not a question.** The
+server answers a registration — a node should know its row exists — and answers a beat with nothing: a beat's
+answer would double a fleet's frames to say what the table already says, and the session staying open is the
+transport's own evidence. And the two shapes are told apart by **one letter**: `register` is what a node
+*tells* its server, `registry` is what it *asks* it for, so `Local::of` tests them in that order and a test
+pins it.
+
+**Impact**: `net` gains `Registration`, `OnlineTable` / `OnlineEntry` / `Online`, the body helpers
+(`register_body`, `is_register`, `heartbeat_body`, `is_heartbeat`, `registered_body`, `is_registered`),
+`HEARTBEAT_INTERVAL` and `ONLINE_WINDOW_MS`, the local frames `Local::Register` / `Local::Heartbeat` and
+`LocalReply::{Registered, Beat, Unplaced}`, `answer_local`'s `now` parameter,
+`RelayServer::{online, online_at, online_table}`, and `RelayClient::{connect, register, heartbeat}` with
+`RelaySession`'s two senders; `host-core` gains the settings field, the `connection_client` slot, the
+`Heartbeat` loop (`std::thread` + `mpsc`), `connect_cross_region`, and
+`AppState::{connection_client, start_connection_heartbeat, stop_connection_heartbeat}`. New tests:
+`net/tests/registration.rs` (five) and two in `host-core/tests/connection.rs` (a dangling pointer refused, and
+the whole client half against a real server — register, beat, watch the row move, stop the loop and watch it
+freeze); the `relay` example grows to **16** checks. **No hash formula, route, capability name, audit event
+constant or persisted format changed, and no chain row is written** — the table is runtime state (§6.6), and
+V-proto-2's `peer_offline` / `peer_recovered` rows belong to **V-3**, which is also where the probes and the
+collective judgement land. The claims sent today are the node's **rooms** and nothing else: the peer port
+that would carry an address is a setting §4.3 names and no batch has landed yet, and the server already holds
+this node's configured addresses in its own `peers.json` — which is why `addresses` is empty rather than
+wrong.

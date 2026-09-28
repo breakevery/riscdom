@@ -121,6 +121,275 @@ pub fn answered_addresses(body: &Value) -> Option<Vec<String>> {
     serde_json::from_value(addresses.clone()).ok()
 }
 
+/// How often a node beats ([connection.md §6.6](../../docs/connection.md)): 15 seconds.
+pub const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// How long a row reads `online` after the last beat (§6.6): 45 seconds — three intervals.
+pub const ONLINE_WINDOW_MS: i64 = 3 * 15_000;
+
+/// The body a node **registers** with (§6.6).
+pub fn register_body(addresses: &[String], capabilities: &[String], rooms: &[String]) -> Value {
+    serde_json::json!({
+        "register": PROTOCOL_VERSION,
+        "addresses": addresses,
+        "capabilities": capabilities,
+        "rooms": rooms,
+    })
+}
+
+/// Is this body a registration?
+///
+/// **`register`, not `registry`** — one letter apart, and two different frames: the first is what a
+/// node *tells* its server (§6.6), the second is what it *asks* it for (§6.2's management).
+pub fn is_register(body: &Value) -> bool {
+    body.get("register").and_then(Value::as_u64) == Some(u64::from(PROTOCOL_VERSION))
+}
+
+/// The body a node **beats** with (§6.6): the smallest thing it can say.
+pub fn heartbeat_body() -> Value {
+    serde_json::json!({ "heartbeat": PROTOCOL_VERSION })
+}
+
+/// Is this body a heartbeat?
+pub fn is_heartbeat(body: &Value) -> bool {
+    body.get("heartbeat").and_then(Value::as_u64) == Some(u64::from(PROTOCOL_VERSION))
+}
+
+/// The body the server answers a registration with: taken, and a row exists.
+pub fn registered_body() -> Value {
+    serde_json::json!({ "registered": PROTOCOL_VERSION })
+}
+
+/// Is this body the server's answer to a registration?
+pub fn is_registered(body: &Value) -> bool {
+    body.get("registered").and_then(Value::as_u64) == Some(u64::from(PROTOCOL_VERSION))
+}
+
+/// What a registration **claims** ([connection.md §6.6](../../docs/connection.md)).
+///
+/// Claims, not facts: the server's own `peers.json` and `rooms.json` stay authoritative, and what a
+/// node reports is a **source** (§4.1's rule one level out). Three lists and nothing else — in
+/// particular **no key**, which arrives through configuration and never through a frame.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Registration {
+    /// Where the node says it can be dialled. **Empty is legal** (§6.6): a node reachable only
+    /// through the relay reports none.
+    pub addresses: Vec<String>,
+    /// What it says it can do.
+    pub capabilities: Vec<String>,
+    /// The rooms it says it is in.
+    pub rooms: Vec<String>,
+}
+
+impl Registration {
+    /// A registration of these rooms, with no addresses and no capabilities.
+    pub fn in_rooms<S: Into<String>>(rooms: impl IntoIterator<Item = S>) -> Self {
+        Self {
+            addresses: Vec::new(),
+            capabilities: Vec::new(),
+            rooms: rooms.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    /// Read the claims out of a registration body (§6.6). A list the frame does not carry reads as
+    /// empty: the shape says a node may report nothing.
+    pub fn of(body: &Value) -> Option<Registration> {
+        if !is_register(body) {
+            return None;
+        }
+        let list = |key: &str| -> Vec<String> {
+            body.get(key)
+                .and_then(|value| serde_json::from_value(value.clone()).ok())
+                .unwrap_or_default()
+        };
+        Some(Registration {
+            addresses: list("addresses"),
+            capabilities: list("capabilities"),
+            rooms: list("rooms"),
+        })
+    }
+}
+
+/// Whether a row is inside or outside §6.6's window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Online {
+    /// A beat arrived within [`ONLINE_WINDOW_MS`].
+    Online,
+    /// None did.
+    Offline,
+}
+
+impl Online {
+    /// The word.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Online::Online => "online",
+            Online::Offline => "offline",
+        }
+    }
+}
+
+/// One row of the online-status table, as it reads at a given moment (§6.6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OnlineEntry {
+    /// The key, and the row's only identity.
+    pub node_id: String,
+    /// The addresses the node last reported.
+    pub addresses: Vec<String>,
+    /// What it last said it can do.
+    pub capabilities: Vec<String>,
+    /// The rooms it last said it is in.
+    pub rooms: Vec<String>,
+    /// When the last beat arrived — or the registration, which counts as one (§6.6).
+    pub last_heartbeat_ms: i64,
+    /// Inside [`ONLINE_WINDOW_MS`] or not.
+    pub state: Online,
+}
+
+/// The server's online-status table ([connection.md §6.6](../../docs/connection.md)).
+///
+/// **Runtime state, in memory** — the same trade §3.2's record makes: a restart forgets the whole
+/// table (a node re-registers when it reconnects), and **a row is never deleted by going offline**,
+/// because "offline" and "never registered" have to stay distinguishable. Nothing in it is a
+/// message and nothing in it is written to a chain: it is a transport fact, and this batch records
+/// nothing about it ([decisions §103](../../docs/decisions.md)).
+#[derive(Clone, Default)]
+pub struct OnlineTable {
+    inner: Arc<OnlineInner>,
+}
+
+#[derive(Default)]
+struct OnlineInner {
+    rows: Mutex<HashMap<String, Row>>,
+}
+
+#[derive(Debug, Clone)]
+struct Row {
+    addresses: Vec<String>,
+    capabilities: Vec<String>,
+    rooms: Vec<String>,
+    last_heartbeat_ms: i64,
+}
+
+impl OnlineTable {
+    /// Nobody has registered.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Take a registration (§6.6): a row is created, or the claims of one already there are
+    /// replaced. **Idempotent** — registering twice is not two rows — and the beat advances either
+    /// way, because §6.6 counts a registration as a beat.
+    ///
+    /// Returns whether the row is **new**.
+    pub fn register(&self, node_id: &str, claims: &Registration, now: i64) -> bool {
+        let mut rows = self
+            .inner
+            .rows
+            .lock()
+            .expect("the online table is not poisoned");
+        match rows.get_mut(node_id) {
+            Some(row) => {
+                row.addresses = claims.addresses.clone();
+                row.capabilities = claims.capabilities.clone();
+                row.rooms = claims.rooms.clone();
+                row.last_heartbeat_ms = now;
+                false
+            }
+            None => {
+                rows.insert(
+                    node_id.to_string(),
+                    Row {
+                        addresses: claims.addresses.clone(),
+                        capabilities: claims.capabilities.clone(),
+                        rooms: claims.rooms.clone(),
+                        last_heartbeat_ms: now,
+                    },
+                );
+                true
+            }
+        }
+    }
+
+    /// Take a beat (§6.6). A row that is not there is **not** created by a beat — a row is created
+    /// by a registration — so this answers whether the beat landed.
+    pub fn beat(&self, node_id: &str, now: i64) -> bool {
+        match self
+            .inner
+            .rows
+            .lock()
+            .expect("the online table is not poisoned")
+            .get_mut(node_id)
+        {
+            Some(row) => {
+                row.last_heartbeat_ms = now;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Every row, by `node_id`, as it reads at `now`.
+    pub fn rows(&self, now: i64) -> Vec<OnlineEntry> {
+        let rows = self
+            .inner
+            .rows
+            .lock()
+            .expect("the online table is not poisoned");
+        let mut entries: Vec<OnlineEntry> = rows
+            .iter()
+            .map(|(node_id, row)| OnlineEntry {
+                node_id: node_id.clone(),
+                addresses: row.addresses.clone(),
+                capabilities: row.capabilities.clone(),
+                rooms: row.rooms.clone(),
+                last_heartbeat_ms: row.last_heartbeat_ms,
+                state: state_of(row.last_heartbeat_ms, now),
+            })
+            .collect();
+        entries.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+        entries
+    }
+
+    /// One row, as it reads at `now`.
+    pub fn row(&self, node_id: &str, now: i64) -> Option<OnlineEntry> {
+        self.rows(now)
+            .into_iter()
+            .find(|entry| entry.node_id == node_id)
+    }
+
+    /// How many rows there are, online or not.
+    pub fn len(&self) -> usize {
+        self.inner
+            .rows
+            .lock()
+            .expect("the online table is not poisoned")
+            .len()
+    }
+
+    /// Has nobody registered?
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// How many rows read `online` at `now`.
+    pub fn online_at(&self, now: i64) -> usize {
+        self.rows(now)
+            .iter()
+            .filter(|entry| entry.state == Online::Online)
+            .count()
+    }
+}
+
+/// §6.6's rule, in one place: inside the window is `online`, past it is `offline`.
+fn state_of(last_heartbeat_ms: i64, now: i64) -> Online {
+    if now - last_heartbeat_ms <= ONLINE_WINDOW_MS {
+        Online::Online
+    } else {
+        Online::Offline
+    }
+}
+
 /// What a frame addressed to the server **itself** is, once it has authenticated (§6.2).
 ///
 /// The local half of the four roles, plus the honest fifth answer: a local frame the server
@@ -130,6 +399,10 @@ pub fn answered_addresses(body: &Value) -> Option<Vec<String>> {
 pub enum Local {
     /// A session opener: the socket is bound to its sender, and nothing is answered.
     Hello,
+    /// A registration: the claims a node makes about itself (§6.6).
+    Register(Registration),
+    /// A heartbeat: the smallest thing a node can say (§6.6).
+    Heartbeat,
     /// An address query: where the named node can be reached.
     Addresses { node_id: String },
     /// A registry request: the node table and the room definitions, as they stand.
@@ -140,9 +413,18 @@ pub enum Local {
 
 impl Local {
     /// Read what a body is asking the server for.
+    ///
+    /// The order matters once: `register` is tested **before** `registry`, because the two bodies
+    /// differ by one letter and mean opposite directions (§6.6's reporting up, §6.2's handing down).
     pub fn of(body: &Value) -> Self {
         if is_hello(body) {
             return Local::Hello;
+        }
+        if let Some(claims) = Registration::of(body) {
+            return Local::Register(claims);
+        }
+        if is_heartbeat(body) {
+            return Local::Heartbeat;
         }
         if crate::registry::is_registry_request(body) {
             return Local::Registry;
@@ -162,6 +444,13 @@ impl Local {
 pub enum LocalReply {
     /// A session opener: the socket was bound, and nothing is answered.
     Silent,
+    /// A registration was taken and answered: the row exists (`true`) or was refreshed (`false`).
+    Registered { node_id: String, fresh: bool },
+    /// A heartbeat was taken. Nothing is answered — a beat is a statement, not a question.
+    Beat { node_id: String },
+    /// A heartbeat arrived for a node with no row: §6.6 creates a row by a **registration**, so a
+    /// beat alone places nobody. Nothing is answered for it either.
+    Unplaced { node_id: String },
     /// An address answer went down the session.
     Addresses { addresses: Vec<String> },
     /// The registry went down the session.
@@ -526,6 +815,7 @@ struct ServerInner {
     generation: AtomicI64,
     guard: Mutex<ReplayGuard>,
     sessions: SessionTable,
+    online: OnlineTable,
 }
 
 impl RelayServer {
@@ -554,6 +844,7 @@ impl RelayServer {
                 generation: AtomicI64::new(FIRST_GENERATION),
                 guard: Mutex::new(ReplayGuard::new()),
                 sessions: SessionTable::new(),
+                online: OnlineTable::new(),
             }),
         })
     }
@@ -566,6 +857,24 @@ impl RelayServer {
     /// The live sessions.
     pub fn sessions(&self) -> &SessionTable {
         &self.inner.sessions
+    }
+
+    /// The online-status table as it reads **now** (§6.6).
+    pub fn online(&self) -> Vec<OnlineEntry> {
+        self.online_at(now_ms())
+    }
+
+    /// The online-status table as it reads at `now`.
+    ///
+    /// The clock is a parameter for the same reason [`Self::route`]'s is: §6.6's 45 seconds is a
+    /// rule a test must be able to age without waiting them out.
+    pub fn online_at(&self, now: i64) -> Vec<OnlineEntry> {
+        self.inner.online.rows(now)
+    }
+
+    /// The online-status table itself, for a caller that wants to read it more than once.
+    pub fn online_table(&self) -> &OnlineTable {
+        &self.inner.online
     }
 
     /// The transport configuration sessions inherit.
@@ -693,12 +1002,43 @@ impl RelayServer {
     /// Returns what it did, so a caller — a test, or the deployer's banner — can see the act
     /// rather than infer it. A failed write is the socket's business rather than the frame's:
     /// the caller keeps reading, and the next read says whether the session is still there.
-    pub fn answer_local(&self, from: &str, action: &Local) -> Result<LocalReply, RelayError> {
+    pub fn answer_local(
+        &self,
+        from: &str,
+        action: &Local,
+        now: i64,
+    ) -> Result<LocalReply, RelayError> {
         match action {
             // The socket was bound when the frame authenticated; a hello asks for nothing else.
             Local::Hello => Ok(LocalReply::Silent),
             // A local frame with nothing to do is reported, and nothing is invented for it.
             Local::Unrecognised { .. } => Ok(LocalReply::Unrecognised),
+            // §6.6's reporting up: the claims are taken as a **source** — the server's own files stay
+            // authoritative — and the registration is answered so the node knows it landed. A node the
+            // server does not know never reaches here: §6.3's authorisation refused it already, which is
+            // what makes "a key cannot arrive by frame" structural rather than promised.
+            Local::Register(claims) => {
+                let fresh = self.inner.online.register(from, claims, now);
+                self.send_to(from, registered_body())?;
+                Ok(LocalReply::Registered {
+                    node_id: from.to_string(),
+                    fresh,
+                })
+            }
+            // A beat refreshes the row a registration made and is answered with nothing (§6.6): the
+            // smallest thing a node can say does not earn a frame back. A beat for a node with no row
+            // places nobody — §6.6 creates a row by a registration — and is just as silent.
+            Local::Heartbeat => {
+                if self.inner.online.beat(from, now) {
+                    Ok(LocalReply::Beat {
+                        node_id: from.to_string(),
+                    })
+                } else {
+                    Ok(LocalReply::Unplaced {
+                        node_id: from.to_string(),
+                    })
+                }
+            }
             Local::Addresses { node_id } => {
                 let addresses = self.addresses_for(node_id);
                 self.send_to(from, address_answer_body(&addresses))?;
@@ -726,7 +1066,8 @@ impl RelayServer {
         // A closed connection, or a half-written line, ends the session: the loop's
         // condition is the read.
         while let Ok(frame) = connection.receive_frame() {
-            let routed = match self.route(&frame, now_ms()) {
+            let now = now_ms();
+            let routed = match self.route(&frame, now) {
                 Ok(routed) => routed,
                 Err(_) => continue,
             };
@@ -743,7 +1084,7 @@ impl RelayServer {
             // The local roles answer **after** the bind: an answer goes down the session, and
             // a session that is not bound yet is a session with nowhere to put it.
             if let Routed::Local { from, action, .. } = &routed {
-                let _ = self.answer_local(from, action);
+                let _ = self.answer_local(from, action, now);
             }
         }
         if let Some((node_id, id)) = bound {
@@ -835,6 +1176,23 @@ impl RelaySession {
     /// Ask the server to publish its registry (§6.2's management).
     pub fn request_registry(&self) -> Result<(), TransportError> {
         self.ask(crate::registry::registry_request_body())
+    }
+
+    /// Register with the server (§6.6).
+    ///
+    /// The acknowledgement the server answers with is left on the socket for whoever reads next —
+    /// this call is the *sending* half, like every other question here.
+    pub fn register(&self, claims: &Registration) -> Result<(), TransportError> {
+        self.ask(register_body(
+            &claims.addresses,
+            &claims.capabilities,
+            &claims.rooms,
+        ))
+    }
+
+    /// Beat (§6.6). The server answers nothing: a heartbeat is a statement, not a question.
+    pub fn heartbeat(&self) -> Result<(), TransportError> {
+        self.ask(heartbeat_body())
     }
 
     /// Sign one question to the server and hand it over.
@@ -946,6 +1304,24 @@ impl RelayClient {
     /// Ask the server to publish its registry (§6.2's management).
     pub fn request_registry(&self) -> Result<(), TransportError> {
         self.with_session(|session| session.request_registry())
+    }
+
+    /// Open the session if it is not open, and say so when it cannot be.
+    ///
+    /// A client is built **without dialling** (v1.0 V-2): the pointer in a node's settings makes one,
+    /// and this is the call — or the first [`Relay::forward`] — that reaches the server. Idempotent.
+    pub fn connect(&self) -> Result<(), TransportError> {
+        self.with_session(|_| Ok(()))
+    }
+
+    /// Register with the server (§6.6).
+    pub fn register(&self, claims: &Registration) -> Result<(), TransportError> {
+        self.with_session(|session| session.register(claims))
+    }
+
+    /// Beat (§6.6).
+    pub fn heartbeat(&self) -> Result<(), TransportError> {
+        self.with_session(|session| session.heartbeat())
     }
 
     /// Hand one already-serialised frame to the server, opening the session if needed.

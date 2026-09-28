@@ -356,6 +356,46 @@ fn self_test() {
         ),
     );
 
+    // 14. Registration and heartbeat (§6.6): a node reports itself upward, and the server keeps a row.
+    client
+        .register(&net::Registration::in_rooms(["lab"]))
+        .expect("registered");
+    let ack = client
+        .receive()
+        .expect("read")
+        .expect("an acknowledgement arrived");
+    let verified = verify_at(&ack, "dev-a", &server_keys, &mut guard, now_ms()).expect("verifies");
+    check(
+        "a registration is answered, and the server keeps a row for the node",
+        net::is_registered(&verified.body)
+            && server.online().iter().any(|row| row.node_id == "dev-a"),
+        format!("{} row(s)", server.online().len()),
+    );
+
+    // 15. A beat refreshes the row, and a row is **kept** when it ages out of the window: "offline" and
+    //     "never registered" have to stay distinguishable (§6.6).
+    let before = server.online().first().map(|row| row.last_heartbeat_ms);
+    client.heartbeat().expect("beat");
+    std::thread::sleep(Duration::from_millis(50));
+    let after = server.online().first().map(|row| row.last_heartbeat_ms);
+    let aged = server.online_at(now_ms() + net::ONLINE_WINDOW_MS + 1);
+    check(
+        "a beat refreshes the row, and the row survives going offline",
+        after >= before && aged.len() == 1 && aged[0].state == net::Online::Offline,
+        format!("{aged:?}"),
+    );
+
+    // 16. `register` and `registry` are one letter apart and opposite directions (§6.6 up, §6.2 down).
+    check(
+        "a registry request is not read as a registration",
+        net::Local::of(&net::registry_request_body()) == net::Local::Registry
+            && matches!(
+                net::Local::of(&net::register_body(&[], &[], &[])),
+                net::Local::Register(_)
+            ),
+        "register ≠ registry".to_string(),
+    );
+
     println!("net relay self-test: OK");
 }
 

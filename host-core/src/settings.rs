@@ -215,6 +215,16 @@ pub struct NetworkSettings {
     /// can then reach the node and only the token stands in the way.
     #[serde(default)]
     pub lan_allow_lan: bool,
+    /// The peer that is this node's **cross-region server** (v1.0 V-2), or `None` for a node with no
+    /// wide-area lane ([connection.md §6.4](../docs/connection.md): a node's network settings name
+    /// which peer is its server).
+    ///
+    /// The value is a **`node_id`** that must appear in this node's own `peers.json`, because §6.4
+    /// makes the server a peer and puts its public key there — which is what lets this node verify
+    /// what the server signs. Additive, exactly like every field above: a file written before it
+    /// existed loads with `None`, and `SETTINGS_VERSION` does not move.
+    #[serde(default)]
+    pub cross_region_server: Option<String>,
 }
 
 /// One executor the node can dispatch a task to (v0.9 interface E0).

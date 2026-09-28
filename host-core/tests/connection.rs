@@ -10,6 +10,7 @@ use host_core::settings::{LocalSettings, NetworkSettings, SETTINGS_VERSION};
 use host_core::state::AppState;
 use host_core::{ConnectionFile, EventFilter};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 fn unique_dir(tag: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -34,6 +35,24 @@ fn configured(tag: &str) -> PathBuf {
         version: SETTINGS_VERSION,
         network: Some(NetworkSettings {
             lan_enabled: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    settings
+        .save(&dir.join("settings.json"))
+        .expect("settings.json");
+    dir
+}
+
+/// A data directory whose settings configure the network **and name a cross-region server** (v1.0 V-2).
+fn configured_pointing(tag: &str, server_node_id: &str) -> PathBuf {
+    let dir = unique_dir(tag);
+    let settings = LocalSettings {
+        version: SETTINGS_VERSION,
+        network: Some(NetworkSettings {
+            lan_enabled: true,
+            cross_region_server: Some(server_node_id.to_string()),
             ..Default::default()
         }),
         ..Default::default()
@@ -243,5 +262,134 @@ fn an_unusable_peer_table_is_reported_without_claiming_it_is_too_new() {
             .iter()
             .any(|action| *action == "host.connection.data_too_new"),
         "no too-new row for a file that is not too new"
+    );
+}
+
+#[test]
+fn a_pointer_at_a_peer_this_node_does_not_know_is_refused() {
+    let data_dir = configured_pointing("pointer-unknown", "dev-server");
+    // A peer table with somebody else in it: the pointer names a node this host does not hold.
+    let mut peers = net::PeersFile::empty();
+    let other = net::NodeKey::generate().expect("key");
+    peers.peers.push(net::PeerEntry::new(
+        "dev-other",
+        "127.0.0.1:1",
+        other.public_jwk(),
+    ));
+    net::PeersFile::save_in(&data_dir, &peers).expect("peers.json");
+
+    let state = state_in(&unique_dir("pointer-unknown-ws"), &data_dir);
+
+    assert!(
+        state.connection_client().is_none(),
+        "no client for a peer this node does not know"
+    );
+    let problem = state.connection_problem().expect("a reported problem");
+    assert!(problem.contains("dev-server"), "{problem}");
+    assert!(problem.contains("peers.json"), "{problem}");
+}
+
+#[test]
+fn a_pointer_at_a_known_peer_wires_a_client_that_registers_and_beats() {
+    // The whole of V-2's client half, against a real server on loopback.
+    let data_dir = configured_pointing("wired", "server");
+    let workspace = unique_dir("wired-ws");
+
+    // The node's key is minted **before** the state is built, so the server can be told its public half
+    // the way §6.4 says a server is told: in the server's own `peers.json`.
+    let node_key = net::NodeKey::generate().expect("key");
+    net::NodeKey::save_new_in(&data_dir, &node_key).expect("node.key");
+
+    let server_key = net::NodeKey::generate().expect("key");
+    let mut server_peers = net::PeersFile::empty();
+    server_peers.peers.push(net::PeerEntry::new(
+        &agent::device(),
+        "127.0.0.1:1",
+        node_key.public_jwk(),
+    ));
+    let mut rooms = net::RoomsFile::empty();
+    rooms.rooms.push(net::Room {
+        name: "lab".to_string(),
+        members: vec![agent::device()],
+        rules: net::RoomRules::new(net::RateRule {
+            messages: 10,
+            window_seconds: 60,
+        }),
+    });
+
+    let listener = net::Listener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr").to_string();
+    let server = net::RelayServer::new(
+        "server",
+        server_key.clone(),
+        server_peers,
+        rooms.clone(),
+        net::TransportConfig::default(),
+    )
+    .expect("server");
+    let serving = server.clone();
+    std::thread::spawn(move || {
+        let _ = serving.serve(listener);
+    });
+
+    // This node's own tables: the server as a peer, and the room the node is in.
+    let mut local_peers = net::PeersFile::empty();
+    local_peers.peers.push(net::PeerEntry::new(
+        "server",
+        &addr,
+        server_key.public_jwk(),
+    ));
+    net::PeersFile::save_in(&data_dir, &local_peers).expect("peers.json");
+    net::RoomsFile::save_in(&data_dir, &rooms).expect("rooms.json");
+
+    let state = state_in(&workspace, &data_dir);
+    assert!(
+        state.connection_client().is_some(),
+        "the pointer wired a client"
+    );
+    assert_eq!(state.connection_problem(), None);
+
+    // The loop registers and beats (§6.6), and the row carries this node's claims.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while server.online().is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the node never registered"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let row = server.online().into_iter().next().expect("a row");
+    assert_eq!(row.node_id, agent::device());
+    assert_eq!(
+        row.rooms,
+        vec!["lab".to_string()],
+        "the room comes from this node's rooms.json"
+    );
+    assert!(
+        row.addresses.is_empty(),
+        "no peer port has landed yet, so none is claimed"
+    );
+    assert_eq!(row.state, net::Online::Online);
+
+    // Restart the loop with a short interval so the beat can be watched, then stop it and watch the row
+    // freeze: nothing else advances it.
+    assert!(state.start_connection_heartbeat(Duration::from_millis(120)));
+    let before = server.online()[0].last_heartbeat_ms;
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while server.online()[0].last_heartbeat_ms == before {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the short beat never landed"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    state.stop_connection_heartbeat();
+    let stopped = server.online()[0].last_heartbeat_ms;
+    std::thread::sleep(Duration::from_millis(400));
+    assert_eq!(
+        server.online()[0].last_heartbeat_ms,
+        stopped,
+        "the loop is stopped, so nothing beats"
     );
 }

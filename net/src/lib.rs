@@ -30,7 +30,8 @@
 //! - **§6, the cross-region server** — [`RelayServer`] and [`route`]: a frame is
 //!   authenticated (§3's model, and no new credential), routed on its signed `to`, and
 //!   handed down the destination's session — [`SessionTable`] — while a frame addressed to
-//!   the server itself is [`Local`]'s business: a hello, an **address query**
+//!   the server itself is [`Local`]'s business: a hello, a **registration** and its
+//!   **heartbeat** (§6.6, with [`OnlineTable`] on the server's side), an **address query**
 //!   ([`address_query_body`], answered from what the server knows), or a **registry request**
 //!   ([`registry_request_body`], answered with [`Registry`] — the table plus the room
 //!   definitions, a **source and not an authority**). [`RelayClient`] and [`RelaySession`] are
@@ -78,8 +79,10 @@ pub use registry::{
 };
 pub use relay::{
     address_answer_body, address_query, address_query_body, answered_addresses, client_for_server,
-    hello_body, is_hello, route, Answer, Forwarder, Local, LocalReply, RelayClient, RelayError,
-    RelayServer, RelayServerError, RelaySession, Routed, SessionTable, FIRST_GENERATION,
+    heartbeat_body, hello_body, is_heartbeat, is_hello, is_register, is_registered, register_body,
+    registered_body, route, Answer, Forwarder, Local, LocalReply, Online, OnlineEntry, OnlineTable,
+    Registration, RelayClient, RelayError, RelayServer, RelayServerError, RelaySession, Routed,
+    SessionTable, FIRST_GENERATION, HEARTBEAT_INTERVAL, ONLINE_WINDOW_MS,
 };
 pub use replay::{ReplayError, ReplayGuard, Window, REPLAY_WINDOW_AHEAD_MS, REPLAY_WINDOW_BACK_MS};
 pub use rooms::{

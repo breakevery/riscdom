@@ -24,9 +24,12 @@ why this project needs no hole punching — it answers **signalling** with where
 reached (**addresses, never payloads**), and it answers **management** with its registry: the node
 table and the room definitions, a **source and not an authority**, merged with the node's own
 `peers.json` and `rooms.json` winning. Authenticating is §3's model in every case — no new
-credential, and no new capability.
+credential, and no new capability. **Registration and heartbeat** (§6.6) are here too: a node reports
+itself upward, the server keeps an [`OnlineTable`], and a row that goes `offline` is kept. §6.7's
+liveness judgement is not (V-3).
 **Not here yet: §7 — the audit digests** a server aggregates on a timer, which wait on M5's
-authorisation. Each piece arrives only after the section it implements is frozen, which is
+authorisation. §6.7's **liveness judgement** — the probes, the reports and the collective threshold —
+is **V-3**'s. Each piece arrives only after the section it implements is frozen, which is
 what [decisions §3](../docs/decisions.md) asks for and what keeps the cross-device work from having
 to be done twice.
 
@@ -79,7 +82,9 @@ dialled-in destination **byte for byte**, that a frame addressed to the server i
 handed on, that an unknown sender or destination is refused, that a replay arrives once, that
 the server **never dials** a destination that has not dialled in, that an address query is
 answered with the addresses the server knows **and nothing else**, and that a published registry
-is a **source** — merged, and merged with the local files winning. `scripts/gate.sh` runs all six;
+is a **source** — merged, and merged with the local files winning, that a node **registers** and
+**beats** into the server's online table (§6.6), and that `register` and `registry` are read as two
+different frames. `scripts/gate.sh` runs all six;
 the deployer's program is `cargo run -p net --bin riscdom-relay -- --help`.
 
 ## What this crate does not do yet

@@ -93,6 +93,13 @@ current request authorising it (§2).
   writes `host.connection.peer_offline` / `host.connection.peer_recovered`; **the protocol defines no
   removal** — the kick is the deployer's. **Decision §102.** Docs only; V-2 (the pointer + client) and V-3
   (where a kick API would land) follow.
+- **And the wiring is on disk** (v1.0 batch Z / V-2, 2026-09-28): `NetworkSettings.cross_region_server`
+  names the server (a `node_id` in this node's `peers.json`), `host-core` builds a `RelayClient` **without
+  dialling** and runs a **registration-and-heartbeat thread** (`std::thread` + a channel, §6.6's **15 s**),
+  and `net`'s server side keeps an **`OnlineTable`** (`online` within **45 s**, `offline` after, rows never
+  deleted by going offline) — a registration is acknowledged, a beat is not, and a beat places nobody on its
+  own. A dangling pointer is refused. No chain row is written. **Decision §103.** V-3 (the liveness
+  judgement, and the surfaces above) is next.
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

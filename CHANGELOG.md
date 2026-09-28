@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A node registers with its server and beats** (v1.0 batch Z / V-2): `NetworkSettings` gains
+  **`cross_region_server`** — a `node_id` that must be in this node's `peers.json` (additive, no version
+  move) — and `host-core` wires what it names: a `RelayClient` built **without dialling**, whose session
+  opens on first use, plus a **registration-and-heartbeat thread** (`std::thread` + a channel) that registers
+  once per session and beats every **15 s**. A pointer at a peer the node does not hold is **refused**, and
+  said so. On the server's side `net` grows `Local::Register` / `Local::Heartbeat` and an **`OnlineTable`**
+  (`node_id → {addresses, capabilities, rooms, last_heartbeat_ms, state}`; `online` within **45 s**,
+  `offline` after; **rows never deleted by going offline**): a registration is answered with
+  `{"registered": 1}`, a beat with nothing, and a beat **places nobody** on its own. No chain row is
+  written — the table is runtime state — and no dependency, capability name, route, hash formula or
+  persisted format changed.
+
 - **Liveness, frozen: a judgement needs unanimity among the witnesses that remain** (v1.0 batch Y):
   [`docs/connection.md`](docs/connection.md) gains **§6.7**. A node's peers are its own **workgroup**, and it
   **probes** them — `{"probe": 1}`, answered `{"alive": 1}`, direct first then relay, **every 15 s**, with three
