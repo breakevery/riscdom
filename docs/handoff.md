@@ -136,6 +136,12 @@ current request authorising it (§2).
   problem) and serves on a thread; `server_role_addr()` reports where and `server_role()` hands the
   handle out for §6.7's sink. The **deployer** configures it, and **a node that did not ask starts
   nothing**. §6.7's sibling confirmation is V-3b. **Decision §107.**
+- **And a server says it is one** (v1.0 batch AH / V-3b-proto, 2026-09-29): `docs/connection.md` now freezes
+  how the sibling set is found — an in-network server declares the ordinary claim **`"server"`** in its §6.6
+  registration, the row keeps the claims a registration made, and the cross-region server's siblings are the
+  rows whose claims include it. `"server"` is a **claim, not a capability** (no word list widens, nothing is
+  granted); a false claim only invites probes. Protocol prose only — the implementation is V-3b-1/V-3b-2.
+  **Decision §108.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

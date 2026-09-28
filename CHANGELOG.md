@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A server declares itself in its registration** (v1.0 batch AH / V-3b-proto): `docs/connection.md`
+  §6.6/§6.7 now say how an in-network server is told apart from a node. An in-network server declares the
+  ordinary claim **`"server"`** in the `capabilities` list of its §6.6 registration, the server's row keeps
+  the claims a registration made, and the cross-region server's **sibling set** is the rows whose claims
+  include `"server"`. `"server"` is a **claim, not a capability**: no word list widens, nothing is granted,
+  and a node that declares it only becomes **probed as a sibling**. Documentation only — the implementation
+  is V-3b-1/V-3b-2, and V-3a's aggregation half is already in place. No source file, dependency, `Capability`
+  variant, audit event constant, hash formula, route or persisted format changed.
+
 - **A node can be the network's server** (v1.0 batch AF / AC-4): `NetworkSettings` gains
   **`server_role: Option<ServerRoleSettings>`** — additive, no `SETTINGS_VERSION` move — whose one
   field is **`bind`**, required and deliberately without a default. When it is present, `host-core`

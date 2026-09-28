@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **服务器在注册里声明自己**（v1.0 批 AH / V-3b-proto）：`docs/connection.md` §6.6/§6.7 现在说清了怎么把一台内网服务器与一个节点区分开。内网服务器在它 §6.6 注册的 `capabilities` 列表里声明普通宣告 **`"server"`**，服务器那一行保留注册带来的宣告，而跨区域服务器的**兄弟集** = 宣告里含 `"server"` 的那些行。`"server"` 是**宣告、不是 capability**：不给任何词表加词、不授予任何东西，声明它的节点只是**被当作兄弟来探**。纯文档 —— 实现是 V-3b-1/V-3b-2，而 V-3a 的汇总半边已就位。没有源文件、依赖、`Capability` 变体、审计事件常量、哈希公式、路由或持久化格式被改动。
+
 - **一个节点可以就是那张网络的服务器**（v1.0 批 AF / AC-4）：`NetworkSettings` 多出 **`server_role: Option<ServerRoleSettings>`** —— 加法式、`SETTINGS_VERSION` 不动 —— 它只有一个字段 **`bind`**，必填且刻意没有默认值。它一出现，`host-core` 就用本节点自己的 `node.key` / `peers.json` / `rooms.json` 起一个 **`RelayServer`**，同步绑定（端口被占会被报告，而不是留给一条正在死掉的线程），在一条线程上服务；`AppState::server_role_addr()` 报绑在哪，`AppState::server_role()` 交出句柄，于是带链的部署可以装上 §6.7 的判定 sink。这就是 §6.5 的**内网服务器** —— 与独立 `riscdom-relay` 跑的是同一个 `RelayServer`，一套机制、两种部署形态 —— 而且由**部署者**配置；没配的节点什么都不会起。§6.7 的**兄弟确认**是 V-3b。没有哈希公式、路由、capability 名、审计事件常量或持久化格式被改动，`net` 的代码也未改。
 
 - **节点的连接状态可以经 HTTP 读取**（v1.0 批 AE / AC-2）：`server` 提供四条只读查询 —— `GET /v0/identity`、`/v0/peers`、`/v0/rooms` 与 `/v0/connection` —— 包装的正是批 AD 交给桌面的那四个 `AppState` 访问子，所以两个面不会漂开。四条都声明 **`status.read`**：它们描述的是本节点自身的外表面，那正是这个 capability 的用途，因此没有新增任何 capability 名。**缺数据就是 `null`，绝不是 `404`**（§2：从未加入网络的节点是一个能用的节点，只是没什么可报）：层未配置时 `identity` 是 `null`，没有 `peers.json` 或 `rooms.json` 时 `peers` 与 `rooms` 是 `null`；`connection` 把 `configured`、`connected` 与 `problem` 分开。`docs/control-plane-api.md` 的 §5.1 现在写 **37** 条查询（两种语言一致），四条路由也进了 `docs/tool-schema-control-plane.md` 的标记查询表（连同对应的定义），于是路由表、两份文档与 tool schema 始终是同一套。没有哈希公式、capability 名、审计事件常量或持久化格式被改动；接在后的是 AC-3（CLI）与 AC-4（服务端角色）。

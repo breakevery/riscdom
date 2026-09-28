@@ -2956,3 +2956,38 @@ code is unchanged** — `RelayServer`, `Listener` and the §6.6 handling already
 formula, route, capability name, audit event constant or persisted format moved. §6.7's **sibling**
 confirmation — the second level, a server's own loss judged by its siblings through the cross-region
 server — is **V-3b**, and the sink this batch exposes is the hook it installs.
+
+## 108. A server declares itself in its registration, and the sibling set is read from the claims
+
+**Date**: 2026-09-29 ｜ **Status**: Decided; protocol prose only (batch AH / V-3b-proto)
+
+**Decision**: `docs/connection.md` §6.7's frozen sentence said a server's siblings are "the other
+in-network servers registered with the same cross-region server, learned from that server's registry", but
+neither §6.6 nor §6.7 said **how a server is told apart from a node** — `RelayServer::registry()` is
+`peers.json`-derived and carries no such marker, and a registration's `capabilities` were never used. The
+protocol now says it: **an in-network server declares the ordinary claim `"server"` in the `capabilities`
+list of its §6.6 registration**, the server's row keeps the claims a registration made, and the
+**cross-region server's sibling set is the rows whose claims include `"server"`**. `"server"` is a **claim,
+not a capability**: it is a string in a claim list, **not** a member of the control plane's vocabulary, it
+widens no word list, and declaring it grants no authority — only that the node is **probed as a sibling** and,
+if it stops answering, judged by the siblings' unanimity.
+
+**Why**: Three points. **Zero shape change.** The claim travels in §6.6's existing registration body, the
+server already keeps what a registration claims, and the aggregation half (the witness table, unanimity, the
+vetoing witness) is already V-3a's — so the fix is a sentence, not a frame, a field or a format. **A claim,
+not a capability, and that distinction is load-bearing.** The control plane's capability vocabulary
+(decisions §83) is what authority is granted from; a node must never widen it by declaring something about
+itself. §6.6 already fixes the standing — a claim is "a claim, not a fact", a **source** the server's own
+files stay authoritative over — and this batch adds no exception. **A false claim is harmless by
+construction.** Declaring `"server"` buys exactly one thing: being probed. A node that lies only invites
+probes it does not answer, and the worst that follows is a judgement about itself, which §6.7's rules
+already govern (and a judgement touches no identity, no membership and no key).
+
+**Impact**: `docs/connection.md` §6.6 gains a bullet (the row keeps the registration's claims:
+`capabilities`, `rooms`) and its **Frozen** summary names the table's fields instead of "the four fields";
+§6.7's "who judges what" bullet says how a server says it is one, a new bullet fixes `"server"` as a claim
+and not a capability, the "how a sibling knows" bullet points at that claim rather than "the registry", and
+§6.7's **Frozen** list gains the same point. Its translation follows. **No source file, no dependency, no
+`Capability` variant, no audit event constant, no hash formula, no route and no persisted format changed.**
+The implementation — declaring the claim when the server role runs, and taking the sibling set from the
+cross-region server's table — is **V-3b-1/V-3b-2**, and V-3a's aggregation half is already in place.

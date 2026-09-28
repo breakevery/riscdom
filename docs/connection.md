@@ -374,6 +374,11 @@ knows (§6.3's authorisation):
   server may publish (§6.2's management) **as a source**: the deployer's `peers.json` and `rooms.json`
   remain authoritative for their own node, and a disagreement is **reported, never silently resolved** —
   §4.1's and §6.2's rule, unchanged. A node cannot become known, or gain a key, by registering.
+- **[settled]** **The row also keeps what the node claimed.** Beside the four fields above, a row carries the
+  claims its registration made — `capabilities` and `rooms` — because §6.7 reads the sibling set out of
+  them (an in-network server declares the `"server"` claim; §6.7 says how, and what it does and does not
+  grant). They are claims like every other: a **source** and never an authority, and a node that lists
+  something it does not hold gains nothing by listing it.
 
 **[settled]** **One mechanism, two levels.** The frames above are the same when a node talks to its
 in-network server and when an in-network server talks to the cross-region server above it: same §3 frames,
@@ -405,7 +410,8 @@ protocol") applied to the server's node list — and the place a *dynamic* join 
 **Frozen**: that a node registers and then heartbeats; both being ordinary §3 frames addressed to the
 server and verified by §3's six steps; the registration body's members (`register`, `addresses`,
 `capabilities`, `rooms`) and that **no key travels in a frame**; the heartbeat's body (`heartbeat`) and that
-it is distinct from the session opener; the online-status table's four fields, and that a row is never
+it is distinct from the session opener; the online-status table's fields — the four (`node_id`, `addresses[]`,
+`last_heartbeat_ms`, `state`) and the claims a registration added (`capabilities`, `rooms`) — and that a row is never
 deleted by going offline; the offline rule (three missed intervals) and v1.0's numbers (15 s, 45 s); the two
 levels sharing one shape; an in-network server registering as itself; and joining being configuration with
 no automatic approval. **Not frozen**: the numbers themselves (15 s and 45 s are v1.0's defaults, of the kind
@@ -428,9 +434,19 @@ frame type: a probe is an ordinary §3 frame, and so is a report.
   server's own knowledge *is* the membership ([roadmap §4](roadmap-v1.0.md): a workgroup is one LAN plus its
   server). A node asks about **its peers**; the in-network server judges **the nodes it knows**.
 - **A server's peers are its sibling servers** — the other in-network servers registered with the same
-  cross-region server, learned from that server's registry (§6.2's management, which already publishes the
-  node list it holds). A sibling asks about **its siblings**; the cross-region server judges **the servers it
-  knows**.
+  cross-region server. **A server says so in its registration**: an in-network server declares the ordinary
+  claim **`"server"`** in the `capabilities` list of its §6.6 registration (the row keeps it, §6.6), and
+  the cross-region server's siblings are **the rows whose claims include `"server"`**. A sibling asks about
+  **its siblings**; the cross-region server judges **the servers it knows**.
+
+**[settled]** **`"server"` is a claim, not a capability.** It is an ordinary string in a registration's
+`capabilities` list — the same claim list §6.6 already carries — and **not** a member of the control plane's
+capability vocabulary ([decisions §83](decisions.md)): declaring it grants nothing, adds no word to any list
+and lets a node do no act it could not do before (§3's signature is authentication; authority is the
+capability model's, [security-model.md §4](security-model.md)). What it buys is exactly one thing: a node that
+declares it is **probed as a sibling** and, if it stops answering, judged by the siblings' unanimity. A node
+that declares it falsely only invites probes it will not answer, and the worst that follows is a judgement
+about itself, which the rules below already govern.
 
 **[settled]** **The probe — a question with an answer, direct first.**
 
@@ -491,9 +507,10 @@ cross-region server above them — and the reason the nodes below cannot do it i
 and a power feed with their server, so they die with it.** A silence that includes the witnesses is not
 evidence.
 
-- **How a sibling knows**: it probes the siblings it knows (from the registry above it, §6.2) with the same
-  probe and the same numbers; a sibling behind a NAT is reached through the cross-region server's relay,
-  because a probe is a §3.1 frame and the relay is what carries a frame a direct path cannot.
+- **How a sibling knows**: it probes the siblings it knows (the servers that declared `"server"` to the
+  server above them, §6.6) with the same probe and the same numbers; a sibling behind a NAT is reached
+  through the cross-region server's relay, because a probe is a §3.1 frame and the relay is what carries a
+  frame a direct path cannot.
 - **How it reports**: the same two bodies, addressed to the cross-region server instead of an in-network
   one. There is no second vocabulary for the second level.
 - **How the cross-region server judges**: the same rule, unchanged — unanimity among the sibling witnesses
@@ -531,7 +548,8 @@ and the row was never deleted (§6.6). A node that restarts re-registers (§6.6,
 one it had.
 
 **Frozen**: that a judgement is a separate fact from §6.6's `offline`; the scope at each level (a node's
-workgroup; a server's siblings); the probe (`{"probe": 1}` / `{"alive": 1}`, direct first then relay, every
+workgroup; a server's siblings); how a sibling **says** it is one (the registration's `"server"` claim,
+which is a claim and not a capability); the probe (`{"probe": 1}` / `{"alive": 1}`, direct first then relay, every
 15 s, three misses = the prober's own *unreachable*); the report (`{"unreachable": …}` / `{"reachable": …}`,
 repeated each cycle while the view stands, counted only while fresh); the threshold (**unanimity among the
 witnesses that remain**, a witness of life vetoing, the subject never judging itself); that a solo node is
