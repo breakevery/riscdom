@@ -28,8 +28,8 @@ Each written section ends with what it **freezes** and what it **leaves open**.
 
 ## 1. What is frozen, and what is not
 
-- **[settled]** **Frozen here**: node identity (the key pair, its file, its generation) in §2, signing (`@`, the signed bytes, verification, its transport and replay protection in §3.1–§3.2, how it sits beside the bearer token) in §3, **discovery** — where an address comes from — in §4, and **rooms** — membership and the rules a room carries — in §5, plus the two standing constraints in §8 and the trust model in §9 and the red-line test in §10.
-- **[open]** **Deferred**: the cross-region server (M4d) and audit digests (M4e — which also waits on M5's authorisation). §6–§7 are titles, not shapes.
+- **[settled]** **Frozen here**: node identity in §2, signing (including its transport and replay protection in §3.1–§3.2) in §3, **discovery** in §4, **rooms** in §5 and **the cross-region server** in §6, plus the two standing constraints in §8, the trust model in §9 and the red-line test in §10.
+- **[open]** **Deferred**: audit digests (M4e — which also waits on M5's authorisation). §7 is a title, not a shape.
 - **[open]** **Not frozen even inside §2–§3**: the **port numbers** a node listens on, the
   connect/read/write **timeouts**, the replay record's in-memory shape and whether a later batch
   persists it (§3.1, §3.2 — the *shape* of the transport and of the window **is** frozen), and the
@@ -231,14 +231,64 @@ rate **numbers** a deployment chooses; whether a room may have more rule kinds l
 future dynamic membership would use; how a member is *notified* that it was added; and anything about
 cost metering ([decisions §7](decisions.md) names it beside rate, and it is not this section's).
 
-## 6. The cross-region server — deferred (M4d)
+## 6. The cross-region server
 
-**Deferred to M4d.** A dedicated server with four roles — signalling, relay, management and audit
-aggregation — the relay as the **main path** rather than the exception, and a direct connection
-leaving the data path ([roadmap §4](roadmap-v1.0.md)). §3.1 already fixes what a frame **is** and
-that it is byte-identical on both paths; M4d decides what the relay **does with** a frame it has
-received — how it routes it, who may ask it to, and how a node learns where it is — so the two
-sections do not overlap.
+**A dedicated deployment of the same software, run by a deployer, that serves the traffic two nodes
+cannot carry themselves** ([roadmap §4](roadmap-v1.0.md), [decisions §7](decisions.md), [§33](decisions.md)).
+This section freezes **what it is and how a frame passes through it**; the digests it collects are §7's.
+
+### 6.1 What it is, and who runs it
+
+- **[settled]** **The project does not run it; a deployer does.** The repositories ship the software; nothing in them starts a server, offers an endpoint, or points at one the project operates. A node uses a cross-region server **because its own deployer configured one** (§6.4), and a deployment that configures none loses only the wide-area lane — every local rule in §2–§5 keeps working.
+- **[settled]** **It is a deployment, not a second kind of process.** One code base, differentiated by deployment ([decisions §33](decisions.md)); what makes this one *dedicated* is that it is **its own machine and its own process, outside every workgroup** — not an in-network server moonlighting as a bridge ([roadmap §4](roadmap-v1.0.md)). Two roles, two deployments, one software.
+- **[settled]** **One machine in v1.0.** Several are a commercialisation-layer item and are not part of this model ([roadmap §4](roadmap-v1.0.md), [decisions §33](decisions.md)); nothing in this section assumes a second instance exists, and nothing forbids one later.
+
+### 6.2 The four roles
+
+- **[settled]** **Signalling — "who is where".** It answers where a `node_id` can be reached and which network it is on, from what nodes have told it. It knows **addresses**, never payloads: a frame's `body` is not its business and it has no reason to be able to read one.
+- **[settled]** **Relay — carrying what two nodes cannot carry themselves.** It forwards a frame it received to the `node_id` that frame names (§6.3). It carries bytes it cannot usefully change (§3.1 makes the frame byte-identical on both paths).
+- **[settled]** **Management — the registry and the room definitions.** It may **publish** a node list and room definitions. **It is a source, not an authority**, and that is §4.1's rule applied one level out: a node merges what it is handed, its own `peers.json` and `rooms.json` stay authoritative for itself, and a conflict is **reported, never silently resolved**. A server is therefore never the place the truth lives — which is also what keeps this role from reading as "a service" (§6.5).
+- **[settled]** **Audit aggregation — collecting the chain's digests.** This section fixes only the **role's shape and where it sits**: one of the four roles of this deployment, reached the same way as the others, holding digests rather than messages. **What a digest is and how it is batched is §7's** — it waits
+ on M5's authorisation.
+
+### 6.3 Routing and authorisation
+
+- **[settled]** **A frame is relayed on its `to` field, and only on it.** The sender names the destination `node_id`; the server looks it up in the knowledge the signalling role maintains and hands the frame on. It **never opens, rewrites or answers for the body** — and it *cannot*: `to` sits inside the signature (§3), so a relay that altered where a frame goes would break the signature and the receiver would refuse it.
+- **[settled]** **Who may ask: a node the server knows, with a signature that verifies.** The authorisation is the §3 model and nothing else — **no new credential and no new capability**: the sender must be a node whose `node_id` and public key the server holds (so step 1 of §3 succeeds), and the signature must verify (step 2). A server asked by a node it does not know refuses; it does not forward on the strength of an address.
+- **[settled]** **It forwards only to someone it knows too.** A frame naming a destination the server cannot place is refused, not broadcast: a relay that sprayed a frame at every node it knew would turn one sender's mistake into everybody's traffic.
+- **[settled]** **"Stateless" means about the content.** The server keeps **no message store** — it forwards and forgets, and it holds no authority over any payload. It does keep two things, and saying so is more honest than calling it memoryless: **who is where** (the signalling role's own data) and the **per-peer replay record** §3.2 gives every receiver. Both are about the transport; neither is a copy of anybody's history.
+- **[settled]** **A direct connection takes the data path off the relay.** Once two nodes are talking directly, they stop handing frames for that pair to the server; what remains is the **management plane** — address knowledge and room definitions ([roadmap §4](roadmap-v1.0.md)). "Leaves the data path" therefore means exactly that: no further frames for that pair travel through the server, and nothing about the two nodes' own rules changes.
+- **[settled]** **The server never dials a node.** It listens and waits to be dialled, which is why this project needs **no hole punching** ([roadmap §4](roadmap-v1.0.md), [decisions §7](decisions.md)): both sides dial **out**, so neither needs an inbound path through a NAT. §3.1 already fixes a sender's behaviour — try the peer's own addresses, and hand the frame to the relay when that fails; this is the half that says the relay is standing there ready to receive it.
+
+### 6.4 Where a node learns its address
+
+- **[settled]** **The cross-region server is a peer, and it is configured like one.** Its `node_id` and public key live in the node's own `peers.json` ([§2](#2-node-identity), [decisions §13](decisions.md)), which is what makes §3's verification work in both directions, and its addresses are that entry's `addresses[]`.
+- **[settled]** **The node's network settings name which peer is its cross-region server.** That is the policy half: *whether* to use one, and *which* one, is the deployer's choice, so it is a field of the settings section the node already has — **additive, `SETTINGS_VERSION` unchanged, and therefore no new persisted format and no new version-marker row**.
+- **[settled]** **Discovery still knows nothing about it.** §4.2's rule stands: no announcement carries a cross-region server, no handed-down table offers one, and a node that has none simply has no wide-area lane.
+
+### 6.5 Does this read as the project operating a service?
+
+**[settled]** **No, and the reasons are checkable.** [roadmap §1](roadmap-v1.0.md) forbids an officially
+operated service, and this is the section that could have broken it:
+
+- **The runner is stated**: §6.1 says a deployer runs it, and the project ships software rather than a service.
+- **There is no project endpoint**: nothing in this section names an address, a hostname or a default. A node reaches a server only because its own deployer put one in its `peers.json` and its settings.
+- **The roles are mechanism**: route, publish, collect — all four are acts on the deployer's own machines, and every *choice* they carry (whether to use a server, which one, what to publish) is the deployer's ([decisions §7](decisions.md)).
+- **The one role that could look like a service is held to a source, not an authority** (§6.2), so the server is never where the truth lives: a deployer can run one, stop it, or never have one, and every node still holds its own history and its own membership.
+- **No credential is issued by it**: §6.3 authorises by signature, so a server grants no access and hands out no secret; a deployment that runs one can take it away again without reissuing anything.
+
+The same test applies to §4.1's in-network server, and it passes there for the same reasons.
+
+**Frozen**: that a deployer runs it and the project does not; that it is a dedicated deployment of the
+same software, one machine in v1.0; the four roles and what each does and does not know; routing on the
+signed `to` and nothing else; authorisation being the §3 model (a known `node_id` with a verifying
+signature) and **not** a new credential or capability; a relay forwarding only to a destination it knows;
+what "stateless" does and does not mean; a direct connection taking the data path off the relay; the
+server never dialling a node; the configuration shape being a `peers.json` entry plus a settings field
+with no new format; and the red-line answer of §6.5. **Not frozen**: the routing algorithm's data
+structure and the server's **capacity limits**; how a deployment publishes its address to its own users;
+what the aggregation role does with a digest (that is §7); and how several servers would be run together
+(a commercialisation-layer item).
 
 ## 7. Audit digests — deferred (M4e, and authorised separately)
 

@@ -35,6 +35,11 @@ current request authorising it (§2).
   `rate` (per member), `mention` (default `"nobody"`) and `require_signature` (only `true`, because §3
   already floors it). Membership is configuration — v1.0 has no join protocol — and the discovery filter
   reads a room the file names **and** lists this node in. **Decision §91.**
+- **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
+  a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
+  routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new
+  capability**), a server that never dials a node (so no hole punching), and §6.5's explicit answer to
+  roadmap §1's red line. **Decision §92.**
 
 - **The plugin interface is frozen** (v1.0 M3, 2026-09-28). [`docs/plugin-interface.md`](plugin-interface.md)
   is the specification [roadmap §8](roadmap-v1.0.md) described and decisions §3 required to freeze before

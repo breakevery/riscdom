@@ -2251,3 +2251,44 @@ leaving §6–§7 as the only deferred sections; `docs/api-compatibility.md` §6
 a **`rooms.json`** row; `CHANGELOG.md` and `handoff.md` §1 follow. **No source file, no dependency, no
 capability name, no audit event constant and no hash formula changed** — M4c is a file shape and three
 rules, and a room's members are read by the same discovery filter §4.2 already froze.
+
+## 92. The cross-region server is a deployer's deployment, and it authorises by signature
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; M4d's protocol frozen (unimplemented)
+
+**Decision**: §6 of [`docs/connection.md`](connection.md) is written. The cross-region server is a
+**dedicated deployment of the same software**, **run by a deployer** — never by the project — and its
+four roles are frozen together with what each may know: **signalling** (addresses, never payloads),
+**relay** (carrying a frame it cannot alter), **management** (publishing a registry and room definitions
+as a **source, not an authority** — §4.1's rule one level out) and **audit aggregation** (the role's
+shape and place only; digests are §7's and wait on M5). **Routing** is on the signed `to` field and
+nothing else; **authorisation is the §3 model** — a `node_id` the server knows, with a signature that
+verifies — with **no new credential and no new capability**; a frame is forwarded **only** to a
+destination the server also knows; "stateless" means **about the content** (who-is-where and the §3.2
+replay record are kept, and both are transport facts); a direct connection takes the data path off the
+relay; and the server **never dials a node**, which is why no hole punching is needed. A node reaches one
+only through **its own `peers.json` entry plus a field in its network settings** — no new persisted
+format.
+
+**Why**: Two obligations shaped this. The first is [roadmap §1](roadmap-v1.0.md)'s red line against an
+officially operated service: the four roles, and signalling and management most of all, could be read as
+"the project runs a service", so §6.5 answers that question **in the document** instead of leaving it to
+a reader's charity — the runner is stated, there is no project endpoint, every role is mechanism with the
+choices left to the deployer, the registry is held to *source* rather than *authority*, and the server
+issues no credential that would have to be taken away. The second is consistency with what the earlier
+batches froze. **Authorising by signature rather than by a credential**: §3 established that peers share
+no secret, so a relay wanting a token would need a second, parallel trust system — and every capability
+question already has one home ([security-model.md](security-model.md) §4). **Routing only on `to`, and
+only to a known destination**: `to` is inside the signature, so a relay cannot be deceived about where a
+frame goes, and refusing an unknown destination is what keeps one sender's mistake from becoming
+everybody's traffic. **The registry as a source**: §4.1 already refused to let a handed-down table
+overrule a node's own `peers.json`, and §5 already kept membership local; a management role with authority
+would contradict both. **No new persisted format**: the server is a peer, so its key lives in `peers.json`
+where every other key lives, and only the *policy* choice — "this peer is my cross-region server" — needs
+a settings field.
+
+**Impact**: `docs/connection.md` §6 gains §6.1–§6.5; its §1 list moves the cross-region server from
+*deferred* to *frozen*, leaving §7 as the only deferred section; `CHANGELOG.md` and `handoff.md` §1
+follow. **No source file, no dependency, no capability name, no audit event constant, no hash formula and
+no new persisted format changed** — M4d is a deployment shape, four roles and one routing rule, and the
+digests it will collect are still M4e's to write.

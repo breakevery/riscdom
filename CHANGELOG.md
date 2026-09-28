@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The cross-region server is frozen** (v1.0 M4d): [`docs/connection.md`](docs/connection.md) §6 — a
+  **dedicated deployment of the same software, run by a deployer** (never by the project), with four roles
+  whose knowledge is bounded: signalling (addresses, never payloads), relay (carrying a frame it cannot
+  alter), management (a **source, not an authority**) and audit aggregation (shape only; digests are
+  M4e's). Routing is on the signed `to` alone, authorisation is §3's model — **no new credential and no
+  new capability** — and the server never dials a node, so no hole punching is needed. §6.5 answers
+  roadmap §1's red line explicitly: **this does not read as the project operating a service**.
+
 - **Rooms are frozen** (v1.0 M4c): [`docs/connection.md`](docs/connection.md) §5 — `rooms.json` is one
   `schema_version`-first file holding rooms whose members are **`node_id`s** and whose rules are the three
   [roadmap §4](docs/roadmap-v1.0.md) names: `rate` (`{messages, window_seconds}`, **per member**),
