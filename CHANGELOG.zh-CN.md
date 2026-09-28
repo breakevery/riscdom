@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **发现已冻结**（v1.0 M4b）：[`docs/connection.md`](docs/connection.md) §4 —— 内网服务器下发一张表，其条目**就是** `peers.json` 条目（在启动时、重连时与变更时下发，带 generation，作为一个普通的签名帧承载），而 **UDP 广播**是补充 —— 一个数据报、一个签名帧，其唯一被允许的效果是提供一个地址。房间隔离是一个带**默认拒绝**的过滤器，而报名**能刷新地址、无法引入密钥**，所以 §9 的「在被认识之前不被信任」仍然成立。`docs/decisions.md` §90 记下它。
+
 - **签名消息的传输与重放防护已冻结**（v1.0 M4a，§3 的两个开放项）：[`docs/connection.md`](docs/connection.md) §3.1 把一条签名消息放在 **TCP 上、一行 JSON**，先直连、失败走 relay，**两条路径上逐字节相同**（这正是 relay 无状态的原因），明文、完整由签名承担、同侪之间不发 token；§3.2 用**每同侪、内存里的高水位**在 **−5 min / +1 min** 窗口上封顶重放，推进水位即丢弃集合。`partial` 在这一层刻意不用，传输失败到错误模型的映射已写明。`docs/decisions.md` §89 记下这些选择。
 
 - **连接层的身份与签名已冻结**（v1.0 M4a）：[`docs/connection.md`](docs/connection.md) 说清了一个节点*是什么* —— `<data-dir>/node.key`（或 keyring）里的 Ed25519 密钥对，一个首成员为 `schema_version` 的 JWK，在首次配置了联网的启动时铸出 —— 以及 `@` 是什么意思：地址 **加**一个对 `{v, from, to, ts, body}` 规范 JSON 的签名，按固定顺序验证，并与 bearer token **并存**而不是取代它。发现、房间、跨区域服务器与审计 digest 已点名并 **deferred** 到 M4b–M4e。`node.key` 与 `peers.json` 已登记为新的持久化格式；`docs/decisions.md` §88 记下五块拆分。

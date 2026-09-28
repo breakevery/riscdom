@@ -2177,3 +2177,43 @@ numbers, the timeouts, the record's data structure and whether a later batch per
 no capability name, no audit event constant and no hash formula changed** — and `partial`, one of the
 error model's five categories, is explicitly **not** used at this layer, because one frame is one
 message rather than a batch.
+
+## 90. Discovery hands out addresses; it does not hand out trust
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; M4b's protocol frozen (unimplemented)
+
+**Decision**: §4 of [`docs/connection.md`](connection.md) is written, so discovery is frozen the way
+§3.1 was: **two sources**. The **in-network server** — a node with a role, not a new kind of process —
+hands down a table whose **entries are exactly `peers.json` entries**, at startup, on reconnect and on a
+change, stamped with a **generation**; the hand-down is an ordinary signed frame over §3.1's transport,
+and the table is a **source, not an authority** (a node's own `peers.json` still wins, and a conflict is
+**reported**). A **UDP broadcast** is the supplement: **one datagram carries one signed frame** whose
+only permitted effect is to offer an address, and it is the only thing in this protocol that travels
+over UDP. Room isolation is a **filter with a safe default** — adopt only when the announced rooms
+intersect the receiver's configured rooms, and a node with none configured adopts nothing. And the rule
+that keeps §9 intact: **an announcement refreshes an address; it cannot introduce a key** — a node the
+receiver does not already know is reported for the deployer, and only the in-network server, whose role
+is to hold the table, may adopt one.
+
+**Why**: §3.1 froze how a frame moves and left the address question open, and every later piece (M4c,
+M4d, M4e) needs it answered. Three choices are worth recording because each closes a hole somebody could
+otherwise walk through. **"Refresh an address, never introduce a key"**: §9 already forbids
+trust-on-first-use and reputation by address, and a broadcast that let an unknown node become a trusted
+peer on its own say-so would have reintroduced both through a side door marked "discovery". **The table
+as a source, not an authority**: a handed-down table is another machine's opinion, and a node whose
+connectivity depends on somebody else's file being right fails when that file is not; keeping the node's
+own `peers.json` authoritative and *reporting* conflicts is the rule
+[plugin-interface.md](plugin-interface.md) §6 already applies to manifest sources. **A fixed broadcast
+port**: it must reach a node that knows nothing yet, so it cannot itself be discovered, and a
+configurable one would let two nodes on one link fail to see each other in silence. The room filter's
+**default-deny** follows the project's own habit ([security-model.md](security-model.md) §4), and
+letting the filter read a membership list whose **shape is M4c's** keeps this section from swallowing the
+next one: M4b fixes the filter, M4c fixes the file.
+
+**Impact**: `docs/connection.md` §4 gains §4.1–§4.3; its §1 list moves discovery from *deferred* to
+*frozen*; and §5's deferred note now says M4b fixed the filter while M4c fixes the file. `CHANGELOG.md`
+and `handoff.md` §1 follow. **No source file, no dependency, no capability name, no audit event
+constant, no hash formula, and — because the peer port is a field of the existing settings file — no new
+persisted format changed.** The transport's own open items (port numbers, timeouts) stay where §3.1 left
+them; what M4b fixes is the **rule** that a node's peer port is configuration and the broadcast port is a
+constant.

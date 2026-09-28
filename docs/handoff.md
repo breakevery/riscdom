@@ -25,6 +25,11 @@ current request authorising it (§2).
   **one JSON line over TCP**, direct first and through the relay otherwise, **byte-identical on both
   paths**; replay is bounded by a **per-peer, in-memory high-water mark** over a −5 min / +1 min window.
   **Decision §89.**
+- **Discovery is frozen too** (v1.0 M4b, 2026-09-28): [`docs/connection.md`](connection.md) §4 — the
+  in-network server hands down a table of `peers.json`-shaped entries (startup / reconnect / change,
+  with a generation, as a §3.1 frame), and a **UDP broadcast** supplements it: one datagram, one signed
+  frame, and an announcement **refreshes an address but cannot introduce a key**, so §9 still holds.
+  Room isolation is a default-deny filter that reads membership whose shape is M4c's. **Decision §90.**
 
 - **The plugin interface is frozen** (v1.0 M3, 2026-09-28). [`docs/plugin-interface.md`](plugin-interface.md)
   is the specification [roadmap §8](roadmap-v1.0.md) described and decisions §3 required to freeze before

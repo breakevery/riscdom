@@ -28,11 +28,8 @@ Each written section ends with what it **freezes** and what it **leaves open**.
 
 ## 1. What is frozen, and what is not
 
-- **[settled]** **Frozen here**: node identity (the key pair, its file, its generation) in §2, and
-  signing (`@`, the signed bytes, verification, how it sits beside the bearer token) in §3, plus the
-  two standing constraints in §8 and the trust model in §9 and the red-line test in §10.
-- **[open]** **Deferred**: discovery (M4b), rooms (M4c), the cross-region server (M4d) and audit
-  digests (M4e — which also waits on M5's authorisation). §4–§7 are titles, not shapes.
+- **[settled]** **Frozen here**: node identity (the key pair, its file, its generation) in §2, signing (`@`, the signed bytes, verification, how it sits beside the bearer token, and its transport and replay protection in §3.1–§3.2) in §3, and **discovery** — where an address comes from — in §4, plus the two standing constraints in §8 and the trust model in §9 and the red-line test in §10.
+- **[open]** **Deferred**: rooms (M4c), the cross-region server (M4d) and audit digests (M4e — which also waits on M5's authorisation). §5–§7 are titles, not shapes.
 - **[open]** **Not frozen even inside §2–§3**: the **port numbers** a node listens on, the
   connect/read/write **timeouts**, the replay record's in-memory shape and whether a later batch
   persists it (§3.1, §3.2 — the *shape* of the transport and of the window **is** frozen), and the
@@ -145,17 +142,52 @@ in-memory data structure, whether a later batch persists it (a new format, to be
 skew allowance a particular deployment may want, and anything about how a revocation is delivered
 (M4d).
 
-## 4. Discovery — deferred (M4b)
+## 4. Discovery
 
-**Deferred to M4b.** The static node table the in-network server hands down, and UDP broadcast with
-room isolation as the supplement ([roadmap §4](roadmap-v1.0.md), [decisions §7](decisions.md)). Its
-shape depends on §2 (what a node table entry is) and is written before it is built.
+**Two sources, in this order of authority**: the **in-network server** hands a node the table of who is
+on this network ([roadmap §4](roadmap-v1.0.md), agreement B — the network is not a flat peer-only
+one), and a **UDP broadcast** lets a node that appeared between two hand-downs announce itself
+([decisions §7](decisions.md) names UDP broadcast with room isolation as the supplement). §3.1 already
+said how a frame **moves**; this section says **where an address comes from**.
+
+### 4.1 The table the in-network server hands down
+
+- **[settled]** **The in-network server is a node with a role**, not a new kind of process — the same kernel, differentiated by deployment ([decisions §33](decisions.md)). This section uses one part of that role: it holds the network's node table and hands it down. The rest (§33's centre, the cross-region server of §6) is not this section's.
+- **[settled]** **An entry is exactly a `peers.json` entry** — `{node_id, addresses[], public_key, capabilities, rooms[]}`, the shape [decisions §13](decisions.md) fixed and [§2](#2-node-identity) already reads. One shape, one grammar: a table is a **list of entries**, so nothing has to translate between "a peer I was configured with" and "a peer I was told about".
+- **[settled]** **The table is a source, not an authority.** A node merges what it is handed into its own view; **its own `peers.json` stays authoritative for itself**, and a conflict — the same `node_id` with a different key or different addresses — is **reported, never silently resolved**, the rule [plugin-interface.md](plugin-interface.md) §6 already states for manifest sources. A node keeps working when the table is stale, wrong or absent.
+- **[settled]** **Where the server's table comes from**: its own `peers.json` (what a deployer wrote) plus the entries it has itself accepted from announcements (§4.2). What it chooses to publish is the deployer's policy, not this document's.
+- **[settled]** **When it is handed down**: a node asks **at startup** (once its identity exists and networking is configured) and **on every reconnect** to the server, and the server **pushes** a new table when its own changes. Each table carries a **generation** — a monotone integer — so a node can tell whether the copy it holds is current. There is no polling loop and no fixed refresh interval.
+- **[settled]** **The hand-down is a message, not a new protocol.** It travels as a signed frame over the transport §3.1 froze — the node connects to the server the way it connects to any peer — and its `body` carries the generation and the entries. §3's verification applies unchanged, and the server is simply a peer whose key the node knows.
+
+### 4.2 UDP broadcast, the supplement
+
+- **[settled]** **One datagram carries one signed frame, and its only permitted effect is to offer an address.** An announcement's `body` is the sender's **own entry** (the §4.1 shape) plus the rooms it announces for. It is a **beacon**: it expects no answer, it is best-effort, and a receiver may use it only to consider a candidate entry. The parts of §3 that matter — the signature, the window, the replay record — apply to it exactly as they do to any frame.
+- **[settled]** **It is not the peer transport.** §3.1 governs the path between **two nodes that can reach each other**; a broadcast is a different, one-way carrier, and it is the **only** thing in this protocol that travels over UDP — no request, no answer and no hand-down uses it.
+- **[settled]** **An announcement refreshes an address; it cannot introduce a key.** A node **already known** (in its own `peers.json` or the handed-down table) may have its `addresses[]` refreshed by an announcement; a node the receiver does **not** know is **reported** for the deployer to add, never adopted on the announcement's own authority. That keeps §9's rule that a peer is untrusted until it is known, without a **trust on first use** appearing sideways through discovery. The **in-network server** is the one that may adopt an unknown announcement into the table it hands down, under the deployer's policy — that is what its role is for.
+- **[settled]** **Room isolation is a filter with a safe default.** An announcement names the rooms it is for; a receiver adopts one **only when the rooms it names intersect the rooms the receiver is configured for**, and a node with **no rooms configured adopts none** — the default-deny the rest of the project uses ([security-model.md](security-model.md) §4). The membership list itself is `rooms.json`, whose **shape is M4c's** ([§5](#5-rooms--deferred-m4c)): this section fixes the **filter**, not the file.
+- **[settled]** **Isolation is a filter, not a wall, and the signature is what makes that enough.** A broadcast reaches every machine on the link, so anyone may **read** a datagram; what they cannot do is **use** one that was not meant for them. The payload is **signed** (§3), so a node cannot announce itself as another, and cannot announce an address whose key it does not hold. Payload **confidentiality is therefore not claimed** — a deployment that needs it does not enable broadcast on that segment.
+- **[settled]** **The cross-region server is not here.** Discovery hands out **local** addresses, on the network a node is on; whether a node has a cross-region server, and where it is, comes from that node's own configuration ([§6](#6-the-cross-region-server--deferred-m4d)). Discovery neither learns about it nor hands one down.
+
+### 4.3 Ports
+
+- **[settled]** **A node's peer port is configuration, and every announced address carries the one that is true.** The port is a field of the node's own **network settings** — the settings section the in-network work already introduced — and what a peer records is the `addresses[]` the node announced, so a node that binds `0.0.0.0` announces an address a peer can actually dial. Because the port is a **field of the existing settings file** — additive, `SETTINGS_VERSION` unchanged — **no new persisted format and no new version-marker row is needed**.
+- **[settled]** **The broadcast port is fixed: a protocol constant, not a setting.** A broadcast must reach a node that knows nothing yet, so it cannot itself be discovered; and a *configurable* broadcast port would let two nodes on one link silently fail to see each other. It is therefore one well-known UDP port, the same on every node; its **number** is the implementation's, documented where it is implemented.
+
+**Frozen**: the two sources and their order; the entry being the `peers.json` shape; the table being a
+source rather than an authority, with conflicts reported; startup / reconnect / change hand-down with a
+generation; the hand-down being a §3.1 frame; the announcement being one signed datagram whose only
+effect is to offer an address; "refresh an address, never introduce a key"; the room filter with its
+default-deny; the peer port being configuration and needing no new format; and the broadcast port being
+fixed. **Not frozen**: the announce interval and how long a node keeps announcing; how long a table may
+be cached before the node asks again; the server's publication policy; the port **numbers** themselves;
+and retries, back-off, or how a deployment enables broadcast at all.
 
 ## 5. Rooms — deferred (M4c)
 
 **Deferred to M4c.** `rooms.json`, membership and the rules a room carries — rate, who may `@` whom,
 whether a signature is required ([roadmap §4](roadmap-v1.0.md), [decisions §7](decisions.md)). §3
-already fixes what a *signature* is; M4c fixes what a room *demands of* one.
+already fixes what a *signature* is, and §4.2 fixes the discovery **filter** that reads a room set;
+M4c fixes the **file** and what a room *demands of* a signature.
 
 ## 6. The cross-region server — deferred (M4d)
 

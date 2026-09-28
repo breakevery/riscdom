@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Discovery is frozen** (v1.0 M4b): [`docs/connection.md`](docs/connection.md) §4 — the in-network
+  server hands down a table whose entries **are** `peers.json` entries (at startup, on reconnect, and on
+  a change, stamped with a generation, carried as an ordinary signed frame), and a **UDP broadcast** is
+  the supplement — one datagram, one signed frame, whose only permitted effect is to offer an address.
+  Room isolation is a filter with a **default-deny**, and an announcement **refreshes an address but
+  cannot introduce a key**, so §9's "untrusted until known" still holds. `docs/decisions.md` §90 records
+  it.
+
 - **A signed message's transport and replay protection are frozen** (v1.0 M4a, §3's two open items):
   [`docs/connection.md`](docs/connection.md) §3.1 puts a signed message on **TCP as one JSON line**,
   direct first and through the relay when direct fails, **byte-identical on both paths** (which is what
