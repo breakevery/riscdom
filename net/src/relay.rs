@@ -2,9 +2,10 @@
 //!
 //! [connection.md §6](../../docs/connection.md) freezes what this is: **a dedicated
 //! deployment of the same software, run by a deployer**, that carries the traffic two
-//! nodes cannot carry themselves. This module implements the **relay** role and the
-//! session it needs. Signalling and management — the address query and the publishing
-//! half — are the next piece; audit aggregation is §7's, and waits on M5.
+//! nodes cannot carry themselves. This module implements the **relay** role, the session it
+//! needs, and §6.2's **signalling** and **management** roles — the address query, answered
+//! from what the server knows, and the registry it publishes as a **source, not an
+//! authority** ([`crate::registry`]). **Audit aggregation** is §7's, and waits on M5.
 //!
 //! **Why a session, and not a dial-back.** §6.3 is explicit: *the server never dials a
 //! node*. It listens and waits to be dialled, "both sides dial **out**", and that is
@@ -17,8 +18,9 @@
 //! is parsed, its sender is authenticated — steps 1–3 of §3 and §3.2's record, and *not*
 //! step 4, because a relayed frame is addressed to somebody else by design
 //! ([`crate::sign::authenticate_forwarded`]) — and then it either belongs to the server
-//! itself (a signalling query, the [`hello_body`] a session opens with) or is handed
-//! down the destination's session, **only if the server knows that destination**; an
+//! itself, where [`Local::of`] says which role it is (a hello, an address query, a registry
+//! request) and the server answers it, or it is handed down the destination's session,
+//! **only if the server knows that destination**; an
 //! unknown one is refused rather than broadcast. A room name is not a node the server
 //! knows, so a frame addressed to a room is refused here too: §5 keeps membership local
 //! and nothing in §6 asks the server to expand a room.
@@ -32,30 +34,43 @@
 //! table and the per-peer replay record — is transport state, exactly as §6.3 says, and
 //! it is memory-only, like the record §3.2 gives every receiver.
 //!
-//! **The wire syntax is this batch's, and §6 left it so.** §6 freezes the roles and the
-//! routing rule, not the bytes; the one thing invented here is [`hello_body`], the frame
-//! a node opens its session with. It is recorded as such in [decisions §98](../../docs/decisions.md).
+//! **The local wire syntax is this batch's, and §6 left it so.** §6 freezes the roles, the
+//! routing rule, and what each role may know — not the bytes: [`hello_body`] opens a
+//! session, [`address_query_body`] asks where a node is, and
+//! [`registry_request_body`](crate::registry::registry_request_body) asks for the registry.
+//! [Decisions §98](../../docs/decisions.md) records the first and [§99](../../docs/decisions.md)
+//! the other two.
 //!
 //! **Dependency direction, and what is deliberately absent.** Relaying is a transport
 //! concern and the authorisation is §3's, so nothing here names a capability, writes an
 //! audit row, or reaches above `net`. [`NoRelay`](crate::transport::NoRelay) stays the
 //! honest answer for a deployment that configures no server.
 
+use crate::discovery::NodeTable;
 use crate::error::Category;
 use crate::identity::NodeKey;
 use crate::message::{body_hash, now_ms, SignedMessage, PROTOCOL_VERSION};
 use crate::peers::{PeerEntry, PeersError, PeersFile};
+use crate::registry::{Registry, RegistryError};
 use crate::replay::{ReplayError, ReplayGuard};
-use crate::sign::{authenticate_forwarded, check_identity, PeerKeys, VerifyError};
+use crate::rooms::{RoomsError, RoomsFile};
+use crate::sign::{authenticate_forwarded, check_identity, PeerKeys, VerifiedMessage, VerifyError};
 use crate::transport::{
     frame_bytes, Connection, Listener, Op, Relay, TransportConfig, TransportError,
 };
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::Write;
-use std::net::TcpStream;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::net::{SocketAddr, TcpStream};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+
+/// The generation a server's registry starts at.
+///
+/// It advances whenever the registry it publishes changes ([`RelayServer::set_peers`],
+/// [`RelayServer::set_rooms`]), which is what §4.1's generation is for: a node compares the
+/// number it is handed against the copy it holds.
+pub const FIRST_GENERATION: i64 = 1;
 
 /// The body a node opens its session with (§6.4: it uses a server because its own
 /// deployer configured one).
@@ -75,11 +90,96 @@ pub fn is_hello(body: &Value) -> bool {
     body.get("hello").and_then(Value::as_u64) == Some(u64::from(PROTOCOL_VERSION))
 }
 
+/// The body a node asks "where can `node_id` be reached?" with (§6.2's signalling).
+///
+/// An ordinary signed frame addressed to the server itself. §6 leaves the wire syntax to the
+/// implementation, so this shape is this batch's, recorded in
+/// [decisions §99](../../docs/decisions.md).
+///
+pub fn address_query_body(node_id: &str) -> Value {
+    serde_json::json!({ "query": node_id })
+}
+
+/// The node an address query asks about, when the body is one.
+pub fn address_query(body: &Value) -> Option<&str> {
+    body.get("query").and_then(Value::as_str)
+}
+
+/// The body the server answers an address query with: **addresses, and nothing else**.
+///
+/// §6.2 is explicit that signalling "knows **addresses**, never payloads", so the answer is
+/// one member and nothing in it is a body, a room or a name a message was sent under. A node
+/// the server cannot place is answered with an **empty list** rather than refused: the
+/// question was well-formed, and "nowhere I know" is the honest answer to it.
+pub fn address_answer_body(addresses: &[String]) -> Value {
+    serde_json::json!({ "addresses": addresses })
+}
+
+/// The addresses an answer carries, when the body is one.
+pub fn answered_addresses(body: &Value) -> Option<Vec<String>> {
+    let addresses = body.get("addresses")?;
+    serde_json::from_value(addresses.clone()).ok()
+}
+
+/// What a frame addressed to the server **itself** is, once it has authenticated (§6.2).
+///
+/// The local half of the four roles, plus the honest fifth answer: a local frame the server
+/// has nothing to do with is **reported, never guessed at**. An unrecognised local frame is
+/// still held to §3's identity checks — it simply earns no answer.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Local {
+    /// A session opener: the socket is bound to its sender, and nothing is answered.
+    Hello,
+    /// An address query: where the named node can be reached.
+    Addresses { node_id: String },
+    /// A registry request: the node table and the room definitions, as they stand.
+    Registry,
+    /// A local frame with nothing to do.
+    Unrecognised { body: Value },
+}
+
+impl Local {
+    /// Read what a body is asking the server for.
+    pub fn of(body: &Value) -> Self {
+        if is_hello(body) {
+            return Local::Hello;
+        }
+        if crate::registry::is_registry_request(body) {
+            return Local::Registry;
+        }
+        if let Some(node_id) = address_query(body) {
+            return Local::Addresses {
+                node_id: node_id.to_string(),
+            };
+        }
+        Local::Unrecognised { body: body.clone() }
+    }
+}
+
+/// What the server did with a frame addressed to it, so the act is visible rather than
+/// inferred.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LocalReply {
+    /// A session opener: the socket was bound, and nothing is answered.
+    Silent,
+    /// An address answer went down the session.
+    Addresses { addresses: Vec<String> },
+    /// The registry went down the session.
+    Registry { generation: i64 },
+    /// A local frame with nothing to do.
+    Unrecognised,
+}
+
 /// What the server did with one frame.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Routed {
     /// Addressed to the server itself — the signalling and management roles' (§6.2).
-    Local { from: String, to: String },
+    Local {
+        from: String,
+        to: String,
+        /// Which role it is: [`Local::of`]'s reading of the body.
+        action: Local,
+    },
     /// Handed down the destination's live session.
     Forwarded { from: String, to: String },
 }
@@ -96,6 +196,14 @@ impl Routed {
     pub fn to(&self) -> &str {
         match self {
             Routed::Local { to, .. } | Routed::Forwarded { to, .. } => to,
+        }
+    }
+
+    /// What the server itself was asked, when the frame was for it.
+    pub fn local(&self) -> Option<&Local> {
+        match self {
+            Routed::Local { action, .. } => Some(action),
+            Routed::Forwarded { .. } => None,
         }
     }
 
@@ -177,6 +285,41 @@ impl From<TransportError> for RelayError {
     }
 }
 
+/// Why a server could not be built.
+///
+/// Both of its files are checked at construction, so a deployer learns that a table or a room
+/// set is unusable when the server starts rather than when the first node asks for it.
+#[derive(Debug)]
+pub enum RelayServerError {
+    /// The peer table is not usable.
+    Peers(PeersError),
+    /// The room definitions are not usable.
+    Rooms(RoomsError),
+}
+
+impl std::fmt::Display for RelayServerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RelayServerError::Peers(e) => write!(f, "{e}"),
+            RelayServerError::Rooms(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for RelayServerError {}
+
+impl From<PeersError> for RelayServerError {
+    fn from(error: PeersError) -> Self {
+        RelayServerError::Peers(error)
+    }
+}
+
+impl From<RoomsError> for RelayServerError {
+    fn from(error: RoomsError) -> Self {
+        RelayServerError::Rooms(error)
+    }
+}
+
 /// Where the relay hands a frame on (§6.3's "hands the frame on").
 ///
 /// The seam is one method, so the routing rule can be read — and tested — with no socket
@@ -207,6 +350,7 @@ struct SessionInner {
 
 struct Live {
     id: u64,
+    addr: SocketAddr,
     writer: Mutex<TcpStream>,
 }
 
@@ -216,12 +360,14 @@ impl SessionTable {
         Self::default()
     }
 
-    /// Bind `node_id` to `writer`, replacing whatever session it had. The returned id is
-    /// what that connection retires itself with.
-    pub fn bind(&self, node_id: &str, writer: TcpStream) -> u64 {
+    /// Bind `node_id` to `writer` — the socket it dialled in on — and to `addr`, where it
+    /// dialled in from. Replaces whatever session it had; the returned id is what that
+    /// connection retires itself with.
+    pub fn bind(&self, node_id: &str, writer: TcpStream, addr: SocketAddr) -> u64 {
         let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
         let live = Arc::new(Live {
             id,
+            addr,
             writer: Mutex::new(writer),
         });
         self.inner
@@ -255,6 +401,21 @@ impl SessionTable {
             .lock()
             .expect("sessions")
             .contains_key(node_id)
+    }
+
+    /// Where `node_id` dialled in from, when it is dialled in.
+    ///
+    /// This is the signalling role's most current answer: §6.2 has signalling say where a
+    /// `node_id` "can be reached", and a live session is where it just reached the server
+    /// from. Nothing about the *content* of that session is here, which is the other half of
+    /// the same sentence.
+    pub fn address_of(&self, node_id: &str) -> Option<SocketAddr> {
+        self.inner
+            .sessions
+            .lock()
+            .expect("sessions")
+            .get(node_id)
+            .map(|live| live.addr)
     }
 
     /// How many sessions are live.
@@ -326,12 +487,14 @@ pub fn route(
         // The signalling and management roles' business (§6.2); the hello is the one the
         // record is not allowed to see.
         check_identity(&message, keys)?;
-        if !is_hello(&message.body) {
+        let action = Local::of(&message.body);
+        if !matches!(action, Local::Hello) {
             guard.accept(&message.from, message.ts, &body_hash(&message.body), now)?;
         }
         return Ok(Routed::Local {
             from: message.from,
             to: message.to,
+            action,
         });
     }
     // Everything else is carried, and §6.3's authorisation is §3's model minus the
@@ -355,28 +518,40 @@ pub struct RelayServer {
 
 struct ServerInner {
     node_id: String,
+    key: NodeKey,
     config: TransportConfig,
     peers: RwLock<PeersFile>,
     keys: RwLock<PeerKeys>,
+    rooms: RwLock<RoomsFile>,
+    generation: AtomicI64,
     guard: Mutex<ReplayGuard>,
     sessions: SessionTable,
 }
 
 impl RelayServer {
-    /// A server that knows `peers` — the same entry shape every node's table uses, which
-    /// is what makes the server a peer (§6.4).
+    /// A server that knows `peers`, publishes `rooms`, and signs its answers with `key`.
+    ///
+    /// §6.4 makes it a peer, so it has a key pair like any other node and the nodes that use
+    /// it hold the public half in their own `peers.json`. Both files are checked here, so a
+    /// deployment cannot start holding something a node would refuse.
     pub fn new(
         node_id: &str,
+        key: NodeKey,
         peers: PeersFile,
+        rooms: RoomsFile,
         config: TransportConfig,
-    ) -> Result<Self, PeersError> {
+    ) -> Result<Self, RelayServerError> {
         let keys = peers.peer_keys()?;
+        rooms.check()?;
         Ok(Self {
             inner: Arc::new(ServerInner {
                 node_id: node_id.to_string(),
+                key,
                 config,
                 peers: RwLock::new(peers),
                 keys: RwLock::new(keys),
+                rooms: RwLock::new(rooms),
+                generation: AtomicI64::new(FIRST_GENERATION),
                 guard: Mutex::new(ReplayGuard::new()),
                 sessions: SessionTable::new(),
             }),
@@ -398,20 +573,56 @@ impl RelayServer {
         self.inner.config
     }
 
-    /// The nodes it knows — its view, and the boundary of what it will forward to.
+    /// The nodes it knows — its view, the boundary of what it will forward to, and the table
+    /// half of what it publishes.
     pub fn peers(&self) -> PeersFile {
         self.inner.peers.read().expect("peers").clone()
     }
 
-    /// Replace the view.
+    /// The room definitions it publishes.
+    pub fn rooms(&self) -> RoomsFile {
+        self.inner.rooms.read().expect("rooms").clone()
+    }
+
+    /// The generation its registry currently carries.
+    pub fn generation(&self) -> i64 {
+        self.inner.generation.load(Ordering::Relaxed)
+    }
+
+    /// The registry as it stands: the nodes it knows, and the rooms its deployer published.
     ///
-    /// This is where the **management** role lands when it is implemented (§6.2): a
-    /// deployer republishing its registry rewrites the table the server routes against.
-    /// The keys are re-derived here so a table can never disagree with the keys in force.
+    /// This **is** §6.2's management role — what the server hands a node that asks, and what
+    /// the node merges by §4.1's rule. It is assembled per request rather than stored, so what
+    /// is published cannot drift from the table the server routes against.
+    pub fn registry(&self) -> Registry {
+        let peers = self.inner.peers.read().expect("peers");
+        Registry::new(
+            NodeTable::new(self.generation(), peers.peers.clone()),
+            self.rooms(),
+        )
+    }
+
+    /// Replace the view — a deployer republishing its registry.
+    ///
+    /// The keys are re-derived here so a table can never disagree with the keys in force, and
+    /// the **generation advances**: the registry a node is handed has changed, which is exactly
+    /// what §4.1's number is for.
     pub fn set_peers(&self, peers: PeersFile) -> Result<(), PeersError> {
         let keys = peers.peer_keys()?;
         *self.inner.peers.write().expect("peers") = peers;
         *self.inner.keys.write().expect("keys") = keys;
+        self.inner.generation.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Replace the room definitions.
+    ///
+    /// Held to `rooms.json`'s own checks, so a deployment cannot publish a room a file would
+    /// refuse; the generation advances for the same reason as [`Self::set_peers`]'s.
+    pub fn set_rooms(&self, rooms: RoomsFile) -> Result<(), RoomsError> {
+        rooms.check()?;
+        *self.inner.rooms.write().expect("rooms") = rooms;
+        self.inner.generation.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -429,6 +640,77 @@ impl RelayServer {
             &self.inner.sessions,
             now,
         )
+    }
+
+    /// Where `node_id` can be reached, from what the server knows (§6.2).
+    ///
+    /// Two sources, and both are facts about the **transport**: the session it dialled in on,
+    /// which is where it *is* right now, and its `peers.json` entry, which is what its deployer
+    /// wrote down. The live address comes first because it is the more current of the two, and
+    /// the list is de-duplicated. A node the server cannot place is an **empty list** — the
+    /// honest answer to a well-formed question, not a refusal.
+    ///
+    /// Nothing here is a payload: a session contributes an address and nothing else.
+    fn addresses_for(&self, node_id: &str) -> Vec<String> {
+        let mut addresses: Vec<String> = Vec::new();
+        if let Some(address) = self.inner.sessions.address_of(node_id) {
+            addresses.push(address.to_string());
+        }
+        let peers = self.inner.peers.read().expect("peers");
+        if let Some(entry) = peers.entry(node_id) {
+            for address in &entry.addresses {
+                if !addresses.iter().any(|known| known == address) {
+                    addresses.push(address.clone());
+                }
+            }
+        }
+        addresses
+    }
+
+    /// Sign `body` as the server and hand it down `node_id`'s session.
+    ///
+    /// The server is a peer (§6.4), so an answer is an ordinary §3 frame: the node verifies it
+    /// against the server's public key and runs §3's six steps on it like anything else. The
+    /// answer travels the session the question arrived on — which is why an answer is only ever
+    /// sent to a node that is dialled in.
+    fn send_to(&self, node_id: &str, body: Value) -> Result<(), RelayError> {
+        let message = SignedMessage::sign(
+            &self.inner.key,
+            &self.inner.node_id,
+            node_id,
+            now_ms(),
+            body,
+        )
+        .map_err(|e| RelayError::Malformed(e.to_string()))?;
+        let frame = message
+            .to_line()
+            .map_err(|e| RelayError::Malformed(e.to_string()))?;
+        self.inner.sessions.forward_to(node_id, &frame)
+    }
+
+    /// Answer a frame addressed to the server itself (§6.2's signalling and management).
+    ///
+    /// Returns what it did, so a caller — a test, or the deployer's banner — can see the act
+    /// rather than infer it. A failed write is the socket's business rather than the frame's:
+    /// the caller keeps reading, and the next read says whether the session is still there.
+    pub fn answer_local(&self, from: &str, action: &Local) -> Result<LocalReply, RelayError> {
+        match action {
+            // The socket was bound when the frame authenticated; a hello asks for nothing else.
+            Local::Hello => Ok(LocalReply::Silent),
+            // A local frame with nothing to do is reported, and nothing is invented for it.
+            Local::Unrecognised { .. } => Ok(LocalReply::Unrecognised),
+            Local::Addresses { node_id } => {
+                let addresses = self.addresses_for(node_id);
+                self.send_to(from, address_answer_body(&addresses))?;
+                Ok(LocalReply::Addresses { addresses })
+            }
+            Local::Registry => {
+                let registry = self.registry();
+                let generation = registry.generation();
+                self.send_to(from, registry.to_body())?;
+                Ok(LocalReply::Registry { generation })
+            }
+        }
     }
 
     /// Serve one connection to its end: read frames, route each, and bind the socket to
@@ -451,9 +733,17 @@ impl RelayServer {
             if bound.is_none() {
                 if let Ok(writer) = connection.writer_clone() {
                     let node_id = routed.from().to_string();
-                    let id = self.inner.sessions.bind(&node_id, writer);
+                    let id = self
+                        .inner
+                        .sessions
+                        .bind(&node_id, writer, connection.peer());
                     bound = Some((node_id, id));
                 }
+            }
+            // The local roles answer **after** the bind: an answer goes down the session, and
+            // a session that is not bound yet is a session with nowhere to put it.
+            if let Routed::Local { from, action, .. } = &routed {
+                let _ = self.answer_local(from, action);
             }
         }
         if let Some((node_id, id)) = bound {
@@ -481,6 +771,8 @@ impl RelayServer {
 pub struct RelaySession {
     reader: Mutex<Connection>,
     writer: Mutex<TcpStream>,
+    node_id: String,
+    key: NodeKey,
     server_node_id: String,
 }
 
@@ -501,6 +793,8 @@ impl RelaySession {
         Ok(Self {
             reader: Mutex::new(connection),
             writer: Mutex::new(writer),
+            node_id: node_id.to_string(),
+            key: key.clone(),
             server_node_id: server_node_id.to_string(),
         })
     }
@@ -529,6 +823,35 @@ impl RelaySession {
             .to_line()
             .map_err(|e| TransportError::Malformed { why: e.to_string() })?;
         self.send_frame(&frame)
+    }
+
+    /// Ask the server where `node_id` can be reached (§6.2's signalling).
+    ///
+    /// The answer arrives like anything else the server hands down: [`Self::receive`].
+    pub fn query_addresses(&self, node_id: &str) -> Result<(), TransportError> {
+        self.ask(address_query_body(node_id))
+    }
+
+    /// Ask the server to publish its registry (§6.2's management).
+    pub fn request_registry(&self) -> Result<(), TransportError> {
+        self.ask(crate::registry::registry_request_body())
+    }
+
+    /// Sign one question to the server and hand it over.
+    ///
+    /// A question is an ordinary §3 frame addressed to the server itself, so the server
+    /// authenticates it exactly as it authenticates every other frame: no new credential, and
+    /// nothing the capability model has to answer for.
+    fn ask(&self, body: Value) -> Result<(), TransportError> {
+        let message = SignedMessage::sign(
+            &self.key,
+            &self.node_id,
+            &self.server_node_id,
+            now_ms(),
+            body,
+        )
+        .map_err(|e| TransportError::Malformed { why: e.to_string() })?;
+        self.send(&message)
     }
 
     /// Wait for one frame the server pushed down this session.
@@ -600,6 +923,29 @@ impl RelayClient {
     /// The addresses the session is dialled at.
     pub fn server_addresses(&self) -> &[String] {
         &self.server.addresses
+    }
+
+    /// The server's own public key, as a [`PeerKeys`] a node verifies its **answers** with.
+    ///
+    /// §6.4 makes the server a peer, so verifying what it publishes is §3's ordinary check
+    /// against its `peers.json` entry — the same entry that pointed the node at it.
+    pub fn server_keys(&self) -> Result<PeerKeys, PeersError> {
+        let mut keys = PeerKeys::new();
+        keys.insert(&self.server.node_id, [self.server.verifying_key()?]);
+        Ok(keys)
+    }
+
+    /// Ask the server where `node_id` can be reached (§6.2's signalling).
+    ///
+    /// The answer comes back from [`Self::receive`]: a question and its answer are two
+    /// frames, and the answer is the server's to sign.
+    pub fn query_addresses(&self, node_id: &str) -> Result<(), TransportError> {
+        self.with_session(|session| session.query_addresses(node_id))
+    }
+
+    /// Ask the server to publish its registry (§6.2's management).
+    pub fn request_registry(&self) -> Result<(), TransportError> {
+        self.with_session(|session| session.request_registry())
     }
 
     /// Hand one already-serialised frame to the server, opening the session if needed.
@@ -692,6 +1038,40 @@ pub fn client_for_server(
     config: TransportConfig,
 ) -> Result<RelayClient, PeersError> {
     RelayClient::for_server(node_id, key, peers, server_node_id, config)
+}
+
+/// What a server answered a node (§6.2's signalling and management).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Answer {
+    /// Where a node can be reached — **addresses, and nothing else** (§6.2).
+    Addresses { addresses: Vec<String> },
+    /// The registry and the room definitions as they stood.
+    Registry(Registry),
+}
+
+impl Answer {
+    /// Read an answer out of a message that **already passed verification** at the node.
+    ///
+    /// `server_node_id` is the node's own cross-region server, and it is required: only that
+    /// peer answers, so a relayed frame that happens to carry an `addresses` member is not
+    /// mistaken for one. `Ok(None)` is then "not an answer" — traffic the node should read
+    /// again rather than fail on.
+    pub fn from_verified(
+        message: &VerifiedMessage,
+        server_node_id: &str,
+    ) -> Result<Option<Answer>, RegistryError> {
+        if message.from != server_node_id {
+            return Ok(None);
+        }
+        if let Some(addresses) = answered_addresses(&message.body) {
+            return Ok(Some(Answer::Addresses { addresses }));
+        }
+        // A registry is anything else that carries a table; the shared shape is the test.
+        if message.body.get("generation").is_none() {
+            return Ok(None);
+        }
+        Registry::from_verified(message).map(|registry| Some(Answer::Registry(registry)))
+    }
 }
 
 #[cfg(test)]
@@ -981,20 +1361,83 @@ mod tests {
     }
 
     #[test]
-    fn the_session_table_retires_by_id() {
+    fn the_local_branch_tells_the_three_questions_apart() {
+        assert_eq!(Local::of(&hello_body()), Local::Hello);
+        assert_eq!(
+            Local::of(&address_query_body("dev-b")),
+            Local::Addresses {
+                node_id: "dev-b".to_string()
+            }
+        );
+        assert_eq!(
+            Local::of(&crate::registry::registry_request_body()),
+            Local::Registry
+        );
+        assert!(matches!(
+            Local::of(&serde_json::json!({ "what": "ever" })),
+            Local::Unrecognised { .. }
+        ));
+        // The query shape reads back both ways, and is not confused with anything else.
+        assert_eq!(address_query(&address_query_body("dev-c")), Some("dev-c"));
+        assert_eq!(address_query(&hello_body()), None);
+    }
+
+    #[test]
+    fn an_address_answer_carries_addresses_and_nothing_else() {
+        let body = address_answer_body(&["127.0.0.1:1".to_string()]);
+        assert_eq!(
+            answered_addresses(&body),
+            Some(vec!["127.0.0.1:1".to_string()])
+        );
+        // §6.2: signalling knows addresses, never payloads — one member, and no room for
+        // anything else to ride along.
+        assert_eq!(body.as_object().expect("object").len(), 1);
+        assert_eq!(answered_addresses(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn a_frame_for_the_server_is_local_and_carries_what_was_asked() {
+        let (sender, _destination, peers, keys) = state();
+        let message =
+            SignedMessage::sign(&sender, "dev-a", "server", NOW, address_query_body("dev-b"))
+                .expect("sign");
+        let routed = route(
+            &message.to_line().expect("line"),
+            "server",
+            &peers,
+            &keys,
+            &mut ReplayGuard::new(),
+            &Recording::default(),
+            NOW,
+        )
+        .expect("routed");
+        assert_eq!(
+            routed.local(),
+            Some(&Local::Addresses {
+                node_id: "dev-b".to_string()
+            })
+        );
+        assert!(!routed.was_forwarded());
+    }
+
+    #[test]
+    fn a_session_table_retires_by_id() {
         let table = SessionTable::new();
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
         let first = TcpStream::connect(addr).expect("connect");
         let second = TcpStream::connect(addr).expect("connect");
-        let old = table.bind("dev-a", first);
-        let new = table.bind("dev-a", second);
+        let what = "127.0.0.1:9001".parse::<SocketAddr>().expect("addr");
+        let old = table.bind("dev-a", first, what);
+        let new = table.bind("dev-a", second, what);
         assert!(table.is_present("dev-a"));
+        assert_eq!(table.address_of("dev-a"), Some(what));
         assert_eq!(table.len(), 1);
         // The older connection's thread must not evict the session that replaced it.
         assert!(!table.unbind("dev-a", old));
         assert!(table.is_present("dev-a"));
         assert!(table.unbind("dev-a", new));
         assert!(table.is_empty());
+        assert_eq!(table.address_of("dev-a"), None);
     }
 }

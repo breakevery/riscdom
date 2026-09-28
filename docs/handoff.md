@@ -63,6 +63,13 @@ current request authorising it (§2).
   dialled and never dial a node. `RelayClient` / `RelaySession` are the node's half; `hello_body()` opens
   a session and does **not** consume the sender's §3.2 record; `src/bin/riscdom-relay.rs` is the
   deployer's program. **Decision §98.**
+- **And §6.2's other two roles are on disk too** (v1.0 M4d, 2026-09-28): `net` implements
+  [connection.md](connection.md) §6.2's **signalling** — a `{"query": "<node_id>"}` frame answered with
+  `{"addresses": [...]}`, the address a node dialled in from plus its entry, and nothing else — and
+  **management** — a registry request answered with the §4.1 table plus the room definitions, merged so
+  the local `peers.json` / `rooms.json` win and conflicts are **reported**. The server signs its answers
+  with its own key. So **M4 is complete except M4e** (the audit digests, which wait on M5's
+  authorisation). **Decision §99.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

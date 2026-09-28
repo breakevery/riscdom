@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **跨区域服务器上的 signalling 与 management**（v1.0 M4d）：`net` 实现了 [`docs/connection.md`](docs/connection.md) §6.2 剩下的部分。发给服务器自己的帧现在被分派到它所要的角色：**signalling** 用 `{"addresses": [...]}` 回答 `{"query": "<node_id>"}` —— 节点拨入所用的地址与它 `peers.json` 条目里的地址，**且别无其他**，因为 §6.2 要 signalling 只知地址、从不知负载 —— 而 **management** 用一个注册表回答注册表请求：§4.1 的下发表加上房间定义，节点用 `Registry::merge` 合并它 —— 本地的 `peers.json` 与 `rooms.json` 赢，而每一处分歧都以一份**报告**回来。发布的房间集合被按 `rooms.json` 自己的检查来要求，所以来源无法携带一个文件会拒的房间。服务器用自己的密钥签它的回答（§6.4：它是一个同侪），hello 仍然不出声，不认识的本地帧得不到任何回答，而授权自始至终是 §3 的模型 —— **零新凭证、零新 capability**。`src/bin/riscdom-relay.rs` 现在会铸或读 `<data-dir>/node.key` 并发布 `rooms.json`。
+
 - **跨区域服务器的 relay**（v1.0 M4d）：`net` 实现了 [`docs/connection.md`](docs/connection.md) §6 的 **relay** 角色与它所需的会话。`RelayServer` 解析一帧、用自己那份 `peers.json` 认证发送者（§6.3：§3 的模型，**零新凭证、零新 capability**），并只按签名内的 `to` 路由 —— 发给服务器自己的帧是 signalling 与 management 两个角色的事，发给服务器并不认识的节点的帧被拒绝而**不是**广播，其余一律按发送者签过的字节**沿目的地的会话**交下去。因为 §6.3 要服务器**等着被拨、从不拨向节点**，`SessionTable` 装的是节点**拨出去**的那些连接 —— 这正是本项目不需要打洞的原因。`RelayClient` / `RelaySession` 是节点那一半（`hello` 开一条会话；而 hello 不消耗发送者的 §3.2 记录，因为会话是在它所承载的那帧**签名之后**才开的）。`src/bin/riscdom-relay.rs` 是**部署者**运行的程序：它不点名任何端点、只绑 `--bind` 说的地址、且不存任何消息。没有新的持久化格式、没有新依赖，也没有碰任何 capability 名、审计事件常量、哈希公式或路由。
 
 - **房间**（v1.0 M4c）：`net` 实现了 [`docs/connection.md`](docs/connection.md) §5。`rooms.json`（版本 1）装着 `{name, members[], rules}`，成员是 **`node_id`**，规则是 §5.2 的三条：`rate`（`{messages, window_seconds}`、**按成员**，超限为 `refused`）、`mention`（`members` / `nobody`，默认 **`nobody`**）与 `require_signature`（只有 `true`；`false` 在加载时被拒，因为 §3 垫了底）。`RoomFilter::from_rooms` 合上了 M4b 留下的那个环：信标过滤器现在读部署者的文件 —— 文件点名、且列出本节点的那些房间。

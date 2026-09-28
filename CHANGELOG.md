@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Signalling and management on the cross-region server** (v1.0 M4d): `net` implements the rest of
+  [`docs/connection.md`](docs/connection.md) §6.2. A frame addressed to the server itself is routed to
+  the role it asks for: **signalling** answers `{"query": "<node_id>"}` with `{"addresses": [...]}` —
+  the address the node dialled in from and its `peers.json` entry, and **nothing else**, because §6.2
+  has signalling know addresses and never payloads — and **management** answers a registry request
+  with §4.1's hand-down table plus the room definitions, which a node merges with `Registry::merge`:
+  its own `peers.json` and `rooms.json` win, and every disagreement comes back as a **report**. A
+  published room set is held to `rooms.json`'s own checks, so a source cannot carry a room a file
+  would refuse. The server signs its answers with its own key (§6.4: it is a peer), a hello is still
+  silent, an unrecognised local frame earns no answer, and the authorisation is §3's model throughout
+  — **no new credential and no new capability**. `src/bin/riscdom-relay.rs` now mints or reads
+  `<data-dir>/node.key` and publishes `rooms.json`.
+
 - **The cross-region server's relay** (v1.0 M4d): `net` implements [`docs/connection.md`](docs/connection.md)
   §6's **relay** role and the session it needs. `RelayServer` parses a frame, authenticates its sender
   against its own `peers.json` (§6.3: the §3 model, **no new credential and no new capability**), and routes

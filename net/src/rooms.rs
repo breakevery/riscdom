@@ -144,6 +144,18 @@ impl Room {
         self.members.is_empty()
     }
 
+    /// A one-line description, for a conflict report — the same idea as
+    /// [`PeerEntry::summary`](crate::PeerEntry::summary), for a room.
+    pub fn summary(&self) -> String {
+        format!(
+            "members {:?}, rate {} per {}s, mention {}",
+            self.members,
+            self.rules.rate.messages,
+            self.rules.rate.window_seconds,
+            self.rules.mention.as_str()
+        )
+    }
+
     /// Does the room allow member-to-member mentions at all?
     pub fn allows_mention(&self) -> bool {
         self.rules.mention.allows()
@@ -268,6 +280,15 @@ impl RoomsFile {
             .iter()
             .filter(move |room| room.has_member(this_node_id))
     }
+
+    /// The checks this set must pass.
+    ///
+    /// **The only rules, wherever the set came from**: a load runs them, and so does a set
+    /// a server published ([§6.2](../../docs/connection.md) makes a published registry a
+    /// *source*, and a source that could carry a room `rooms.json` would refuse is not one).
+    pub fn check(&self) -> Result<(), RoomsError> {
+        check_rooms(&self.rooms).map_err(RoomsError::Room)
+    }
 }
 
 impl Versioned for RoomsFile {
@@ -276,51 +297,55 @@ impl Versioned for RoomsFile {
     fn from_value(value: serde_json::Value, _from: u32) -> Result<Self, VersionedError> {
         let file: RoomsFile = serde_json::from_value(value)
             .map_err(|e| VersionedError::Shape(format!("the room file is malformed: {e}")))?;
-        let mut names: BTreeSet<&str> = BTreeSet::new();
-        for room in &file.rooms {
-            validate_room(room)?;
-            if !names.insert(room.name.as_str()) {
-                return Err(VersionedError::Shape(format!(
-                    "two rooms are called {:?}",
-                    room.name
-                )));
-            }
-        }
+        check_rooms(&file.rooms).map_err(VersionedError::Shape)?;
         Ok(file)
     }
 }
 
+/// The checks a room set must pass.
+///
+/// **One implementation, two reporters**: a file read says [`VersionedError::Shape`] and a
+/// published set says [`RoomsError::Room`], so the two cannot drift about what a loadable
+/// room is — a source must not be able to carry a room a file would refuse.
+fn check_rooms(rooms: &[Room]) -> Result<(), String> {
+    let mut names: BTreeSet<&str> = BTreeSet::new();
+    for room in rooms {
+        validate_room(room)?;
+        if !names.insert(room.name.as_str()) {
+            return Err(format!("two rooms are called {:?}", room.name));
+        }
+    }
+    Ok(())
+}
+
 /// The checks a room must pass, in the order a reader would ask them.
-fn validate_room(room: &Room) -> Result<(), VersionedError> {
+fn validate_room(room: &Room) -> Result<(), String> {
     if room.name.trim().is_empty() {
-        return Err(VersionedError::Shape("a room has an empty name".into()));
+        return Err("a room has an empty name".into());
     }
     for member in &room.members {
         if member.trim().is_empty() {
-            return Err(VersionedError::Shape(format!(
-                "room {:?} lists an empty member",
-                room.name
-            )));
+            return Err(format!("room {:?} lists an empty member", room.name));
         }
     }
     if !room.rules.require_signature {
-        return Err(VersionedError::Shape(format!(
+        return Err(format!(
             "room {:?} sets require_signature: false; §3 makes a signature universal on the \
              peer path, so no room may lower that floor",
             room.name
-        )));
+        ));
     }
     if room.rules.rate.messages == 0 {
-        return Err(VersionedError::Shape(format!(
+        return Err(format!(
             "room {:?} has a rate of 0 messages, which is not a budget",
             room.name
-        )));
+        ));
     }
     if room.rules.rate.window_seconds == 0 {
-        return Err(VersionedError::Shape(format!(
+        return Err(format!(
             "room {:?} has a rate window of 0 seconds",
             room.name
-        )));
+        ));
     }
     Ok(())
 }
@@ -436,6 +461,66 @@ pub fn rooms_category(error: &RoomsError) -> Category {
     }
 }
 
+/// A disagreement about a room between the local file and a **published** set.
+///
+/// The same report [`Conflict`](crate::discovery::Conflict) makes for a peer, with the field
+/// named for what it holds here: a **room name**, not a `node_id`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoomConflict {
+    /// The room both sides describe differently.
+    pub name: String,
+    /// What the local `rooms.json` says.
+    pub local: String,
+    /// What the published set says.
+    pub from_published: String,
+}
+
+/// What merging a published room set into the local file did.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RoomMergeReport {
+    /// Rooms the local file did not have.
+    pub added: usize,
+    /// Rooms identical to what the local file already had.
+    pub unchanged: usize,
+    /// Rooms the local file disagrees with. Local wins; nothing was changed.
+    pub conflicts: Vec<RoomConflict>,
+}
+
+impl RoomMergeReport {
+    /// Did anything need a human's attention?
+    pub fn has_conflicts(&self) -> bool {
+        !self.conflicts.is_empty()
+    }
+}
+
+/// Merge a published room set into the local file — [§4.1](../../docs/connection.md)'s rule,
+/// one level out.
+///
+/// The local file wins: a room it does not have is **added**, an identical one changes
+/// nothing, and a disagreement keeps the local room and lands in
+/// [`RoomMergeReport::conflicts`]. Nothing local is ever replaced, and nothing is resolved in
+/// silence — [§6.2](../../docs/connection.md) makes a published room a *source*.
+pub fn merge_rooms(local: &RoomsFile, published: &RoomsFile) -> (RoomsFile, RoomMergeReport) {
+    let mut merged = local.clone();
+    merged.schema_version = RoomsFile::SCHEMA_VERSION;
+    let mut report = RoomMergeReport::default();
+    for room in &published.rooms {
+        match local.room(&room.name) {
+            Some(known) if known == room => report.unchanged += 1,
+            Some(known) => report.conflicts.push(RoomConflict {
+                name: room.name.clone(),
+                local: known.summary(),
+                from_published: room.summary(),
+            }),
+            None => {
+                merged.rooms.push(room.clone());
+                report.added += 1;
+            }
+        }
+    }
+    (merged, report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -500,5 +585,74 @@ mod tests {
         assert!(open.allows_mention_from("dev-a"));
         // Membership, not the rule: somebody outside the room cannot `@` in it.
         assert!(!open.allows_mention_from("dev-b"));
+    }
+
+    #[test]
+    fn a_published_room_set_is_held_to_the_same_rules_as_a_file() {
+        let mut file = RoomsFile::empty();
+        file.rooms.push(Room {
+            name: "lab".into(),
+            members: vec!["dev-a".into()],
+            rules: rules(10, 60, Mention::Nobody),
+        });
+        assert!(file.check().is_ok());
+
+        // The load rules and `check` are the same rules: the signature floor cannot move.
+        let mut broken = file.clone();
+        broken.rooms[0].rules.require_signature = false;
+        let error = broken.check().expect_err("no room may lower the floor");
+        assert!(error.to_string().contains("require_signature"), "{error}");
+        assert_eq!(rooms_category(&error), Category::Invalid);
+
+        // And a duplicate name is refused wherever the set came from.
+        let mut twice = file.clone();
+        twice.rooms.push(file.rooms[0].clone());
+        assert!(twice.check().is_err());
+    }
+
+    #[test]
+    fn merging_a_published_set_keeps_the_local_room_and_reports_the_conflict() {
+        let local = RoomsFile {
+            schema_version: 1,
+            rooms: vec![Room {
+                name: "lab".into(),
+                members: vec!["dev-a".into()],
+                rules: rules(10, 60, Mention::Members),
+            }],
+        };
+        let published = RoomsFile {
+            schema_version: 1,
+            rooms: vec![
+                // The same name, described differently: local wins, and it is reported.
+                Room {
+                    name: "lab".into(),
+                    members: vec!["dev-b".into()],
+                    rules: rules(10, 60, Mention::Members),
+                },
+                // A room the local file does not have: added.
+                Room {
+                    name: "quiet".into(),
+                    members: vec!["dev-a".into()],
+                    rules: rules(1, 60, Mention::Nobody),
+                },
+            ],
+        };
+        let (merged, report) = merge_rooms(&local, &published);
+        assert_eq!(report.added, 1);
+        assert_eq!(report.unchanged, 0);
+        assert_eq!(report.conflicts.len(), 1);
+        assert!(report.has_conflicts());
+        assert_eq!(report.conflicts[0].name, "lab");
+        assert_eq!(
+            merged.room("lab").expect("lab").members,
+            vec!["dev-a".to_string()],
+            "the local room is the one that survived"
+        );
+        assert!(merged.room("quiet").is_some());
+
+        // A room both sides describe the same way is simply unchanged.
+        let (_, same) = merge_rooms(&local, &local);
+        assert_eq!(same.unchanged, 1);
+        assert!(!same.has_conflicts());
     }
 }

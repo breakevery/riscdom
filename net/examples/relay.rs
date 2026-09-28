@@ -9,11 +9,14 @@
 //!
 //! The two checks that are the point of §6.3 are the third and the eighth: a frame for the
 //! server is never handed to anybody else, and a destination the server can *see* but that
-//! has not dialled in hears nothing — because the server never dials a node.
+//! has not dialled in hears nothing — because the server never dials a node. The last four are
+//! §6.2's other two roles: the **address query** (answered with addresses and nothing else)
+//! and the **published registry** (a **source**, merged with the local files winning).
 
 use net::{
-    deliver, hello_body, now_ms, verify_at, Listener, NodeKey, Path, PeerEntry, PeerKeys,
-    PeersFile, RelayClient, RelayServer, RelaySession, ReplayGuard, SignedMessage, TransportConfig,
+    deliver, hello_body, now_ms, verify_at, Answer, Listener, NodeKey, Path, PeerEntry, PeerKeys,
+    PeersFile, RateRule, RelayClient, RelayServer, RelaySession, ReplayGuard, Room, RoomRules,
+    RoomsFile, SignedMessage, TransportConfig,
 };
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
@@ -46,10 +49,17 @@ fn closed_addr() -> String {
     address
 }
 
-fn start_server(peers: PeersFile) -> (RelayServer, String) {
+fn start_server(key: &NodeKey, rooms: RoomsFile, peers: PeersFile) -> (RelayServer, String) {
     let listener = Listener::bind("127.0.0.1:0").expect("bind");
     let addr = listener.local_addr().expect("addr").to_string();
-    let server = RelayServer::new("server", peers, config(Duration::from_secs(5))).expect("server");
+    let server = RelayServer::new(
+        "server",
+        key.clone(),
+        peers,
+        rooms,
+        config(Duration::from_secs(5)),
+    )
+    .expect("server");
     let serving = server.clone();
     std::thread::spawn(move || {
         let _ = serving.serve(listener);
@@ -76,7 +86,17 @@ fn self_test() {
     let mut server_peers = PeersFile::empty();
     server_peers.peers.push(entry("dev-a", &a, "127.0.0.1:1"));
     server_peers.peers.push(entry("dev-b", &b, "127.0.0.1:2"));
-    let (server, addr) = start_server(server_peers);
+    // The room set the deployer publishes: §6.2's management hands it to any node that asks.
+    let mut server_rooms = RoomsFile::empty();
+    server_rooms.rooms.push(Room {
+        name: "lab".to_string(),
+        members: vec!["dev-a".to_string(), "dev-b".to_string()],
+        rules: RoomRules::new(RateRule {
+            messages: 10,
+            window_seconds: 60,
+        }),
+    });
+    let (server, addr) = start_server(&server_key, server_rooms.clone(), server_peers);
 
     let server_entry = entry("server", &server_key, &addr);
     let client = RelayClient::new(
@@ -183,7 +203,7 @@ fn self_test() {
     let (unknown_server, unknown_addr) = {
         let mut peers = PeersFile::empty();
         peers.peers.push(entry("dev-b", &b, "127.0.0.1:2"));
-        start_server(peers)
+        start_server(&server_key, RoomsFile::empty(), peers)
     };
     let stranger_client = RelayClient::new(
         "dev-a",
@@ -211,7 +231,7 @@ fn self_test() {
         let mut peers = PeersFile::empty();
         peers.peers.push(entry("dev-a", &a, "127.0.0.1:1"));
         peers.peers.push(entry("dev-b", &b, &b_addr));
-        start_server(peers)
+        start_server(&server_key, RoomsFile::empty(), peers)
     };
     let dialer = RelayClient::new(
         "dev-a",
@@ -249,6 +269,91 @@ fn self_test() {
         "the session opener is a hello at this protocol version",
         net::is_hello(&hello_body()),
         format!("{}", hello_body()),
+    );
+
+    // 10. Signalling: where another node is, asked and answered (§6.2). The answer is the
+    //     server's own signed frame, so the node verifies it as it verifies anything else.
+    let mut guard = ReplayGuard::new();
+    let server_keys = client.server_keys().expect("the server is a peer");
+    client.query_addresses("dev-b").expect("asked");
+    let answer = client.receive().expect("read").expect("an answer arrived");
+    let verified = verify_at(&answer, "dev-a", &server_keys, &mut guard, now_ms())
+        .expect("the server's answer verifies");
+    let addresses = match Answer::from_verified(&verified, "server")
+        .expect("readable")
+        .expect("an answer rather than a relayed frame")
+    {
+        Answer::Addresses { addresses } => addresses,
+        other => panic!("expected addresses, got {other:?}"),
+    };
+    check(
+        "an address query is answered with the addresses the server knows, and nothing else",
+        addresses.iter().any(|address| address == "127.0.0.1:2")
+            && addresses.len() > 1
+            && verified.body.as_object().map(|object| object.len()) == Some(1),
+        format!("{addresses:?}"),
+    );
+
+    // 11. A node the server cannot place is answered with nothing, not refused: the question
+    //     was well-formed, and "nowhere I know" is the honest answer to it.
+    client.query_addresses("dev-nobody").expect("asked");
+    let answer = client.receive().expect("read").expect("an answer arrived");
+    let verified =
+        verify_at(&answer, "dev-a", &server_keys, &mut guard, now_ms()).expect("verifies");
+    let empty = match Answer::from_verified(&verified, "server")
+        .expect("readable")
+        .expect("an answer")
+    {
+        Answer::Addresses { addresses } => addresses,
+        other => panic!("expected addresses, got {other:?}"),
+    };
+    check(
+        "an address query for a node the server cannot place comes back empty",
+        empty.is_empty(),
+        format!("{empty:?}"),
+    );
+
+    // 12. Management: the registry, published on request — the table and the room definitions.
+    client.request_registry().expect("asked");
+    let answer = client.receive().expect("read").expect("an answer arrived");
+    let verified =
+        verify_at(&answer, "dev-a", &server_keys, &mut guard, now_ms()).expect("verifies");
+    let registry = match Answer::from_verified(&verified, "server")
+        .expect("readable")
+        .expect("an answer")
+    {
+        Answer::Registry(registry) => registry,
+        other => panic!("expected a registry, got {other:?}"),
+    };
+    check(
+        "a registry request is answered with the table and the room definitions",
+        registry.table().entries().len() == 2
+            && registry.rooms().room("lab").is_some()
+            && registry.generation() == net::FIRST_GENERATION,
+        format!(
+            "generation {}, {} peer(s), {} room(s)",
+            registry.generation(),
+            registry.table().entries().len(),
+            registry.rooms().len()
+        ),
+    );
+
+    // 13. And it is a **source**, not an authority: the local files win, and the disagreement
+    //     is reported rather than resolved (§6.2, §4.1).
+    let mut local_peers = PeersFile::empty();
+    local_peers.peers.push(entry("dev-b", &b, "127.0.0.1:99"));
+    let merged = registry.merge(&local_peers, &RoomsFile::empty());
+    check(
+        "a published registry is a source: the local file wins and the conflict is reported",
+        merged.has_conflicts()
+            && merged.peers.entry("dev-b").expect("dev-b").addresses
+                == vec!["127.0.0.1:99".to_string()]
+            && merged.rooms_report.added == 1,
+        format!(
+            "{} peer conflict(s), {} room(s) added",
+            merged.peers_report.conflicts.len(),
+            merged.rooms_report.added
+        ),
     );
 
     println!("net relay self-test: OK");

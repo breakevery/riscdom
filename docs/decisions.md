@@ -2534,3 +2534,52 @@ gate gains its sixth `net` step. `net/README.md` moves §6's relay from "not her
 dependency, no new persisted format, no new capability name, no audit event constant, no hash formula and
 no route was touched** — the server keeps no message store, draws its authority from §3 and issues no
 credential, and signalling, management and §7's digests are still unwritten.
+
+## 99. The server answers where a node is and what it publishes, and the answer is a source
+
+**Date**: 2026-09-28 ｜ **Status**: Decided; M4d's signalling and management implemented
+
+**Decision**: [connection.md §6.2](connection.md)'s other two roles are implemented in `net`, on the
+same server and the same session the relay uses. A frame addressed to the server itself is now read by
+`Local::of` into one of three questions: a **hello** (bind the socket, answer nothing), an **address
+query** (`{"query": "<node_id>"}`), or a **registry request** (`{"registry": 1}`); anything else is
+`Unrecognised`, and nothing at all is answered for it. **Signalling** answers `{"addresses": [...]}` —
+the address the node dialled in from (its live session) first, then its `peers.json` entry's addresses,
+de-duplicated — and a node the server cannot place is answered with an **empty list** rather than
+refused. **Management** answers with a `Registry`: §4.1's `{generation, peers}` hand-down with the room
+definitions beside it, signed by the server's own key (§6.4 makes it a peer). A node reads them back as
+`Answer` and applies `Registry::merge` — `merge_table`'s rule from M4b, for the peers, and
+`merge_rooms`, the same rule for room names — so the node's own `peers.json` and `rooms.json` win and
+every disagreement is **reported**. The generation advances whenever the registry the server publishes
+changes (`set_peers`, `set_rooms`). Both answers are §3 frames, so a node verifies them with a key it
+already holds, and the authorisation is §3's model in both directions: no new credential, no new
+capability.
+
+**Why**: Four choices carry it. **The answers' shapes are this batch's, and §6 left them so**: §6 freezes
+the roles, the routing rule and what each role may know — not the bytes — so `{"query"}`,
+`{"registry"}` and `{"addresses"}` are recorded here rather than assumed, exactly as §98 recorded the
+hello. **Signalling reports two addresses, and both are transport facts**: §6.2 has signalling answer
+where a `node_id` "can be reached ... from what nodes have told it", and the two things the server
+knows are the entry its deployer wrote and the socket the node just dialled in on. The live address
+comes first because it is the more current, the list is de-duplicated, and nothing but addresses
+crosses — "never payloads" is held by the answer body having exactly one member. **An unknown node is
+answered, not refused**: the question was well-formed and authenticated, so "nowhere I know" is the
+honest answer, and §6.3's `refused` is for *you may not ask* rather than *I do not know*. **A published
+registry is a source**: §6.2 says so, and the implementation makes it structural — `merge` never
+replaces a local entry, a room that differs keeps the local definition, and a published room set is
+held to `rooms.json`'s own checks, one implementation with two reporters (a file read says `Shape`, a
+published set says `RoomsError::Room`), so a source cannot carry a room a file would refuse. The table
+is assembled per request rather than stored, so what is published cannot drift from the table the
+server routes against.
+
+**Impact**: `net/` gains `src/registry.rs` (`Registry`, `Merged`, `registry_request_body`,
+`registry_category`) and `src/relay.rs` gains signalling (`address_query_body`, `address_answer_body`,
+`Local`, `LocalReply`, `Answer`), the local dispatch in `serve_connection`, and — because answering
+requires signing — a **key** and a **room set** on `RelayServer` (`new` takes both, `set_rooms`
+publishes, the generation advances); `src/rooms.rs` gains `merge_rooms`, `RoomConflict`,
+`RoomMergeReport`, `Room::summary` and `RoomsFile::check` (the load rules, callable on their own);
+`src/bin/riscdom-relay.rs` mints or reads `<data-dir>/node.key` and publishes `rooms.json`; the
+`relay` example grows four checks (thirteen in all) and `tests/server.rs` adds eight integration tests.
+**No new dependency, no new persisted format, no new capability name, no audit event constant, no hash
+formula and no route was touched** — the server still stores no message, draws its authority from §3
+and issues no credential, and §7's digests are unwritten.

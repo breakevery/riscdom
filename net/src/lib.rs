@@ -30,14 +30,15 @@
 //! - **§6, the cross-region server** — [`RelayServer`] and [`route`]: a frame is
 //!   authenticated (§3's model, and no new credential), routed on its signed `to`, and
 //!   handed down the destination's session — [`SessionTable`] — while a frame addressed to
-//!   the server itself is left to the signalling and management roles. [`RelayClient`] and
-//!   [`RelaySession`] are the node's half: the session **both sides dial out** (§6.3),
-//!   which is why the server never dials and this project needs no hole punching.
+//!   the server itself is [`Local`]'s business: a hello, an **address query**
+//!   ([`address_query_body`], answered from what the server knows), or a **registry request**
+//!   ([`registry_request_body`], answered with [`Registry`] — the table plus the room
+//!   definitions, a **source and not an authority**). [`RelayClient`] and [`RelaySession`] are
+//!   the node's half: the session **both sides dial out** (§6.3), which is why the server never
+//!   dials and this project needs no hole punching.
 //!
-//! **Not here yet**: §6's **signalling** and **management** roles — the address query and
-//! the registry and room publishing — which land next on the same server and session. §7's
-//! audit digests wait on M5's authorisation. Each piece lands only after the section it
-//! implements is frozen.
+//! **Not here yet**: §7 — the **audit digests** a server aggregates on a timer — which waits
+//! on M5's authorisation. Each piece lands only after the section it implements is frozen.
 //!
 //! **Dependency direction.** `net` depends on [`audit`] and nothing else in this
 //! workspace. The chain's canonical JSON ([`audit::canonical_json`]) is what a
@@ -51,6 +52,7 @@ mod error;
 mod identity;
 mod message;
 mod peers;
+mod registry;
 mod relay;
 mod replay;
 mod rooms;
@@ -71,14 +73,18 @@ pub use message::{
 pub use peers::{
     peers_category, public_key_from_jwk, PeerEntry, PeersError, PeersFile, PEERS_FILE,
 };
+pub use registry::{
+    is_registry_request, registry_category, registry_request_body, Merged, Registry, RegistryError,
+};
 pub use relay::{
-    client_for_server, hello_body, is_hello, route, Forwarder, RelayClient, RelayError,
-    RelayServer, RelaySession, Routed, SessionTable,
+    address_answer_body, address_query, address_query_body, answered_addresses, client_for_server,
+    hello_body, is_hello, route, Answer, Forwarder, Local, LocalReply, RelayClient, RelayError,
+    RelayServer, RelayServerError, RelaySession, Routed, SessionTable, FIRST_GENERATION,
 };
 pub use replay::{ReplayError, ReplayGuard, Window, REPLAY_WINDOW_AHEAD_MS, REPLAY_WINDOW_BACK_MS};
 pub use rooms::{
-    rooms_category, Mention, RateCounters, RateError, RateRule, Room, RoomRules, RoomsError,
-    RoomsFile, ROOMS_FILE,
+    merge_rooms, rooms_category, Mention, RateCounters, RateError, RateRule, Room, RoomConflict,
+    RoomMergeReport, RoomRules, RoomsError, RoomsFile, ROOMS_FILE,
 };
 pub use sign::{verify, verify_at, PeerKeys, VerifiedMessage, VerifyError};
 pub use transport::{

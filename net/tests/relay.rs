@@ -10,7 +10,8 @@
 
 use net::{
     deliver, hello_body, now_ms, verify_at, Listener, NodeKey, Path, PeerEntry, PeerKeys,
-    PeersFile, RelayClient, RelayServer, RelaySession, ReplayGuard, SignedMessage, TransportConfig,
+    PeersFile, RelayClient, RelayServer, RelaySession, ReplayGuard, RoomsFile, SignedMessage,
+    TransportConfig,
 };
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
@@ -48,7 +49,16 @@ struct Running {
 fn start_server(node_id: &str, peers: PeersFile, read: Duration) -> Running {
     let listener = Listener::bind("127.0.0.1:0").expect("bind");
     let addr = listener.local_addr().expect("addr").to_string();
-    let server = RelayServer::new(node_id, peers, config(read)).expect("server");
+    // These tests are about the relay half, so the key and the room set are the minimum a
+    // server needs to start; `server.rs` is where §6.2's other two roles are exercised.
+    let server = RelayServer::new(
+        node_id,
+        NodeKey::generate().expect("key"),
+        peers,
+        RoomsFile::empty(),
+        config(read),
+    )
+    .expect("server");
     let serving = server.clone();
     std::thread::spawn(move || {
         let _ = serving.serve(listener);

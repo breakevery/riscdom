@@ -12,19 +12,27 @@
 //!
 //! What it does: it **listens** and waits to be dialled (§6.3 — it never dials a node),
 //! authenticates each frame's sender against its own `peers.json` (§6.3's authorisation is
-//! §3's model and no new credential), and hands a frame down the destination's live
-//! session. It **stores no message**: it forwards a frame and forgets it. What it does keep
-//! is transport state — who is dialled in, and §3.2's per-peer replay record.
+//! §3's model and no new credential), and then serves §6.2's roles: it **relays** a frame
+//! down the destination's live session, answers **signalling** — where a `node_id` can be
+//! reached, from the session it dialled in on and its entry — and answers **management** with
+//! its registry: the node table and the room definitions, which a node merges with its own
+//! files winning (§4.1's rule). It **stores no message**: it forwards a frame and forgets it.
+//! What it does keep is transport state — who is dialled in, and §3.2's per-peer replay record.
 //!
-//! `peers.json` is the same file the other roles use, read from `--data-dir`: the server is
-//! a peer (§6.4), so the nodes it knows are an ordinary entry list. A data directory with
-//! no `peers.json` is a server that knows nobody — and one that therefore refuses every
-//! frame, which is honest rather than convenient.
+//! `peers.json` and `rooms.json` are the same files the other roles use, read from
+//! `--data-dir`: the server is a peer (§6.4), so the nodes it knows are an ordinary entry
+//! list, and the rooms it publishes are an ordinary room set. A data directory with neither is
+//! a server that knows nobody and publishes nothing — which refuses every frame and hands out
+//! an empty registry, honestly rather than conveniently.
 //!
-//! Signalling and management (the address query, and publishing the registry and room
-//! definitions) land on this same server next; §7's audit aggregation is later still.
+//! Its own key is `<data-dir>/node.key`, minted on the first start (§2: the first start with
+//! networking configured) and printed as a fingerprint at startup. The deployer puts the
+//! **public** half in the other nodes' `peers.json`, which is what §6.4 asks for and what
+//! makes a node able to verify what the server signs.
+//!
+//! §7's audit aggregation is later still, and waits on M5's authorisation.
 
-use net::{Listener, PeersFile, RelayServer, TransportConfig, VersionedLoad};
+use net::{Listener, NodeKey, PeersFile, RelayServer, RoomsFile, TransportConfig, VersionedLoad};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -106,8 +114,34 @@ fn run(args: &Args) -> Result<(), String> {
     let known = peers.peers.len();
     let peers_path = args.data_dir.join(net::PEERS_FILE);
 
-    let server = RelayServer::new(&args.node_id, peers, TransportConfig::default())
-        .map_err(|error| format!("the peer table is not usable: {error}"))?;
+    let rooms = match RoomsFile::load_in(&args.data_dir) {
+        Ok(VersionedLoad::Missing) => RoomsFile::empty(),
+        Ok(VersionedLoad::Current(file)) | Ok(VersionedLoad::Migrated { value: file, .. }) => file,
+        Ok(VersionedLoad::TooNew { found }) => {
+            return Err(format!(
+                "rooms.json is version {found}; this build reads {}",
+                RoomsFile::SCHEMA_VERSION
+            ));
+        }
+        Err(error) => return Err(format!("rooms.json could not be read: {error}")),
+    };
+    let rooms_count = rooms.rooms.len();
+    let rooms_path = args.data_dir.join(net::ROOMS_FILE);
+
+    // §2: a key is minted on the first start that has networking configured, and never by a
+    // read. A server deployment has networking, so this is that start.
+    let key = NodeKey::load_or_create_in(&args.data_dir, true)
+        .map_err(|error| format!("node.key could not be read: {error}"))?
+        .ok_or("networking is configured, so a key should have been minted")?;
+
+    let server = RelayServer::new(
+        &args.node_id,
+        key.clone(),
+        peers,
+        rooms,
+        TransportConfig::default(),
+    )
+    .map_err(|error| format!("the data directory is not usable: {error}"))?;
     let listener = Listener::bind(args.bind.as_str())
         .map_err(|error| format!("{0} could not be bound: {error}", args.bind))?;
     let bound = listener
@@ -117,7 +151,13 @@ fn run(args: &Args) -> Result<(), String> {
     println!("riscdom-relay: a cross-region server, run by a deployer (not by the project)");
     println!("  node_id: {0}", args.node_id);
     println!("  binding: {bound}");
+    println!("  key:     {0}", key.short_fingerprint());
     println!("  knowing: {known} peer(s) from {}", peers_path.display());
+    println!(
+        "  rooms:   {rooms_count} room(s) from {}",
+        rooms_path.display()
+    );
+    println!("  roles:   relay, signalling (where a node is) and management (the registry)");
     println!(
         "  stores:  no message — a frame is forwarded down the destination's session and forgotten"
     );
