@@ -11,6 +11,8 @@
 
 ## 1. 快照 —— `v0.9.9` 已发布（正式发布时更新本节）
 
+- **连接层的身份与签名已冻结，而 M4 是五块**（v1.0 M4a，2026-09-28）。[`docs/connection.md`](connection.zh-CN.md) 是那份规范：节点身份（`<data-dir>/node.key` 或 keyring 里的 Ed25519 密钥对，一个首成员为 `schema_version` 的 JWK，首次配置联网的启动时铸出）与 `@`（地址 **加**一个对 `{v, from, to, ts, body}` 规范 JSON 的签名、六个验证步骤，以及「签名认证、capability 授权」这条规矩）。发现（M4b）、房间（M4c）、跨区域服务器（M4d）与审计 digest（M4e，需单独授权）**deferred**；临时中心属 M5/M6。`node.key` 与 `peers.json` 是新的持久化格式。**决策 §88。**
+
 - **插件接口已冻结**（v1.0 M3，2026-09-28）。[`docs/plugin-interface.md`](plugin-interface.zh-CN.md) 就是 [roadmap §8](roadmap-v1.0.zh-CN.md) 描述、decisions §3 要求在内核 API 之前冻结的那份规范：stdio / JSON lines 传输、四个必含的机制层操作（`start`/`stop`/`execute`/`output`）及其帧语法、两个可选的语义层操作（`snapshot`/`fingerprint`）、capability 声明的框架、manifest 的必备键、错误与版本规则、架构无关这条约束，以及信任模型 —— 每一节都说明它冻结了什么、留下了什么。有两样东西**刻意开放**：capability 声明的**格式**（draft；roadmap §8 说它最后冻结）与**架构抽象**（要求已冻结，trait 属 v1.x）。**决策 §87。**
 
 - **等待队列能活过重启，而调用方自己收拾**（v1.0 缺口 3/N 批 D，2026-09-27）。申请队列是运行时状态，仍然不持久化 —— 但它里面 **pending** 的申请会回来：`derive_requests_from` 折叠链上的 `m.request.ask` / `m.request.approve` / `m.request.reject` 行，构造器用仍然 pending 的那些给活队列打底，于是重启之后决策照样能做。已决的申请是历史，只留在链上。`DELETE /v0/sandboxes/requests/{id}`（`sandbox.read`）把一条移出并答 `200` 带被移除的记录；它什么都不写 —— 于是「无 TTL」（§36）仍然成立，而调用方仍能收拾。链从未携带的那一个字段是 `reason`，它保持 `None`，而不是被加进一行受哈希保护的行里。**决策 §84。**

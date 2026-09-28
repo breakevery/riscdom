@@ -347,6 +347,10 @@ These are open items v1.0 inherits. They are listed here so that no discussion h
 - **[settled]** M1 has no dependency and can start immediately.
 - **[settled]** M3 comes before the kernel API freeze (decisions §3: "the plugin interface is frozen before
   the kernel API").
+- **[settled]** M4 is built in **five pieces** — M4a identity and signing, M4b discovery, M4c rooms, M4d the
+  cross-region server, M4e audit digests — in that dependency order, each written before it is built
+  ([decisions §88](decisions.md), [connection.md](connection.md)). The temporary centre is not M4's; it is
+  M5/M6's.
 - **[open]** M5 depends on an authorisation this document cannot grant; M6 depends on M5.
 
 ## 14. Open questions

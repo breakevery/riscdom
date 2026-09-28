@@ -13,6 +13,16 @@ current request authorising it (§2).
 
 ## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
 
+- **The connection layer's identity and signing are frozen, and M4 is five pieces** (v1.0 M4a,
+  2026-09-28). [`docs/connection.md`](connection.md) is the specification: node identity (an Ed25519
+  key pair in `<data-dir>/node.key` or the keyring, one JWK whose first member is `schema_version`,
+  minted on the first start with networking) and `@` (address **plus** a signature over the canonical
+  JSON of `{v, from, to, ts, body}`, six verification steps, and the rule that a signature
+  authenticates where the capability model authorises). Discovery (M4b), rooms (M4c), the
+  cross-region server (M4d) and audit digests (M4e, and authorised separately) are **deferred**;
+  the temporary centre is M5/M6's. `node.key` and `peers.json` are new persisted formats.
+  **Decision §88.**
+
 - **The plugin interface is frozen** (v1.0 M3, 2026-09-28). [`docs/plugin-interface.md`](plugin-interface.md)
   is the specification [roadmap §8](roadmap-v1.0.md) described and decisions §3 required to freeze before
   the kernel API: the stdio / JSON-lines transport, the four mandatory mechanism operations

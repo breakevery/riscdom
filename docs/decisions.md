@@ -2094,3 +2094,45 @@ capability name, no audit event constant, no route and no hash formula changed**
 §3 already says the implementation is v1.x. The two open items are tracked here rather than in a TODO:
 the declaration format is settled before v1.x implements anything, and the abstraction's trait is
 designed once a non-RISC-V plugin exists to design it against.
+
+## 88. M4 is five pieces, and its first — identity and signing — is frozen
+
+**Date**: 2026-09-28 ｜ **Status**: Decided (the split, and M4a's protocol); M4a–M4e unimplemented
+
+**Decision**: Layer two ([roadmap §4](roadmap-v1.0.md)) is built in **five pieces**, and the first is
+frozen now, as a document: [`docs/connection.md`](connection.md). **M4a** is node **identity and
+signing** — an Ed25519 key pair in `<data-dir>/node.key` (or the keyring), one JWK whose **first
+member** is `schema_version`, minted on the first start that has networking configured, and `@` as
+address **plus** a signature over the canonical JSON of `{v, from, to, ts, body}`. **M4b** discovery,
+**M4c** rooms, **M4d** the cross-region server's four roles and **M4e** audit digests follow as their
+own batches, each written before it is built. The **temporary centre**, `provisional` and `fork` are
+**not M4's** — §33 puts them behind audit v2, so they belong to M5/M6. The code lands in a **new
+crate** (`net/` or `connection/`), never inside `server`: the control plane's HTTP face and the
+node-to-node protocol are two protocols, and the workspace's dependency direction (`agent → sandbox →
+audit`) must not be reversed to fit one into the other. `node.key` and `peers.json` are registered as
+**new persisted formats** in [api-compatibility.md](api-compatibility.md) §6 and
+[upgrade.md](upgrade.md) §2 (`rooms.json` is M4c's to register).
+
+**Why**: Layer two is the first thing this project builds from nothing — the reconnaissance found no
+network code, no key material and no parsing for any of the three files, only the decisions and the
+seams. A milestone that size cannot be one batch, and the split follows the **dependencies** rather
+than the file list: nothing can be signed before there is a key (§2), nothing can be discovered
+before a node has an identity to be discovered by (M4b), rooms are rules *about* signatures (M4c), and
+the cross-region server is where a signed message's transport is decided (M4d). Freezing **M4a alone**
+follows §3's own logic one level down: the kernel API cannot freeze before the plugin interface, and
+the connection protocol cannot freeze before the identity everything else signs with. Two choices
+inside M4a are worth recording because both were live alternatives. **JWK rather than PEM**: §13
+allows either, but §11 requires `schema_version` **first**, and a PEM's first field is its `BEGIN`
+line — so a versioned PEM would need a container, which is a second format. **A key pair *beside* the
+`AgentId`, not instead of it**: the process identity carries a pid and dies with it, while a node's
+key must outlive every restart — so `node_id` stays the **device name** the `AgentId` already begins
+with, and the key is the thing that proves it.
+
+**Impact**: `docs/connection.md` + its translation (new; the specification, with §1–§3 written and
+§4–§7 named as deferred); `docs/api-compatibility.md` §6 and `docs/upgrade.md` §2 gain two rows
+(`node.key`, `peers.json`), and their credential row drops the `node.key` mention it had carried since
+M1; `docs/README.md`, `CHANGELOG.md` and `handoff.md` §1 follow. **No source file, no dependency, no
+capability name, no audit event constant and no hash formula changed** — M4a's freeze is a document,
+and the Ed25519 dependency belongs to a later batch. §8's two constraints and §9's trust model restate
+what the rest of the project already holds: nothing here names an architecture, and a signature
+authenticates where a capability authorises.

@@ -35,7 +35,9 @@ procedure can act on — and a new one adds its row in the same batch that creat
 | Run fingerprint | inside each run's record | `riscdom.run.fingerprint.v1` | a v2 fingerprint is a new marker **value**, never a rewritten v1 record |
 | Audit store | `<data-dir>/audit.db` (SQLite) | `PRAGMA user_version` = **1** (v1.0 M2b-3a) | reads as `0`, is migrated **on open** and then stamped |
 | Session database | `<data-dir>/sessions.db` (SQLite) | `PRAGMA user_version` = **1** (v1.0 M2b-2) | reads as `0`, is migrated **on open** and then stamped |
-| Credential files | `<data-dir>/token`, `<data-dir>/node.key` | none (a shape-checked hex line) / the key's own marker | a hand-provisioned token is **never rewritten** |
+| Credential files | `<data-dir>/token` | none (a shape-checked hex line) | a hand-provisioned token is **never rewritten** |
+| Node identity | `<data-dir>/node.key`, or the OS keyring | `schema_version` = **1** (v1.0 M4a) | new in v1.0 M4a; a **newer** file is refused |
+| Peer table | `<data-dir>/peers.json` | `schema_version` = **1** (v1.0 M4a) | new in v1.0 M4a; a **newer** file is refused, an older one migrates **on open** |
 
 Two properties of that table decide the procedure below:
 

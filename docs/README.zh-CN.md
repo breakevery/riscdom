@@ -30,6 +30,7 @@
 | [security-model.md](security-model.md) — [中文](security-model.zh-CN.md) | v1.0 规范（M1），**面向管理员**：每份机密住在哪、一个 capability 值多少、威胁模型边界，以及披露政策。 | 活跃（v1.0 规范） |
 | [upgrade.md](upgrade.md) — [中文](upgrade.zh-CN.md) | v1.0 规范（M1），**面向发行集成者**：成文的升级流程 —— 一次升级改了什么、每个版本标记住在哪、操作顺序，以及怎么跨大版本。 | 活跃（v1.0 规范） |
 | [plugin-interface.md](plugin-interface.md) — [中文](plugin-interface.zh-CN.md) | v1.0 规范（M3），**面向插件作者**：被冻结的插件接口 —— 传输、机制层与语义层、capability 声明与 manifest。 | 活跃（v1.0 规范） |
+| [connection.md](connection.md) — [中文](connection.zh-CN.md) | v1.0 规范（M4），面向内核开发者与部署者：连接层 —— 节点身份与签名已冻结，发现、房间、跨区域服务器与审计 digest 仍 deferred。 | 活跃（v1.0 规范） |
 | [handoff.md](handoff.md) — [中文](handoff.zh-CN.md) | 跨对话交接：§1 是易变快照，§2–12 是新会话不得破坏的稳定约束。 | 活跃（§1）、稳定（§2–12） |
 | [run-provenance.md](run-provenance.md) — [中文](run-provenance.zh-CN.md) | 设计：一次运行记录下关于自己的什么，以及指纹为什么长这样。 | 快照（v0.4 批次 1a） |
 | [multi-agent-foundation.md](multi-agent-foundation.md) — [中文](multi-agent-foundation.zh-CN.md) | v0.8 定下的四个形状：一台机器上多个进程时的身份、按 agent 的快照、派发抽象、共享 workspace。 | 快照（v0.8） |

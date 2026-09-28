@@ -30,7 +30,9 @@ v0.9.9（`3365970`）｜ **读者** 发行集成者 —— 发布或操作一次
 | run 指纹 | 每条 run 记录之内 | `riscdom.run.fingerprint.v1` | v2 指纹是一个新的标记**值**，绝不是改写 v1 记录 |
 | 审计库 | `<data-dir>/audit.db`（SQLite） | `PRAGMA user_version` = **1**（v1.0 M2b-3a） | 读作 `0`，**打开时**迁移，然后盖号 |
 | 会话库 | `<data-dir>/sessions.db`（SQLite） | `PRAGMA user_version` = **1**（v1.0 M2b-2） | 读作 `0`，**打开时**迁移，然后盖号 |
-| 凭据文件 | `<data-dir>/token`、`<data-dir>/node.key` | 无（一行只做形状检查的 hex）/ 密钥自带的标记 | 手工放置的 token **永不被改写** |
+| 凭据文件 | `<data-dir>/token` | 无（一行只做形状检查的 hex） | 手工放置的 token **永不被改写** |
+| 节点身份 | `<data-dir>/node.key`，或 OS keyring | `schema_version` = **1**（v1.0 M4a） | v1.0 M4a 新增；**更新**的文件被拒 |
+| 同侪表 | `<data-dir>/peers.json` | `schema_version` = **1**（v1.0 M4a） | v1.0 M4a 新增；**更新**的文件被拒，更旧的**打开时**迁移 |
 
 这张表的两个性质决定了下面的流程：
 

@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The connection layer's identity and signing are frozen** (v1.0 M4a): [`docs/connection.md`](docs/connection.md)
+  says what a node *is* — an Ed25519 key pair in `<data-dir>/node.key` (or the keyring), one JWK whose
+  first member is `schema_version`, minted on the first start with networking — and what `@` means:
+  address **plus** a signature over the canonical JSON of `{v, from, to, ts, body}`, verified in a fixed
+  order and sitting *beside* the bearer token rather than replacing it. Discovery, rooms, the
+  cross-region server and audit digests are named and **deferred** to M4b–M4e. `node.key` and
+  `peers.json` are registered as new persisted formats; `docs/decisions.md` §88 records the five-way
+  split.
+
 - **The plugin interface is frozen** (v1.0 M3): [`docs/plugin-interface.md`](docs/plugin-interface.md) writes
   down what [roadmap §8](docs/roadmap-v1.0.md) described — the stdio / JSON-lines transport, the four
   mandatory mechanism operations with their frame grammar, the two optional semantics operations, the

@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **连接层的身份与签名已冻结**（v1.0 M4a）：[`docs/connection.md`](docs/connection.md) 说清了一个节点*是什么* —— `<data-dir>/node.key`（或 keyring）里的 Ed25519 密钥对，一个首成员为 `schema_version` 的 JWK，在首次配置了联网的启动时铸出 —— 以及 `@` 是什么意思：地址 **加**一个对 `{v, from, to, ts, body}` 规范 JSON 的签名，按固定顺序验证，并与 bearer token **并存**而不是取代它。发现、房间、跨区域服务器与审计 digest 已点名并 **deferred** 到 M4b–M4e。`node.key` 与 `peers.json` 已登记为新的持久化格式；`docs/decisions.md` §88 记下五块拆分。
+
 - **插件接口已冻结**（v1.0 M3）：[`docs/plugin-interface.md`](docs/plugin-interface.md) 把 [roadmap §8](docs/roadmap-v1.0.md) 描述的东西写了下来 —— stdio / JSON lines 传输、四个必含的机制层操作及其帧语法、两个可选的语义层操作、capability 声明的**框架**、manifest 的必备键，以及错误与版本规则 —— 并逐节说明它冻结了什么、留下了什么。capability 声明格式刻意保持为 **draft**，而架构抽象是一条要求、不是一个 trait。`docs/roadmap-v1.0.md` §6 的 row 1 现在引 §86。
 
 - **冻结六条已齐，稳定性政策通过四条红线**（v1.0 M1）：[`docs/upgrade.md`](docs/upgrade.md) —— decisions §14 与 `docs/api-compatibility.md` §7 一直在指的那份成文升级流程 —— 已在盘；`docs/api-compatibility.md` 多出 §9，拿 [roadmap §1](docs/roadmap-v1.0.md) 的四条红线逐条对照政策自己的条款来跑。随之修掉两处：§2 的 capability 计数（32 → 33）与 §7 的「它目前还不存在」；`docs/roadmap-v1.0.md` §6 的 row 2 现在引 §11 —— 描述数据迁移的那条决策。
