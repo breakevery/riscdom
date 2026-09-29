@@ -157,3 +157,8 @@ I have read the CLA Document and I hereby sign the CLA
 
 代码块、命令、路径、配置键名、API 名一律不译。gate 的双语检查会验证配对是否齐全、
 切换行是否互相指向；它**只报告，不自动改文件**。
+
+## 跨仓库工作
+
+管理程序在 v1.0 成为自己的仓库。第二仓继承什么、必须自己拥有什么、以及它如何取得内核：
+[docs/multi-repo.md](docs/multi-repo.zh-CN.md)。

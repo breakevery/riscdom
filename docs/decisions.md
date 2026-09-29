@@ -3218,3 +3218,40 @@ no capability name, no audit event constant, no hash formula and no persisted fo
 harness is a later batch**, and it meets [observability](observability.md) only where the two overlap (the
 audit count and the status gauges): §17's first metric family has no memory byte and no timing, so memory
 and the round trip are timed directly for now.
+
+## 116. The second repository gets the kernel through a git dependency pinned to a tag
+
+**Date**: 2026-09-29 ｜ **Status**: Decided; specification only (batch AS / M7i)
+
+**Decision**: The CONTRIBUTING additions a second repository needs ([roadmap §11](roadmap-v1.0.md)) are written
+in **`docs/multi-repo.md`** (+ zh). The second repository — the management program `riscdom-adminapp` —
+consumes the kernel as **a git dependency pinned to a tag**: its `Cargo.toml` names only the crates it uses
+directly, each as `{ git = "https://github.com/breakevery/riscdom", tag = "vX.Y.Z" }`, and the kernel
+crates' own `path` dependencies resolve against **that same checkout**, so one tag gives the whole kernel at
+one revision. **`Cargo.lock` is committed and is the real pin** (it records the resolved commit, not just
+the tag). Tags are `vX.Y.Z`, cut when this repository releases; the second repository never tracks `main`.
+**crates.io publication is deliberately not done now** — the option stays open and switching to a versioned
+dependency later is additive — and **a vendored subtree is rejected** because it breaks architecture-evolution
+§12's "maintained from the same source". The document also records what the second repository **inherits**
+(bilingual docs, the gate's shape, commit discipline, the encoding rule, secret scanning — each as a
+convention to re-establish, not a script to reach across for) and what it **owns** (its own gate, build and
+bundle, release flow, CLA provisioning, documentation map and secret-scanning job).
+
+**Why**: Three points. **The binding had to be a mechanism, not an analogy.** [architecture-evolution §12](architecture-evolution.md)
+calls the second repository "maintained from the same source (like coreutils / iproute2)"; that says the
+program is one consumer of a kernel it does not own, but not how its build gets the crates — and a split with
+an undefined binding cannot be executed. A git dependency pinned to a tag is the smallest mechanism that
+keeps "one kernel, one source": the second repository declares only its direct crates and lets Cargo resolve
+the rest at the same revision. **Publishing is a commitment that is not needed yet.** A registry entry is a
+name and a stability promise; deferring it costs nothing, and the migration is one line per crate. **The
+kernel is checked where it lives.** The second repository must not re-check a copy: this repository's gate
+checks the kernel, and the second repository's gate checks the second repository. — One thing is left
+**open** on purpose: the **CLA across repositories**. [CLA.md](../CLA.md) §1 defines "Project" as the
+*singular* RiscDom repository and the signature store lives here, so whether the second repository installs
+its own CLA Assistant, shares this one, or amends the text is decided with the split ([M7a](roadmap-v1.0.md)).
+
+**Impact**: `docs/multi-repo.md` and its translation are new (`docs/README.md` + zh gain a row; the bilingual
+pair count goes **108 → 110**); `CONTRIBUTING.md` + zh gain a short "Multi-repository work" pointer; nothing
+else changes — **no source file, no dependency, no `Cargo.toml`, no route, no capability name, no audit event
+constant, no hash formula and no persisted format, and no new repository is created**. The split itself
+(M7a) and the release mechanics (M7b) are later batches.

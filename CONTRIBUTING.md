@@ -191,3 +191,8 @@ line:
 Keep code blocks, commands, paths, configuration keys and API names untranslated. The gate's
 bilingual check verifies that every pair exists and that the switcher lines point at each
 other; it only reports, it never rewrites files.
+
+## Multi-repository work
+
+The management program becomes its own repository at v1.0. What the second repository inherits, what it has
+to own, and how it gets the kernel: [docs/multi-repo.md](docs/multi-repo.md).

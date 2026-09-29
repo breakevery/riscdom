@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **And the two-repository relationship is written down** (v1.0 batch AS / M7i): `docs/multi-repo.md` and its
+  translation are the CONTRIBUTING additions roadmap §11 asks for — how `riscdom-adminapp` stands next to
+  this repository (one kernel, two repositories), how it gets the kernel (a **git dependency pinned to a
+  tag**, with `Cargo.lock` as the real pin; crates.io deferred and a vendored subtree rejected), what it
+  inherits (bilingual docs, the gate's shape, commit discipline, the encoding rule, secret scanning) and
+  what it owns (its own gate, build/bundle, release flow, CLA provisioning, docs map). The **CLA across
+  repositories is left open** on purpose and decided with the split (M7a). `CONTRIBUTING.md` + zh gain a
+  pointer. **Decision §116.**
+
 - **And the performance budgets are written down** (v1.0 batch AR / M7h): `docs/performance-budget.md` and
   its translation fix §18's four numbers as **intervals** — **VM start** (from the sandbox `start` call to
   the guest being usable), the **dispatch round trip** (the control-plane hop against a trivially short

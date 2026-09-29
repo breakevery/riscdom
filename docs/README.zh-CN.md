@@ -86,6 +86,7 @@
 | [qemu-setup.md](qemu-setup.md) — [中文](qemu-setup.zh-CN.md) | 安装节点需要的 QEMU（本项目从不捆绑它）。 | 活跃 |
 | [observability.md](observability.md) — [中文](observability.zh-CN.md) | **可观测性契约**（v1.0 M7g）：结构化日志行、指标端点及其族、以及追踪 ID —— 外加 `task_id` 缺口与它怎么合上。 | 活跃（v1.0 规范） |
 | [performance-budget.md](performance-budget.md) — [中文](performance-budget.zh-CN.md) | **性能预算**（v1.0 M7h）：§18 的四个数字（VM 启动、派发往返、内存、日志增长）写成规格 —— 每个从哪里量到哪里、在什么条件下、以及预算怎么核对。 | 活跃（v1.0 规范） |
+| [multi-repo.md](multi-repo.md) — [中文](multi-repo.zh-CN.md) | **跨两个仓库工作**（v1.0 M7i）：`riscdom-adminapp` 如何与本仓并立、如何取得内核（git 依赖钉 tag）、继承什么、自己拥有什么，以及仍未定的 CLA 问题。 | 活跃（v1.0 规范） |
 | [toolchain-setup.md](toolchain-setup.md) — [中文](toolchain-setup.zh-CN.md) | 安装并指向 RISC-V 裸机编译器。 | 活跃 |
 | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) — [中文](../THIRD_PARTY_NOTICES.zh-CN.md) | QEMU、下载来的工具链及其余：它们各自是独立的程序、各自的许可证。 | 活跃 |
 

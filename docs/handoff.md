@@ -187,6 +187,13 @@ current request authorising it (§2).
   node's ten agent QEMU children; default `VM_MEMORY_MB = 128` → ten guests ≈ 1.25 GB), and log growth
   (append-only, no rotation, no `DELETE` — a shape, not a rate) — plus how each is checked and what is not
   covered. **Specification only**; the harness is later. **Decision §115.**
+- **And the two-repository relationship is written down** (v1.0 batch AS / M7i, 2026-09-29): `docs/multi-repo.md`
+  + zh are the CONTRIBUTING additions roadmap §11 asks for — the management program (`riscdom-adminapp`)
+  consumes the kernel as a **git dependency pinned to a tag** (`{ git = …, tag = "vX.Y.Z" }`; kernel `path`
+  deps resolve to the same checkout; `Cargo.lock` is the real pin), with crates.io deferred and a vendored
+  subtree rejected, plus what the second repository inherits and owns. **The CLA across repositories is left
+  open** and decided with the split (M7a). `CONTRIBUTING.md` + zh gain a pointer. **Specification only**; the
+  split (M7a) and release moves (M7b) are later. **Decision §116.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new
