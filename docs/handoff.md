@@ -207,6 +207,18 @@ current request authorising it (§2).
   the workspace runtime and imposes no async runtime; TypeScript reads the stream with `fetch`, not
   `EventSource`. Versioning follows the API's. **Specification only**; the libraries are a later batch.
   **Decision §118.**
+- **And the backup specification is corrected** (v1.0 batch AW / M7e, 2026-09-29): M7e-1's first reconnaissance
+  found the frozen `docs/backup.md` wrong in two places, and this batch fixes the document before any code.
+  **Two roots**: the audit store is at `<workspace>/.riscdom/audit.db` and snapshots under
+  `<workspace>/.riscdom/snapshots/<device>/<id>/` — **not** under the data directory as first written — while
+  `settings.json`, `sessions.db`, `token`, `node.key`, `peers.json` and `rooms.json` stay in the data
+  directory; `toolchain/`, `qemu/`, the workspace's project files and `.bak` files are not state and are not
+  carried. **Credentials**: the OS keyring has **no enumeration API**, so the tool **derives the account names
+  from `settings.json`** (`llm-api-key:<executor_id>:<provider_id>`, the legacy `llm-api-key:<provider_id>`,
+  `remote-token:<host>`) and **reports, rather than silently misses**, what it cannot derive — the package's
+  one declared outside dependency, an honest limit stated as `connection.md` §3.2 states one. **Specification
+  only**; no source file changed, and no new decision entry was appended (the correction is recorded in the
+  document, `CHANGELOG` and here).
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

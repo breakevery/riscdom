@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **And the backup specification is corrected** (v1.0 batch AW / M7e): `docs/backup.md` and its translation
+  now describe a node's state as it actually is — **two roots**, the data directory and the workspace's
+  `.riscdom/` (the audit store is at `<workspace>/.riscdom/audit.db`, snapshots under
+  `<workspace>/.riscdom/snapshots/<device>/<id>/`, not under the data directory as first written) — and say
+  what is *not* state (`toolchain/`, `qemu/`, the workspace's project files, `.bak` files). The **credentials
+  contract** is corrected too: the OS keyring has no enumeration API, so the tool **derives the account names
+  from `settings.json`** (`llm-api-key:<executor_id>:<provider_id>`, the legacy `llm-api-key:<provider_id>`,
+  and `remote-token:<host>`) and **reports, rather than silently misses**, whatever it cannot derive — the
+  package's one declared outside dependency. Specification only; no source file changed.
 - **And the SDKs are written down** (v1.0 batch AU / M7c + M7d): `docs/sdk.md` and its translation specify
   the Rust and TypeScript SDKs as **one thin, typed layer over the frozen surface** (the API tables, the error
   model, the event envelope, the config types) that adds **no semantics** and is **generated from the route

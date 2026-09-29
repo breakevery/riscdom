@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **而备份规格被修正了**（v1.0 批 AW / M7e）：`docs/backup.md` 及其译文现在按实际情况描述一个节点的状态 —— **两个根**，数据目录与 workspace 的 `.riscdom/`（审计存储在 `<workspace>/.riscdom/audit.db`、快照在 `<workspace>/.riscdom/snapshots/<device>/<id>/` 下，不是初稿所写的在数据目录下）—— 并说明什么*不是*状态（`toolchain/`、`qemu/`、workspace 里的项目文件、`.bak` 文件）。**凭据契约**也修正了：OS keyring 没有枚举 API，所以工具**从 `settings.json` 反推账户名**（`llm-api-key:<executor_id>:<provider_id>`、legacy 的 `llm-api-key:<provider_id>`、以及 `remote-token:<host>`），并**报告而非静默漏掉**它反推不出来的 —— 那是这个包唯一声明的包外依赖。仅规格；没有源文件被改动。
+
 - **而 SDK 写下来了**（v1.0 批 AU / M7c + M7d）：`docs/sdk.md` 及其译文把 Rust 与 TypeScript SDK 定成**一个盖在冻结表面上的薄而带类型的层**（API 表、错误模型、事件 envelope、配置类型），**不添加任何语义**、且**从服务器被断言对着的那张路由表生成** —— 不是第四份拷贝。Rust 不依赖 workspace 运行时、不强加 async；TypeScript 是一个浏览器/Node 通用包、用 `fetch` 而非 `EventSource` 读流。版本化跟随 API（v1.0 冻结前钉版本范围）。**仅规格**；库在后。**决策 §118。**
 
 - **而备份与可移植性写下来了**（v1.0 批 AT / M7e）：`docs/backup.md` 及其译文把 `riscdom-backup` 定成规格 —— 一个节点的持久状态列成一个封闭集合（`settings.json`、两个 SQLite 存储、`token`、`node.key`、`peers.json`、`rooms.json`、`snapshots/`，以及 **OS keyring** 条目），导出为**一个在运维者口令下加密的文件**（从不存盘、从不进命令行、从不打印；不提供未加密的包），**审计存储经 SQLite 的一致性路径取出**（WAL：字节拷贝会漏 `-wal` 帧）。导入拒绝静默覆盖与 `data_too_new` 的包、把凭据重新录入 keyring、并恢复节点的**身份**。可移植性的单位是整个节点。**仅规格**；工具在后。**决策 §117。**
