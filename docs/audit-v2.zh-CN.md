@@ -45,6 +45,8 @@
 
 `main` / `temporary`、`open` / `closed` / `folded` / `forked` 是**落盘的字**；读回者是 [`SegmentKind::parse`](../audit/src/segment.rs) / [`SegmentState::parse`](../audit/src/segment.rs)——它们对不认识的单词答 `None`，而不是去猜。
 
+**[已定]** **M5-1b 开与关一个段。** `AuditStore::open_segment(kind)` 写下该行 —— `head_prev_chain` 取**那一刻**链的头，在任何追加**之前**读出 —— 然后把开启事件（§6）追加到**主链**；若那次追加失败，行被移除，所以一个段行总是带着它的开启事件。`AuditStore::close_segment(&segment_id)` 置 `state = closed` 与 `closed_at_ms`，然后追加关闭事件，若那次追加失败就把行放回 `open`。`segments` 表**没有 append-only 触发器** —— 它是坐在链*旁边*的记录，与 `runs` 一样 —— 所以它自己的行可以被更新；链的行只被追加。
+
 ## 4. 跨段引用
 
 **[已定]** **段首记录它从何处承接，而那份记录是元数据。** 字段是 `head_prev_chain`：段开启时主链的头哈希。同时握着段与链的验证者，可以检查该段确实接在它自称的位置上，**而无需以任何不同方式重算哈希** —— 引用坐在事件旁边，[`compute_hash`](../audit/src/hash.rs) 从不读它。
@@ -63,10 +65,12 @@
 
 ## 6. 段事件（预留）
 
-这些名字**在此记录、由 M5-1b 实现** —— 本批不写任何事件：
+**[已定]** **生命周期事件在主链上**，由 M5-1b 写下：
 
-- `host.audit.segment_opened` —— 一个段开启。
-- `host.audit.segment_closed` —— 一个段关闭。
+- `host.audit.segment_opened` —— 一个段开启。detail：`{ "segment_id": …, "kind": "main" | "temporary", "head_prev_chain": <哈希或 null> }`。
+- `host.audit.segment_closed` —— 一个段关闭。detail：`{ "segment_id": …, "closed_at_ms": <epoch ms> }`。
+
+两者都以 `segment_id IS NULL` 写下（记录段的*生命*不是段自己的事件），两者都是普通追加，且都携带 §3 所存的那个字（`kind` 是 `SegmentKind::as_str`）。
 
 它们属 **`host.audit.`** 族，那是审计子系统自己的族（连接层的事实留在 `host.connection.*`：`key_minted`、`data_too_new`、`peer_offline`、`peer_recovered`）。它们是**审计事件名**，不是流名：`control-plane-events.md` 的二十个名字是另一套词汇（`agent:*`、`vm:*`、`m:*`……），本文不碰它们。
 

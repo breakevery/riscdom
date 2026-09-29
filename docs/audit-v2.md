@@ -72,6 +72,14 @@ The `segments` table (created by M5-1a; written by M5-1b):
 reader is [`SegmentKind::parse`](../audit/src/segment.rs) / [`SegmentState::parse`](../audit/src/segment.rs),
 which answers `None` for a word it does not know rather than guessing.
 
+**[settled]** **M5-1b opens and closes one.** `AuditStore::open_segment(kind)` writes the row — with
+`head_prev_chain` set to the chain's head **at that moment**, read *before* anything is appended — and then
+appends the opening event (§6) to the **main chain**; if that append fails the row is removed, so a segment
+row always has its opening event. `AuditStore::close_segment(&segment_id)` sets `state = closed` and
+`closed_at_ms`, then appends the closing event, and puts the row back to `open` if that append fails. The
+`segments` table has **no append-only trigger** — it is the record *beside* the chain, like `runs` — so its
+own rows may be updated; the chain's rows are only ever appended.
+
 ## 4. Cross-segment references
 
 **[settled]** **A segment's head records where it continues from, and that record is metadata.** The field
@@ -98,10 +106,15 @@ bears on how a segment's head is shaped in (a)/(b)/(c) of §2.
 
 ## 6. The segment events (reserved)
 
-These names are **recorded here and implemented by M5-1b** — this batch writes no event:
+**[settled]** **The lifecycle events are on the main chain**, and M5-1b writes them:
 
-- `host.audit.segment_opened` — a segment opened.
-- `host.audit.segment_closed` — a segment closed.
+- `host.audit.segment_opened` — a segment opened. Detail:
+  `{ "segment_id": …, "kind": "main" | "temporary", "head_prev_chain": <hash or null> }`.
+- `host.audit.segment_closed` — a segment closed. Detail:
+  `{ "segment_id": …, "closed_at_ms": <epoch ms> }`.
+
+Both are written with `segment_id IS NULL` (the record of the segment's *life* is not one of the segment's
+own events), both are ordinary appends, and both carry the words §3 stores (`kind` is `SegmentKind::as_str`).
 
 They belong to the **`host.audit.`** family, which is the audit subsystem's own (the connection layer's facts
 stay in `host.connection.*`: `key_minted`, `data_too_new`, `peer_offline`, `peer_recovered`). They are

@@ -320,6 +320,15 @@ current request authorising it (§2).
   `append_once` and both append-only triggers are untouched.** Two things are the owner's to settle: the
   **physical shape** of a temporary segment's own chain, and the **event-name family** (`host.audit.*`
   recorded as the recommendation). **Decision §129.**
+- **And a segment opens and closes** (v1.0 batch BN / M5-1b, 2026-09-30): `audit` gains
+  `AuditStore::open_segment(kind)` / `close_segment(&segment_id)`. Opening writes the `segments` row —
+  `state = open`, and **`head_prev_chain` = the chain's head read before anything is appended** — then
+  appends **`host.audit.segment_opened`** (`{ segment_id, kind, head_prev_chain }`) to the **main chain**
+  (`segment_id IS NULL`); closing updates the row and appends **`host.audit.segment_closed`**
+  (`{ segment_id, closed_at_ms }`). A failed append puts the row back, so a segment row always matches its
+  lifecycle event. `SegmentKind` / `SegmentState`'s reader was renamed `parse`. **`compute_hash`,
+  `verify_chain` and both append-only triggers are untouched**, and **no host wires this yet** — a temporary
+  centre is M5-3 and the merge is M5-2. **Decision §130.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

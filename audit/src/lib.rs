@@ -31,7 +31,10 @@ pub use run::{
     ACTION_RUN_ABANDONED, ACTION_RUN_END, ACTION_RUN_START, FINGERPRINT_SCHEMA_V1,
     SHORT_FINGERPRINT_LEN,
 };
-pub use segment::{Segment, SegmentKind, SegmentState};
+pub use segment::{
+    segment_closed_detail, segment_opened_detail, Segment, SegmentKind, SegmentState,
+    ACTION_SEGMENT_CLOSED, ACTION_SEGMENT_OPENED,
+};
 pub use sink::{AuditFailureReporter, AuditSink, FileAuditSink, SqliteAuditSink};
 pub use store::{
     AuditStore, EventFilter, APPEND_BACKOFF_BASE, APPEND_MAX_ATTEMPTS, AUDIT_SCHEMA_VERSION,

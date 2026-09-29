@@ -1378,3 +1378,13 @@ trait 属 v1.x 工作。
 **缘由**：三点。**公式与验证者都待在原地。** [decisions §127](decisions.zh-CN.md) 第 2 条扩展的是链的*语义*、不是它的公式；链旁的列与链旁的表既不改 `compute_hash`、也不改 `verify_chain`，而一个可空的标让每一既有行读起来与从前一字不差。**`NULL` 是诚实的默认，而且免费。** 把「主链」做成缺席值，意味着不重写任何行、不跑任何回填 —— 老日志本来就已经对了。**形状先于行为写下。** 有两件事仍留给 owner 拍板 —— 临时段自己那条链的**物理形状**（一份文件加标、一链一份文件稍后并入、或一条独立链 —— 那会让 `verify_chain` 长出分段感知并触及红线 4）与**事件名族** —— 所以 audit-v2.md 把它们记为开放，而不去假定。
 
 **影响**：`audit/src/store.rs` 多出 `segments` 表与幂等的 `segment_id` 迁移；`audit/src/segment.rs` 是新文件（`Segment`、`SegmentKind`、`SegmentState`）；`docs/audit-v2.md` + zh 是新文档（双语对计数 **122 → 124**），`docs/README.md` + zh 各多一行。**`compute_hash`、`verify_chain`、`append_once` 与两个 append-only 触发器未动**，路由、capability 名、审计事件常量、哈希公式或持久化格式均未变。`append_once` 仍列它的七列，所以它写下的每一个事件都带 `segment_id = NULL` —— 主链。
+
+## 130. 一个段开启与关闭，而链把它记下
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 BN / M5-1b）
+
+**决策**：`audit` 多出段的生命周期。`AuditStore::open_segment(kind)` 写下 `segments` 行 —— `state = open`、`opened_at_ms`，以及 `head_prev_chain` = 在任何追加**之前**读出的链头 —— 然后向**主链**（`segment_id IS NULL`）追加一条 **`host.audit.segment_opened`** 事件，detail 为 `{ segment_id, kind, head_prev_chain }`。`AuditStore::close_segment(&segment_id)` 更新该行（`state = closed`、`closed_at_ms`）并追加 **`host.audit.segment_closed`**，detail 为 `{ segment_id, closed_at_ms }`。若事件追加失败，该行被放回 —— 开启时移除、关闭时重新开启 —— 所以一个段行总是与它的生命周期事件一致。`segments` 表没有 append-only 触发器（它是链旁的记录，与 `runs` 一样），所以它自己的行就地更新；链的行只被追加。`SegmentKind` / `SegmentState` 的读取者改名为 **`parse`**（clippy：`from_str` 会被读成 `std::str::FromStr`）。
+
+**缘由**：三点。**生命周期是链的事实，所以记在链上。** 一个段的存在必须与其它东西一样可审计，所以开启与关闭是普通审计事件 —— 不是读者可能错过的侧表条目 —— 且它们走**主链**，因为它们描述段的*生命*、不是它的内容。**引用在事件之前取，而非之后。** 先取头，正是让 `head_prev_chain` 成为段所承接的那个点：若在追加之后读，它会指名片自己的开启事件，引用便说了等于没说。**公式未动，验证者也未动。** 两条新事件都是五输入哈希下的普通追加，`segments` 行坐在链旁边，而 `verify_chain` 走的仍是它一直走的那同一条链。
+
+**影响**：`audit/src/segment.rs` 多出两个 action 常量、两个 detail 构造器与 `Segment::from_row`；`audit/src/store.rs` 多出 `open_segment`、`close_segment`、`segment`、`segments` 及其助手；`docs/audit-v2.md` + zh 的 §3 与 §6 写实。**`compute_hash`、`verify_chain` 与两个 append-only 触发器未动**，路由、capability 名、审计事件常量、哈希公式或持久化格式均未变，两个新名是 **`host.audit.*`** 审计事件、不是流名（`control-plane-events.md` 的二十个名字是另一套词汇）。**尚无任何宿主接线**：临时中心是 M5-3、并入是 M5-2，所以 M5-1b 是后一批要调用的 API。

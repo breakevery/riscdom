@@ -11,6 +11,15 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The audit event that records a segment **opening** (v1.0 M5-1b).
+///
+/// It is written on the **main chain** (`segment_id IS NULL`): it describes the segment's *life*, and
+/// is not one of the segment's own events. Same for [`ACTION_SEGMENT_CLOSED`].
+pub const ACTION_SEGMENT_OPENED: &str = "host.audit.segment_opened";
+
+/// The audit event that records a segment **closing** (v1.0 M5-1b).
+pub const ACTION_SEGMENT_CLOSED: &str = "host.audit.segment_closed";
+
 /// Which chain a segment belongs to ([docs/audit-v2.md](../../docs/audit-v2.md)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SegmentKind {
@@ -100,4 +109,55 @@ pub struct Segment {
     pub state: SegmentState,
     /// A human note. Free-form, and stored beside the chain like everything else here.
     pub note: Option<String>,
+}
+
+impl Segment {
+    /// Read a row of the `segments` table (§3 of [docs/audit-v2.md](../../docs/audit-v2.md)).
+    ///
+    /// A `kind` or `state` word this build does not know is an **error**, not a guess: the table is
+    /// either written by this code or it is not a table this code should read.
+    pub(crate) fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        fn bad(column: usize, value: String) -> rusqlite::Error {
+            rusqlite::Error::FromSqlConversionFailure(
+                column,
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("unknown segment word {value:?}"),
+                )),
+            )
+        }
+        let kind_word: String = row.get(1)?;
+        let state_word: String = row.get(6)?;
+        let kind = SegmentKind::parse(&kind_word).ok_or_else(|| bad(1, kind_word))?;
+        let state = SegmentState::parse(&state_word).ok_or_else(|| bad(6, state_word))?;
+        Ok(Self {
+            segment_id: row.get(0)?,
+            kind,
+            head_hash: row.get(2)?,
+            head_prev_chain: row.get(3)?,
+            opened_at_ms: row.get(4)?,
+            closed_at_ms: row.get(5)?,
+            state,
+            note: row.get(7)?,
+        })
+    }
+}
+
+/// The detail of a [`ACTION_SEGMENT_OPENED`] event (v1.0 M5-1b): what opened, and the chain position it
+/// continues from.
+pub fn segment_opened_detail(segment: &Segment) -> serde_json::Value {
+    serde_json::json!({
+        "segment_id": segment.segment_id,
+        "kind": segment.kind.as_str(),
+        "head_prev_chain": segment.head_prev_chain,
+    })
+}
+
+/// The detail of a [`ACTION_SEGMENT_CLOSED`] event (v1.0 M5-1b): what closed, and when.
+pub fn segment_closed_detail(segment_id: &str, closed_at_ms: i64) -> serde_json::Value {
+    serde_json::json!({
+        "segment_id": segment_id,
+        "closed_at_ms": closed_at_ms,
+    })
 }

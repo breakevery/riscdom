@@ -4,6 +4,10 @@ use crate::error::AuditError;
 use crate::event::{AuditEvent, StoredEvent};
 use crate::hash::{compute_hash, GENESIS_PREV_HASH};
 use crate::run::{RebuildReport, RunRecord, RunStatus};
+use crate::segment::{
+    segment_closed_detail, segment_opened_detail, Segment, SegmentKind, SegmentState,
+    ACTION_SEGMENT_CLOSED, ACTION_SEGMENT_OPENED,
+};
 use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::io::Write;
@@ -559,6 +563,146 @@ impl AuditStore {
             .conn
             .query_row("SELECT COUNT(*) FROM audit_events", [], |r| r.get(0))?;
         Ok(n as usize)
+    }
+
+    // ---- segments (v1.0 M5-1b) -------------------------------------------------
+
+    /// Open a segment and record it on the chain (v1.0 M5-1b).
+    ///
+    /// Two writes, in this order, because the cross-segment reference has to be the head **before** the
+    /// event: the `segments` row — with `head_prev_chain` = the main chain's head *right now*, fetched
+    /// before anything is appended — then a [`ACTION_SEGMENT_OPENED`] event on the **main chain**
+    /// (`segment_id IS NULL`; the event describes the segment's life, and is not one of the segment's own
+    /// events). A failed append removes the row just written, so a segment row always has its opening
+    /// event.
+    ///
+    /// The `segments` table has **no append-only trigger** — it is the record *beside* the chain, like
+    /// `runs` — so its own rows may be updated; the chain's rows are only ever appended.
+    pub fn open_segment(&mut self, kind: SegmentKind) -> Result<Segment, AuditError> {
+        let now = crate::event::now_ms();
+        let segment = Segment {
+            segment_id: self.free_segment_id(now)?,
+            kind,
+            head_hash: None,
+            head_prev_chain: self.last_hash()?,
+            opened_at_ms: Some(now),
+            closed_at_ms: None,
+            state: SegmentState::Open,
+            note: None,
+        };
+        self.insert_segment(&segment)?;
+        if let Err(error) = self.append(AuditEvent::new(
+            "host",
+            ACTION_SEGMENT_OPENED,
+            segment_opened_detail(&segment),
+        )) {
+            // Put the table back the way it was: a segment row without its opening event would be a
+            // record the chain cannot explain.
+            self.conn.execute(
+                "DELETE FROM segments WHERE segment_id = ?1",
+                [&segment.segment_id],
+            )?;
+            return Err(error);
+        }
+        Ok(segment)
+    }
+
+    /// Close a segment and record it on the chain (v1.0 M5-1b).
+    ///
+    /// The row is updated (`state = closed`, `closed_at_ms = now`) and a [`ACTION_SEGMENT_CLOSED`] event
+    /// is appended to the **main chain**. A failed append puts the row back to `open`.
+    pub fn close_segment(&mut self, segment_id: &str) -> Result<Segment, AuditError> {
+        let Some(mut segment) = self.segment(segment_id)? else {
+            return Err(AuditError::Other(format!("no segment {segment_id}")));
+        };
+        let now = crate::event::now_ms();
+        self.set_segment_state(segment_id, SegmentState::Closed, Some(now))?;
+        if let Err(error) = self.append(AuditEvent::new(
+            "host",
+            ACTION_SEGMENT_CLOSED,
+            segment_closed_detail(segment_id, now),
+        )) {
+            self.set_segment_state(segment_id, SegmentState::Open, None)?;
+            return Err(error);
+        }
+        segment.state = SegmentState::Closed;
+        segment.closed_at_ms = Some(now);
+        Ok(segment)
+    }
+
+    /// One segment by name, or `None`.
+    pub fn segment(&self, segment_id: &str) -> Result<Option<Segment>, AuditError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT segment_id, kind, head_hash, head_prev_chain, opened_at_ms, closed_at_ms, state, note \
+             FROM segments WHERE segment_id = ?1",
+        )?;
+        let mut rows = stmt.query([segment_id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(Segment::from_row(row)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Every segment, by name.
+    pub fn segments(&self) -> Result<Vec<Segment>, AuditError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT segment_id, kind, head_hash, head_prev_chain, opened_at_ms, closed_at_ms, state, note \
+             FROM segments ORDER BY segment_id ASC",
+        )?;
+        let rows = stmt.query_map([], Segment::from_row)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    fn insert_segment(&self, segment: &Segment) -> Result<(), AuditError> {
+        self.conn.execute(
+            "INSERT INTO segments \
+             (segment_id, kind, head_hash, head_prev_chain, opened_at_ms, closed_at_ms, state, note) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                segment.segment_id,
+                segment.kind.as_str(),
+                segment.head_hash,
+                segment.head_prev_chain,
+                segment.opened_at_ms,
+                segment.closed_at_ms,
+                segment.state.as_str(),
+                segment.note,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn set_segment_state(
+        &self,
+        segment_id: &str,
+        state: SegmentState,
+        closed_at_ms: Option<i64>,
+    ) -> Result<(), AuditError> {
+        self.conn.execute(
+            "UPDATE segments SET state = ?2, closed_at_ms = ?3 WHERE segment_id = ?1",
+            params![segment_id, state.as_str(), closed_at_ms],
+        )?;
+        Ok(())
+    }
+
+    /// A `segment_id` no row uses yet: the opened-at millisecond, disambiguated if two segments open
+    /// inside one.
+    fn free_segment_id(&self, now: i64) -> Result<String, AuditError> {
+        let base = format!("seg-{now}");
+        if self.segment(&base)?.is_none() {
+            return Ok(base);
+        }
+        for n in 2..=u32::MAX {
+            let candidate = format!("seg-{now}-{n}");
+            if self.segment(&candidate)?.is_none() {
+                return Ok(candidate);
+            }
+        }
+        Err(AuditError::Other("could not mint a segment id".to_string()))
     }
 
     /// Fetch a single event by id.

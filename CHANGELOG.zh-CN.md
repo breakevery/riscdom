@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **一个段开启与关闭，而链把它记下**（v1.0 批 BN / M5-1b）：`audit` 多出 `AuditStore::open_segment(kind)` / `close_segment(&segment_id)`。开启写下 `segments` 行 —— **`head_prev_chain` = 事件之前读出的链头** —— 并向**主链**（`segment_id IS NULL`）追加 **`host.audit.segment_opened`**；关闭更新该行并追加 **`host.audit.segment_closed`**。追加失败时行被放回，所以段行总与它的生命周期事件一致。**`compute_hash`、`verify_chain` 与 append-only 触发器未动**，且尚无宿主接线（临时中心是 M5-3）。**决策 §130。**
+
 - **段 schema 落地，坐在链旁边**（v1.0 批 BM / M5-1a）：`audit_events` 多出一个**可空**的 **`segment_id`** 列，`SCHEMA` 多出一张 **`segments`** 表 —— audit v2 的形状，仅此而已。**`NULL` 意为主链**，这正是 M5 之前的每一行，所以老日志零改写即读对；`AUDIT_SCHEMA_VERSION` **保持 1**。`audit` 还多出 `Segment` / `SegmentKind` / `SegmentState`；**不开任何段、不写任何行**（那是 M5-1b）。`docs/audit-v2.md` + zh 是新文档，把语义写下来。**`compute_hash`、`verify_chain` 与 append-only 触发器未动。** **决策 §129。**
 
 - **链的 digest 上路**（v1.0 批 BK / M4e-1）：`net` 现在把一个节点的链报告给它所在的跨区域服务器，而 `connection.md` §7 是一份形状、不是一个标题。digest 是**对链上某一点的一份承诺** —— 链的头哈希与事件数，从 `audit` 已有的 `last_hash()` / `count()` 读出 —— 以一条普通 §3 帧承载为 `{ "digest": 1, "chain": …, "length": … }`，**在内存里按节点持有最新一份**，并按 **30 秒默认定时器**发送。`host-core` 把这个定时器作为第三条连接线程、与心跳和探测并列。**`audit` 一行不动**：哈希公式、`verify_chain` 与触发器均未变，一个刚被读过 digest 的储存仍然 `Intact`。关键事件的即时推送是 M4e-2。**决策 §128。**

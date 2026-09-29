@@ -3737,3 +3737,35 @@ bilingual pair count goes **122 → 124**) and `docs/README.md` + zh gain a row.
 `verify_chain`, `append_once` and both append-only triggers are untouched**, and no route, capability name,
 audit event constant, hash formula or persisted format changes. `append_once` still lists its seven columns,
 so every event it writes carries `segment_id = NULL` — the main chain.
+
+## 130. A segment opens and closes, and the chain records it
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch BN / M5-1b)
+
+**Decision**: `audit` gains the segment lifecycle. `AuditStore::open_segment(kind)` writes the `segments`
+row — `state = open`, `opened_at_ms`, and `head_prev_chain` = the chain's head **read before anything is
+appended** — and then appends a **`host.audit.segment_opened`** event to the **main chain**
+(`segment_id IS NULL`), whose detail is `{ segment_id, kind, head_prev_chain }`.
+`AuditStore::close_segment(&segment_id)` updates the row (`state = closed`, `closed_at_ms`) and appends
+**`host.audit.segment_closed`** with `{ segment_id, closed_at_ms }`. If the event append fails the row is put
+back — removed on open, re-opened on close — so a segment row always matches its lifecycle event. The
+`segments` table has no append-only trigger (it is the record beside the chain, like `runs`), so its own rows
+are updated in place; the chain's rows are only ever appended. `SegmentKind` / `SegmentState`'s reader was
+renamed **`parse`** (clippy: `from_str` reads as `std::str::FromStr`).
+
+**Why**: Three points. **The lifecycle is a chain fact, so it is recorded on the chain.** A segment's
+existence has to be as auditable as anything else, so opening and closing are ordinary audit events — not a
+side-table entry a reader might miss — and they go on the **main chain** because they describe the segment's
+*life*, not its contents. **The reference is taken before the event, not after.** Taking the head first is
+what makes `head_prev_chain` the point the segment continues *from*: reading it after the append would name
+the segment's own opening event, and the reference would say nothing. **The formula stays untouched, and so
+does the verifier.** Both new events are ordinary appends under the five-input hash, the `segments` row is
+beside the chain, and `verify_chain` walks the same single chain it always did.
+
+**Impact**: `audit/src/segment.rs` gains the two action constants, the two detail builders and
+`Segment::from_row`; `audit/src/store.rs` gains `open_segment`, `close_segment`, `segment`, `segments` and
+their helpers; `docs/audit-v2.md` + zh §3 and §6 are written out. **`compute_hash`, `verify_chain` and both
+append-only triggers are untouched**, no route, capability name, audit event constant, hash formula or
+persisted format changes, and the two new names are **`host.audit.*`** audit events, not stream names (the
+twenty `control-plane-events.md` names are a different vocabulary). **No host wires this yet**: a temporary
+centre is M5-3 and the merge is M5-2, so M5-1b is the API a later batch calls.

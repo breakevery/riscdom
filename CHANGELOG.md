@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A segment opens and closes, and the chain records it** (v1.0 batch BN / M5-1b): `audit` gains
+  `AuditStore::open_segment(kind)` / `close_segment(&segment_id)`. Opening writes the `segments` row — with
+  **`head_prev_chain` = the chain's head read before the event** — and appends **`host.audit.segment_opened`**
+  to the **main chain** (`segment_id IS NULL`); closing updates the row and appends
+  **`host.audit.segment_closed`**. A failed append puts the row back, so a segment row always matches its
+  lifecycle event. **`compute_hash`, `verify_chain` and the append-only triggers are untouched**, and no host
+  wires it yet (a temporary centre is M5-3). **Decision §130.**
+
 - **The segment schema lands, beside the chain** (v1.0 batch BM / M5-1a): `audit_events` gains a nullable
   **`segment_id`** column and `SCHEMA` gains a **`segments`** table — the shape of audit v2, and nothing
   else. **`NULL` means the main chain**, which is what every pre-M5 row already is, so an old log reads
