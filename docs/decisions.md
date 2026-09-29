@@ -3293,3 +3293,40 @@ batch**: its flags, cipher and file extension are written against this document,
 implemented yet. It meets the other v1.0 specs where they overlap: the marker table of
 [api-compatibility.md §6](api-compatibility.md), the "not covered" list of [config-schema.md](config-schema.md) §5,
 and the snapshot budget of [performance-budget.md](performance-budget.md).
+
+## 118. The SDKs are one thin typed layer over the frozen surface, in Rust and TypeScript first
+
+**Date**: 2026-09-29 ｜ **Status**: Decided; specification only (batch AU / M7c + M7d)
+
+**Decision**: The SDKs ([roadmap §11](roadmap-v1.0.md); Rust and TypeScript first, [§14.12](roadmap-v1.0.md)'s
+**[default]**) are specified in **`docs/sdk.md`** (+ zh). An SDK is a **thin, typed layer over the surface the
+other documents already freeze** — [control-plane-api.md](control-plane-api.md) §5's endpoint tables, its §3
+authentication and §4 error model, [control-plane-events.md](control-plane-events.md)'s envelope, and
+[config-schema.md](config-schema.md)'s persisted types — and it adds **no semantics**: where a rule lives in
+those documents, the SDK points at them rather than restating them. **The route table is the single source of
+truth**, so the surface is generated from the table the server is asserted against
+(`the_table_has_the_documented_endpoints`) rather than hand-copied. The **Rust** SDK depends on nothing of
+this workspace's runtime (it never links `host-core`) and imposes no async runtime; the **TypeScript** SDK is
+one package for browser and Node and reads the stream with **`fetch`, not `EventSource`** (a documented
+gotcha: the stream needs `Authorization: Bearer`). **Versioning follows the API's**: before the freeze an SDK
+pins a RiscDom version range, and [api-compatibility.md §6](api-compatibility.md)'s markers govern the
+persisted types. The SDK is for **third parties** and is **not** what the CLI or the management program's
+front end is rewritten onto — those are inside the project. Nothing is implemented in this batch.
+
+**Why**: Four points. **The contract already exists; the SDK must not fork it.** The API, the stream and the
+types are frozen in three documents with tests behind them, so an SDK that re-decided what a route means would
+be a fourth, drifting copy — hence the generate-from-the-table rule and the point-at-the-document rule. **An
+SDK's promise is only as good as the API's stability.** [control-plane-api.md](control-plane-api.md) §7 says
+v0.x ships breaking changes without a bump and **v1.0 is the freeze**; an SDK that promised more than that
+would be dishonest, so it pins a RiscDom version range until the freeze and only then inherits §7's guarantee.
+**Rust and TypeScript are the priority, not the limit.** §14.12 makes them first because they are the two
+languages this repository already speaks; the surface they wrap is HTTP + JSON + an SSE-shaped stream, so
+alater language follows the same contract. **The SDK is a third-party product, distinct from the kernel's
+crates.** The management program consumes the **kernel** through a git dependency ([decisions §116](decisions.md));
+it does not consume the SDK, which exists for people who are not inside the project.
+
+**Impact**: `docs/sdk.md` and its translation are new (`docs/README.md` + zh gain a row; the bilingual pair
+count goes **112 → 114**); nothing else changes — **no source file, no dependency, no route, no capability
+name, no audit event constant, no hash formula and no persisted format**. **The libraries are a later batch**;
+whether they are published to a registry (crates.io, npm) is theirs, tied to the question
+[decisions §116](decisions.md) / [multi-repo.md §2](multi-repo.md) defers for the kernel.

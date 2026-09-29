@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **And the SDKs are written down** (v1.0 batch AU / M7c + M7d): `docs/sdk.md` and its translation specify
+  the Rust and TypeScript SDKs as **one thin, typed layer over the frozen surface** (the API tables, the error
+  model, the event envelope, the config types) that adds **no semantics** and is **generated from the route
+  table** the server is asserted against — not a fourth copy. Rust depends on nothing of the workspace runtime
+  and imposes no async runtime; TypeScript is one browser/Node package that reads the stream with `fetch`, not
+  `EventSource`. Versioning follows the API's (a version range before the v1.0 freeze). **Specification only**;
+  the libraries are a later batch. **Decision §118.**
+
 - **And backup and portability are written down** (v1.0 batch AT / M7e): `docs/backup.md` and its
   translation specify `riscdom-backup` — a node's persistent state enumerated in one closed set
   (`settings.json`, the two SQLite stores, `token`, `node.key`, `peers.json`, `rooms.json`, `snapshots/`, and

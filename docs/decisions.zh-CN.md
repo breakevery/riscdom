@@ -1249,3 +1249,13 @@ trait 属 v1.x 工作。
 **缘由**：四点。**§19 的「不需要包外的任何东西」使 keyring 成为必带的货物。** API key 与服务器 token 不是文件，所以一个只归数据目录的包仍无法恢复出一个能工作的节点 —— 包必须点名 keyring 并带上它。**备份是私钥与 API key 唯一会同处一室的地方，所以加密不是可选项。** 本项目其它地方都把凭据挡在文件之外（keyring 规矩，[decisions §6](decisions.zh-CN.md)）；一个把它们写进单个明文文件的备份会一步把那份努力抹掉，所以包是加密的、而口令绝不碰工具的磁盘。**一致性重于速度。** 一份被撕裂的审计存储比没有备份更糟，因为它看起来像历史却不是，而 [api-compatibility.md §6](api-compatibility.zh-CN.md) 早就知道对 `audit.db` 的字节拷贝会漏 `-wal` 帧 —— 所以规范点名禁止字节拷贝。**搬动不是覆盖，旧节点读不了新包。** 导入拒绝覆盖一个节点、拒绝更新的标记，正是 [api-compatibility.md §6](api-compatibility.zh-CN.md) 的规则用在恢复上。
 
 **影响**：`docs/backup.md` 及其译文是新的（`docs/README.md`+zh 各多一行；双语对计数 **110 → 112**）；其余不变 —— **没有源文件、依赖、路由、capability 名、审计事件常量、哈希公式或持久化格式被改动**。**工具是后续批次**：它的参数、密码与文件扩展名对着本文写，这里没有任何东西被实现。它在与其它 v1.0 规范相叠处相会：[api-compatibility.md §6](api-compatibility.zh-CN.md) 的标记表、[config-schema.md](config-schema.zh-CN.md) §5 的「不覆盖」清单、以及 [performance-budget.md](performance-budget.zh-CN.md) 的快照预算。
+
+## 118. SDK 是盖在冻结表面上的一个薄而带类型的层，Rust 与 TypeScript 优先
+
+**日期**：2026-09-29 ｜ **状态**：已定；仅规格（批 AU / M7c + M7d）
+
+**决策**：SDK（[roadmap §11](roadmap-v1.0.zh-CN.md)；Rust 与 TypeScript 优先，[§14.12](roadmap-v1.0.zh-CN.md) 的 **[默认]**）写进了 **`docs/sdk.md`**（+ zh）。一个 SDK 是一个**薄而带类型的层，盖在其它文档已经冻结的表面上** —— [control-plane-api.md](control-plane-api.zh-CN.md) §5 的端点表、其 §3 认证与 §4 错误模型、[control-plane-events.md](control-plane-events.zh-CN.md) 的 envelope、以及 [config-schema.md](config-schema.zh-CN.md) 的持久化类型 —— 且它**不添加任何语义**：凡规则住在那些文档里，SDK 就指向它们而不复述。**路由表是单一真源**，所以表面是据「服务器被断言对着的那张表」**生成**的（`the_table_has_the_documented_endpoints`），不是手工拷贝。**Rust** SDK 不依赖本 workspace 的任何运行时件（从不链接 `host-core`）、不强加 async 运行时；**TypeScript** SDK 是一个浏览器与 Node 通用的包，并用 **`fetch`、不用 `EventSource`** 读流（有记录的坑：流需要 `Authorization: Bearer`）。**版本化跟随 API**：冻结前 SDK 钉一个 RiscDom 版本范围，而持久化类型由 [api-compatibility.md §6](api-compatibility.zh-CN.md) 的标记治理。SDK 是给**第三方**的，**不是** CLI 或管理程序前端要被改写上去的东西 —— 那些在项目之内。本批不实现任何东西。
+
+**缘由**：四点。**契约已经存在，SDK 不得把它岔开。** API、流与类型在三个文档里冻结、背后有测试，所以一个重新决定「路由是什么意思」的 SDK 会是第四份、会漂移的拷贝 —— 因此有「从表生成」与「指向文档」这两条规则。**SDK 的承诺只与 API 的稳定性一样好。** [control-plane-api.md](control-plane-api.zh-CN.md) §7 说 v0.x 发布破坏性变更而不升前缀、**v1.0 才是冻结**；一个承诺超过此的 SDK 会是不诚实的，所以它冻结前钉 RiscDom 版本范围、之后才继承 §7 的保证。**Rust 与 TypeScript 是优先、不是上限。** §14.12 把它们放在最前，因为它们是本仓已经在说的两门语言；它们所包的表面是 HTTP + JSON + 一个 SSE 形状的流，所以后来的语言遵循同一份契约。**SDK 是一个第三方产品，与内核的 crate 不同。** 管理程序通过 git 依赖（[decisions §116](decisions.zh-CN.md)）消费**内核**；它不消费 SDK，而 SDK 是给项目之外的人的。
+
+**影响**：`docs/sdk.md` 及其译文是新的（`docs/README.md`+zh 各多一行；双语对计数 **112 → 114**）；其余不变 —— **没有源文件、依赖、路由、capability 名、审计事件常量、哈希公式或持久化格式被改动**。**库是后续批次**；它们是否发布到 registry（crates.io、npm）是那一批的事，系于 [decisions §116](decisions.zh-CN.md) / [multi-repo.md §2](multi-repo.zh-CN.md) 为内核推迟的问题。

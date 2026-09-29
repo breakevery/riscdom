@@ -200,6 +200,13 @@ current request authorising it (§2).
   SQLite's consistent path** (WAL: a byte copy can miss `-wal` frames); import refuses silent overwrite and
   a `data_too_new` package, re-enters credentials into the keyring, and restores the node's identity. The
   portability unit is the whole node. **Specification only**; the tool is a later batch. **Decision §117.**
+- **And the SDKs are written down** (v1.0 batch AU / M7c + M7d, 2026-09-29): `docs/sdk.md` + zh specify the
+  **Rust and TypeScript** SDKs (roadmap §14.12's priority) as one thin, typed layer over the frozen surface —
+  the API's endpoint tables, its error model, the event envelope and the config types — that adds **no
+  semantics** and is **generated from the route table** the server is asserted against. Rust links none of
+  the workspace runtime and imposes no async runtime; TypeScript reads the stream with `fetch`, not
+  `EventSource`. Versioning follows the API's. **Specification only**; the libraries are a later batch.
+  **Decision §118.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

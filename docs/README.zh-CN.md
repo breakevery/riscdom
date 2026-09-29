@@ -88,6 +88,7 @@
 | [performance-budget.md](performance-budget.md) — [中文](performance-budget.zh-CN.md) | **性能预算**（v1.0 M7h）：§18 的四个数字（VM 启动、派发往返、内存、日志增长）写成规格 —— 每个从哪里量到哪里、在什么条件下、以及预算怎么核对。 | 活跃（v1.0 规范） |
 | [multi-repo.md](multi-repo.md) — [中文](multi-repo.zh-CN.md) | **跨两个仓库工作**（v1.0 M7i）：`riscdom-adminapp` 如何与本仓并立、如何取得内核（git 依赖钉 tag）、继承什么、自己拥有什么，以及仍未定的 CLA 问题。 | 活跃（v1.0 规范） |
 | [backup.md](backup.md) — [中文](backup.zh-CN.md) | **备份与可移植性**（v1.0 M7e）：一个节点的持久状态是什么，以及 `riscdom-backup` 如何把它导出为一件加密、可搬走的包并恢复 —— 审计存储、快照与凭据，且不需要包外的任何东西。 | 活跃（v1.0 规范） |
+| [sdk.md](sdk.md) — [中文](sdk.zh-CN.md) | **SDK**（v1.0 M7c/M7d）：Rust 与 TypeScript 客户端，作为盖在已冻结控制平面表面（API、事件流、配置类型）上的一个薄而带类型的层 —— 它们携带什么、如何版本化，以及「不做第四份拷贝」的规则。 | 活跃（v1.0 规范） |
 | [toolchain-setup.md](toolchain-setup.md) — [中文](toolchain-setup.zh-CN.md) | 安装并指向 RISC-V 裸机编译器。 | 活跃 |
 | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) — [中文](../THIRD_PARTY_NOTICES.zh-CN.md) | QEMU、下载来的工具链及其余：它们各自是独立的程序、各自的许可证。 | 活跃 |
 
