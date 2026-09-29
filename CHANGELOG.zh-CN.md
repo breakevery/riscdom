@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **`riscdom-backup` 存在了，它把一个节点的数据目录导出为一个封好的包**（v1.0 批 AX / M7e-1）：一个新的 workspace crate（`backup/`），其 `export` 读 `settings.json`、`sessions.db`、`token`、`node.key`、`peers.json` 与 `rooms.json`，写一份**清单**逐条记下每个文件的大小、SHA-256 与它格式的标记，并把一个 gzip 过的 tar 封在 **AES-256-GCM** 之下、密钥由运维者口令经 **PBKDF2-HMAC-SHA256** 推得。口令来自 `--passphrase-from-env` 或管道 stdin —— 绝不是命令行参数、绝不落盘、绝不打印。`ring`、`sha2`、`tar`、`flate2` 与 `thiserror` 都已在 `Cargo.lock` 里，所以这加的是**边、不是包**。审计存储、快照与 keyring 是 **AV-2**；在那之前 `export` 不带历史、不带快照、不带凭据，而清单会说出来，在它的 `not_derived` 列表里。**决策 §119。**
+
 - **而备份规格被修正了**（v1.0 批 AW / M7e）：`docs/backup.md` 及其译文现在按实际情况描述一个节点的状态 —— **两个根**，数据目录与 workspace 的 `.riscdom/`（审计存储在 `<workspace>/.riscdom/audit.db`、快照在 `<workspace>/.riscdom/snapshots/<device>/<id>/` 下，不是初稿所写的在数据目录下）—— 并说明什么*不是*状态（`toolchain/`、`qemu/`、workspace 里的项目文件、`.bak` 文件）。**凭据契约**也修正了：OS keyring 没有枚举 API，所以工具**从 `settings.json` 反推账户名**（`llm-api-key:<executor_id>:<provider_id>`、legacy 的 `llm-api-key:<provider_id>`、以及 `remote-token:<host>`），并**报告而非静默漏掉**它反推不出来的 —— 那是这个包唯一声明的包外依赖。仅规格；没有源文件被改动。
 
 - **而 SDK 写下来了**（v1.0 批 AU / M7c + M7d）：`docs/sdk.md` 及其译文把 Rust 与 TypeScript SDK 定成**一个盖在冻结表面上的薄而带类型的层**（API 表、错误模型、事件 envelope、配置类型），**不添加任何语义**、且**从服务器被断言对着的那张路由表生成** —— 不是第四份拷贝。Rust 不依赖 workspace 运行时、不强加 async；TypeScript 是一个浏览器/Node 通用包、用 `fetch` 而非 `EventSource` 读流。版本化跟随 API（v1.0 冻结前钉版本范围）。**仅规格**；库在后。**决策 §118。**

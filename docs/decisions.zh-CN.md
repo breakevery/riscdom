@@ -1259,3 +1259,13 @@ trait 属 v1.x 工作。
 **缘由**：四点。**契约已经存在，SDK 不得把它岔开。** API、流与类型在三个文档里冻结、背后有测试，所以一个重新决定「路由是什么意思」的 SDK 会是第四份、会漂移的拷贝 —— 因此有「从表生成」与「指向文档」这两条规则。**SDK 的承诺只与 API 的稳定性一样好。** [control-plane-api.md](control-plane-api.zh-CN.md) §7 说 v0.x 发布破坏性变更而不升前缀、**v1.0 才是冻结**；一个承诺超过此的 SDK 会是不诚实的，所以它冻结前钉 RiscDom 版本范围、之后才继承 §7 的保证。**Rust 与 TypeScript 是优先、不是上限。** §14.12 把它们放在最前，因为它们是本仓已经在说的两门语言；它们所包的表面是 HTTP + JSON + 一个 SSE 形状的流，所以后来的语言遵循同一份契约。**SDK 是一个第三方产品，与内核的 crate 不同。** 管理程序通过 git 依赖（[decisions §116](decisions.zh-CN.md)）消费**内核**；它不消费 SDK，而 SDK 是给项目之外的人的。
 
 **影响**：`docs/sdk.md` 及其译文是新的（`docs/README.md`+zh 各多一行；双语对计数 **112 → 114**）；其余不变 —— **没有源文件、依赖、路由、capability 名、审计事件常量、哈希公式或持久化格式被改动**。**库是后续批次**；它们是否发布到 registry（crates.io、npm）是那一批的事，系于 [decisions §116](decisions.zh-CN.md) / [multi-repo.md §2](multi-repo.zh-CN.md) 为内核推迟的问题。
+
+## 119. `riscdom-backup` 存在了：一个把数据目录导出为一个封好的包的 crate
+
+**日期**：2026-09-29 ｜ **状态**：已定且已实现（批 AX / M7e-1，「AV-1」）
+
+**决策**：**`backup/` crate**（`riscdom-backup`，bin `riscdom-backup`）实现了 [backup.md](backup.zh-CN.md) 的前一半：`export` 读一个节点的**数据目录** —— `settings.json`、`sessions.db`、`token`、`node.key`、`peers.json` 与 `rooms.json`（§1.1）—— 写出**一个封好的包**：一个 gzip 过的 tar（`manifest.json` 加 `data-dir/*`），其下是 **AES-256-GCM**，密钥由运维者口令经 **PBKDF2-HMAC-SHA256** 推得。**清单**逐条记下每个文件的大小、SHA-256 与它格式的**标记**（`version=2`、`schema_version=1`、`user_version=1`，按 [api-compatibility.md §6](api-compatibility.zh-CN.md) 的方式读 —— `user_version` 直接从 SQLite 头部取，所以工具不需要 SQLite 驱动），外加 `node_id` 与导出的时刻。口令来自 `--passphrase-from-env <VAR>` 或**管道 stdin**，**绝不是命令行参数**、绝不落盘、绝不打印；终端提示是最后手段且会说明它回显。`--output` 没有 `--force` 时拒绝替换已存在的文件。
+
+**缘由**：四点。**数据目录是那一半不需要更多决策的。** 审计存储与快照是**第二个根**、keyring 是必须被反推并报告的那部分（§1.2、§1.4）；那些是 AV-2。数据目录是一个封闭、点名的集合，所以 AV-1 能对着已经冻结的规格把 crate、格式、清单与密码发出来。**`ring` 是密码，因为它已经在 `Cargo.lock` 里。** 它经 `reqwest` 的 `rustls-tls` 进来，所以这加的是**一条边、不是包** —— 本仓 `Cargo.toml` 注释通篇写着的规则 —— 而它给的是 AES-256-GCM 加 PBKDF2-HMAC-SHA256，正是 §2 所要的。`age` **不**在锁里、会拉来一棵新树；它曾是早先的猜法，而锁决定了选择。**先压缩再加密，而且头部是被认证的。** tar 先 gzip 再封口，而 AEAD 的附加数据是整个包头（magic、salt、nonce、轮数），所以改头部会让包读不了、而不只是读错 —— 口令错与被改文件给出**同一个**答案，因为认证加密分不开它们。**包会说出它没带什么。** 清单的 `not_derived` 列表在 AV-1 里为空，因为 keyring 是 AV-2 —— 而它**在那里**，不是一个缺失的字段，所以读者永远不会被迫假设这个包是整个节点。
+
+**影响**：一个新 workspace 成员（`Cargo.toml` 的 `members` 多出 `backup`；gate 的第二条 clippy 行多出 `-p riscdom-backup`，于是新 crate 像其它每个一样被 lint —— 把一个 crate 落在那张清单外，正是前一批为 `worker` 修过的 bug）。**仅新增直接依赖边**：`ring`、`sha2`、`tar`、`flate2`、`thiserror` 都已在 `Cargo.lock` 里，所以**没有新包**被引入，`Cargo.lock` 增的是边、不是版本。`backup/README.md` + zh 是新的（双语对计数 **114 → 116**）；`docs/README.md` + zh 各多一行。**没有路由、capability 名、审计事件常量、哈希公式、持久化格式或内核 crate 被改动**：AV-1 只读数据目录、只写自己的包，不碰运行中节点拥有的任何东西。

@@ -3330,3 +3330,44 @@ count goes **112 → 114**); nothing else changes — **no source file, no depen
 name, no audit event constant, no hash formula and no persisted format**. **The libraries are a later batch**;
 whether they are published to a registry (crates.io, npm) is theirs, tied to the question
 [decisions §116](decisions.md) / [multi-repo.md §2](multi-repo.md) defers for the kernel.
+
+## 119. `riscdom-backup` exists: a crate that exports the data directory as one sealed package
+
+**Date**: 2026-09-29 ｜ **Status**: Decided and implemented (batch AX / M7e-1, "AV-1")
+
+**Decision**: The **`backup/` crate** (`riscdom-backup`, the bin `riscdom-backup`) implements the first
+half of [backup.md](backup.md): `export` reads a node's **data directory** — `settings.json`,
+`sessions.db`, `token`, `node.key`, `peers.json` and `rooms.json` (§1.1) — and writes **one sealed
+package**: a gzipped tar (`manifest.json` plus `data-dir/*`) under **AES-256-GCM**, keyed from the
+operator's passphrase with **PBKDF2-HMAC-SHA256**. The **manifest** names each file with its size, its
+SHA-256 and its format's **marker** (`version=2`, `schema_version=1`, `user_version=1`, read the way
+[api-compatibility.md §6](api-compatibility.md) reads it — `user_version` straight out of SQLite's
+header, so the tool needs no SQLite driver), plus the `node_id` and the export's moment. The passphrase
+comes from `--passphrase-from-env <VAR>` or from **piped stdin**, is **never a command-line argument**,
+is never written to disk, and is never printed; a terminal prompt is a last resort that says it echoes.
+`--output` refuses to replace an existing file without `--force`.
+
+**Why**: Four points. **The data directory is the half that needs no decisions.** The audit store and
+the snapshots are the **second root** and the keyring is the part that must be derived and reported
+(§1.2, §1.4); those are AV-2. The data directory is a closed, named set, so AV-1 can ship the crate, the
+format, the manifest and the cipher against a spec that is already frozen. **`ring` is the cipher
+because it is already in `Cargo.lock`.** It arrives through `reqwest`'s `rustls-tls`, so this adds an
+**edge and no package** — the rule this repository's `Cargo.toml` comments state throughout — and it
+gives AES-256-GCM plus PBKDF2-HMAC-SHA256, which is what §2 asks for. `age` is **not** in the lock and
+would pull a new tree; it was the earlier guess, and the lock settled the choice. **Compression before
+encryption, and the header is authenticated.** The tar is gzipped and then sealed, and the AEAD's
+additional data is the package's whole header (magic, salt, nonce, rounds), so editing the header makes
+the package unreadable rather than merely wrong — a wrong passphrase and a tampered file give **one**
+answer, because an authenticated cipher cannot tell them apart. **The package says what it does not
+carry.** The manifest's `not_derived` list is empty in AV-1 because the keyring is AV-2 — and it is
+**there**, rather than a missing field, so a reader is never left to assume the package is the whole
+node.
+
+**Impact**: A new workspace member (`Cargo.toml`'s `members` gains `backup`; the gate's second clippy
+line gains `-p riscdom-backup`, so the new crate is linted like every other one — leaving a crate out
+of that list is the bug a previous batch fixed for `worker`). **New direct edges only**: `ring`,
+`sha2`, `tar`, `flate2` and `thiserror` are all already in `Cargo.lock`, so **no new package** is added
+and `Cargo.lock` gains edges, not versions. `backup/README.md` + zh are new (the bilingual pair count
+goes **114 → 116**); `docs/README.md` + zh gain a row. **No route, no capability name, no audit event
+constant, no hash formula, no persisted format and no kernel crate changes**: AV-1 reads the data
+directory and writes its own package, and touches nothing a running node owns.

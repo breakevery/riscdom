@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`riscdom-backup` exists, and it exports a node's data directory as one sealed package** (v1.0 batch
+  AX / M7e-1): a new workspace crate (`backup/`) whose `export` reads `settings.json`, `sessions.db`,
+  `token`, `node.key`, `peers.json` and `rooms.json`, writes a **manifest** naming each file with its
+  size, its SHA-256 and its format's marker, and seals a gzipped tar under **AES-256-GCM** keyed from
+  the operator's passphrase with **PBKDF2-HMAC-SHA256**. The passphrase comes from
+  `--passphrase-from-env` or piped stdin — never a command-line argument, never on disk, never
+  printed. `ring`, `sha2`, `tar`, `flate2` and `thiserror` were all already in `Cargo.lock`, so this
+  adds **edges and no packages**. The audit store, the snapshots and the keyring are **AV-2**; until
+  then `export` carries no history, no snapshot and no credential, and the manifest says so in its
+  `not_derived` list. **Decision §119.**
+
 - **And the backup specification is corrected** (v1.0 batch AW / M7e): `docs/backup.md` and its translation
   now describe a node's state as it actually is — **two roots**, the data directory and the workspace's
   `.riscdom/` (the audit store is at `<workspace>/.riscdom/audit.db`, snapshots under

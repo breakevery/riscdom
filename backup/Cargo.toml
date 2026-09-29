@@ -1,0 +1,32 @@
+[package]
+name = "riscdom-backup"
+description = "The portability tool: export a node's state as one encrypted package (v1.0 M7e)"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "riscdom-backup"
+path = "src/main.rs"
+
+[dependencies]
+# Where a node keeps its files comes from the host's own module, so the backup tool
+# cannot disagree with the runtime about `settings.json` or `sessions.db`.
+host-core = { path = "../host-core" }
+# `agent::identity::device()` is the node's `node_id` — the device name is that identity's
+# first part ([net/src/identity.rs](../net/src/identity.rs) says so), so this reads the
+# owner rather than copying the rule.
+agent = { path = "../agent" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The manifest's per-entry hashes. Already in `Cargo.lock` (host-core uses it).
+sha2 = "0.10"
+# The archive: `tar` into `flate2`'s gzip — the same pair the workspace export uses, so the
+# project is not carrying a second archiver.
+tar = "0.4"
+flate2 = "1"
+# The passphrase cipher. `ring` is already in `Cargo.lock` (through `reqwest`'s
+# `rustls-tls`), so this adds an edge and **no package**: AES-256-GCM for the sealed archive
+# and PBKDF2-HMAC-SHA256 for the passphrase, which is what [backup.md](../docs/backup.md) §2
+# asks for ("an authenticated cipher over the archive").
+ring = "0.17"
+thiserror = "1"

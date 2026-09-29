@@ -70,6 +70,7 @@ together, why it is that way, and what was settled.
 | [host-tauri/README.md](../host-tauri/README.md) — [中文](../host-tauri/README.zh-CN.md) | The desktop shell: commands, events, keyring, snapshots, session persistence, manual verification. | living |
 | [worker/README.md](../worker/README.md) — [中文](../worker/README.zh-CN.md) | The executor process and the supervisor half — including the remote executor handle (v0.9 E4). | living |
 | [net/README.md](../net/README.md) — [中文](../net/README.zh-CN.md) | The connection layer (v1.0 M4): node identity on disk today; signing, discovery, rooms and the cross-region server as the frozen sections land. | living |
+| [backup/README.md](../backup/README.md) — [中文](../backup/README.zh-CN.md) | The portability tool (v1.0 M7e): export a node's data directory as one encrypted package with a root manifest; the audit store, snapshots and the keyring follow in AV-2. | living (AV-1) |
 
 ## 3. Distribution integrators
 

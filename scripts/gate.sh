@@ -79,9 +79,9 @@ cargo check -p audit -p sandbox -p agent || fail "cargo check"
 # The two Tauri crates need webkit2gtk / gtk / librsvg on Linux and `host-core` needs
 # `dbus-1` (through `keyring`); CI installs those. `worker` was missing from every clippy
 # list before this batch, on both platforms.
-echo "==> cargo clippy (cli + server + host-core + host-tauri + worker + net)"
+echo "==> cargo clippy (cli + server + host-core + host-tauri + worker + net + riscdom-backup)"
 # `--no-deps`: the crates we own are linted, their dependencies are only built.
-cargo clippy -p cli -p server -p host-core -p host-tauri -p worker -p net --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + server + host-core + host-tauri + worker + net"
+cargo clippy -p cli -p server -p host-core -p host-tauri -p worker -p net -p riscdom-backup --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + server + host-core + host-tauri + worker + net + riscdom-backup"
 
 echo "==> cargo clippy (ui/src-tauri)"
 cargo clippy --manifest-path ui/src-tauri/Cargo.toml --all-targets -- -D warnings || fail "cargo clippy ui/src-tauri"

@@ -219,6 +219,15 @@ current request authorising it (§2).
   one declared outside dependency, an honest limit stated as `connection.md` §3.2 states one. **Specification
   only**; no source file changed, and no new decision entry was appended (the correction is recorded in the
   document, `CHANGELOG` and here).
+- **And `riscdom-backup` exists** (v1.0 batch AX / M7e-1, 2026-09-29): the first **implementation** batch of
+  M7e. A new workspace crate (`backup/`, bin `riscdom-backup`) whose `export` reads a node's **data
+  directory** (`settings.json`, `sessions.db`, `token`, `node.key`, `peers.json`, `rooms.json`), writes a
+  **manifest** (per-file size, SHA-256 and marker; `node_id`; the export's moment) and seals a gzipped tar
+  under **AES-256-GCM** keyed with **PBKDF2-HMAC-SHA256** from the operator's passphrase — which comes from
+  `--passphrase-from-env` or piped stdin, never a command-line argument, never on disk, never printed. The
+  cipher is **`ring`**, already in `Cargo.lock`, so the batch adds **edges and no packages**. The audit
+  store, the snapshots and the keyring are **AV-2**; the manifest's `not_derived` list says so out loud.
+  **Decision §119.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

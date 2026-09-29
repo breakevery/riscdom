@@ -3166,6 +3166,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "riscdom-backup"
+version = "0.9.9"
+dependencies = [
+ "agent",
+ "flate2",
+ "host-core",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "rusqlite"
 version = "0.32.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
