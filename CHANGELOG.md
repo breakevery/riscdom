@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The observability contract is written down** (v1.0 batch AQ / M7g): `docs/observability.md` and its
+  translation specify §17's three items — **structured logs** (one JSON object per line on stderr: `ts`,
+  `level`, `target`, `message`, with `agent_id` / `task_id` when the line is about a unit of work; the
+  `--log-level` switch and its `off` default unchanged), **metrics** (Prometheus text at `GET /metrics`,
+  declaring the **existing `status.read`**, with a small first family drawn from `/v0/status` and
+  `/v0/audit/status` and no unbounded labels), and the **tracing id** (the audit chain's own
+  `agent_id` + `task_id`, not a second namespace) — plus how the `task_id` gap closes additively (an
+  optional `task_id` on `POST /v0/agent/run`, whose precedent is `POST /v0/tasks`'s optional `id`).
+  **Specification only**; the implementation is later batches. `docs/README.md` gains a row; no source file
+  changed.
+
 - **The configuration schema is on disk** (v1.0 batch AP / M7f): `docs/config-schema.md` and its
   translation describe every field of **`settings.json`**, **`peers.json`** and **`rooms.json`** — type,
   optionality, what an absent field means, each nested section unfolded (`preflight`, `sandboxes[]`,

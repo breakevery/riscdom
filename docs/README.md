@@ -97,6 +97,7 @@ written down.
 | [SECURITY.md](../SECURITY.md) — [中文](../SECURITY.zh-CN.md) | How to report a vulnerability, what is in scope, and the promises about secrets. | living |
 | [server/README.md](../server/README.md) — [中文](../server/README.zh-CN.md) | How to start the control plane, its bind default, its token, and `--no-auth`. | living |
 | [qemu-setup.md](qemu-setup.md) — [中文](qemu-setup.zh-CN.md) | Installing the QEMU the node needs (the project never bundles it). | living |
+| [observability.md](observability.md) — [中文](observability.zh-CN.md) | **The observability contract** (v1.0 M7g): the structured-log lines, the metrics endpoint and its families, and the tracing id — plus the `task_id` gap and how it closes. | living (v1.0 spec) |
 | [toolchain-setup.md](toolchain-setup.md) — [中文](toolchain-setup.zh-CN.md) | Installing and pointing at the RISC-V bare-metal compiler. | living |
 | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) — [中文](../THIRD_PARTY_NOTICES.zh-CN.md) | QEMU, the downloaded toolchain and the rest: separate programs, their own licences. | living |
 

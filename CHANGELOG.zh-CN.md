@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **可观测性契约写下来了**（v1.0 批 AQ / M7g）：`docs/observability.md` 及其译文把 §17 的三件写成规格 —— **结构化日志**（每行一个 JSON 对象、写 stderr：`ts`、`level`、`target`、`message`，当这一行关于某个工作单元时再带 `agent_id` / `task_id`；`--log-level` 开关与其 `off` 默认不变）、**指标**（`GET /metrics` 上的 Prometheus 文本，声明**既有的 `status.read`**，第一批族取自 `/v0/status` 与 `/v0/audit/status` 且无无界标签），以及**追踪 ID**（审计链自己的 `agent_id` + `task_id`，不是第二套命名空间）—— 外加 `task_id` 缺口怎么用加法合上（`POST /v0/agent/run` 多一个可选 `task_id`，其先例是 `POST /v0/tasks` 的可选 `id`）。**仅规格**；实现是后续批次。`docs/README.md` 多一行；没有源文件被改动。
+
 - **配置 schema 落盘了**（v1.0 批 AP / M7f）：`docs/config-schema.md` 及其译文逐字段描述 **`settings.json`**、**`peers.json`** 与 **`rooms.json`** —— 类型、可选性、缺字段是什么意思、每段嵌套都展开（`preflight`、`sandboxes[]`、`executors[]`、含 `server_role` 的 `network`、`llm_configs`；`peers[]`；含 `rules.rate` 的 `rooms[]`）—— 外加**按格式**的版本化规则（配置文件 `version` = 2；peers 与 rooms 的 `schema_version` = 1）与刻意**不覆盖**的东西（`node.key` 是身份、两个 SQLite 存储、token 文件、运行时状态）。它是文档、不是 `.schema.json`；机器可读的 schema 由它生成。`docs/README.md` 多一行；**没有源文件被改动**。
 
 - **死掉的 QEMU 会被点名，且起客户机的测试不再互相抢**（v1.0 批 AN，基础设施）：本地 gate 的 QEMU flake（5 次；CI 从未见过 —— CI 没有 guest 工具、会跳过 `--ignored` 测试）是一个**端口交接**竞争，所以 `sandbox/src/vm.rs` 现在报 **「QEMU exited with code N during <QMP op>（原始错误：…）」**，而不是裸 `os error 10054`；`host-core/tests/snapshot_commands.rs` 里的两条起客户机测试以文件内的 `static SERIAL: Mutex<()>` **一次只跑一条**。批 AJ 的 60 秒探针界保留（另一个根因）。**孤儿清理** —— 在父进程被 force-kill 时杀死 QEMU 子进程 —— 需要 Job Object（`windows-sys`）或 `PR_SET_PDEATHSIG`（`libc`），故**仍开放**，而不是自行给 `sandbox` 加依赖。

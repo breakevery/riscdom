@@ -3154,3 +3154,34 @@ bilingual pair count goes **102 → 104**); nothing else changes — **no source
 no capability name, no audit event constant, no hash formula and no persisted format**. The
 machine-readable `.schema.json`, the SDKs (M7c/M7d), backup (M7e), observability (M7g), the budgets (M7h)
 and the CONTRIBUTING additions (M7i) follow; this one is first because the SDK's types come from it.
+
+## 114. The observability contract is written down: lines, metrics and one identity
+
+**Date**: 2026-09-29 ｜ **Status**: Decided; specification only (batch AQ / M7g)
+
+**Decision**: §17's three items are specified in **`docs/observability.md`** (+ zh): **structured logs** as
+one JSON object per line on stderr (`ts`, `level`, `target`, `message`, and `agent_id` / `task_id` when the
+line is about a unit of work), the switch unchanged (`--log-level <off|error|info>`, default `off`, because
+the control plane also runs embedded where stderr belongs to the caller); **metrics** as Prometheus text
+exposition at **`GET /metrics`**, declaring the **existing `status.read`** (a node's own status — §83's rule
+respected and the vocabulary unmoved), with a deliberately small first family drawn from what `/v0/status`
+and `/v0/audit/status` already answer and **no unbounded labels**; and a **tracing id** that is the audit
+chain's own identity pair — `agent_id` + `task_id` — rather than a second namespace. Nothing is implemented
+in this batch.
+
+**Why**: Three points. **A contract has to be written before it can be kept.** §17's impact is
+"machine-readable by contract, not by convention" — and a convention is what the code has today (a
+`println!` line, no metrics endpoint, a `task_id` only dispatched work carries). **The gap closes
+additively.** `POST /v0/agent/run` takes no `task_id`, so a directly-started run's frames cannot be
+attributed; the API already answers this shape elsewhere (`POST /v0/tasks` takes an optional `id`), so the
+fix is one optional body field, `null` by default — today's behaviour, no meaning changed. **Metrics reuse
+a capability rather than minting one.** §83 says a capability no route requires is not a capability; the
+converse is that a route must not mint a name for a fact an existing one covers — metrics *are* the node's
+own status, and `status.read` is what answers that.
+
+**Impact**: `docs/observability.md` and its translation are new (`docs/README.md` + zh gain a row; the
+bilingual pair count goes **104 → 106**); nothing else changes — **no source file, no dependency, no route,
+no capability name, no audit event constant, no hash formula and no persisted format**. **The
+implementation is later batches**: the JSON-line writer and the `/metrics` route each land through the usual
+gates (a new route is a row in `control-plane-api.md` §5's locked tables and in the tool-schema tables, so
+it arrives with its counts).

@@ -1209,3 +1209,13 @@ trait 属 v1.x 工作。
 **缘由**：三点。**§16 要的就是文档，且点明了位置。** 决策已经定了地点与形状；缺的是写下来，而只作为意图存在的 schema 无法拿来校验。**三个文件，不是四个。** `node.key` 刻意**不在**其中：它是 Ed25519 JWK —— *身份*，不是配置 —— 而配置的校验器永远不该被迫处理密钥材料。它仍与每种持久化格式一起列在 `api-compatibility.md` §6 的标记表里，所以把它留在本文之外不会丢东西。**每种格式的标记各自独立。** `settings.json` 是 `version` = **2**，`peers.json` 与 `rooms.json` 是 `schema_version` = **1**；schema 如实写明，而不是暗示全仓一个号，因为加法什么都不挪、只有结构性变化才挪它自己那个格式的标记。
 
 **影响**：`docs/config-schema.md` 及其译文是新的（`docs/README.md`+zh 各多一行，双语对计数 **102 → 104**）；其余不变 —— **没有源文件、依赖、路由、capability 名、审计事件常量、哈希公式或持久化格式被改动**。机器可读的 `.schema.json`、SDK（M7c/M7d）、backup（M7e）、observability（M7g）、预算（M7h）与 CONTRIBUTING 增补（M7i）接在后；这一件在最前，因为 SDK 的类型出自它。
+
+## 114. 可观测性契约写下来了：行、指标、一个身份
+
+**日期**：2026-09-29 ｜ **状态**：已定；仅规格（批 AQ / M7g）
+
+**决策**：§17 的三件写进了 **`docs/observability.md`**（+ zh）：**结构化日志**为每行一个 JSON 对象、写在 stderr 上（`ts`、`level`、`target`、`message`，以及当这一行关于某个工作单元时的 `agent_id` / `task_id`），开关不变（`--log-level <off|error|info>`，默认 `off`，因为控制平面也会内嵌运行、那里的 stderr 属于调用方）；**指标**为 `GET /metrics` 上的 Prometheus 文本格式，声明**既有的 `status.read`**（节点自身的状态 —— §83 的规矩被遵守、词表不动），第一批族刻意很小、全部取自 `/v0/status` 与 `/v0/audit/status` 今天就能回答的东西，且**没有无界标签**；**追踪 ID**就是审计链自己的身份对 —— `agent_id` + `task_id` —— 而不是第二套命名空间。本批不实现任何东西。
+
+**缘由**：三点。**契约得先写下来才能被遵守。** §17 的影响是「日志与指标按契约、而非按惯例保持机器可读」—— 而今天代码里的是惯例（一行 `println!`、没有指标端点、`task_id` 只有被派发的工作才带）。**缺口用加法合上。** `POST /v0/agent/run` 不接受 `task_id`，所以直接启动的运行其帧无法归因；API 在别处已经回答过这个形状（`POST /v0/tasks` 接受可选的 `id`），所以修法是一个可选体字段、默认 `null` —— 即今天的行为、不改任何含义。**指标复用 capability，而不新铸一个。** §83 说没有路由需要的 capability 名不是 capability；反过来，一条路由也不该为一个已被覆盖的事实新铸名字 —— 指标*正是*节点自身的状态，而回答它的就是 `status.read`。
+
+**影响**：`docs/observability.md` 及其译文是新的（`docs/README.md`+zh 各多一行；双语对计数 **104 → 106**）；其余不变 —— **没有源文件、依赖、路由、capability 名、审计事件常量、哈希公式或持久化格式被改动**。**实现是后续批次**：JSON-lines 写入器与 `/metrics` 路由各自按常规闸落地（一条新路由是 `control-plane-api.md` §5 那两张被文档锁死的表里的一行、也是 tool-schema 表里的一行，所以它带着计数一起到）。

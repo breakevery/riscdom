@@ -174,6 +174,12 @@ current request authorising it (§2).
   identity, the SQLite stores, the token file, runtime state). This is **M7's first batch**; the SDKs,
   backup, observability and the budgets follow. `docs/README.md` gains a row; no source file changed.
   **Decision §113.**
+- **And the observability contract is written down** (v1.0 batch AQ / M7g, 2026-09-29): the third M7 batch is
+  a **specification** — `docs/observability.md` + zh write down §17's structured-log fields, the `/metrics`
+  route (Prometheus text, declaring the **existing `status.read`**) with its first metric families, and the
+  tracing id (`agent_id` + `task_id`, the chain's own pair) — plus how the roadmap §12 `task_id` gap closes
+  with one optional body field. **Specification only**; the writer and the route land later, the route with
+  its counts. **Decision §114.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new
