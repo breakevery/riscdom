@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **而性能预算写下来了**（v1.0 批 AR / M7h）：`docs/performance-budget.md` 及其译文把 §18 的四个数字固定为**区间** —— **VM 启动**（从沙箱 `start` 调用到 guest 可用）、**派发往返**（对着工作可忽略地短的本地执行器的那一跳控制平面；跨网那一半等远程执行器）、**内存**（节点的十个 agent QEMU 子进程 RSS 之和），以及**日志增长**（append-only、无轮转、无 `DELETE` —— 可预测的是一个形状，不是一个速率）—— 外加每个怎么核对、以及*不*覆盖什么（没有尾部分位、没有峰值、代码里不强制）。**仅规格**；测量工装在后，且只在审计计数与状态标尺相叠处与 [observability](observability.zh-CN.md) 相会。**决策 §115。**
+
 - **可观测性契约写下来了**（v1.0 批 AQ / M7g）：`docs/observability.md` 及其译文把 §17 的三件写成规格 —— **结构化日志**（每行一个 JSON 对象、写 stderr：`ts`、`level`、`target`、`message`，当这一行关于某个工作单元时再带 `agent_id` / `task_id`；`--log-level` 开关与其 `off` 默认不变）、**指标**（`GET /metrics` 上的 Prometheus 文本，声明**既有的 `status.read`**，第一批族取自 `/v0/status` 与 `/v0/audit/status` 且无无界标签），以及**追踪 ID**（审计链自己的 `agent_id` + `task_id`，不是第二套命名空间）—— 外加 `task_id` 缺口怎么用加法合上（`POST /v0/agent/run` 多一个可选 `task_id`，其先例是 `POST /v0/tasks` 的可选 `id`）。**仅规格**；实现是后续批次。`docs/README.md` 多一行；没有源文件被改动。
 
 - **配置 schema 落盘了**（v1.0 批 AP / M7f）：`docs/config-schema.md` 及其译文逐字段描述 **`settings.json`**、**`peers.json`** 与 **`rooms.json`** —— 类型、可选性、缺字段是什么意思、每段嵌套都展开（`preflight`、`sandboxes[]`、`executors[]`、含 `server_role` 的 `network`、`llm_configs`；`peers[]`；含 `rules.rate` 的 `rooms[]`）—— 外加**按格式**的版本化规则（配置文件 `version` = 2；peers 与 rooms 的 `schema_version` = 1）与刻意**不覆盖**的东西（`node.key` 是身份、两个 SQLite 存储、token 文件、运行时状态）。它是文档、不是 `.schema.json`；机器可读的 schema 由它生成。`docs/README.md` 多一行；**没有源文件被改动**。

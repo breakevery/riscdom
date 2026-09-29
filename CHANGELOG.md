@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **And the performance budgets are written down** (v1.0 batch AR / M7h): `docs/performance-budget.md` and
+  its translation fix §18's four numbers as **intervals** — **VM start** (from the sandbox `start` call to
+  the guest being usable), the **dispatch round trip** (the control-plane hop against a trivially short
+  local executor; the cross-network half awaits the remote executor), **memory** (the summed RSS of the
+  node's ten agent QEMU children), and **log growth** (append-only, no rotation, no `DELETE` — predictable
+  as a shape, not a rate) — plus how each is checked and what is *not* covered (no tail, no peak, nothing
+  enforced in code). **Specification only**; the measuring harness is later, and meets
+  [observability](observability.md) only where the audit count and the status gauges overlap. **Decision
+  §115.**
+
 - **The observability contract is written down** (v1.0 batch AQ / M7g): `docs/observability.md` and its
   translation specify §17's three items — **structured logs** (one JSON object per line on stderr: `ts`,
   `level`, `target`, `message`, with `agent_id` / `task_id` when the line is about a unit of work; the

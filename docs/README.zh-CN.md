@@ -85,6 +85,7 @@
 | [server/README.md](../server/README.md) — [中文](../server/README.zh-CN.md) | 怎么启动控制平面、它的绑定点、它的 token，以及 `--no-auth`。 | 活跃 |
 | [qemu-setup.md](qemu-setup.md) — [中文](qemu-setup.zh-CN.md) | 安装节点需要的 QEMU（本项目从不捆绑它）。 | 活跃 |
 | [observability.md](observability.md) — [中文](observability.zh-CN.md) | **可观测性契约**（v1.0 M7g）：结构化日志行、指标端点及其族、以及追踪 ID —— 外加 `task_id` 缺口与它怎么合上。 | 活跃（v1.0 规范） |
+| [performance-budget.md](performance-budget.md) — [中文](performance-budget.zh-CN.md) | **性能预算**（v1.0 M7h）：§18 的四个数字（VM 启动、派发往返、内存、日志增长）写成规格 —— 每个从哪里量到哪里、在什么条件下、以及预算怎么核对。 | 活跃（v1.0 规范） |
 | [toolchain-setup.md](toolchain-setup.md) — [中文](toolchain-setup.zh-CN.md) | 安装并指向 RISC-V 裸机编译器。 | 活跃 |
 | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) — [中文](../THIRD_PARTY_NOTICES.zh-CN.md) | QEMU、下载来的工具链及其余：它们各自是独立的程序、各自的许可证。 | 活跃 |
 

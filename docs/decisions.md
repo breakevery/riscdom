@@ -3185,3 +3185,36 @@ no capability name, no audit event constant, no hash formula and no persisted fo
 implementation is later batches**: the JSON-line writer and the `/metrics` route each land through the usual
 gates (a new route is a row in `control-plane-api.md` §5's locked tables and in the tool-schema tables, so
 it arrives with its counts).
+
+## 115. The performance budgets are written down: four numbers, each from one instant to another
+
+**Date**: 2026-09-29 ｜ **Status**: Decided; specification only (batch AR / M7h)
+
+**Decision**: §18's four budgets are specified in **`docs/performance-budget.md`** (+ zh): **VM start ≤ 2 s**
+from the sandbox `start` call to the guest being usable (serial, then QMP, then — for a restore — the guest
+reporting running); **dispatch round trip ≤ 100 ms same machine / ≤ 500 ms cross network** from the control
+plane beginning a task-bearing request to the executor's outcome being in hand, measured on the
+control-plane hop against a trivially short local executor (the cross-network half awaits the remote
+executor the dispatch interface already reserves a place for; the 400 ms difference is the network
+allowance); **ten agents on one node ≤ 2 GB**, counted as the summed RSS of the node's process and its ten
+QEMU children, with the default `VM_MEMORY_MB = 128` making ten guests ≈ 1.25 GB and the rest QEMU's
+per-process overhead; and **log growth predictable** — the audit store is append-only SQLite with no
+rotation and no `DELETE` (the triggers forbid it), so rows are proportional to events and bytes per row are
+bounded, with the rate left to the operator. Nothing is implemented in this batch.
+
+**Why**: Three points. **A budget has to name an interval, or it cannot be checked.** §18 gives ceilings
+but not start and stop points; "VM start" could mean the process spawn or the guest prompt, and the two are
+far apart — so the document fixes each interval and the condition it is measured in. **The budgets bound
+RiscDom's overhead, not the model's work.** Today's dispatch is synchronous and in-process and runs the
+whole agent turn, so the round-trip number only means anything once the measured quantity is the dispatch
+hop against a short local executor — which is also why the cross-network half is a specification now and a
+measurement later. **Predictable is a shape, not a rate.** The audit store grows monotonically by an
+enforced rule, so "predictable" is to be read as "a stated function of events with no hidden
+amplification", which is also observability §2's no-unbounded-labels rule by another name.
+
+**Impact**: `docs/performance-budget.md` and its translation are new (`docs/README.md` + zh gain a row; the
+bilingual pair count goes **106 → 108**); nothing else changes — **no source file, no dependency, no route,
+no capability name, no audit event constant, no hash formula and no persisted format**. **The measuring
+harness is a later batch**, and it meets [observability](observability.md) only where the two overlap (the
+audit count and the status gauges): §17's first metric family has no memory byte and no timing, so memory
+and the round trip are timed directly for now.

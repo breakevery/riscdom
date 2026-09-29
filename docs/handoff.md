@@ -180,6 +180,13 @@ current request authorising it (§2).
   tracing id (`agent_id` + `task_id`, the chain's own pair) — plus how the roadmap §12 `task_id` gap closes
   with one optional body field. **Specification only**; the writer and the route land later, the route with
   its counts. **Decision §114.**
+- **And the performance budgets are written down** (v1.0 batch AR / M7h, 2026-09-29): `docs/performance-budget.md`
+  + zh fix each of §18's four numbers as an **interval** — VM start (sandbox `start` → guest usable), the
+  dispatch round trip (the control-plane hop against a trivially short local executor; the cross-network
+  half awaits the remote executor the dispatch interface reserves a place for), memory (summed RSS of the
+  node's ten agent QEMU children; default `VM_MEMORY_MB = 128` → ten guests ≈ 1.25 GB), and log growth
+  (append-only, no rotation, no `DELETE` — a shape, not a rate) — plus how each is checked and what is not
+  covered. **Specification only**; the harness is later. **Decision §115.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new
