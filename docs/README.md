@@ -100,6 +100,7 @@ written down.
 | [observability.md](observability.md) — [中文](observability.zh-CN.md) | **The observability contract** (v1.0 M7g): the structured-log lines, the metrics endpoint and its families, and the tracing id — plus the `task_id` gap and how it closes. | living (v1.0 spec) |
 | [performance-budget.md](performance-budget.md) — [中文](performance-budget.zh-CN.md) | **The performance budgets** (v1.0 M7h): §18's four numbers (VM start, dispatch round trip, memory, log growth) written down — where each is measured from and to, in what condition, and how a budget is checked. | living (v1.0 spec) |
 | [multi-repo.md](multi-repo.md) — [中文](multi-repo.zh-CN.md) | **Working across the two repositories** (v1.0 M7i): how `riscdom-adminapp` stands next to this one, how it gets the kernel (a git dependency pinned to a tag), what it inherits, what it owns, and the still-open CLA question. | living (v1.0 spec) |
+| [backup.md](backup.md) — [中文](backup.zh-CN.md) | **Backup and portability** (v1.0 M7e): what a node's persistent state is, and how `riscdom-backup` exports it as one encrypted, movable package and restores it — audit store, snapshots and credentials, with nothing outside the package required. | living (v1.0 spec) |
 | [toolchain-setup.md](toolchain-setup.md) — [中文](toolchain-setup.zh-CN.md) | Installing and pointing at the RISC-V bare-metal compiler. | living |
 | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) — [中文](../THIRD_PARTY_NOTICES.zh-CN.md) | QEMU, the downloaded toolchain and the rest: separate programs, their own licences. | living |
 

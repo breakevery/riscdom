@@ -3255,3 +3255,41 @@ pair count goes **108 → 110**); `CONTRIBUTING.md` + zh gain a short "Multi-rep
 else changes — **no source file, no dependency, no `Cargo.toml`, no route, no capability name, no audit event
 constant, no hash formula and no persisted format, and no new repository is created**. The split itself
 (M7a) and the release mechanics (M7b) are later batches.
+
+## 117. The portability unit is one encrypted package, and it holds the keyring too
+
+**Date**: 2026-09-29 ｜ **Status**: Decided; specification only (batch AT / M7e)
+
+**Decision**: §19's `riscdom-backup` is specified in **`docs/backup.md`** (+ zh). A node's persistent state is
+enumerated in one closed set — `settings.json`, `audit.db`, `sessions.db`, `token`, `node.key`,
+`peers.json`, `rooms.json`, `snapshots/`, plus the **OS keyring** entries (provider API keys, in-network
+server tokens) — and the package carries all of it. **Export writes one file, encrypted under a
+passphrase the operator supplies**, which the tool never stores on disk, puts on a command line, or prints;
+an **unencrypted package is not offered**, because it would put an Ed25519 private key and a set of API keys
+in one plain file. The **audit store is taken through SQLite's own consistent path** (a backup image or
+`VACUUM INTO`), never a raw byte copy, because `audit.db` is WAL and multi-process and a byte copy can miss
+frames still in `-wal`. **Import** refuses to overwrite silently, refuses a `data_too_new` package per
+[api-compatibility.md §6](api-compatibility.md), re-enters credentials into the OS keyring (never as files),
+and restores the node's **identity** with the data, because `node.key` travels in the package. The
+portability unit is the **whole node** — no selective export. Migration escape hatches (`settings.json.bak`,
+`sessions.db.bak`) are not carried.
+
+**Why**: Four points. **§19's "nothing outside it" makes the keyring mandatory cargo.** The API keys and
+server tokens are not files, so a package that only archived the data directory would still fail to restore
+a working node — the package has to name the keyring and carry it. **A backup is the one place a private key
+and API keys are co-located, so encryption is not optional.** Everything else in this project keeps
+credentials out of files (the keyring rule, [decisions §6](decisions.md)); a backup that wrote them to one
+plain file would undo that in a single step, so the package is encrypted and the passphrase never touches
+the tool's disk. **Consistency beats speed.** A torn audit store is worse than no backup because it looks
+like history and is not, and [api-compatibility.md §6](api-compatibility.md) already knows a byte copy of
+`audit.db` can miss `-wal` frames — so the specification forbids the byte copy by name. **A move is not an
+overwrite, and an old node cannot read a new package.** Import refuses to clobber a node and refuses a newer
+marker, which is the [api-compatibility.md §6](api-compatibility.md) rule applied to restoration.
+
+**Impact**: `docs/backup.md` and its translation are new (`docs/README.md` + zh gain a row; the bilingual
+pair count goes **110 → 112**); nothing else changes — **no source file, no dependency, no route, no
+capability name, no audit event constant, no hash formula and no persisted format**. **The tool is a later
+batch**: its flags, cipher and file extension are written against this document, and nothing here is
+implemented yet. It meets the other v1.0 specs where they overlap: the marker table of
+[api-compatibility.md §6](api-compatibility.md), the "not covered" list of [config-schema.md](config-schema.md) §5,
+and the snapshot budget of [performance-budget.md](performance-budget.md).

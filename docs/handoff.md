@@ -194,6 +194,12 @@ current request authorising it (§2).
   subtree rejected, plus what the second repository inherits and owns. **The CLA across repositories is left
   open** and decided with the split (M7a). `CONTRIBUTING.md` + zh gain a pointer. **Specification only**; the
   split (M7a) and release moves (M7b) are later. **Decision §116.**
+- **And backup and portability are written down** (v1.0 batch AT / M7e, 2026-09-29): `docs/backup.md` + zh
+  specify `riscdom-backup` — a node's persistent state (the data directory plus the **OS keyring** entries)
+  exported as **one file encrypted under an operator passphrase**, with the **audit store taken through
+  SQLite's consistent path** (WAL: a byte copy can miss `-wal` frames); import refuses silent overwrite and
+  a `data_too_new` package, re-enters credentials into the keyring, and restores the node's identity. The
+  portability unit is the whole node. **Specification only**; the tool is a later batch. **Decision §117.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

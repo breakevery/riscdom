@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **And backup and portability are written down** (v1.0 batch AT / M7e): `docs/backup.md` and its
+  translation specify `riscdom-backup` — a node's persistent state enumerated in one closed set
+  (`settings.json`, the two SQLite stores, `token`, `node.key`, `peers.json`, `rooms.json`, `snapshots/`, and
+  the **OS keyring** entries), exported as **one file encrypted under an operator passphrase** (never stored,
+  never on a command line, never printed; no unencrypted package), with the **audit store taken through
+  SQLite's consistent path** (WAL: a byte copy can miss `-wal` frames). Import refuses silent overwrite and a
+  `data_too_new` package, re-enters credentials into the keyring, and restores the node's **identity**. The
+  portability unit is the whole node. **Specification only**; the tool is a later batch. **Decision §117.**
+
 - **And the two-repository relationship is written down** (v1.0 batch AS / M7i): `docs/multi-repo.md` and its
   translation are the CONTRIBUTING additions roadmap §11 asks for — how `riscdom-adminapp` stands next to
   this repository (one kernel, two repositories), how it gets the kernel (a **git dependency pinned to a

@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **而备份与可移植性写下来了**（v1.0 批 AT / M7e）：`docs/backup.md` 及其译文把 `riscdom-backup` 定成规格 —— 一个节点的持久状态列成一个封闭集合（`settings.json`、两个 SQLite 存储、`token`、`node.key`、`peers.json`、`rooms.json`、`snapshots/`，以及 **OS keyring** 条目），导出为**一个在运维者口令下加密的文件**（从不存盘、从不进命令行、从不打印；不提供未加密的包），**审计存储经 SQLite 的一致性路径取出**（WAL：字节拷贝会漏 `-wal` 帧）。导入拒绝静默覆盖与 `data_too_new` 的包、把凭据重新录入 keyring、并恢复节点的**身份**。可移植性的单位是整个节点。**仅规格**；工具在后。**决策 §117。**
+
 - **而两仓关系写下来了**（v1.0 批 AS / M7i）：`docs/multi-repo.md` 及其译文就是 roadmap §11 要的那份 CONTRIBUTING 增补 —— `riscdom-adminapp` 如何与本仓并立（一个内核、两个仓）、如何取得内核（**git 依赖钉 tag**，以 `Cargo.lock` 为真正的钉；crates.io 推迟、vendored subtree 否决）、继承什么（双语文档、gate 的形状、提交纪律、编码规则、秘密扫描）与自己拥有什么（自己的 gate、构建/bundle、发布流程、CLA 供给、文档地图）。**CLA 跨仓刻意留开**，随拆仓（M7a）一并定。`CONTRIBUTING.md`+zh 多一个指向。**决策 §116。**
 
 - **而性能预算写下来了**（v1.0 批 AR / M7h）：`docs/performance-budget.md` 及其译文把 §18 的四个数字固定为**区间** —— **VM 启动**（从沙箱 `start` 调用到 guest 可用）、**派发往返**（对着工作可忽略地短的本地执行器的那一跳控制平面；跨网那一半等远程执行器）、**内存**（节点的十个 agent QEMU 子进程 RSS 之和），以及**日志增长**（append-only、无轮转、无 `DELETE` —— 可预测的是一个形状，不是一个速率）—— 外加每个怎么核对、以及*不*覆盖什么（没有尾部分位、没有峰值、代码里不强制）。**仅规格**；测量工装在后，且只在审计计数与状态标尺相叠处与 [observability](observability.zh-CN.md) 相会。**决策 §115。**

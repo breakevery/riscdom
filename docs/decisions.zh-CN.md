@@ -1239,3 +1239,13 @@ trait 属 v1.x 工作。
 **缘由**：三点。**绑定必须是一个机制，不是一个类比。** [architecture-evolution §12](architecture-evolution.zh-CN.md) 称第二仓「由同一份源码维护（像 coreutils / iproute2）」；那说明该程序是一个不拥有内核的消费者，但没说它的构建怎么拿到那些 crate —— 而一个绑定未定义的拆仓无法执行。钉在 tag 上的 git 依赖是维持「一个内核、一份源码」的最小机制：第二仓只声明自己的直接 crate，其余交给 Cargo 在同一 revision 解析。**发布是一种尚不需要的承诺。** 一个 registry 条目是一个名字和一份稳定性承诺；推迟它零成本，而迁移是每 crate 一行。**内核在它所在之处被检查。** 第二仓不得复查一份拷贝：本仓的 gate 检查内核，第二仓的 gate 检查第二仓。 —— 有一件事是**刻意留开**的：**CLA 跨仓**。[CLA.md](../CLA.md) §1 把「Project」定义为**单数**的 RiscDom 仓、签名库也住在这里，所以第二仓是装自己的 CLA Assistant、共用这一个、还是改文本，随拆仓（[M7a](roadmap-v1.0.zh-CN.md)）一并定。
 
 **影响**：`docs/multi-repo.md` 及其译文是新的（`docs/README.md`+zh 各多一行；双语对计数 **108 → 110**）；`CONTRIBUTING.md`+zh 多一个简短的「跨仓库工作」指向；其余不变 —— **没有源文件、依赖、`Cargo.toml`、路由、capability 名、审计事件常量、哈希公式或持久化格式被改动，也不创建任何新仓库**。拆仓本身（M7a）与发布机制（M7b）是后续批次。
+
+## 117. 可移植性的单位是一个加密的包，而它也装上 keyring
+
+**日期**：2026-09-29 ｜ **状态**：已定；仅规格（批 AT / M7e）
+
+**决策**：§19 的 `riscdom-backup` 写进了 **`docs/backup.md`**（+ zh）。一个节点的持久状态被列成一个封闭集合 —— `settings.json`、`audit.db`、`sessions.db`、`token`、`node.key`、`peers.json`、`rooms.json`、`snapshots/`，加上 **OS keyring** 条目（提供方 API key、内网服务器 token）—— 而包把这一切都带上。**导出写出单个文件、在运维者提供的口令下加密**，该口令工具从不存盘、从不放进命令行、从不打印；**不提供未加密的包**，因为它会把一把 Ed25519 私钥和一组 API key 放进一个明文文件。**审计存储经 SQLite 自己的一致性路径取出**（备份镜像或 `VACUUM INTO`），绝不做原始字节拷贝，因为 `audit.db` 是 WAL 且多进程、字节拷贝会漏掉仍在 `-wal` 里的帧。**导入**拒绝静默覆盖、按 [api-compatibility.md §6](api-compatibility.zh-CN.md) 拒绝 `data_too_new` 的包、把凭据重新录入 OS keyring（绝不作为文件），并随数据一起恢复节点的**身份**，因为 `node.key` 在包内同行。可移植性的单位是**整个节点** —— 没有选择性导出。迁移逃生口（`settings.json.bak`、`sessions.db.bak`）不带。
+
+**缘由**：四点。**§19 的「不需要包外的任何东西」使 keyring 成为必带的货物。** API key 与服务器 token 不是文件，所以一个只归数据目录的包仍无法恢复出一个能工作的节点 —— 包必须点名 keyring 并带上它。**备份是私钥与 API key 唯一会同处一室的地方，所以加密不是可选项。** 本项目其它地方都把凭据挡在文件之外（keyring 规矩，[decisions §6](decisions.zh-CN.md)）；一个把它们写进单个明文文件的备份会一步把那份努力抹掉，所以包是加密的、而口令绝不碰工具的磁盘。**一致性重于速度。** 一份被撕裂的审计存储比没有备份更糟，因为它看起来像历史却不是，而 [api-compatibility.md §6](api-compatibility.zh-CN.md) 早就知道对 `audit.db` 的字节拷贝会漏 `-wal` 帧 —— 所以规范点名禁止字节拷贝。**搬动不是覆盖，旧节点读不了新包。** 导入拒绝覆盖一个节点、拒绝更新的标记，正是 [api-compatibility.md §6](api-compatibility.zh-CN.md) 的规则用在恢复上。
+
+**影响**：`docs/backup.md` 及其译文是新的（`docs/README.md`+zh 各多一行；双语对计数 **110 → 112**）；其余不变 —— **没有源文件、依赖、路由、capability 名、审计事件常量、哈希公式或持久化格式被改动**。**工具是后续批次**：它的参数、密码与文件扩展名对着本文写，这里没有任何东西被实现。它在与其它 v1.0 规范相叠处相会：[api-compatibility.md §6](api-compatibility.zh-CN.md) 的标记表、[config-schema.md](config-schema.zh-CN.md) §5 的「不覆盖」清单、以及 [performance-budget.md](performance-budget.zh-CN.md) 的快照预算。
