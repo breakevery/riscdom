@@ -71,7 +71,7 @@ together, why it is that way, and what was settled.
 | [worker/README.md](../worker/README.md) — [中文](../worker/README.zh-CN.md) | The executor process and the supervisor half — including the remote executor handle (v0.9 E4). | living |
 | [net/README.md](../net/README.md) — [中文](../net/README.zh-CN.md) | The connection layer (v1.0 M4): node identity on disk today; signing, discovery, rooms and the cross-region server as the frozen sections land. | living |
 | [backup/README.md](../backup/README.md) — [中文](../backup/README.zh-CN.md) | The portability tool (v1.0 M7e): export a whole node — both roots, the audit store through SQLite's consistent path, and the derived keyring credentials — as one encrypted package. | living (AV-1 + AV-2) |
-| [sdk/rust/README.md](../sdk/rust/README.md) — [中文](../sdk/rust/README.zh-CN.md) | The Rust SDK (v1.0 M7c): a typed client for the query half of the control plane, with a drift guard that holds it to the server's own routes. | living (BA) |
+| [sdk/rust/README.md](../sdk/rust/README.md) — [中文](../sdk/rust/README.zh-CN.md) | The Rust SDK (v1.0 M7c): a typed client for the whole control-plane surface — queries, controls and the event stream — with drift guards that hold it to the server's own routes. | living (BA + BB) |
 
 ## 3. Distribution integrators
 

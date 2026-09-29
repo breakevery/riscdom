@@ -3450,3 +3450,42 @@ line gains `-p riscdom-sdk`, so the new crate is linted like every other one). `
 are new (the bilingual pair count goes **116 → 118**); `docs/README.md` + zh gain a row. **No route, no
 capability name, no audit event constant, no hash formula, no persisted format and no kernel crate
 changes** — the crate only reads the documents and speaks the API. Nothing is published to any registry.
+
+## 122. The Rust SDK is complete: the controls, and a stream whose `gap` stays an instruction
+
+**Date**: 2026-09-29 ｜ **Status**: Decided and implemented (batch BB / M7c-2)
+
+**Decision**: `sdk/rust/` gains the rest of the surface [sdk.md](sdk.md) §3 describes. The **36 `POST`
+controls** of [control-plane-api.md](control-plane-api.md) §5.2 join `QUERY_ENDPOINTS` as
+**`CONTROL_ENDPOINTS`**, with **one typed method per endpoint** and typed request parameters
+(`AgentRun`, `Tasks`, `RunsExport`, `SnapshotName`, `SessionsCreate`, `ToolchainDownload`, `PathArgument`,
+`LlmConfigPost`, `SandboxesRequestsPost`, …). Two controls do not speak JSON and say so: **`workspace_export`
+returns `Vec<u8>`** and **`workspace_import` takes the archive as its body** (§5.2). Transport is now
+`send` + `get` / `get_raw` / `post` / `post_empty` / `post_raw`, and the `X-RiscDom-Agent` header travels
+on every verb, not only `GET`. **The event stream** is `Client::subscribe(filters, last_event_id)`, which
+returns a **blocking, frame-by-frame `Subscription`**: `std::io::Read` over `reqwest`'s blocking response,
+so **no async runtime and no extra feature**. The envelope is typed
+(`Envelope { version, kind, event, agent_id, task_id, ts, payload }`) with
+`FrameKind::{Event, Hello, Gap, Unknown}`, and **`gap` is surfaced as an instruction, never an error**:
+`lost_after()` names the oldest id the server still holds, and the documentation says a client that sees
+one must re-sync from a query. `Subscription::last_id()` is the `Last-Event-ID` to resume with. A second
+drift guard holds `CONTROL_ENDPOINTS` to the tool-schema `controls` block, exactly as BA's holds the queries.
+
+**Why**: Four points. **One guard per table, one chain per guard.** The controls table is checked against
+its own marked block for the same reason the queries were: that block is already asserted against the
+server's `ROUTES`, so the SDK inherits the server's own truth with no dependency and no generation step.
+**The stream must not force async.** §3 forbids imposing a runtime, and the repository already reads SSE
+with `std::io` in `cli/src/sse.rs`; `reqwest`'s blocking response implements `Read`, so the SDK gets a
+first-class streaming client with **no new package and no `.await`** — the honest answer to "how does a
+synchronous SDK read a stream" is that a stream is bytes, and bytes do not need an executor. **`gap` is
+not an error and must not look like one.** A client that treats it as a failure retries a stream that will
+never fill the hole; a client that ignores it silently misses events — so the SDK makes it a kind with the
+cursor the document names, and says in the method's own documentation what to do about it. **Two controls
+are not JSON, so their signatures are not `Value`.** §5.2 says the workspace archive is bytes in and bytes
+out; typing those as `Value` would be a lie the first caller would discover.
+
+**Impact**: `sdk/rust/README.md` + zh are updated (no new pair: the bilingual count stays **118**);
+`docs/README.md` + zh's row follows. **No route, no capability name, no audit event constant, no hash
+formula, no persisted format and no kernel crate changes**, and **no new package**: `reqwest` carries the
+stream over its blocking response with the features already declared. The TypeScript SDK is BC; nothing is
+published to any registry.

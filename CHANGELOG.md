@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Rust SDK is complete** (v1.0 batch BB / M7c-2): `sdk/rust/` gains the **36 `POST` controls** of
+  api §5.2 as typed methods with typed parameters, and the **event stream** as a blocking, frame-by-frame
+  `Subscription` — read with `std::io::Read` over `reqwest`'s blocking response, so **no async runtime and
+  no new package**. The envelope is typed, and a **`gap` frame stays a recovery instruction** (a kind with
+  `lost_after()`, never an error). `workspace_export` returns bytes and `workspace_import` takes the
+  archive as its body, because §5.2 says those two are not JSON. A second drift guard holds the control
+  table to the tool-schema `controls` block, exactly as BA's holds the queries. **Decision §122.**
+
 - **The Rust SDK exists, covering the control plane's query half** (v1.0 batch BA / M7c-1): a new workspace
   crate (`sdk/rust/`, package `riscdom-sdk`) with the **37 `GET` endpoints** of the API as typed methods,
   the bearer token, the `{code, message, retryable, cause}` error as a type, and typed request parameters.

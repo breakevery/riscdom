@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **Rust SDK 完整了**（v1.0 批 BB / M7c-2）：`sdk/rust/` 补上 api §5.2 的 **36 条 `POST` 控制**作带类型的方法与带类型的参数，以及**事件流**作一个阻塞式、逐帧的 `Subscription` —— 在 `reqwest` 的阻塞响应上用 `std::io::Read` 读，所以**无 async 运行时、无新包**。envelope 是带类型的，而 **`gap` 帧保持为一条恢复指令**（一个带 `lost_after()` 的 kind，绝不是错误）。`workspace_export` 返回字节、`workspace_import` 把归档作为请求体，因为 §5.2 说那两个不是 JSON。第二条漂移守卫把控制表钉在 tool-schema 的 `controls` 块上，正如 BA 那条把查询钉住。**决策 §122。**
+
 - **Rust SDK 存在了，覆盖控制平面的查询那一半**（v1.0 批 BA / M7c-1）：一个新的 workspace crate（`sdk/rust/`，包名 `riscdom-sdk`），把 API 的 **37 条 `GET` 端点**做成带类型的方法，外加 bearer token、`{code, message, retryable, cause}` 错误作一个类型、以及带类型的请求参数。它经 `reqwest` 的 blocking 客户端说 HTTP（不强加 async 运行时）、不链接本 workspace 的任何运行时件；一条测试用 `include_str!` 读 tool-schema 文档、断言端点表与它的标记块相等 —— 而那些块已被断言对着服务器自己的 `ROUTES` —— 所以 SDK 无法漂开。`reqwest`、`serde`、`serde_json` 与 `thiserror` 都已在 `Cargo.lock` 里：**增边、不增包**。**决策 §121。**
 
 - **`riscdom-backup` 现在带上整个节点**（v1.0 批 AY / M7e-2，「AV-2」）：包多出 [backup.md](docs/backup.zh-CN.md) §1 的另两个根。**审计存储**经 **SQLite 的一致性路径**取出（`VACUUM INTO` 到临时文件 —— 绝不逐字节拷贝，因为 `audit.db` 是 WAL 且多进程）；workspace 的 `.riscdom/` 之下的**快照**整棵遍历；**凭据**从 `settings.json` **反推**（`llm-api-key:<executor_id>:<provider_id>`、legacy 的 `llm-api-key:<provider_id>`、`remote-token:<host>`），因为 OS keyring 没有 list API。凡是点不出名的都进清单的 **`not_derived`** 列表，也会被打印。CLI 多出 `--workspace <dir>`。`rusqlite` 已在 `Cargo.lock` 里，所以没有新增包。**决策 §120。**

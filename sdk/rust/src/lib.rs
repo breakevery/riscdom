@@ -19,7 +19,7 @@
 //! equal; those marked blocks are already asserted to be exactly the server's own `ROUTES`, so the chain
 //! is **SDK ⇄ tool schema ⇄ server**, with no dependency between them and no second list to maintain.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// One endpoint of the control plane, as the documents name it.
@@ -111,6 +111,107 @@ const fn endpoint(tool: &'static str, path: &'static str, capability: &'static s
 /// The query endpoints, as a function, for a caller that would rather not name the constant.
 pub fn query_endpoints() -> &'static [Endpoint] {
     QUERY_ENDPOINTS
+}
+
+/// The **control** endpoints (`POST`), exactly as `docs/tool-schema-control-plane.md`'s `controls`
+/// marked block lists them — which is exactly the server's own `ROUTES` filtered to `POST`
+/// ([control-plane-api.md](../../docs/control-plane-api.md) §5.2).
+pub const CONTROL_ENDPOINTS: &[Endpoint] = &[
+    control("agent_run", "/v0/agent/run", "agent.run"),
+    control("tasks", "/v0/tasks", "agent.run"),
+    control("runs_export", "/v0/runs/export", "audit.export"),
+    control(
+        "runs_abandon_stale",
+        "/v0/runs/abandon-stale",
+        "runs.control",
+    ),
+    control("vm_start", "/v0/vm/start", "vm.control"),
+    control("vm_stop", "/v0/vm/stop", "vm.control"),
+    control("snapshots_save", "/v0/snapshots/save", "snapshot.write"),
+    control("snapshots_resume", "/v0/snapshots/resume", "snapshot.write"),
+    control("snapshots_delete", "/v0/snapshots/delete", "snapshot.write"),
+    control("sessions_create", "/v0/sessions/create", "session.write"),
+    control("sessions_open", "/v0/sessions/open", "session.write"),
+    control("sessions_rename", "/v0/sessions/rename", "session.write"),
+    control("sessions_delete", "/v0/sessions/delete", "session.write"),
+    control("sessions_clear", "/v0/sessions/clear", "session.write"),
+    control(
+        "toolchain_download_post",
+        "/v0/toolchain/download",
+        "toolchain.install",
+    ),
+    control(
+        "toolchain_download_cancel",
+        "/v0/toolchain/download/cancel",
+        "toolchain.install",
+    ),
+    control("qemu_download_post", "/v0/qemu/download", "qemu.configure"),
+    control(
+        "qemu_download_cancel",
+        "/v0/qemu/download/cancel",
+        "qemu.configure",
+    ),
+    control(
+        "toolchain_path",
+        "/v0/toolchain/path",
+        "toolchain.configure",
+    ),
+    control(
+        "toolchain_path_clear",
+        "/v0/toolchain/path/clear",
+        "toolchain.configure",
+    ),
+    control("qemu_path", "/v0/qemu/path", "qemu.configure"),
+    control("qemu_path_clear", "/v0/qemu/path/clear", "qemu.configure"),
+    control("preflight_run", "/v0/preflight/run", "preflight.run"),
+    control("preflight_ack", "/v0/preflight/ack", "preflight.run"),
+    control("audit_alert", "/v0/audit/alert", "settings.write"),
+    control("audit_export", "/v0/audit/export", "audit.export"),
+    control(
+        "settings_theme_post",
+        "/v0/settings/theme",
+        "settings.write",
+    ),
+    control(
+        "settings_language_post",
+        "/v0/settings/language",
+        "settings.write",
+    ),
+    control("llm_config_post", "/v0/llm/config", "llm.configure"),
+    control(
+        "llm_stored_key_load",
+        "/v0/llm/stored-key/load",
+        "llm.configure",
+    ),
+    control("llm_config_clear", "/v0/llm/config/clear", "llm.configure"),
+    control("serial_export", "/v0/serial/export", "serial.export"),
+    control("sandboxes_switch", "/v0/sandboxes/switch", "sandbox.switch"),
+    control(
+        "sandboxes_requests_post",
+        "/v0/sandboxes/requests",
+        "agent.run",
+    ),
+    control(
+        "workspace_import",
+        "/v0/workspace/import",
+        "workspace.write",
+    ),
+    control("workspace_export", "/v0/workspace/export", "workspace.read"),
+];
+
+/// A `POST` row, so the table above reads as a table.
+const fn control(tool: &'static str, path: &'static str, capability: &'static str) -> Endpoint {
+    Endpoint {
+        tool,
+        method: "POST",
+        path,
+        capability,
+    }
+}
+
+/// The control endpoints, as a function.
+pub fn control_endpoints() -> &'static [Endpoint] {
+    CONTROL_ENDPOINTS
 }
 
 /// The query string of a request: the parameter names the documents fix, with their values.
@@ -317,6 +418,202 @@ impl SandboxesRequests {
     }
 }
 
+/// `/v0/agent/run` — run one agent turn on this node.
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentRun {
+    /// What the agent is asked to do.
+    pub user_input: String,
+    /// The sandbox definition this run wants (a declaration, not a switch).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<String>,
+    /// Which of this node's instances the run wants.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance: Option<String>,
+}
+
+/// `/v0/tasks` — dispatch a task to a configured executor.
+#[derive(Debug, Clone, Serialize)]
+pub struct Tasks {
+    /// The executor to route to.
+    pub target: String,
+    /// What the task is.
+    pub input: String,
+    /// The sandbox the task wants.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<String>,
+    /// Which of the executor's instances the task wants.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance: Option<String>,
+    /// A caller-chosen task id; the server mints one when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// `/v0/runs/export`.
+#[derive(Debug, Clone, Serialize)]
+pub struct RunsExport {
+    /// The run to export.
+    pub run_id: String,
+    /// Where the server writes it (resolved against the workspace root).
+    pub path: String,
+}
+
+/// A snapshot's name — `save`, `resume` and `delete` all take exactly this.
+#[derive(Debug, Clone, Serialize)]
+pub struct SnapshotName {
+    /// The snapshot's name.
+    pub name: String,
+}
+
+/// `/v0/sessions/create`.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SessionsCreate {
+    /// The new session's title.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Which executor's table the session belongs to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executor: Option<String>,
+}
+
+/// `/v0/sessions/open`.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionsOpen {
+    /// The session to make current.
+    pub session_id: String,
+    /// Which executor's table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executor: Option<String>,
+}
+
+/// `/v0/sessions/rename`.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionsRename {
+    /// The session to rename.
+    pub session_id: String,
+    /// The new title.
+    pub title: String,
+    /// Which executor's table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executor: Option<String>,
+}
+
+/// `/v0/sessions/delete`.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionsDelete {
+    /// The session to drop.
+    pub session_id: String,
+    /// Which executor's table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executor: Option<String>,
+}
+
+/// `/v0/sessions/clear` — drop every session in an executor's table.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SessionsClear {
+    /// Which executor's table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executor: Option<String>,
+}
+
+/// `POST /v0/toolchain/download` — which toolchain to fetch; the server defaults to `c`.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ToolchainDownload {
+    /// `c`, `zig` or `rust`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub toolchain: Option<String>,
+}
+
+/// A single `path` field — `toolchain/path`, `qemu/path`, `audit/export` and `serial/export` all
+/// take exactly this shape, so they share the type.
+#[derive(Debug, Clone, Serialize)]
+pub struct PathArgument {
+    /// The path the endpoint wants (resolved against the workspace root, or an output file).
+    pub path: String,
+}
+
+/// `/v0/audit/alert`.
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditAlert {
+    /// Whether the interface shouts when an audit write fails.
+    pub enabled: bool,
+}
+
+/// `POST /v0/settings/theme`.
+#[derive(Debug, Clone, Serialize)]
+pub struct SettingsTheme {
+    /// `light`, `dark` or `system`.
+    pub theme: String,
+}
+
+/// `POST /v0/settings/language`.
+#[derive(Debug, Clone, Serialize)]
+pub struct SettingsLanguage {
+    /// `system`, `en` or `zh`.
+    pub language: String,
+}
+
+/// `POST /v0/llm/config` — set one executor's model configuration. The key is a credential, so the
+/// caller supplies it here and the server decides where it lives (the OS keyring).
+#[derive(Debug, Clone, Serialize)]
+pub struct LlmConfigPost {
+    /// The provider's API key.
+    pub api_key: String,
+    /// The endpoint to talk to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    /// The model name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The provider id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    /// Whether the server should remember the key in the keyring.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remember: Option<bool>,
+    /// Which executor's configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executor: Option<String>,
+}
+
+/// `/v0/llm/stored-key/load`.
+#[derive(Debug, Clone, Serialize)]
+pub struct LlmStoredKeyLoad {
+    /// The provider whose stored key to load.
+    pub provider_id: String,
+    /// Which executor's configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executor: Option<String>,
+}
+
+/// `/v0/llm/config/clear`.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LlmConfigClear {
+    /// Which executor's configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executor: Option<String>,
+}
+
+/// `/v0/sandboxes/switch`.
+#[derive(Debug, Clone, Serialize)]
+pub struct SandboxesSwitch {
+    /// The definition to switch to.
+    pub name: String,
+}
+
+/// `POST /v0/sandboxes/requests` — leave an ask on the queue.
+#[derive(Debug, Clone, Serialize)]
+pub struct SandboxesRequestsPost {
+    /// `switch` or `assemble`.
+    pub action: String,
+    /// The definition the ask is about.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<String>,
+    /// Why the ask is being made.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 /// The control plane's error object ([control-plane-api.md](../../docs/control-plane-api.md) §4): the
 /// four fields every non-2xx answer carries, as a type rather than a string.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -437,19 +734,41 @@ impl Client {
         &self.base_url
     }
 
-    /// `GET` a path with a query, and read the answer as JSON.
-    ///
-    /// Every typed method below is this call with the endpoint's own path and parameters, so a caller
-    /// that needs an endpoint the SDK does not wrap can still make the call — the surface is the API's,
-    /// not the SDK's.
-    pub fn get(&self, path: &str, query: &[(&str, String)]) -> Result<Value, ClientError> {
-        let url = format!("{}{path}", self.base_url);
-        let mut request = self.http.get(url).bearer_auth(&self.auth);
+    /// Build a request: the base URL, the path, the bearer, the optional agent name.
+    fn request(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        query: &[(&str, String)],
+    ) -> reqwest::blocking::RequestBuilder {
+        let mut request = self
+            .http
+            .request(method, format!("{}{path}", self.base_url))
+            .bearer_auth(&self.auth);
         if !query.is_empty() {
             request = request.query(query);
         }
         if let Some(name) = &self.agent_name {
             request = request.header("X-RiscDom-Agent", name);
+        }
+        request
+    }
+
+    /// Send a request and read the answer's body. A non-2xx answer becomes the typed error of §4;
+    /// anything else comes back as bytes, because two endpoints answer with bytes rather than JSON
+    /// (`/v0/workspace/export`, §5.2).
+    fn send(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<(&[u8], &str)>,
+    ) -> Result<Vec<u8>, ClientError> {
+        let mut request = self.request(method, path, query);
+        if let Some((bytes, content_type)) = body {
+            request = request
+                .header("Content-Type", content_type)
+                .body(bytes.to_vec());
         }
         let response = request
             .send()
@@ -461,10 +780,100 @@ impl Client {
         if !(200..300).contains(&status) {
             return Err(ClientError::Api(ApiError::from_body(status, &body)));
         }
+        Ok(body.to_vec())
+    }
+
+    /// Read a body as JSON; an empty body is `null`.
+    fn json(body: &[u8]) -> Result<Value, ClientError> {
         if body.is_empty() {
             return Ok(Value::Null);
         }
-        serde_json::from_slice(&body).map_err(|error| ClientError::Transport(error.to_string()))
+        serde_json::from_slice(body).map_err(|error| ClientError::Transport(error.to_string()))
+    }
+
+    /// `GET` a path with a query, and read the answer as JSON.
+    ///
+    /// Every typed method below is this call with the endpoint's own path and parameters, so a caller
+    /// that needs an endpoint the SDK does not wrap can still make the call — the surface is the API's,
+    /// not the SDK's.
+    pub fn get(&self, path: &str, query: &[(&str, String)]) -> Result<Value, ClientError> {
+        Self::json(&self.send(reqwest::Method::GET, path, query, None)?)
+    }
+
+    /// `GET` a path and read the answer as raw bytes.
+    pub fn get_raw(&self, path: &str, query: &[(&str, String)]) -> Result<Vec<u8>, ClientError> {
+        self.send(reqwest::Method::GET, path, query, None)
+    }
+
+    /// `POST` a JSON body and read a JSON answer.
+    pub fn post(&self, path: &str, body: &Value) -> Result<Value, ClientError> {
+        let bytes =
+            serde_json::to_vec(body).map_err(|error| ClientError::Transport(error.to_string()))?;
+        Self::json(&self.send(
+            reqwest::Method::POST,
+            path,
+            &[],
+            Some((&bytes, "application/json")),
+        )?)
+    }
+
+    /// `POST` with no body and read a JSON answer — most control endpoints.
+    pub fn post_empty(&self, path: &str) -> Result<Value, ClientError> {
+        Self::json(&self.send(reqwest::Method::POST, path, &[], None)?)
+    }
+
+    /// `POST` a raw body (a workspace archive is not JSON, §5.2) and read the answer as bytes.
+    pub fn post_raw(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+        body: &[u8],
+        content_type: &str,
+    ) -> Result<Vec<u8>, ClientError> {
+        self.send(
+            reqwest::Method::POST,
+            path,
+            query,
+            Some((body, content_type)),
+        )
+    }
+
+    /// Subscribe to the event stream (`GET /v0/events`,
+    /// [control-plane-events.md](../../docs/control-plane-events.md) §1).
+    ///
+    /// The answer is a [`Subscription`], read frame by frame on **this thread** — the stream is read
+    /// with `std::io::Read` over `reqwest`'s blocking response, so **no async runtime is imposed**
+    /// (§3 of [sdk.md](../../docs/sdk.md)) and no extra feature or package is needed.
+    ///
+    /// `last_event_id` is the replay cursor: pass what [`Subscription::last_id`] gave you to resume a
+    /// dropped stream (`Last-Event-ID`). If the server cannot replay that far back, the first frame is
+    /// a **`gap`** — an instruction to re-sync from a query, never an error
+    /// ([control-plane-events.md](../../docs/control-plane-events.md) §2).
+    pub fn subscribe(
+        &self,
+        filters: &Filters,
+        last_event_id: Option<&str>,
+    ) -> Result<Subscription, ClientError> {
+        let mut request = self
+            .request(reqwest::Method::GET, "/v0/events", &filters.to_query())
+            .header("Accept", "text/event-stream");
+        if let Some(last) = last_event_id {
+            request = request.header("Last-Event-ID", last);
+        }
+        let response = request
+            .send()
+            .map_err(|error| ClientError::Transport(error.to_string()))?;
+        let status = response.status().as_u16();
+        if !(200..300).contains(&status) {
+            let body = response
+                .bytes()
+                .map_err(|error| ClientError::Transport(error.to_string()))?;
+            return Err(ClientError::Api(ApiError::from_body(status, &body)));
+        }
+        Ok(Subscription {
+            reader: std::io::BufReader::new(response),
+            last_id: last_event_id.map(str::to_string),
+        })
     }
 
     /// `GET /v0/audit/status` — capability `audit.read`.
@@ -651,6 +1060,386 @@ impl Client {
     pub fn connection(&self) -> Result<Value, ClientError> {
         self.get("/v0/connection", &[])
     }
+
+    /// `POST` a typed body and read a JSON answer — what the control methods below use.
+    fn post_body(&self, path: &str, body: &impl Serialize) -> Result<Value, ClientError> {
+        let value = serde_json::to_value(body)
+            .map_err(|error| ClientError::Transport(error.to_string()))?;
+        self.post(path, &value)
+    }
+
+    /// `POST /v0/agent/run` — capability `agent.run`.
+    pub fn agent_run(&self, params: &AgentRun) -> Result<Value, ClientError> {
+        self.post_body("/v0/agent/run", params)
+    }
+
+    /// `POST /v0/tasks` — capability `agent.run`.
+    pub fn tasks(&self, params: &Tasks) -> Result<Value, ClientError> {
+        self.post_body("/v0/tasks", params)
+    }
+
+    /// `POST /v0/runs/export` — capability `audit.export`.
+    pub fn runs_export(&self, params: &RunsExport) -> Result<Value, ClientError> {
+        self.post_body("/v0/runs/export", params)
+    }
+
+    /// `POST /v0/runs/abandon-stale` — capability `runs.control`.
+    pub fn runs_abandon_stale(&self) -> Result<Value, ClientError> {
+        self.post_empty("/v0/runs/abandon-stale")
+    }
+
+    /// `POST /v0/vm/start` — capability `vm.control`; reserved, answers `501`.
+    pub fn vm_start(&self) -> Result<Value, ClientError> {
+        self.post_empty("/v0/vm/start")
+    }
+
+    /// `POST /v0/vm/stop` — capability `vm.control`.
+    pub fn vm_stop(&self) -> Result<Value, ClientError> {
+        self.post_empty("/v0/vm/stop")
+    }
+
+    /// `POST /v0/snapshots/save` — capability `snapshot.write`.
+    pub fn snapshots_save(&self, params: &SnapshotName) -> Result<Value, ClientError> {
+        self.post_body("/v0/snapshots/save", params)
+    }
+
+    /// `POST /v0/snapshots/resume` — capability `snapshot.write`.
+    pub fn snapshots_resume(&self, params: &SnapshotName) -> Result<Value, ClientError> {
+        self.post_body("/v0/snapshots/resume", params)
+    }
+
+    /// `POST /v0/snapshots/delete` — capability `snapshot.write`.
+    pub fn snapshots_delete(&self, params: &SnapshotName) -> Result<Value, ClientError> {
+        self.post_body("/v0/snapshots/delete", params)
+    }
+
+    /// `POST /v0/sessions/create` — capability `session.write`.
+    pub fn sessions_create(&self, params: &SessionsCreate) -> Result<Value, ClientError> {
+        self.post_body("/v0/sessions/create", params)
+    }
+
+    /// `POST /v0/sessions/open` — capability `session.write`.
+    pub fn sessions_open(&self, params: &SessionsOpen) -> Result<Value, ClientError> {
+        self.post_body("/v0/sessions/open", params)
+    }
+
+    /// `POST /v0/sessions/rename` — capability `session.write`.
+    pub fn sessions_rename(&self, params: &SessionsRename) -> Result<Value, ClientError> {
+        self.post_body("/v0/sessions/rename", params)
+    }
+
+    /// `POST /v0/sessions/delete` — capability `session.write`.
+    pub fn sessions_delete(&self, params: &SessionsDelete) -> Result<Value, ClientError> {
+        self.post_body("/v0/sessions/delete", params)
+    }
+
+    /// `POST /v0/sessions/clear` — capability `session.write`.
+    pub fn sessions_clear(&self, params: &SessionsClear) -> Result<Value, ClientError> {
+        self.post_body("/v0/sessions/clear", params)
+    }
+
+    /// `POST /v0/toolchain/download` — capability `toolchain.install`.
+    pub fn toolchain_download_post(
+        &self,
+        params: &ToolchainDownload,
+    ) -> Result<Value, ClientError> {
+        self.post_body("/v0/toolchain/download", params)
+    }
+
+    /// `POST /v0/toolchain/download/cancel` — capability `toolchain.install`.
+    pub fn toolchain_download_cancel(&self) -> Result<Value, ClientError> {
+        self.post_empty("/v0/toolchain/download/cancel")
+    }
+
+    /// `POST /v0/qemu/download` — capability `qemu.configure`.
+    pub fn qemu_download_post(&self) -> Result<Value, ClientError> {
+        self.post_empty("/v0/qemu/download")
+    }
+
+    /// `POST /v0/qemu/download/cancel` — capability `qemu.configure`.
+    pub fn qemu_download_cancel(&self) -> Result<Value, ClientError> {
+        self.post_empty("/v0/qemu/download/cancel")
+    }
+
+    /// `POST /v0/toolchain/path` — capability `toolchain.configure`.
+    pub fn toolchain_path(&self, params: &PathArgument) -> Result<Value, ClientError> {
+        self.post_body("/v0/toolchain/path", params)
+    }
+
+    /// `POST /v0/toolchain/path/clear` — capability `toolchain.configure`.
+    pub fn toolchain_path_clear(&self) -> Result<Value, ClientError> {
+        self.post_empty("/v0/toolchain/path/clear")
+    }
+
+    /// `POST /v0/qemu/path` — capability `qemu.configure`.
+    pub fn qemu_path(&self, params: &PathArgument) -> Result<Value, ClientError> {
+        self.post_body("/v0/qemu/path", params)
+    }
+
+    /// `POST /v0/qemu/path/clear` — capability `qemu.configure`.
+    pub fn qemu_path_clear(&self) -> Result<Value, ClientError> {
+        self.post_empty("/v0/qemu/path/clear")
+    }
+
+    /// `POST /v0/preflight/run` — capability `preflight.run`.
+    pub fn preflight_run(&self) -> Result<Value, ClientError> {
+        self.post_empty("/v0/preflight/run")
+    }
+
+    /// `POST /v0/preflight/ack` — capability `preflight.run`.
+    pub fn preflight_ack(&self) -> Result<Value, ClientError> {
+        self.post_empty("/v0/preflight/ack")
+    }
+
+    /// `POST /v0/audit/alert` — capability `settings.write`.
+    pub fn audit_alert(&self, params: &AuditAlert) -> Result<Value, ClientError> {
+        self.post_body("/v0/audit/alert", params)
+    }
+
+    /// `POST /v0/audit/export` — capability `audit.export`.
+    pub fn audit_export(&self, params: &PathArgument) -> Result<Value, ClientError> {
+        self.post_body("/v0/audit/export", params)
+    }
+
+    /// `POST /v0/settings/theme` — capability `settings.write`.
+    pub fn settings_theme_post(&self, params: &SettingsTheme) -> Result<Value, ClientError> {
+        self.post_body("/v0/settings/theme", params)
+    }
+
+    /// `POST /v0/settings/language` — capability `settings.write`.
+    pub fn settings_language_post(&self, params: &SettingsLanguage) -> Result<Value, ClientError> {
+        self.post_body("/v0/settings/language", params)
+    }
+
+    /// `POST /v0/llm/config` — capability `llm.configure`.
+    pub fn llm_config_post(&self, params: &LlmConfigPost) -> Result<Value, ClientError> {
+        self.post_body("/v0/llm/config", params)
+    }
+
+    /// `POST /v0/llm/stored-key/load` — capability `llm.configure`.
+    pub fn llm_stored_key_load(&self, params: &LlmStoredKeyLoad) -> Result<Value, ClientError> {
+        self.post_body("/v0/llm/stored-key/load", params)
+    }
+
+    /// `POST /v0/llm/config/clear` — capability `llm.configure`.
+    pub fn llm_config_clear(&self, params: &LlmConfigClear) -> Result<Value, ClientError> {
+        self.post_body("/v0/llm/config/clear", params)
+    }
+
+    /// `POST /v0/serial/export` — capability `serial.export`.
+    pub fn serial_export(&self, params: &PathArgument) -> Result<Value, ClientError> {
+        self.post_body("/v0/serial/export", params)
+    }
+
+    /// `POST /v0/sandboxes/switch` — capability `sandbox.switch`.
+    pub fn sandboxes_switch(&self, params: &SandboxesSwitch) -> Result<Value, ClientError> {
+        self.post_body("/v0/sandboxes/switch", params)
+    }
+
+    /// `POST /v0/sandboxes/requests` — capability `agent.run`.
+    pub fn sandboxes_requests_post(
+        &self,
+        params: &SandboxesRequestsPost,
+    ) -> Result<Value, ClientError> {
+        self.post_body("/v0/sandboxes/requests", params)
+    }
+
+    /// `POST /v0/workspace/import` — capability `workspace.write`. The archive **is** the body (§5.2),
+    /// so this one takes bytes rather than a struct; `force` replaces files that are already there.
+    pub fn workspace_import(&self, archive: &[u8], force: bool) -> Result<Value, ClientError> {
+        let query: Vec<(&str, String)> = if force {
+            vec![("force", "true".to_string())]
+        } else {
+            Vec::new()
+        };
+        let bytes = self.post_raw(
+            "/v0/workspace/import",
+            &query,
+            archive,
+            "application/octet-stream",
+        )?;
+        Self::json(&bytes)
+    }
+
+    /// `POST /v0/workspace/export` — capability `workspace.read`. **Bytes out, not JSON** (§5.2), so
+    /// this is the one control method that does not answer with a `Value`.
+    pub fn workspace_export(&self) -> Result<Vec<u8>, ClientError> {
+        self.send(reqwest::Method::POST, "/v0/workspace/export", &[], None)
+    }
+}
+
+/// The stream's filters ([control-plane-events.md](../../docs/control-plane-events.md) §4).
+///
+/// Filtering is an **optimisation, never a correctness guarantee**: the document requires a client to
+/// tolerate an event it did not ask for, and `hello` and `gap` are never filtered.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Filters {
+    /// The event names to receive; empty means all.
+    pub events: Vec<String>,
+    /// One agent's events.
+    pub agent_id: Option<String>,
+    /// One task's events.
+    pub task_id: Option<String>,
+}
+
+impl Filters {
+    fn to_query(&self) -> Vec<(&'static str, String)> {
+        let mut query: Vec<(&'static str, String)> = self
+            .events
+            .iter()
+            .map(|event| ("event", event.clone()))
+            .collect();
+        if let Some(agent_id) = &self.agent_id {
+            query.push(("agent_id", agent_id.clone()));
+        }
+        if let Some(task_id) = &self.task_id {
+            query.push(("task_id", task_id.clone()));
+        }
+        query
+    }
+}
+
+/// One frame as it arrived: the `id:` line (the replay cursor) and the `data:` payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Frame {
+    /// The `id:` line. Opaque — store it and send it back, do not parse it (§1).
+    pub id: Option<String>,
+    /// The `data:` payload, exactly as it arrived.
+    pub data: String,
+}
+
+impl Frame {
+    /// The frame's payload as an envelope, when it parses as one.
+    pub fn envelope(&self) -> Option<Envelope> {
+        serde_json::from_str(&self.data).ok()
+    }
+
+    /// The frame's kind, when the payload is an envelope.
+    pub fn frame_kind(&self) -> Option<FrameKind> {
+        self.envelope().map(|envelope| envelope.frame_kind())
+    }
+}
+
+/// The envelope's `kind` ([control-plane-events.md](../../docs/control-plane-events.md) §2).
+///
+/// A new kind value does not bump the envelope's `version`, and clients must ignore frames they do not
+/// recognise — so [`FrameKind::Unknown`] exists rather than a panic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FrameKind {
+    /// One of the twenty events; the envelope's `event` names it.
+    Event,
+    /// The stream opened; the payload describes its buffer and filters.
+    Hello,
+    /// The replay cursor was too old: **re-sync from a query**.
+    Gap,
+    /// A kind this build does not know.
+    Unknown(String),
+}
+
+/// The unified envelope every frame carries ([control-plane-events.md](../../docs/control-plane-events.md) §2).
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct Envelope {
+    /// Envelope schema version: `1`.
+    pub version: u32,
+    /// `event`, `hello` or `gap`.
+    pub kind: String,
+    /// One of the twenty names, or absent for `hello` / `gap`.
+    #[serde(default)]
+    pub event: Option<String>,
+    /// The agent that caused the event, `<device>-<pid>-<seq>`.
+    pub agent_id: String,
+    /// The dispatched task it belongs to; absent when it belongs to none.
+    #[serde(default)]
+    pub task_id: Option<String>,
+    /// Epoch milliseconds.
+    pub ts: i64,
+    /// The event-specific body.
+    #[serde(default)]
+    pub payload: Value,
+}
+
+impl Envelope {
+    /// The kind, as a value.
+    pub fn frame_kind(&self) -> FrameKind {
+        match self.kind.as_str() {
+            "event" => FrameKind::Event,
+            "hello" => FrameKind::Hello,
+            "gap" => FrameKind::Gap,
+            other => FrameKind::Unknown(other.to_string()),
+        }
+    }
+
+    /// A `gap` frame's `payload.lost_after`: the oldest id the server still holds. **A client that
+    /// sees a `gap` must re-sync from a query** — the stream cannot repair the hole, which is exactly
+    /// why this is an instruction and not an error
+    /// ([control-plane-events.md](../../docs/control-plane-events.md) §2).
+    pub fn lost_after(&self) -> Option<&str> {
+        self.payload.get("lost_after").and_then(Value::as_str)
+    }
+}
+
+/// A live event stream, read frame by frame.
+///
+/// Blocking on purpose: the frames are read as the server writes them, with `std::io::Read` over
+/// `reqwest`'s blocking response, so **no async runtime is imposed** ([sdk.md](../../docs/sdk.md) §3).
+/// Comment lines (the 15-second `: keep-alive`, §1) are skipped, and several `data:` lines in one
+/// frame are joined with newlines, which is what the frame format says a reader should do.
+pub struct Subscription {
+    reader: std::io::BufReader<reqwest::blocking::Response>,
+    last_id: Option<String>,
+}
+
+impl Subscription {
+    /// The next frame, or `None` at end of stream.
+    pub fn next_frame(&mut self) -> Result<Option<Frame>, ClientError> {
+        use std::io::BufRead;
+        let mut id: Option<String> = None;
+        let mut data: Vec<String> = Vec::new();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            let read = self
+                .reader
+                .read_line(&mut line)
+                .map_err(|error| ClientError::Transport(error.to_string()))?;
+            if read == 0 {
+                // The stream ended without the blank line that closes a frame.
+                return Ok(None);
+            }
+            let trimmed = line.trim_end_matches(['\r', '\n']);
+            if trimmed.is_empty() {
+                if id.is_none() && data.is_empty() {
+                    continue; // a blank line between frames, or after a keep-alive
+                }
+                let frame = Frame {
+                    id: id.clone(),
+                    data: data.join("\n"),
+                };
+                if let Some(value) = &frame.id {
+                    self.last_id = Some(value.clone());
+                }
+                return Ok(Some(frame));
+            }
+            if trimmed.starts_with(':') {
+                continue; // a comment (the heartbeat)
+            }
+            if let Some(rest) = trimmed.strip_prefix("id:") {
+                id = Some(rest.trim_start().to_string());
+                continue;
+            }
+            if let Some(rest) = trimmed.strip_prefix("data:") {
+                data.push(rest.trim_start().to_string());
+                continue;
+            }
+            // Any other field is ignored: the stream uses `id:` and `data:` only (§1).
+        }
+    }
+
+    /// The last `id:` seen — or the one the subscription resumed from — which is the `Last-Event-ID`
+    /// to send when reconnecting (§1).
+    pub fn last_id(&self) -> Option<&str> {
+        self.last_id.as_deref()
+    }
 }
 
 #[cfg(test)]
@@ -804,22 +1593,30 @@ mod tests {
 
     /// One HTTP/1.1 answer over a loopback socket, so the client is exercised without a network —
     /// and the request it sent comes back for inspection.
-    fn serve_once(status: u16, body: &'static str) -> (String, std::thread::JoinHandle<String>) {
+    fn serve_typed(
+        status: u16,
+        content_type: &'static str,
+        body: &'static str,
+    ) -> (String, std::thread::JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let handle = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut buffer = vec![0u8; 8192];
+            let mut buffer = vec![0u8; 16384];
             let read = stream.read(&mut buffer).unwrap();
             let request = String::from_utf8_lossy(&buffer[..read]).to_string();
             let response = format!(
-                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                "HTTP/1.1 {status} X\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             );
             stream.write_all(response.as_bytes()).unwrap();
             request
         });
         (format!("http://{address}"), handle)
+    }
+
+    fn serve_once(status: u16, body: &'static str) -> (String, std::thread::JoinHandle<String>) {
+        serve_typed(status, "application/json", body)
     }
 
     #[test]
@@ -880,5 +1677,224 @@ mod tests {
             request.starts_with("GET /v0/workspace/file?path=src%2Flib.rs "),
             "the query was not sent: {request}"
         );
+    }
+
+    #[test]
+    fn the_control_table_matches_the_documented_controls() {
+        let mut documented = marked_rows("controls");
+        documented.sort();
+        let mut sdk: Vec<(String, String, String, String)> = CONTROL_ENDPOINTS
+            .iter()
+            .map(|endpoint| {
+                (
+                    endpoint.tool.to_string(),
+                    endpoint.method.to_string(),
+                    endpoint.path.to_string(),
+                    endpoint.capability.to_string(),
+                )
+            })
+            .collect();
+        sdk.sort();
+        assert_eq!(
+            sdk, documented,
+            "the SDK's control table against the document"
+        );
+        assert_eq!(CONTROL_ENDPOINTS.len(), 36, "§5.2 is 36 controls");
+        assert!(
+            CONTROL_ENDPOINTS
+                .iter()
+                .all(|endpoint| endpoint.method == "POST"),
+            "every control is a POST"
+        );
+    }
+
+    /// Across **both** tables: a tool name is unique, and so is a `(method, path)` pair — the query and
+    /// control tables share paths by design (`POST /v0/toolchain/download` beside its `GET`), and the
+    /// tool names are what tell them apart.
+    #[test]
+    fn no_two_endpoints_share_a_tool_name_or_a_method_and_path() {
+        let all: Vec<&Endpoint> = QUERY_ENDPOINTS
+            .iter()
+            .chain(CONTROL_ENDPOINTS.iter())
+            .collect();
+        for (index, endpoint) in all.iter().enumerate() {
+            for other in &all[index + 1..] {
+                assert_ne!(endpoint.tool, other.tool, "two endpoints share a tool name");
+                assert!(
+                    endpoint.method != other.method || endpoint.path != other.path,
+                    "two endpoints share a method and a path: {} {}",
+                    endpoint.method,
+                    endpoint.path
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_control_posts_its_json_body_with_the_bearer_and_the_agent() {
+        let (base, server) = serve_once(200, r#"{"id":"req-1"}"#);
+        let client = Client::new(base, "the-node-token")
+            .unwrap()
+            .with_agent_name("supervisor-1");
+        let answer = client
+            .sandboxes_switch(&SandboxesSwitch {
+                name: "blink".to_string(),
+            })
+            .unwrap();
+        assert_eq!(answer["id"], "req-1");
+        let request = server.join().unwrap();
+        let lower = request.to_lowercase();
+        assert!(
+            request.starts_with("POST /v0/sandboxes/switch "),
+            "the path was not the endpoint's: {request}"
+        );
+        assert!(
+            lower.contains("authorization: bearer the-node-token"),
+            "{request}"
+        );
+        assert!(lower.contains("x-riscdom-agent: supervisor-1"), "{request}");
+        assert!(
+            lower.contains("content-type: application/json"),
+            "{request}"
+        );
+        assert!(request.contains(r#"{"name":"blink"}"#), "{request}");
+    }
+
+    #[test]
+    fn a_control_without_a_body_sends_none() {
+        let (base, server) = serve_once(200, "null");
+        let client = Client::new(base, "t").unwrap();
+        client.vm_stop().unwrap();
+        let request = server.join().unwrap();
+        assert!(request.starts_with("POST /v0/vm/stop "), "{request}");
+        assert!(
+            !request.to_lowercase().contains("content-type"),
+            "a bodyless control sent a content type: {request}"
+        );
+    }
+
+    #[test]
+    fn workspace_export_answers_with_bytes_not_json() {
+        let (base, server) = serve_typed(200, "application/zip", "PK-an-archive");
+        let client = Client::new(base, "t").unwrap();
+        assert_eq!(client.workspace_export().unwrap(), b"PK-an-archive");
+        let request = server.join().unwrap();
+        assert!(
+            request.starts_with("POST /v0/workspace/export "),
+            "{request}"
+        );
+    }
+
+    #[test]
+    fn workspace_import_sends_the_archive_and_asks_for_force() {
+        let (base, server) = serve_once(200, r#"{"files":1,"bytes":4}"#);
+        let client = Client::new(base, "t").unwrap();
+        let answer = client.workspace_import(b"PK\x03\x04", true).unwrap();
+        assert_eq!(answer["files"], 1);
+        let request = server.join().unwrap();
+        assert!(
+            request.starts_with("POST /v0/workspace/import?force=true "),
+            "{request}"
+        );
+    }
+
+    /// The stream, including the two things [control-plane-events.md](../../docs/control-plane-events.md)
+    /// §1 and §2 insist on: the keep-alive comment is not a frame, and a `gap` is a **re-sync
+    /// instruction**, surfaced as a kind — never an error, and never abstracted away.
+    #[test]
+    fn frames_arrive_typed_and_a_gap_is_an_instruction() {
+        let body = concat!(
+            "id: 0-0\n",
+            "data: {\"version\":1,\"kind\":\"hello\",\"event\":null,\"agent_id\":\"server\",\"task_id\":null,\"ts\":1,\"payload\":{\"buffer\":{\"from\":0,\"to\":42}}}\n",
+            "\n",
+            ": keep-alive\n",
+            "\n",
+            "id: 1758533001207-1\n",
+            "data: {\"version\":1,\"kind\":\"event\",\"event\":\"agent:tool_call\",\"agent_id\":\"dev-1-1\",\"task_id\":\"task-1-1\",\"ts\":1758533001207,\"payload\":{\"name\":\"write_source\"}}\n",
+            "\n",
+            "id: 1758533001880-2\n",
+            "data: {\"version\":1,\"kind\":\"gap\",\"event\":null,\"agent_id\":\"server\",\"task_id\":null,\"ts\":1758533001880,\"payload\":{\"lost_after\":\"1758533001777-9\"}}\n",
+            "\n",
+        );
+        let (base, server) = serve_typed(200, "text/event-stream", body);
+        let client = Client::new(base, "t").unwrap();
+        let mut subscription = client.subscribe(&Filters::default(), None).unwrap();
+
+        let hello = subscription.next_frame().unwrap().expect("a hello frame");
+        assert_eq!(hello.id.as_deref(), Some("0-0"));
+        assert_eq!(hello.frame_kind(), Some(FrameKind::Hello));
+
+        let event = subscription.next_frame().unwrap().expect("an event frame");
+        assert_eq!(event.frame_kind(), Some(FrameKind::Event));
+        let envelope = event.envelope().unwrap();
+        assert_eq!(envelope.event.as_deref(), Some("agent:tool_call"));
+        assert_eq!(envelope.task_id.as_deref(), Some("task-1-1"));
+        assert_eq!(envelope.payload["name"], "write_source");
+        assert_eq!(subscription.last_id(), Some("1758533001207-1"));
+
+        let gap = subscription.next_frame().unwrap().expect("a gap frame");
+        assert_eq!(gap.frame_kind(), Some(FrameKind::Gap));
+        assert_eq!(
+            gap.envelope().unwrap().lost_after(),
+            Some("1758533001777-9"),
+            "a gap names the oldest id the server still holds"
+        );
+
+        assert!(
+            subscription.next_frame().unwrap().is_none(),
+            "end of stream"
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn an_unknown_frame_kind_is_not_an_error() {
+        let envelope = Frame {
+            id: None,
+            data: r#"{"version":1,"kind":"something-new","event":null,"agent_id":"server","task_id":null,"ts":1,"payload":{}}"#.to_string(),
+        }
+        .envelope()
+        .unwrap();
+        assert_eq!(
+            envelope.frame_kind(),
+            FrameKind::Unknown("something-new".to_string())
+        );
+    }
+
+    #[test]
+    fn filters_travel_as_repeated_query_parameters() {
+        let filters = Filters {
+            events: vec!["agent:tool_call".to_string(), "vm:state".to_string()],
+            agent_id: Some("dev-12345-1".to_string()),
+            task_id: None,
+        };
+        assert_eq!(
+            filters.to_query(),
+            vec![
+                ("event", "agent:tool_call".to_string()),
+                ("event", "vm:state".to_string()),
+                ("agent_id", "dev-12345-1".to_string()),
+            ]
+        );
+        assert!(Filters::default().to_query().is_empty());
+    }
+
+    #[test]
+    fn a_subscription_reports_the_cursor_it_resumed_from() {
+        let (base, server) = serve_typed(200, "text/event-stream", "");
+        let client = Client::new(base, "t").unwrap();
+        let mut subscription = client
+            .subscribe(&Filters::default(), Some("1758533001207-1"))
+            .unwrap();
+        assert_eq!(subscription.last_id(), Some("1758533001207-1"));
+        assert!(subscription.next_frame().unwrap().is_none());
+        let request = server.join().unwrap();
+        assert!(
+            request
+                .to_lowercase()
+                .contains("last-event-id: 1758533001207-1"),
+            "the resume cursor was not sent: {request}"
+        );
+        assert!(request.starts_with("GET /v0/events "), "{request}");
     }
 }

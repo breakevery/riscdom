@@ -247,6 +247,15 @@ current request authorising it (§2).
   server's `ROUTES`, so the chain is **SDK ⇄ tool schema ⇄ server** with no dependency and no second list.
   `reqwest`/`serde`/`serde_json`/`thiserror` were already in `Cargo.lock` (**edges, no packages**). The
   control endpoints and the event stream are BB; the TypeScript SDK is BC. **Decision §121.**
+- **And the Rust SDK is complete** (v1.0 batch BB / M7c-2, 2026-09-29): the **36 `POST` controls** of api
+  §5.2 join as `CONTROL_ENDPOINTS` with typed methods and parameters, and the **event stream** arrives as
+  `Client::subscribe` → a blocking, frame-by-frame `Subscription` (`std::io::Read` over `reqwest`'s
+  blocking response — **no async runtime, no new package**). The envelope is typed
+  (`FrameKind::{Event, Hello, Gap, Unknown}`), and **`gap` stays an instruction**: `lost_after()` names
+  the cursor, and a client that sees one must re-sync from a query. `workspace_export`/`workspace_import`
+  are bytes in/out, because §5.2 says they are not JSON. A second drift guard holds the control table to
+  the tool-schema `controls` block. **M7c is complete** — the Rust SDK's whole line. The TypeScript SDK is
+  BC. **Decision §122.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

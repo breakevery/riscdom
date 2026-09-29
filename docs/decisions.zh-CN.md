@@ -1289,3 +1289,13 @@ trait 属 v1.x 工作。
 **缘由**：四点。**表面不得是第四份拷贝。** 规格 §6 禁止会分岔的表面，而本仓已把 tool-schema 标记表断言对着 `ROUTES`；把那一件现成产物复用为 SDK 的守卫，正是让「从表生成」在不生成任何东西、也不把 `server` 拖进一个第三方 crate 的前提下为真。**零依赖，所以日后能发布。** §116 与 §118 把发布推迟；一个为守卫而对 `server` 取 path dev-dependency 的 crate 永远发不了，所以守卫改为读**文档** —— 而 `include_str!` 完全不需依赖就能做到。**用 blocking，因为 §3 这么说。** 「不强加运行时」是对消费者的承诺，而 `reqwest` 的 blocking 面在兑现它的同时不新增包，因为 `host-core` 本就依赖该 crate 与该版本。**响应用 `Value` 是诚实、不是懒惰。** API 文档*点名*每个响应类型、却不冻结其字段，而 §1 禁止 SDK 发明语义 —— 所以本批只给文档真正确下的东西定型（端点、参数、错误），把响应形状留给有文档可读的那一批。
 
 **影响**：一个新的 workspace 成员（`Cargo.toml` 的 `members` 多出 `"sdk/rust"`；gate 的第二条 clippy 行多出 `-p riscdom-sdk`，于是新 crate 像其它一样被 lint）。`sdk/rust/README.md` + zh 是新的（双语对计数 **116 → 118**）；`docs/README.md` + zh 各多一行。**没有路由、capability 名、审计事件常量、哈希公式、持久化格式或内核 crate 被改动** —— 该 crate 只读文档、只说 API。没有任何东西被发布到任何 registry。
+
+## 122. Rust SDK 完整了：控制面，以及一个 `gap` 始终保持为指令的流
+
+**日期**：2026-09-29 ｜ **状态**：已定且已实现（批 BB / M7c-2）
+
+**决策**：`sdk/rust/` 补上了 [sdk.md](sdk.zh-CN.md) §3 描述的其余表面。[control-plane-api.md](control-plane-api.zh-CN.md) §5.2 的 **36 条 `POST` 控制**作为 **`CONTROL_ENDPOINTS`** 加入 `QUERY_ENDPOINTS`，**每端点一个带类型的方法**与带类型的请求参数（`AgentRun`、`Tasks`、`RunsExport`、`SnapshotName`、`SessionsCreate`、`ToolchainDownload`、`PathArgument`、`LlmConfigPost`、`SandboxesRequestsPost`……）。两个控制不说 JSON，且如实如此：**`workspace_export` 返回 `Vec<u8>`**、**`workspace_import` 把归档作为请求体**（§5.2）。传输现在是 `send` + `get`/`get_raw`/`post`/`post_empty`/`post_raw`，而 `X-RiscDom-Agent` 头在**每个**动词上都带，不只 GET。**事件流**是 `Client::subscribe(filters, last_event_id)`，返回一个**阻塞式、逐帧的 `Subscription`**：在 `reqwest` 的阻塞响应上用 `std::io::Read`，所以**无 async 运行时、无额外 feature**。envelope 是带类型的（`Envelope { version, kind, event, agent_id, task_id, ts, payload }`），配 `FrameKind::{Event, Hello, Gap, Unknown}`，而 **`gap` 被作为指令暴露、绝不作为错误**：`lost_after()` 点名服务器仍持有的最旧 id，文档说看见它的客户端必须从查询重新同步。`Subscription::last_id()` 就是用来恢复的 `Last-Event-ID`。第二条漂移守卫把 `CONTROL_ENDPOINTS` 钉在 tool-schema 的 `controls` 块上，正如 BA 那条把查询钉住一样。
+
+**缘由**：四点。**一表一守卫，一守卫一链。** 控制表对照它自己的标记块检查，理由与查询相同：那个块已被断言对着服务器的 `ROUTES`，所以 SDK 在无依赖、无生成步骤的前提下继承了服务器自己的真相。**流绝不能强推 async。** §3 禁止强加运行时，而本仓早已在 `cli/src/sse.rs` 用 `std::io` 读 SSE；`reqwest` 的阻塞响应实现了 `Read`，于是 SDK 在**不新增包、不写 `.await`** 的前提下得到一个一流的流式客户端 —— 对「同步 SDK 怎么读流」的诚实回答是：流就是字节，而字节不需要 executor。**`gap` 不是错误，也绝不能看起来像错误。** 把它当失败的客户端会重试一条永远填不上洞的流；忽略它的客户端会静默漏事件 —— 所以 SDK 把它做成一个 kind，并带上文档点名的游标，且在方法自己的文档里说清该怎么办。**两个控制不是 JSON，所以它们的签名不是 `Value`。** §5.2 说 workspace 归档是字节进、字节出；把那些定型为 `Value` 会是第一个调用者就会发现的一个谎。
+
+**影响**：`sdk/rust/README.md` + zh 被更新（无新对：双语计数仍为 **118**）；`docs/README.md` + zh 的行随之更新。**没有路由、capability 名、审计事件常量、哈希公式、持久化格式或内核 crate 被改动**，且**没有新包**：`reqwest` 用已声明的 feature 就把它自己的阻塞响应读出流来了。TypeScript SDK 是 BC；没有任何东西被发布到任何 registry。
