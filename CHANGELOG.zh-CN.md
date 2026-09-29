@@ -23,6 +23,8 @@
 
 ### 变更
 
+- **临时段得到它们自己的文件**（v1.0 批 BO / M5-1c）：audit v2 的物理形状冻为 **（b）—— 一链一份文件，稍后并入**。主链仍是 `audit.db`；一个临时段是**同一个审计目录**里的 `audit-segments/<segment_id>.db`，由 `audit` 新增的 `segment_db_path_in` / `AuditStore::open_segment_store` 打开 —— 一份有自己创世的普通储存。并入即**转录**（M5-2），而**验证仍是一个函数**：主链上 `verify_chain` 未改，段自己的储存上用的是同一个 `verify_chain`。`docs/audit-v2.md` + zh 修订 §2/§5/§6/§7 并新增 §8 与 §9。**`compute_hash`、`verify_chain` 与 append-only 触发器未动**，且未碰 host-core。**决策 §131。**
+
 - **项目记录三个仓库，且拆仓等 v1.0**（v1.0 批 BH）：`docs/multi-repo.md` + zh 现在描述三个仓库 —— 本仓（内核 + 控制平面）、`riscdom-adminapp`（`host-tauri` + `ui`）与 `riscdom-server`（`server` crate）—— 注明所钉的内核 tag 在 v1.0 才打、把 CLA 问题扩到三个、并新增 §7 记录两个程序的第一份 roadmap（adminapp：今天桌面，之后移动端与浏览器，连节点与 server 两端；server：今天命令行，之后 Windows / Linux 上的 web 状态页，只服务 RiscDom）与顺序 **v1.0 → server → app**。拆仓（[M7a](docs/roadmap-v1.0.zh-CN.md)）推迟到 v1.0 之后。**决策 §126。**
 - **audit v2 与跨设备设计已获授权**（v1.0 批 BI / M5）：owner 的批准 —— [decisions §33](docs/decisions.zh-CN.md) 所要求的、必须「单独」进行的那次 —— 落盘为 **决策 §127**：整个跨设备设计（M4e + M5 + M6）、「主链 + 临时段」的语义（哈希公式不变）、`provisional` / `fork`（绝不静默合并）、三层缺一不可的抑制、M4e 的 30 秒 digest（关键事件即时推送）、M6 的三级 M 与跨链验证，以及本决策为 `PROJECT_CONSTITUTION.md` §8 的明确例外。roadmap §7 与 §15 从「未获授权」转为已授权，§8 多出指向。**M4e、M5 与 M6 现在可以实现了。** **决策 §127。**
 

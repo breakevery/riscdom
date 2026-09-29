@@ -1388,3 +1388,13 @@ trait 属 v1.x 工作。
 **缘由**：三点。**生命周期是链的事实，所以记在链上。** 一个段的存在必须与其它东西一样可审计，所以开启与关闭是普通审计事件 —— 不是读者可能错过的侧表条目 —— 且它们走**主链**，因为它们描述段的*生命*、不是它的内容。**引用在事件之前取，而非之后。** 先取头，正是让 `head_prev_chain` 成为段所承接的那个点：若在追加之后读，它会指名片自己的开启事件，引用便说了等于没说。**公式未动，验证者也未动。** 两条新事件都是五输入哈希下的普通追加，`segments` 行坐在链旁边，而 `verify_chain` 走的仍是它一直走的那同一条链。
 
 **影响**：`audit/src/segment.rs` 多出两个 action 常量、两个 detail 构造器与 `Segment::from_row`；`audit/src/store.rs` 多出 `open_segment`、`close_segment`、`segment`、`segments` 及其助手；`docs/audit-v2.md` + zh 的 §3 与 §6 写实。**`compute_hash`、`verify_chain` 与两个 append-only 触发器未动**，路由、capability 名、审计事件常量、哈希公式或持久化格式均未变，两个新名是 **`host.audit.*`** 审计事件、不是流名（`control-plane-events.md` 的二十个名字是另一套词汇）。**尚无任何宿主接线**：临时中心是 M5-3、并入是 M5-2，所以 M5-1b 是后一批要调用的 API。
+
+## 131. 临时段住在它们自己的文件里
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 BO / M5-1c）
+
+**决策**：audit v2 的物理形状是 **（b）—— 一链一份文件，稍后并入**，[docs/audit-v2.md](audit-v2.zh-CN.md) + zh 现已把它冻下。**主链**待在它一直待的地方（`audit.db`；`segment_id IS NULL` 的那些行）。**一个临时段**是它自己的 SQLite 文件，位于**同一个审计目录**里的 `audit-segments/<segment_id>.db`，由 `audit::segment_db_path_in` 拼出、由 `AuditStore::open_segment_store` 打开 —— 一份普通储存，同一套 schema、同一批 append-only 触发器、以及**它自己的创世**。两者由*主*储存里的 `segments` 行系在一起，其 `head_prev_chain` 是开启时的主链头。**并入即转录**（M5-2）：段的事件作为新事件追加到主链，什么都不被改写，而行转为 `folded` 或 `forked`。**验证是一个函数**：主链用 `verify_chain`**未改**，段用**同一个** `verify_chain` 作用在段自己的储存上 —— 没有分段感知模式、没有第二个验证者。跨链验证是 **M6**，以 `head_prev_chain` 为锚。
+
+**缘由**：三点。**主链保持纯净。** 一份装着两条链的文件，会让「这条链是否完好」变成关于**文件**、而不是关于**链**的问题；把段放进它自己的文件，主储存就与从前一模一样。**公式与验证者待在原地，这正是 (b) 的要害。** 形状（c）—— 一份文件内的第二条链 —— 是唯一会迫使 `verify_chain` 长出分段感知模式、即在红线 4 的验证面上动刀的形状；（b）什么都不需要。**代行的中心是另一台机器。** 形状（a）假定段的行可以直接追加进主 `audit_events`，但一个在*真中心不可达时*代行的中心在别处：它的事件在相遇之前不可能在这份文件里，而把一个尚未被核实的中心的行写进受信的链，正与 `provisional` 的用意相反。
+
+**影响**：`audit` 多出 `segment_db_path_in` 与 `AuditStore::open_segment_store`；`docs/audit-v2.md` + zh 修订 §2、§5、§6、§7 并新增 §8（段住在哪）与 §9（每条链如何验证）。**`compute_hash`、`verify_chain`、`append_once` 与两个 append-only 触发器未动**，路由、capability 名、审计事件常量、哈希公式或持久化格式均未变，且**未碰 host-core**：审计目录是调用者的，所以本 crate 不拼任何宿主布局。并入事件名（`host.audit.segment_merged`）在 §6 预留，由 M5-2 实现。

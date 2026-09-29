@@ -37,8 +37,8 @@ pub use segment::{
 };
 pub use sink::{AuditFailureReporter, AuditSink, FileAuditSink, SqliteAuditSink};
 pub use store::{
-    AuditStore, EventFilter, APPEND_BACKOFF_BASE, APPEND_MAX_ATTEMPTS, AUDIT_SCHEMA_VERSION,
-    BUSY_TIMEOUT, OPEN_BACKOFF_BASE, OPEN_MAX_ATTEMPTS,
+    segment_db_path_in, AuditStore, EventFilter, APPEND_BACKOFF_BASE, APPEND_MAX_ATTEMPTS,
+    AUDIT_SCHEMA_VERSION, BUSY_TIMEOUT, OPEN_BACKOFF_BASE, OPEN_MAX_ATTEMPTS,
 };
 
 /// The default failure reporter: put it where a human will see it.

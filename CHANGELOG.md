@@ -55,6 +55,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The temporary segments get their own files** (v1.0 batch BO / M5-1c): the physical shape of audit v2 is
+  frozen as **(b) — one file per chain, merged later**. The main chain stays `audit.db`; a temporary segment
+  is `audit-segments/<segment_id>.db` **inside the same audit directory**, opened by `audit`'s new
+  `segment_db_path_in` / `AuditStore::open_segment_store` — an ordinary store with its own genesis. Merging is
+  **transcription** (M5-2), and **verification stays one function**: `verify_chain` unchanged on the main
+  chain, the same `verify_chain` on a segment's store. `docs/audit-v2.md` + zh revise §2/§5/§6/§7 and add §8
+  and §9. **`compute_hash`, `verify_chain` and the append-only triggers are untouched**, and host-core is not
+  touched. **Decision §131.**
+
 - **The project documents three repositories, and the split waits for v1.0** (v1.0 batch BH):
   `docs/multi-repo.md` + zh now describe three repositories — this one (kernel + control plane),
   `riscdom-adminapp` (`host-tauri` + `ui`) and `riscdom-server` (the `server` crate) — note that the pinned

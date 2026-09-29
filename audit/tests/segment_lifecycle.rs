@@ -26,6 +26,19 @@ fn count(conn: &rusqlite::Connection, sql: &str) -> i64 {
     conn.query_row(sql, [], |row| row.get(0)).expect("query")
 }
 
+fn temp_dir(tag: &str) -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "riscdom-segment-store-{tag}-{}-{nanos}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    dir
+}
+
 #[test]
 fn opening_a_segment_writes_the_row_and_the_event_on_the_main_chain() {
     let path = temp_db("open");
@@ -198,4 +211,62 @@ fn closing_an_unknown_segment_is_an_error_not_a_silent_write() {
     // Nothing was appended for a close that did not happen.
     assert_eq!(store.count().expect("count"), 0);
     assert!(store.segments().expect("segments").is_empty());
+}
+
+#[test]
+fn a_segment_gets_its_own_store_and_the_main_chain_is_not_touched() {
+    // Physical shape (b), v1.0 M5-1c: a temporary segment is its **own** SQLite file beside the main
+    // chain, so the main chain stays one linear, verifiable chain.
+    let dir = temp_dir("own");
+    let mut main = AuditStore::open(&dir.join("audit.db")).expect("main");
+    main.append(AuditEvent::new(
+        "sandbox",
+        "vm.start",
+        serde_json::json!({}),
+    ))
+    .expect("append");
+    let segment = main
+        .open_segment(SegmentKind::Temporary)
+        .expect("open segment");
+
+    // The path is `<audit dir>/audit-segments/<segment_id>.db`, and nothing is there until one is opened.
+    let segment_path = audit::segment_db_path_in(&dir, &segment.segment_id);
+    assert_eq!(
+        segment_path,
+        dir.join("audit-segments")
+            .join(format!("{}.db", segment.segment_id))
+    );
+    assert!(!segment_path.exists(), "no file until one is opened");
+
+    // Its own store: the same schema, and its own genesis.
+    let mut seg = AuditStore::open_segment_store(&dir, &segment.segment_id).expect("segment store");
+    assert!(segment_path.exists(), "opening created the file");
+    seg.append(AuditEvent::new(
+        "sandbox",
+        "vm.exec",
+        serde_json::json!({ "in": "segment" }),
+    ))
+    .expect("append");
+    assert!(matches!(
+        verify_chain(&seg).expect("verify"),
+        ChainStatus::Intact { length: 1 }
+    ));
+    let first = &seg.all().expect("all")[0];
+    assert_eq!(
+        first.prev_hash,
+        audit::GENESIS_PREV_HASH,
+        "a segment chain starts at genesis, like any chain"
+    );
+
+    // The main chain is a different file, and the segment's writes did not touch it.
+    assert!(matches!(
+        verify_chain(&main).expect("verify"),
+        ChainStatus::Intact { length: 2 }
+    ));
+    assert_eq!(main.count().expect("count"), 2);
+    assert_eq!(
+        main.segments().expect("segments").len(),
+        1,
+        "the segment is registered on the main chain, its events are not"
+    );
 }

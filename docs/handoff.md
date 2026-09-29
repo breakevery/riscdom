@@ -329,6 +329,16 @@ current request authorising it (§2).
   lifecycle event. `SegmentKind` / `SegmentState`'s reader was renamed `parse`. **`compute_hash`,
   `verify_chain` and both append-only triggers are untouched**, and **no host wires this yet** — a temporary
   centre is M5-3 and the merge is M5-2. **Decision §130.**
+- **And the physical shape is frozen: (b), a file per chain** (v1.0 batch BO / M5-1c, 2026-09-30). The main
+  chain stays `audit.db`; a **temporary segment** is `audit-segments/<segment_id>.db` **inside the same
+  audit directory**, made by `audit::segment_db_path_in` and opened by `AuditStore::open_segment_store` — an
+  ordinary store with the same schema, the same triggers and **its own genesis**. The `segments` row in the
+  **main** store ties the two together (`head_prev_chain` = the main head at open). **Merging is transcription**
+  (M5-2; the name `host.audit.segment_merged` is reserved) and **verification stays one function**:
+  `verify_chain` **unchanged** on the main chain, the *same* `verify_chain` on a segment's store. Cross-chain
+  verification is M6, anchored on `head_prev_chain`. `docs/audit-v2.md` + zh revise §2/§5/§6/§7 and add §8/§9.
+  **`audit/src/hash.rs` is untouched and `verify_chain`'s logic is untouched**; **host-core is not touched**
+  (the audit directory is the caller's). **M5-1 is complete (a/b/c).** **Decision §131.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

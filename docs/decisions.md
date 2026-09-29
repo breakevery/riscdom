@@ -3769,3 +3769,36 @@ append-only triggers are untouched**, no route, capability name, audit event con
 persisted format changes, and the two new names are **`host.audit.*`** audit events, not stream names (the
 twenty `control-plane-events.md` names are a different vocabulary). **No host wires this yet**: a temporary
 centre is M5-3 and the merge is M5-2, so M5-1b is the API a later batch calls.
+
+## 131. The temporary segments live in their own files
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch BO / M5-1c)
+
+**Decision**: The physical shape of audit v2 is **(b) — one file per chain, merged later**, and
+[docs/audit-v2.md](audit-v2.md) + zh now freeze it. The **main chain** stays where it always was (`audit.db`;
+the rows with `segment_id IS NULL`). A **temporary segment** is its own SQLite file at
+`audit-segments/<segment_id>.db` **inside the same audit directory**, made by `audit::segment_db_path_in` and
+opened by `AuditStore::open_segment_store` — an ordinary store with the same schema, the same append-only
+triggers and **its own genesis**. The two are tied together by the `segments` row in the **main** store, whose
+`head_prev_chain` is the main chain's head at open. **Merging is transcription** (M5-2): the segment's events
+are appended to the main chain as new events, nothing is rewritten, and the row moves to `folded` or `forked`.
+**Verification is one function**: `verify_chain` **unchanged** for the main chain, and the *same*
+`verify_chain` on the segment's store for a segment — no segment-aware mode, no second verifier. Cross-chain
+verification is **M6**, anchored on `head_prev_chain`.
+
+**Why**: Three points. **The main chain stays pure.** A file that held two chains would have made "is this
+chain intact" a question about the file rather than the chain; keeping a segment in its own file keeps the
+main store exactly what it was. **The formula and the verifier stay put, and that is the point of (b).**
+Shape (c) — a second chain inside one file — is the only one that would force `verify_chain` to grow a
+segment-aware mode, i.e. to change on the red-line-4 verification surface; (b) needs nothing. **A stand-in
+centre is a different machine.** Shape (a) assumed the segment's rows could be appended straight into the
+main `audit_events`, but a centre standing in *while the real one is unreachable* is elsewhere: its events
+cannot be in this file until they meet, and writing an unreconciled centre's rows into the trusted chain would
+be the opposite of what `provisional` is for.
+
+**Impact**: `audit` gains `segment_db_path_in` and `AuditStore::open_segment_store`;
+`docs/audit-v2.md` + zh revise §2, §5, §6 and §7 and add §8 (where the segments live) and §9 (how each chain
+is verified). **`compute_hash`, `verify_chain`, `append_once` and both append-only triggers are untouched**,
+no route, capability name, audit event constant, hash formula or persisted format changes, and **host-core is
+not touched**: the audit directory is the caller's, so this crate composes no host layout. The merge event
+name (`host.audit.segment_merged`) is reserved in §6 and implemented by M5-2.

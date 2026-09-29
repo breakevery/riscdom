@@ -41,17 +41,19 @@ A non-`NULL` value names a row in the `segments` table (§3).
 **[settled]** **The `segments` table is not part of the hash chain.** Like `runs`, it records what the
 chain's own rows imply; a chain verifies whether or not a segment row exists.
 
-**The physical shape of a temporary segment's own chain is [not decided here](#5-the-questions-still-open).**
-The schema above supports all of the candidates the discussion has named; which one is chosen is the owner's
-to settle, and it is listed as an open question in §5 rather than assumed here. The candidates:
+**[settled]** **The physical shape is (b): one file per chain, merged later.** A temporary segment keeps its
+**own SQLite file** beside the main chain, and when the real centre returns its events are written into the
+main chain by **transcription** (M5-2). The main chain therefore stays one linear, verifiable sequence, and
+both the formula and `verify_chain` stay where they are. [§8](#8-where-the-temporary-segments-live) says where
+the files live and [§9](#9-how-each-chain-is-verified) how each is verified.
 
-- **(a) One file, one chain, segments as tags** — a temporary centre writes into the same `audit_events`
-  chain under its `segment_id`. `verify_chain` needs no change (one chain, walked in id order).
-- **(b) One file per chain, merged later** — a temporary centre keeps its own store, and when the real
-  centre returns the run is folded in. The merge is M5-2's.
-- **(c) A separate chain inside one file** — the shape that would make `verify_chain` need to grow a
-  **segment-aware** mode, which touches the red-line-4 verification surface. **This one needs an explicit
-  decision, and the decision is not made here.**
+The two shapes that were weighed and are **not** the project's. **(a) One file, one chain, segments as
+tags** — a temporary centre appending straight into the main `audit_events` under its `segment_id`. That is
+not available to a centre standing in *while the real one is unreachable*: the two are different machines,
+so the events cannot physically be in one file until they meet, and writing an unreconciled centre's rows
+into the trusted chain is the opposite of what `provisional` is for. **(c) A separate chain inside one
+file** — which would force `verify_chain` to grow a **segment-aware** mode, i.e. to change on the red-line-4
+verification surface.
 
 ## 3. The segment record
 
@@ -102,7 +104,7 @@ records them so the implementation meets them deliberately:
 3. **How a conflict is adjudicated** when two segments both claim the same act.
 
 All three are marked `[open]` in roadmap §7, and (2) and (3) are inputs the merge stage (M5-2) needs; (1)
-bears on how a segment's head is shaped in (a)/(b)/(c) of §2.
+bears on how a segment's head is shaped now that §2 fixes the physical shape as (b).
 
 ## 6. The segment events (reserved)
 
@@ -112,6 +114,9 @@ bears on how a segment's head is shaped in (a)/(b)/(c) of §2.
   `{ "segment_id": …, "kind": "main" | "temporary", "head_prev_chain": <hash or null> }`.
 - `host.audit.segment_closed` — a segment closed. Detail:
   `{ "segment_id": …, "closed_at_ms": <epoch ms> }`.
+- `host.audit.segment_merged` — a segment's events were written into the main chain. **Reserved**: §2 fixes
+the shape as transcription, and **M5-2** is what implements it; the name is recorded here so the merge has
+one to use.
 
 Both are written with `segment_id IS NULL` (the record of the segment's *life* is not one of the segment's
 own events), both are ordinary appends, and both carry the words §3 stores (`kind` is `SegmentKind::as_str`).
@@ -128,5 +133,46 @@ vocabulary (`agent:*`, `vm:*`, `m:*`, …) and this does not touch them.
 - **The temporary centre** — who takes over, the three suppression layers, and the return — is **M5-3**.
 - **The immediate push of a key event** (an ejection, a fork, a takeover) is **M4e-2**; [connection.md
   §7](connection.md) covers the batched digest it is beside.
-- **The physical shape of a segment's own chain** (§2) is the owner's to settle.
+- **The physical shape of a segment's own chain** is **settled as (b)** — see §8.
 - **It is not the digest's transport.** What a digest is and how it travels is [connection.md §7](connection.md).
+
+## 8. Where the temporary segments live
+
+**[settled]** **The main chain** is the store the node has always had — `audit.db` in the audit directory
+(the one **backup** already carries, `<workspace>/.riscdom/audit.db`). Its rows are the `segment_id IS NULL`
+rows, and nothing about it changes.
+
+**[settled]** **A temporary segment is its own SQLite file**: `audit-segments/<segment_id>.db` **inside the
+same audit directory**. One file per segment, made by
+[`segment_db_path_in`](../audit/src/store.rs) and opened (creating the directory and the file) by
+[`AuditStore::open_segment_store`](../audit/src/store.rs). The file is an **ordinary store**: the same
+`audit_events` schema, the same append-only triggers, and **its own genesis** (its first row's `prev_hash`
+is [`GENESIS_PREV_HASH`](../audit/src/hash.rs)).
+
+The base directory is the caller's — the **audit directory**, not the workspace — so `audit` composes no host
+layout of its own; it composes the `audit-segments/<id>.db` part.
+
+**[settled]** **The two are tied together by the `segments` row in the *main* store.** Opening a segment
+(§3) registers it there, with `head_prev_chain` = the main chain's head at that moment. The segment's own
+store holds its own events; the main store holds the **record** of the segment, not its rows.
+
+**Merging is transcription (M5-2).** When the real centre returns, a batch reads the segment's events and
+**appends** them to the main chain as new events, then appends the merged event (§6). Nothing is rewritten:
+the main chain only ever grows, and the `segments` row moves to `folded` (conflict-free) or `forked`
+(conflicting) — §5's question 3 is what decides which.
+
+## 9. How each chain is verified
+
+**[settled]** **The main chain: `verify_chain`, unchanged.** It walks one store in id order, checking
+`prev_hash` linkage and recomputing each hash — and because a temporary segment is a **different file**, the
+main store it reads holds the main chain's rows and nothing else. No segment-aware mode exists, and none is
+needed.
+
+**[settled]** **A temporary segment: the same function, a different store.** `verify_chain(&segment_store)`
+is the whole of it: the segment file is an ordinary store with its own genesis, so the one verifier answers
+"is this segment intact" exactly as it answers it for the main chain. There is no second verifier and no
+second formula.
+
+**Cross-chain verification is M6.** `head_prev_chain` (§4) is the **anchor** a later batch checks the two
+against; §5's question 2 — by digest, by range, or both — is where its shape is settled. Until then the two
+chains are each verifiable on their own, and their *relationship* is recorded metadata.

@@ -567,6 +567,24 @@ impl AuditStore {
 
     // ---- segments (v1.0 M5-1b) -------------------------------------------------
 
+    /// Open a **temporary segment's own store** (v1.0 M5-1c).
+    ///
+    /// The physical shape is (b): a temporary segment keeps its **own** SQLite file beside the main chain —
+    /// [`segment_db_path_in`]'s `audit-segments/<segment_id>.db` — so the main chain stays one linear,
+    /// verifiable chain and the segment is merged in later (M5-2) rather than written into it.
+    ///
+    /// The file is an ordinary [`AuditStore`]: the same schema, the same append-only triggers and the same
+    /// [`verify_chain`](crate::verify_chain), with its own genesis ([`GENESIS_PREV_HASH`] as the first row's
+    /// `prev_hash`). The caller passes the **audit directory** (the one holding the main `audit.db`), not the
+    /// workspace: this crate composes no host layout of its own.
+    pub fn open_segment_store(audit_dir: &Path, segment_id: &str) -> Result<Self, AuditError> {
+        let path = segment_db_path_in(audit_dir, segment_id);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        Self::open(&path)
+    }
+
     /// Open a segment and record it on the chain (v1.0 M5-1b).
     ///
     /// Two writes, in this order, because the cross-segment reference has to be the head **before** the
@@ -1056,4 +1074,17 @@ fn write_events_jsonl(events: &[StoredEvent], path: &Path) -> Result<usize, Audi
         writeln!(file, "{}", serde_json::to_string(&line)?)?;
     }
     Ok(events.len())
+}
+
+/// The file a **temporary segment's** own chain lives in (v1.0 M5-1c).
+///
+/// `audit-segments/<segment_id>.db` **inside the audit directory** — the directory that holds the main
+/// `audit.db`. One SQLite file per segment, each with its own genesis; the main chain's `verify_chain`
+/// never reads them (they are separate stores), and a segment is merged into the main chain by
+/// transcription later (M5-2). The caller owns the base directory, so this crate composes no host layout
+/// of its own.
+pub fn segment_db_path_in(audit_dir: &Path, segment_id: &str) -> std::path::PathBuf {
+    audit_dir
+        .join("audit-segments")
+        .join(format!("{segment_id}.db"))
 }
