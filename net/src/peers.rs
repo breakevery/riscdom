@@ -27,6 +27,16 @@ use std::path::{Path, PathBuf};
 /// The file name, inside the node's data directory.
 pub const PEERS_FILE: &str = "peers.json";
 
+/// The claim a node declares when it serves its workgroup as the network's server
+/// ([connection.md §6.7](../../docs/connection.md); v1.0 batch AH froze it, batch AJ reads it).
+///
+/// It is an ordinary string in a `capabilities` claim list — the same list §6.6's registration and
+/// the `peers.json` entry above carry — and **not** a member of the control plane's capability
+/// vocabulary: declaring it grants nothing. What it buys is exactly one thing: the node is
+/// **probed as a sibling** (§6.7), and a prober can only probe peers whose key it holds, which is
+/// why the claim is read here, from `peers.json`, and not from a frame.
+pub const SERVER_CLAIM: &str = "server";
+
 /// One peer, as both `peers.json` and a handed-down table carry it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PeerEntry {
@@ -127,6 +137,29 @@ impl PeersFile {
         self.peers.iter().find(|entry| entry.node_id == node_id)
     }
 
+    /// The entries that declare the [`SERVER_CLAIM`] — this node's **siblings** (§6.7).
+    ///
+    /// The claim is configuration here, not a fact: what marks a peer as a server is what the
+    /// deployer wrote in `peers.json`, which is also where that peer's public key is — and a key
+    /// arrives through configuration and never through a frame (§4.2). A prober that lacks the
+    /// key cannot verify an answer, which is why the same file is both the sibling set and its
+    /// [`PeerKeys`].
+    pub fn servers(&self) -> Vec<&PeerEntry> {
+        self.peers
+            .iter()
+            .filter(|entry| entry.is_server())
+            .collect()
+    }
+
+    /// The keys of the entries that declare the [`SERVER_CLAIM`], ready for verifying their answers.
+    pub fn server_keys(&self) -> Result<PeerKeys, PeersError> {
+        let mut keys = PeerKeys::new();
+        for entry in self.peers.iter().filter(|entry| entry.is_server()) {
+            keys.insert(&entry.node_id, [entry.verifying_key()?]);
+        }
+        Ok(keys)
+    }
+
     /// The entries as a [`PeerKeys`] table, ready for verification.
     ///
     /// A peer whose key does not parse is **reported**, not skipped quietly: a table where
@@ -155,6 +188,11 @@ impl PeerEntry {
     /// The public key this entry carries.
     pub fn verifying_key(&self) -> Result<VerifyingKey, PeersError> {
         public_key_from_jwk(&self.public_key)
+    }
+
+    /// Does this entry declare that its node serves as the network's server? (§6.7, [`SERVER_CLAIM`])
+    pub fn is_server(&self) -> bool {
+        self.capabilities.iter().any(|claim| claim == SERVER_CLAIM)
     }
 
     /// Does `other` say the same thing about this node? Used by the merge to tell an
@@ -268,5 +306,40 @@ mod tests {
             "the refusal says why: {error}"
         );
         assert_eq!(peers_category(&error), Category::Invalid);
+    }
+
+    #[test]
+    fn only_the_entries_that_declare_the_server_claim_are_siblings() {
+        // v1.0 batch AJ: the sibling set is configuration, and the same file carries the keys.
+        let server = NodeKey::generate().expect("key");
+        let node = NodeKey::generate().expect("key");
+        let mut entry = PeerEntry::new("dev-server", "127.0.0.1:1", server.public_jwk());
+        assert!(!entry.is_server(), "no claim, no sibling");
+        entry.capabilities = vec!["server".to_string()];
+        assert!(entry.is_server());
+        assert!(entry.verifying_key().is_ok(), "the key is right beside it");
+
+        let file = PeersFile {
+            schema_version: PeersFile::SCHEMA_VERSION,
+            peers: vec![
+                entry,
+                PeerEntry::new("dev-plain", "127.0.0.1:2", node.public_jwk()),
+            ],
+        };
+        let siblings = file.servers();
+        assert_eq!(siblings.len(), 1);
+        assert_eq!(siblings[0].node_id, "dev-server");
+        let keys = file.server_keys().expect("keys");
+        assert!(!keys.keys_of("dev-server").is_empty(), "the sibling's key");
+        assert!(keys.keys_of("dev-plain").is_empty(), "and nobody else's");
+
+        // A claim is a list, not a flag: it may sit beside others.
+        let mut mixed = PeerEntry::new("dev-mixed", "127.0.0.1:3", server.public_jwk());
+        mixed.capabilities = vec!["audit.read".to_string(), "server".to_string()];
+        assert!(mixed.is_server());
+        // A different claim is not one: the match is exact.
+        let mut not_it = PeerEntry::new("dev-trick", "127.0.0.1:4", server.public_jwk());
+        not_it.capabilities = vec!["servers".to_string(), "SERVER".to_string()];
+        assert!(!not_it.is_server());
     }
 }

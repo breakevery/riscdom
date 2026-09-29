@@ -507,10 +507,12 @@ cross-region server above them — and the reason the nodes below cannot do it i
 and a power feed with their server, so they die with it.** A silence that includes the witnesses is not
 evidence.
 
-- **How a sibling knows**: it probes the siblings it knows (the servers that declared `"server"` to the
-  server above them, §6.6) with the same probe and the same numbers; a sibling behind a NAT is reached
-  through the cross-region server's relay, because a probe is a §3.1 frame and the relay is what carries a
-  frame a direct path cannot.
+- **How a sibling knows**: it probes the siblings it knows — the servers that declared `"server"` to the
+  server above them (§6.6), which a prober finds in **its own `peers.json`**, where their public keys are;
+  a key arrives through configuration and never by frame (§4.2), so the same file is the sibling set and
+  its keys — with the same probe and the same numbers; a sibling behind a NAT is reached through the
+  cross-region server's relay, because a probe is a §3.1 frame and the relay is what carries a frame a
+  direct path cannot.
 - **How it reports**: the same two bodies, addressed to the cross-region server instead of an in-network
   one. There is no second vocabulary for the second level.
 - **How the cross-region server judges**: the same rule, unchanged — unanimity among the sibling witnesses

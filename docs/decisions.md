@@ -2991,3 +2991,40 @@ and not a capability, the "how a sibling knows" bullet points at that claim rath
 `Capability` variant, no audit event constant, no hash formula, no route and no persisted format changed.**
 The implementation — declaring the claim when the server role runs, and taking the sibling set from the
 cross-region server's table — is **V-3b-1/V-3b-2**, and V-3a's aggregation half is already in place.
+
+## 109. A prober's siblings come from its own peers.json, and no probe waits forever
+
+**Date**: 2026-09-29 ｜ **Status**: Decided; implemented (batch AJ / V-3b-1)
+
+**Decision**: Two things. **(1) The sibling set is configuration.** A node that runs the server role
+probes §6.7's second level from **its own `peers.json`**: the entries that declare the `"server"` claim
+are its siblings, and the same entries carry their **public keys**. `net` gains `PeerEntry::is_server`,
+`PeersFile::servers` / `server_keys` and the `SERVER_CLAIM` constant, and `host-core` starts a **second
+`Probe` thread** beside V-3a's — same client (the cross-region one), different peer set, different keys —
+from `start_server_role`, only when a cross-region pointer and at least one sibling exist. The reports are
+V-3a's two bodies, sent upward through the node's own client. **(2) No tool probe waits forever.**
+`host-core`'s `exec_retrying` now spawns and waits with a deadline (**60 s**), killing the child and
+returning `TimedOut` — which the callers already read as "this program is not usable".
+
+**Why**: Two reasons, one of them the reason batch AI stopped. **A key never arrives by frame.** §4.2 and
+§6.6 make that structural, so a prober can only probe peers whose keys it holds — and the only place it
+holds them is its own `peers.json`. Batch AI's first reading (take the sibling set from the cross-region
+server's `OnlineTable`) could not work: no frame carries that table to a node, and even the ids would be
+unverifiable without keys. Reading the claim from the same file closes both gaps at once, and it is not a
+new mechanism — §6.6 already says identity comes from configuration, and the claim is the ordinary
+`capabilities` string §6.6's registration and §4's entry both carry. **A probe that waits forever is not a
+probe.** `Command::output()` blocked on a child that never answered — a wedged
+`qemu-system-riscv64 --version` did exactly that to the gate, four times — and the host, which probes
+QEMU, gcc, zig and rustc through the same helper, would have hung with it. The deadline turns that into
+the answer the code already knew how to give: not usable.
+
+**Impact**: `net/src/peers.rs` gains `SERVER_CLAIM`, `PeerEntry::is_server`, `PeersFile::servers` and
+`PeersFile::server_keys`, plus a unit test, and `net/src/lib.rs` re-exports the constant;
+`host-core/src/state.rs` gains the sibling-probe field, `start_sibling_probe`, its public start/stop pair
+and the call from `start_server_role`, and `exec_retrying` now runs through `run_bounded` / `wait_bounded`
+(with the unit test for the deadline); `host-core/tests/connection.rs` gains the sibling-prober test;
+`docs/connection.md` §6.7 says where a prober finds its siblings (its own `peers.json`) and its
+translation follows. **No hash formula, route, capability name, audit event constant or persisted format
+changed, and the `"server"` claim is not a `Capability` variant** — it is a string in a claim list. §6.7's
+**aggregation** side — what the cross-region server does with the reports, and installing the judgement
+sink — is **V-3b-2**.

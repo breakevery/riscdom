@@ -173,6 +173,17 @@ const EXEC_MAX_ATTEMPTS: u32 = 5;
 /// enough that a genuinely unusable binary is still reported promptly.
 const EXEC_RETRY_DELAY: Duration = Duration::from_millis(10);
 
+/// How long a tool probe may take before it is killed and read as "this program is not usable"
+/// (v1.0 batch AJ).
+///
+/// Deliberately loose: a `--version` on a loaded machine is milliseconds, and this is not a
+/// performance guard but a **liveness** one — the host must not wait forever on a child that never
+/// answers, which is what a wedged QEMU did to the gate.
+const EXEC_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// How often the bounded wait looks at the child (v1.0 batch AJ).
+const EXEC_POLL: Duration = Duration::from_millis(20);
+
 /// Run a tool probe, retrying the one refusal that says nothing about the tool.
 ///
 /// `ETXTBSY` (`ErrorKind::ExecutableFileBusy`) means "the kernel will not `exec` this
@@ -210,7 +221,7 @@ fn exec_retrying(
 ) -> std::io::Result<std::process::Output> {
     loop {
         *attempts += 1;
-        match command.output() {
+        match run_bounded(command) {
             Ok(output) => return Ok(output),
             Err(e)
                 if e.kind() == std::io::ErrorKind::ExecutableFileBusy
@@ -220,6 +231,46 @@ fn exec_retrying(
             }
             Err(e) => return Err(e),
         }
+    }
+}
+
+/// Run a probe with a **bounded** wait (v1.0 batch AJ).
+///
+/// [`std::process::Command::output`] waits forever, so a `--version` that never answers — a QEMU
+/// build wedged on a device, say — blocks the caller and everything behind it. This is the same
+/// call with a deadline: the output is captured as before, the child is waited for with a poll,
+/// and it is **killed** once [`EXEC_TIMEOUT`] passes. The result then reads as "this program is not
+/// usable" (the timeout maps to an error like any other) rather than as a hang.
+fn run_bounded(command: &mut std::process::Command) -> std::io::Result<std::process::Output> {
+    let child = command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    wait_bounded(child, EXEC_TIMEOUT)
+}
+
+/// Wait for a spawned child, killing it once `timeout` passes (v1.0 batch AJ).
+///
+/// The timeout is a parameter so a test can prove the deadline with a short one instead of waiting
+/// a minute out.
+fn wait_bounded(
+    mut child: std::process::Child,
+    timeout: Duration,
+) -> std::io::Result<std::process::Output> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if child.try_wait()?.is_some() {
+            return child.wait_with_output();
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("the program did not answer within {} s", timeout.as_secs()),
+            ));
+        }
+        std::thread::sleep(EXEC_POLL);
     }
 }
 
@@ -853,6 +904,10 @@ pub struct AppState {
     /// The probe thread (§6.7), when one is running (v1.0 V-3a). Dropping the state drops this,
     /// which is what stops it.
     connection_probe: Mutex<Option<Probe>>,
+    /// The **sibling** probe thread (§6.7's second level), when this node serves its workgroup and
+    /// knows sibling servers (v1.0 batch AJ). A second thread beside [`Self::connection_probe`],
+    /// sharing the same client — the two probe **different peer sets**.
+    connection_sibling_probe: Mutex<Option<Probe>>,
     /// This node's **server role**, when its settings configure one (v1.0 AC-4).
     ///
     /// The same `RelayServer` the standalone `riscdom-relay` deployment runs, embedded in this
@@ -1524,6 +1579,7 @@ impl AppState {
             connection_client: Mutex::new(None),
             connection_beat: Mutex::new(None),
             connection_probe: Mutex::new(None),
+            connection_sibling_probe: Mutex::new(None),
             connection_server: Mutex::new(None),
             connection_server_addr: Mutex::new(None),
             executors: Mutex::new(Vec::new()),
@@ -3938,6 +3994,10 @@ impl AppState {
         if let Ok(mut slot) = self.connection_server.lock() {
             *slot = Some(server);
         }
+        // §6.7's second level (v1.0 batch AJ): a node that serves its workgroup is an in-network
+        // server, so it probes its **siblings** — the servers its own `peers.json` declares — and
+        // reports upward through its cross-region client. V-3b-2 wires the aggregation side.
+        self.start_sibling_probe();
     }
 
     /// Record a connection-layer problem, if none is recorded yet (v1.0 AC-4).
@@ -4036,6 +4096,70 @@ impl AppState {
         let probe = Probe::start(client, net::Prober::new(workgroup), keys, node_id, interval);
         let previous = self
             .connection_probe
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.replace(probe));
+        drop(previous);
+        true
+    }
+
+    /// Start this node's **sibling** prober (§6.7's second level), if it serves and knows siblings
+    /// (v1.0 batch AJ). Answers whether there was a sibling list to probe for.
+    pub fn start_connection_sibling_probe(&self, interval: Duration) -> bool {
+        self.start_sibling_probe_with(interval)
+    }
+
+    /// Stop the sibling prober, if one is running. Also happens when the state is dropped.
+    pub fn stop_connection_sibling_probe(&self) {
+        let probe = self
+            .connection_sibling_probe
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take());
+        drop(probe);
+    }
+
+    /// §6.7's **second level**: a node that runs the server role is an in-network server, and it
+    /// probes its **siblings** — the other servers its own `peers.json` declares with the
+    /// [`net::SERVER_CLAIM`] — reporting upward through the same client as the workgroup probe.
+    ///
+    /// The claim lives in `peers.json` because that is where the peer's **public key** is, and a
+    /// key arrives through configuration and never through a frame (§4.2): a prober that lacked the
+    /// key could not verify an answer, so the same file is the sibling set and its keys. A node with
+    /// no sibling list starts nothing — nobody can testify, so there is nothing to probe for. The
+    /// **aggregation** side (what the cross-region server does with the reports) is V-3b-2.
+    fn start_sibling_probe(&self) -> bool {
+        self.start_sibling_probe_with(net::PROBE_INTERVAL)
+    }
+
+    /// [`Self::start_sibling_probe`] with a caller's interval, so a test can probe fast enough to
+    /// watch.
+    fn start_sibling_probe_with(&self, interval: Duration) -> bool {
+        // The pointer is the whole precondition: without a cross-region client there is nowhere to
+        // report, and §6.7's second level is a report to the server above.
+        let Some(client) = self.connection_client() else {
+            return false;
+        };
+        let Some(peers) = self.peers() else {
+            return false;
+        };
+        let node_id = agent::device();
+        let server_node_id = client.server_node_id().to_string();
+        let siblings: Vec<String> = peers
+            .servers()
+            .into_iter()
+            .map(|entry| entry.node_id.clone())
+            .filter(|id| id != &node_id && id != &server_node_id)
+            .collect();
+        if siblings.is_empty() {
+            return false;
+        }
+        let Ok(keys) = peers.server_keys() else {
+            return false;
+        };
+        let probe = Probe::start(client, net::Prober::new(siblings), keys, node_id, interval);
+        let previous = self
+            .connection_sibling_probe
             .lock()
             .ok()
             .and_then(|mut slot| slot.replace(probe));
@@ -6850,6 +6974,36 @@ mod tests {
             result.expect_err("cannot start").kind(),
             std::io::ErrorKind::NotFound
         );
+    }
+
+    /// A child that never answers is **killed at the deadline** rather than waited on forever
+    /// (v1.0 batch AJ). The timeout is handed in, so the deadline is proven in milliseconds
+    /// instead of a minute.
+    #[test]
+    fn a_probe_that_never_answers_is_killed_at_the_deadline() {
+        let child = a_child_that_outlives_any_deadline()
+            .spawn()
+            .expect("spawn the stand-in");
+        let error =
+            wait_bounded(child, Duration::from_millis(200)).expect_err("the deadline fires");
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert!(error.to_string().contains("did not answer"), "{error}");
+    }
+
+    /// A command that takes far longer than any sane deadline: `sleep` on unix, `ping` on Windows
+    /// (both are always present and neither needs a console).
+    #[cfg(unix)]
+    fn a_child_that_outlives_any_deadline() -> std::process::Command {
+        let mut command = std::process::Command::new("sleep");
+        command.arg("20");
+        command
+    }
+
+    #[cfg(not(unix))]
+    fn a_child_that_outlives_any_deadline() -> std::process::Command {
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "ping -n 20 127.0.0.1 > NUL"]);
+        command
     }
 
     /// The retry matches the error the kernel really returns for a busy executable.

@@ -78,7 +78,7 @@ pub use message::{
     body_hash, now_ms, MessageError, SignedMessage, PROTOCOL_VERSION, SIGNATURE_BYTES,
 };
 pub use peers::{
-    peers_category, public_key_from_jwk, PeerEntry, PeersError, PeersFile, PEERS_FILE,
+    peers_category, public_key_from_jwk, PeerEntry, PeersError, PeersFile, PEERS_FILE, SERVER_CLAIM,
 };
 pub use registry::{
     is_registry_request, registry_category, registry_request_body, Merged, Registry, RegistryError,

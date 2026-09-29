@@ -684,3 +684,74 @@ fn a_server_role_that_cannot_bind_is_reported_and_the_node_runs() {
     let problem = state.connection_problem().expect("a reported problem");
     assert!(problem.contains("server_role"), "{problem}");
 }
+
+/// A data directory with a **server role** and a cross-region pointer (v1.0 batch AJ): the shape a
+/// node has when it serves its workgroup *and* answers to a server above it.
+fn configured_server_role_pointing(tag: &str, bind: &str, server_node_id: &str) -> PathBuf {
+    let dir = unique_dir(tag);
+    let settings = LocalSettings {
+        version: SETTINGS_VERSION,
+        network: Some(NetworkSettings {
+            lan_enabled: true,
+            cross_region_server: Some(server_node_id.to_string()),
+            server_role: Some(ServerRoleSettings {
+                bind: bind.to_string(),
+            }),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    settings
+        .save(&dir.join("settings.json"))
+        .expect("settings.json");
+    dir
+}
+
+#[test]
+fn the_sibling_prober_probes_the_servers_peers_json_declares() {
+    // §6.7's second level (v1.0 batch AJ): a node that serves its workgroup is an in-network server,
+    // and it probes its **siblings** — the peers its own `peers.json` declares with the `"server"`
+    // claim, which is also where their keys are (a key arrives through configuration, never by
+    // frame).
+    let data_dir = configured_server_role_pointing("sibling-probe", "127.0.0.1:0", "upstream");
+    let node_key = net::NodeKey::generate().expect("key");
+    net::NodeKey::save_new_in(&data_dir, &node_key).expect("node.key");
+    let upstream_key = net::NodeKey::generate().expect("key");
+    let sibling_key = net::NodeKey::generate().expect("key");
+    let mine = net::NodeKey::generate().expect("key");
+
+    // No server-claimed peer yet: nobody can testify, so there is nothing to probe for.
+    let mut peers = net::PeersFile::empty();
+    peers.peers.push(net::PeerEntry::new(
+        "upstream",
+        "127.0.0.1:1",
+        upstream_key.public_jwk(),
+    ));
+    net::PeersFile::save_in(&data_dir, &peers).expect("peers.json");
+    let lonely = state_in(&unique_dir("sibling-probe-lonely"), &data_dir);
+    assert!(
+        !lonely.start_connection_sibling_probe(Duration::from_millis(50)),
+        "no sibling list, no prober"
+    );
+
+    // A peer that declares `"server"` is a sibling; the node's **own** entry is not one to probe.
+    let mut sibling = net::PeerEntry::new("dev-sibling", "127.0.0.1:2", sibling_key.public_jwk());
+    sibling.capabilities = vec![net::SERVER_CLAIM.to_string()];
+    peers.peers.push(sibling);
+    let mut me = net::PeerEntry::new(&agent::device(), "127.0.0.1:3", mine.public_jwk());
+    me.capabilities = vec![net::SERVER_CLAIM.to_string()];
+    peers.peers.push(me);
+    net::PeersFile::save_in(&data_dir, &peers).expect("peers.json");
+
+    let state = state_in(&unique_dir("sibling-probe-wired"), &data_dir);
+    assert!(
+        state.start_connection_sibling_probe(Duration::from_millis(50)),
+        "a declared sibling starts the prober"
+    );
+    state.stop_connection_sibling_probe();
+    assert!(
+        state.start_connection_sibling_probe(Duration::from_millis(50)),
+        "the prober can be started again"
+    );
+    state.stop_connection_sibling_probe();
+}

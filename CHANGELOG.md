@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A node probes its siblings, and no probe waits forever** (v1.0 batch AJ / V-3b-1): a node that runs
+  the server role now probes §6.7's second level — the **siblings** its own `peers.json` declares with the
+  `"server"` claim, which is also where their public keys are (a key arrives through configuration, never
+  by frame). `net` gains `SERVER_CLAIM`, `PeerEntry::is_server`, `PeersFile::servers` / `server_keys`;
+  `host-core` starts a **second probe thread** beside V-3a's (same cross-region client, different peer set
+  and keys) from `start_server_role`, reporting through the node's own client. The aggregation side is
+  V-3b-2. And `host-core`'s tool probes (`qemu` / `gcc` / `zig` / `rustc --version`) are now **bounded**:
+  `exec_retrying` spawns, waits 60 s and kills — a wedged child reads as "not usable" instead of hanging
+  the host (the QEMU flake that stalled the local gate four times). No hash formula, route, `Capability`
+  variant, audit event constant or persisted format changed.
+
 - **A server declares itself in its registration** (v1.0 batch AH / V-3b-proto): `docs/connection.md`
   §6.6/§6.7 now say how an in-network server is told apart from a node. An in-network server declares the
   ordinary claim **`"server"`** in the `capabilities` list of its §6.6 registration, the server's row keeps

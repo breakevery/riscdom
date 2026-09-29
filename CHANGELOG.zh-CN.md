@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **节点会探它的兄弟，而任何探测都不再无限等待**（v1.0 批 AJ / V-3b-1）：跑服务器角色的节点现在会探 §6.7 的第二层 —— **它自己 `peers.json` 里声明了 `"server"` 的那些兄弟**，而公钥也在那里（密钥经配置到来、从不经帧）。`net` 多出 `SERVER_CLAIM`、`PeerEntry::is_server`、`PeersFile::servers` / `server_keys`；`host-core` 在 V-3a 那条线程旁起**第二条探测线程**（同一个跨区域 client、不同的 peer 集与密钥），由 `start_server_role` 启动，经节点自己的 client 上报。汇总半边是 V-3b-2。另外 `host-core` 的工具探测（`qemu` / `gcc` / `zig` / `rustc --version`）现在**有界**：`exec_retrying` spawn、等 60 秒、超时 kill —— 卡住的子进程读作「不可用」，而不是把宿主挂住（那个四次拖住本地 gate 的 QEMU flake）。没有哈希公式、路由、`Capability` 变体、审计事件常量或持久化格式被改动。
+
 - **服务器在注册里声明自己**（v1.0 批 AH / V-3b-proto）：`docs/connection.md` §6.6/§6.7 现在说清了怎么把一台内网服务器与一个节点区分开。内网服务器在它 §6.6 注册的 `capabilities` 列表里声明普通宣告 **`"server"`**，服务器那一行保留注册带来的宣告，而跨区域服务器的**兄弟集** = 宣告里含 `"server"` 的那些行。`"server"` 是**宣告、不是 capability**：不给任何词表加词、不授予任何东西，声明它的节点只是**被当作兄弟来探**。纯文档 —— 实现是 V-3b-1/V-3b-2，而 V-3a 的汇总半边已就位。没有源文件、依赖、`Capability` 变体、审计事件常量、哈希公式、路由或持久化格式被改动。
 
 - **一个节点可以就是那张网络的服务器**（v1.0 批 AF / AC-4）：`NetworkSettings` 多出 **`server_role: Option<ServerRoleSettings>`** —— 加法式、`SETTINGS_VERSION` 不动 —— 它只有一个字段 **`bind`**，必填且刻意没有默认值。它一出现，`host-core` 就用本节点自己的 `node.key` / `peers.json` / `rooms.json` 起一个 **`RelayServer`**，同步绑定（端口被占会被报告，而不是留给一条正在死掉的线程），在一条线程上服务；`AppState::server_role_addr()` 报绑在哪，`AppState::server_role()` 交出句柄，于是带链的部署可以装上 §6.7 的判定 sink。这就是 §6.5 的**内网服务器** —— 与独立 `riscdom-relay` 跑的是同一个 `RelayServer`，一套机制、两种部署形态 —— 而且由**部署者**配置；没配的节点什么都不会起。§6.7 的**兄弟确认**是 V-3b。没有哈希公式、路由、capability 名、审计事件常量或持久化格式被改动，`net` 的代码也未改。

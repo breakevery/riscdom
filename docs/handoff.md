@@ -142,6 +142,13 @@ current request authorising it (§2).
   rows whose claims include it. `"server"` is a **claim, not a capability** (no word list widens, nothing is
   granted); a false claim only invites probes. Protocol prose only — the implementation is V-3b-1/V-3b-2.
   **Decision §108.**
+- **And a node probes its siblings, and no probe waits forever** (v1.0 batch AJ / V-3b-1, 2026-09-29): a
+  node that runs the server role probes §6.7's **second level** — the siblings its own `peers.json`
+  declares with the `"server"` claim (`net::SERVER_CLAIM`), keys from the same entries — on a second
+  `Probe` thread beside V-3a's, reporting through its cross-region client. The cross-region **aggregation**
+  side is V-3b-2. The same batch **bounds the tool probes**: `exec_retrying` now waits 60 s and kills, so a
+  wedged `--version` reads as "not usable" rather than hanging the host — the QEMU flake that stalled the
+  local gate four times is closed. **Decision §109.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new
