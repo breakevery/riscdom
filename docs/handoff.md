@@ -228,6 +228,16 @@ current request authorising it (§2).
   cipher is **`ring`**, already in `Cargo.lock`, so the batch adds **edges and no packages**. The audit
   store, the snapshots and the keyring are **AV-2**; the manifest's `not_derived` list says so out loud.
   **Decision §119.**
+- **And `riscdom-backup` carries the whole node** (v1.0 batch AY / M7e-2, 2026-09-29): the package gains
+  the other two roots of `backup.md` §1. The **audit store** goes in through **SQLite's consistent path**
+  (`rusqlite` opens `<workspace>/.riscdom/audit.db` read-only and runs `VACUUM INTO`) — never a byte copy,
+  because the file is WAL and multi-process; the **snapshots** are walked whole; and the **credentials**
+  are **derived** from `settings.json` (`llm-api-key:<executor_id>:<provider_id>`, the legacy
+  `llm-api-key:<provider_id>`, `remote-token:<host>`) because the OS keyring has no listing API. What
+  cannot be named lands in the manifest's **`not_derived`** list — a `missing:` line per absent account,
+  an `unreadable:` line when settings cannot be read, and a standing `unnameable:` note. The CLI gained
+  `--workspace <dir>`. `rusqlite` was already in `Cargo.lock` (**edges, no packages**). **M7e is complete**
+  — spec (AT/AW) and implementation (AX/AY) both. **Decision §120.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

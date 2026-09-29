@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **`riscdom-backup` 现在带上整个节点**（v1.0 批 AY / M7e-2，「AV-2」）：包多出 [backup.md](docs/backup.zh-CN.md) §1 的另两个根。**审计存储**经 **SQLite 的一致性路径**取出（`VACUUM INTO` 到临时文件 —— 绝不逐字节拷贝，因为 `audit.db` 是 WAL 且多进程）；workspace 的 `.riscdom/` 之下的**快照**整棵遍历；**凭据**从 `settings.json` **反推**（`llm-api-key:<executor_id>:<provider_id>`、legacy 的 `llm-api-key:<provider_id>`、`remote-token:<host>`），因为 OS keyring 没有 list API。凡是点不出名的都进清单的 **`not_derived`** 列表，也会被打印。CLI 多出 `--workspace <dir>`。`rusqlite` 已在 `Cargo.lock` 里，所以没有新增包。**决策 §120。**
+
 - **`riscdom-backup` 存在了，它把一个节点的数据目录导出为一个封好的包**（v1.0 批 AX / M7e-1）：一个新的 workspace crate（`backup/`），其 `export` 读 `settings.json`、`sessions.db`、`token`、`node.key`、`peers.json` 与 `rooms.json`，写一份**清单**逐条记下每个文件的大小、SHA-256 与它格式的标记，并把一个 gzip 过的 tar 封在 **AES-256-GCM** 之下、密钥由运维者口令经 **PBKDF2-HMAC-SHA256** 推得。口令来自 `--passphrase-from-env` 或管道 stdin —— 绝不是命令行参数、绝不落盘、绝不打印。`ring`、`sha2`、`tar`、`flate2` 与 `thiserror` 都已在 `Cargo.lock` 里，所以这加的是**边、不是包**。审计存储、快照与 keyring 是 **AV-2**；在那之前 `export` 不带历史、不带快照、不带凭据，而清单会说出来，在它的 `not_derived` 列表里。**决策 §119。**
 
 - **而备份规格被修正了**（v1.0 批 AW / M7e）：`docs/backup.md` 及其译文现在按实际情况描述一个节点的状态 —— **两个根**，数据目录与 workspace 的 `.riscdom/`（审计存储在 `<workspace>/.riscdom/audit.db`、快照在 `<workspace>/.riscdom/snapshots/<device>/<id>/` 下，不是初稿所写的在数据目录下）—— 并说明什么*不是*状态（`toolchain/`、`qemu/`、workspace 里的项目文件、`.bak` 文件）。**凭据契约**也修正了：OS keyring 没有枚举 API，所以工具**从 `settings.json` 反推账户名**（`llm-api-key:<executor_id>:<provider_id>`、legacy 的 `llm-api-key:<provider_id>`、以及 `remote-token:<host>`），并**报告而非静默漏掉**它反推不出来的 —— 那是这个包唯一声明的包外依赖。仅规格；没有源文件被改动。

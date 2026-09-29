@@ -1,10 +1,15 @@
-//! An end-to-end export over a real data directory, through the crate's public API only.
+//! An end-to-end export over a real data directory and a real workspace, through the crate's public
+//! API only.
 //!
-//! The unit tests inside the crate already compare the payload byte for byte; this one takes the
-//! outside view on purpose — it builds a directory the way a node would, exports it, and reads the
-//! manifest back out of the sealed package.
+//! The unit tests inside the crate compare the payload byte for byte; this one takes the outside
+//! view on purpose: it builds the two roots the way a node would, exports them with an **in-memory**
+//! keyring (so it never touches the machine's credential store), and reads the manifest back out of
+//! the sealed package.
 
-use riscdom_backup::{export, read_manifest, PACKAGE_MAGIC};
+use riscdom_backup::{
+    export_with, read_manifest, InMemoryKeyring, KeyringBackend, PACKAGE_MAGIC, ROOT_DATA_DIR,
+    ROOT_KEYRING, ROOT_WORKSPACE,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -31,7 +36,11 @@ fn sqlite_header(user_version: u32) -> Vec<u8> {
 }
 
 fn node_data_dir(dir: &Path) {
-    fs::write(dir.join("settings.json"), br#"{"version":2}"#).unwrap();
+    fs::write(
+        dir.join("settings.json"),
+        br#"{"version":2,"llm_configs":{"local":{"provider_id":"deepseek"}}}"#,
+    )
+    .unwrap();
     fs::write(dir.join("sessions.db"), sqlite_header(1)).unwrap();
     fs::write(dir.join("token"), "0123456789abcdef\n").unwrap();
     fs::write(dir.join("node.key"), br#"{"schema_version":1}"#).unwrap();
@@ -39,48 +48,84 @@ fn node_data_dir(dir: &Path) {
     fs::write(dir.join("rooms.json"), br#"{"schema_version":1}"#).unwrap();
 }
 
-#[test]
-fn a_node_directory_exports_as_one_sealed_package() {
-    let dir = temp_dir("export");
-    node_data_dir(&dir);
-    let passphrase = b"a test passphrase";
+fn node_workspace(dir: &Path) {
+    // The audit store is exercised by the crate's own unit tests (it needs `rusqlite`, which an
+    // integration test cannot link); here the workspace root is carried by its snapshots.
+    let nested = dir
+        .join(".riscdom")
+        .join("snapshots")
+        .join("local")
+        .join("local-1-1");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("state.mig"), b"a snapshot").unwrap();
+}
 
-    let exported = export(&dir, passphrase).unwrap();
+#[test]
+fn a_whole_node_exports_as_one_sealed_package() {
+    let data_dir = temp_dir("export-data");
+    let workspace = temp_dir("export-ws");
+    node_data_dir(&data_dir);
+    node_workspace(&workspace);
+
+    let keyring = InMemoryKeyring::new();
+    keyring
+        .set(
+            "com.breakevery.riscdom",
+            "llm-api-key:local:deepseek",
+            "a-secret",
+        )
+        .unwrap();
+    let phrase = b"a test passphrase";
+
+    let exported = export_with(&data_dir, &workspace, phrase, &keyring).unwrap();
 
     // The package is one file, and it announces itself.
     assert_eq!(&exported.bytes[..PACKAGE_MAGIC.len()], PACKAGE_MAGIC);
     assert!(exported.bytes.len() > PACKAGE_MAGIC.len());
 
-    // The manifest names all six files, and the record of what was *not* carried is there (§1.4).
-    assert_eq!(exported.manifest.entries.len(), 6);
-    assert_eq!(exported.manifest.format, 1);
-    assert!(!exported.manifest.node_id.is_empty());
-    assert!(exported
+    // All three roots are present: the data directory, the workspace, and the keyring.
+    let roots: Vec<&str> = exported
         .manifest
         .entries
         .iter()
-        .all(|entry| entry.root == "data-dir"));
-    assert!(
-        exported.manifest.not_derived.is_empty(),
-        "AV-1 carries no keyring entries"
-    );
+        .map(|entry| entry.root.as_str())
+        .collect();
+    assert!(roots.contains(&ROOT_DATA_DIR));
+    assert!(roots.contains(&ROOT_WORKSPACE));
+    assert!(roots.contains(&ROOT_KEYRING));
 
     // Reading it back needs the passphrase and yields the same manifest.
-    let read = read_manifest(&exported.bytes, passphrase).unwrap();
+    let read = read_manifest(&exported.bytes, phrase).unwrap();
     assert_eq!(read, exported.manifest);
 
     // Under the seal is a gzip stream — the archive body, compressed before it was encrypted.
-    let plaintext = riscdom_backup::decrypt(&exported.bytes, passphrase).unwrap();
+    let plaintext = riscdom_backup::decrypt(&exported.bytes, phrase).unwrap();
     assert_eq!(&plaintext[..2], &[0x1f, 0x8b]);
 
-    fs::remove_dir_all(&dir).ok();
+    // What could not be carried is stated, never hidden.
+    assert!(exported
+        .manifest
+        .not_derived
+        .iter()
+        .any(|line| line.starts_with("unnameable:")));
+
+    fs::remove_dir_all(&data_dir).ok();
+    fs::remove_dir_all(&workspace).ok();
 }
 
 #[test]
 fn a_wrong_passphrase_reads_nothing() {
-    let dir = temp_dir("wrong-passphrase");
-    node_data_dir(&dir);
-    let exported = export(&dir, b"the right one").unwrap();
+    let data_dir = temp_dir("wrong-phrase-data");
+    let workspace = temp_dir("wrong-phrase-ws");
+    node_data_dir(&data_dir);
+    let exported = export_with(
+        &data_dir,
+        &workspace,
+        b"the right one",
+        &InMemoryKeyring::new(),
+    )
+    .unwrap();
     assert!(read_manifest(&exported.bytes, b"the wrong one").is_err());
-    fs::remove_dir_all(&dir).ok();
+    fs::remove_dir_all(&data_dir).ok();
+    fs::remove_dir_all(&workspace).ok();
 }

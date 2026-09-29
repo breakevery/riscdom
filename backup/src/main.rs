@@ -1,7 +1,7 @@
 //! `riscdom-backup` — the command line over [`riscdom_backup::export`] (v1.0 M7e, batch AV-1).
 //!
 //! ```
-//! riscdom-backup export --data-dir <dir> --output <path> [--passphrase-from-env <VAR>] [--force]
+//! riscdom-backup export --data-dir <dir> --workspace <dir> --output <path> [--passphrase-from-env <VAR>] [--force]
 //! ```
 //!
 //! The passphrase never comes from a command-line argument, is never written to disk by this tool,
@@ -16,10 +16,11 @@ const USAGE: &str = "\
 riscdom-backup — export a node's state as one encrypted package
 
 usage:
-  riscdom-backup export --data-dir <dir> --output <path> [--passphrase-from-env <VAR>] [--force]
+  riscdom-backup export --data-dir <dir> --workspace <dir> --output <path> [--passphrase-from-env <VAR>] [--force]
 
 options:
-  --data-dir <dir>              the node's data directory to export
+  --data-dir <dir>              the node's data directory (settings, sessions, token, node key, peers, rooms)
+  --workspace <dir>             the node's workspace; its .riscdom/ holds the audit store and the snapshots
   --output <path>               where the package is written
   --passphrase-from-env <VAR>   read the passphrase from this environment variable
   --force                       overwrite an existing --output file
@@ -65,6 +66,7 @@ fn run(args: &[String]) -> Result<(), Failure> {
 
 fn export(rest: &[String]) -> Result<(), Failure> {
     let mut data_dir: Option<PathBuf> = None;
+    let mut workspace: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;
     let mut from_env: Option<String> = None;
     let mut force = false;
@@ -79,17 +81,25 @@ fn export(rest: &[String]) -> Result<(), Failure> {
                 from_env = Some(value(rest, &mut index, flag)?);
             }
             "--data-dir" => data_dir = Some(PathBuf::from(value(rest, &mut index, flag)?)),
+            "--workspace" => workspace = Some(PathBuf::from(value(rest, &mut index, flag)?)),
             "--output" => output = Some(PathBuf::from(value(rest, &mut index, flag)?)),
             other => return Err(Failure::Usage(format!("unknown option `{other}`"))),
         }
     }
 
     let data_dir = data_dir.ok_or_else(|| Failure::Usage("--data-dir is required".into()))?;
+    let workspace = workspace.ok_or_else(|| Failure::Usage("--workspace is required".into()))?;
     let output = output.ok_or_else(|| Failure::Usage("--output is required".into()))?;
     if !data_dir.is_dir() {
         return Err(Failure::Error(format!(
             "--data-dir is not a directory: {}",
             data_dir.display()
+        )));
+    }
+    if !workspace.is_dir() {
+        return Err(Failure::Error(format!(
+            "--workspace is not a directory: {}",
+            workspace.display()
         )));
     }
     if output.exists() && !force {
@@ -100,7 +110,7 @@ fn export(rest: &[String]) -> Result<(), Failure> {
     }
 
     let passphrase = read_passphrase(from_env.as_deref())?;
-    let exported = riscdom_backup::export(&data_dir, &passphrase)
+    let exported = riscdom_backup::export(&data_dir, &workspace, &passphrase)
         .map_err(|error| Failure::Error(error.to_string()))?;
     drop(passphrase);
 
@@ -113,6 +123,9 @@ fn export(rest: &[String]) -> Result<(), Failure> {
         output.display(),
         exported.bytes.len()
     );
+    for line in &exported.manifest.not_derived {
+        println!("not carried: {line}");
+    }
     Ok(())
 }
 

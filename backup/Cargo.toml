@@ -30,3 +30,7 @@ flate2 = "1"
 # asks for ("an authenticated cipher over the archive").
 ring = "0.17"
 thiserror = "1"
+# The audit store is taken through SQLite's own consistent path (`VACUUM INTO`), because a byte copy
+# of a WAL database can miss frames still in `-wal`. Same version and features as `host-core`, so
+# this is an edge to a crate already in `Cargo.lock` and **no new package**.
+rusqlite = { version = "0.32", features = ["bundled"] }

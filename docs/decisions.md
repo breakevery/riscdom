@@ -3371,3 +3371,43 @@ and `Cargo.lock` gains edges, not versions. `backup/README.md` + zh are new (the
 goes **114 → 116**); `docs/README.md` + zh gain a row. **No route, no capability name, no audit event
 constant, no hash formula, no persisted format and no kernel crate changes**: AV-1 reads the data
 directory and writes its own package, and touches nothing a running node owns.
+
+## 120. `riscdom-backup` carries the whole node: the audit store, the snapshots and the credentials
+
+**Date**: 2026-09-29 ｜ **Status**: Decided and implemented (batch AY / M7e-2, "AV-2")
+
+**Decision**: AV-2 completes the package's other two roots of [backup.md](backup.md) §1. **The audit
+store** is taken through **SQLite's own consistent path**: `rusqlite` opens
+`<workspace>/.riscdom/audit.db` read-only and runs **`VACUUM INTO`** a temporary file, and that copy
+is what goes in the package — **never a byte copy**, because `audit.db` is WAL and opened by several
+processes, so a copy of the file alone can miss frames still in `-wal`. A store SQLite will not export
+is a **hard error**, not a package that quietly lacks its history. **The snapshots** under
+`<workspace>/.riscdom/snapshots/` are walked whole, keeping the tree; a missing directory is not an
+error. **The credentials** are **derived, not enumerated** — `keyring` v3 has no listing API — from
+`settings.json`: `llm-api-key:<executor_id>:<provider_id>` and the legacy
+`llm-api-key:<provider_id>` from `llm_configs`, and `remote-token:<host>` from
+`NetworkSettings.remote_url` (the front end files the token under that string, trimmed). Everything
+that cannot be named goes into the manifest's **`not_derived`** list, which now carries: a `missing:`
+line for each account `settings.json` implies and the keyring does not hold, an `unreadable:` line
+when `settings.json` cannot be read at all, and one standing `unnameable:` note. The CLI gained
+**`--workspace <dir>`** (both roots are required) and prints every `not carried:` line. The container
+is unchanged, so the manifest format stays **1**.
+
+**Why**: Four points. **The audit store is the one file a byte copy cannot be trusted with.**
+[api-compatibility.md §6](api-compatibility.md) already says a copy of `audit.db` can miss `-wal`
+frames; `VACUUM INTO` is SQLite's answer and needs no new package, because `rusqlite` is already in
+`Cargo.lock`. **A failed export is better than a silent gap.** If SQLite will not hand back a
+consistent store, the tool stops rather than shipping a package whose history looks complete and is
+not — the opposite of the `not_derived` philosophy, and deliberately so: `not_derived` reports what is
+*named but absent*, not what could not be read. **The keyring is derived because it cannot be
+listed.** The account names are reconstructable from `settings.json` (the same fields the runtime uses
+for the same lookup), and the residue — an entry whose executor or host is gone — is exactly what the
+standing `unnameable:` note declares instead of pretending completeness. **Both roots are required.**
+§19 makes the package the unit of portability; a flag that defaulted the workspace away would produce
+a package that is half a node and calls itself one.
+
+**Impact**: `backup/` gains `rusqlite` (**already in `Cargo.lock`** — an edge, not a package) and its
+`export` takes the workspace as a third parameter (`export_with` takes the keyring, so tests never
+touch the real credential store). `backup/README.md` + zh are updated (no new pair: the count stays
+**116**). **No route, no capability name, no audit event constant, no hash formula, no persisted format
+and no kernel crate changes** — the tool reads the two roots and writes its own package.

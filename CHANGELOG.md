@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`riscdom-backup` now carries the whole node** (v1.0 batch AY / M7e-2, "AV-2"): the package gains
+  the other two roots of [backup.md](docs/backup.md) §1. The **audit store** is taken through
+  **SQLite's consistent path** (`VACUUM INTO` into a temp file — never a byte copy, because `audit.db`
+  is WAL and multi-process); the **snapshots** under the workspace's `.riscdom/` are walked whole; and
+  the **credentials** are **derived** from `settings.json` (`llm-api-key:<executor_id>:<provider_id>`,
+  the legacy `llm-api-key:<provider_id>`, `remote-token:<host>`), because the OS keyring has no listing
+  API. Everything that cannot be named goes into the manifest's **`not_derived`** list, which is
+  printed too. The CLI gained `--workspace <dir>`. `rusqlite` was already in `Cargo.lock`, so no new
+  package is added. **Decision §120.**
+
 - **`riscdom-backup` exists, and it exports a node's data directory as one sealed package** (v1.0 batch
   AX / M7e-1): a new workspace crate (`backup/`) whose `export` reads `settings.json`, `sessions.db`,
   `token`, `node.key`, `peers.json` and `rooms.json`, writes a **manifest** naming each file with its

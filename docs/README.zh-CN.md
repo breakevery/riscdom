@@ -59,7 +59,7 @@
 | [host-tauri/README.md](../host-tauri/README.md) — [中文](../host-tauri/README.zh-CN.md) | 桌面外壳：命令、事件、钥匙串、快照、会话持久化、人工验证。 | 活跃 |
 | [worker/README.md](../worker/README.md) — [中文](../worker/README.zh-CN.md) | 执行者进程与监工半边——含远程执行者句柄（v0.9 E4）。 | 活跃 |
 | [net/README.md](../net/README.md) — [中文](../net/README.zh-CN.md) | 连接层（v1.0 M4）：今天在盘上的是节点身份；签名、发现、房间与跨区域服务器随各冻结节落地。 | 活跃 |
-| [backup/README.md](../backup/README.md) — [中文](../backup/README.zh-CN.md) | 可移植性工具（v1.0 M7e）：把一个节点的数据目录导出为一个带根清单的加密包；审计存储、快照与 keyring 在 AV-2 跟进。 | 活跃（AV-1） |
+| [backup/README.md](../backup/README.md) — [中文](../backup/README.zh-CN.md) | 可移植性工具（v1.0 M7e）：把整个节点 —— 两个根、经 SQLite 一致性路径取出的审计存储、以及反推出的 keyring 凭据 —— 导出为一个加密包。 | 活跃（AV-1 + AV-2） |
 
 ## 3. 发行集成者
 
