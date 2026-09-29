@@ -167,6 +167,13 @@ current request authorising it (§2).
   AJ's 60-second probe bound stays: a different root cause. **Open**: the orphan cleanup (a QEMU child
   whose parent was force-killed) needs a Job Object or `PR_SET_PDEATHSIG` — a dependency the owner has to
   approve. **Decision §112.**
+- **And the configuration schema is written down** (v1.0 batch AP / M7f, 2026-09-29):
+  `docs/config-schema.md` + zh describe every field of **`settings.json`**, **`peers.json`** and
+  **`rooms.json`** — type, optionality, what absence means, nested sections unfolded — plus per-format
+  versioning (`version` = 2; `schema_version` = 1) and what is deliberately not covered (`node.key` is
+  identity, the SQLite stores, the token file, runtime state). This is **M7's first batch**; the SDKs,
+  backup, observability and the budgets follow. `docs/README.md` gains a row; no source file changed.
+  **Decision §113.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

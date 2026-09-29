@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The configuration schema is on disk** (v1.0 batch AP / M7f): `docs/config-schema.md` and its
+  translation describe every field of **`settings.json`**, **`peers.json`** and **`rooms.json`** — type,
+  optionality, what an absent field means, each nested section unfolded (`preflight`, `sandboxes[]`,
+  `executors[]`, `network` incl. `server_role`, `llm_configs`; `peers[]`; `rooms[]` incl. `rules.rate`) —
+  plus the versioning rule **per format** (`version` = 2 for settings; `schema_version` = 1 for peers and
+  rooms) and what is deliberately **not** covered (`node.key` is identity, the SQLite stores, the token
+  file, runtime state). It is the document, not a `.schema.json`; a machine-readable schema is generated
+  from it. `docs/README.md` gains a row; **no source file changed**.
+
 - **A dead QEMU is named, and the guest-booters stop racing** (v1.0 batch AN, infrastructure): the
   local gate's QEMU flake (5 occurrences, CI never saw it — CI has no guest tools and skips the
   `--ignored` tests) is a **port hand-off** race, so `sandbox/src/vm.rs` now reports **"QEMU exited with

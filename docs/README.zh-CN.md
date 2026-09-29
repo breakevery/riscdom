@@ -71,6 +71,7 @@
 | [control-plane-client-guide.md](control-plane-client-guide.md) — [中文](control-plane-client-guide.zh-CN.md) | 怎么写客户端：第一次调用、错误、订阅事件流、CLI、用 AI 监工驱动它、写一个远程执行者句柄。 | 活跃 |
 | [tool-schema-control-plane.md](tool-schema-control-plane.md) — [中文](tool-schema-control-plane.zh-CN.md) | 每个端点写成一条 OpenAI 风格工具定义——监工的 `tools[]`，可直接粘贴。 | 活跃（有核对） |
 | [tool-schema-executor.md](tool-schema-executor.md) — [中文](tool-schema-executor.zh-CN.md) | 执行者的模型可用的八个工具，就是内核发送的那个数组。 | 活跃（有核对） |
+| [config-schema.md](config-schema.md) — [中文](config-schema.zh-CN.md) | **配置 schema**（v1.0 M7f）：`settings.json`、`peers.json`、`rooms.json` 的每一个字段、类型、是否可缺，以及每种格式怎么版本化。 | 活跃（v1.0 规范） |
 | [examples/python/README.md](../examples/python/README.md) — [中文](../examples/python/README.zh-CN.md) | 可跑的参考监工：三个端点、仅标准库、自带离线 `--self-test`。 | 活跃（有自证） |
 | [server/README.md](../server/README.md) — [中文](../server/README.zh-CN.md) | 作为一个程序的控制平面：构建、运行、端点、事件流、鉴权——以及还没实现的东西。 | 活跃 |
 

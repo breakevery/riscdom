@@ -3125,3 +3125,32 @@ bound is a different root cause and stays**: it turns a `--version` probe that n
 usable", which is why the `read_only` hang is gone; this batch is about a QEMU that *fails*, which that
 bound never saw. **No hash formula, route, capability name, audit event constant or persisted format
 changed.** The orphan cleanup (Job Object / `PR_SET_PDEATHSIG`) is **open**, with the two options above.
+
+## 113. The configuration schema is written down, and it covers three files
+
+**Date**: 2026-09-29 ｜ **Status**: Decided; implemented (batch AP / M7f)
+
+**Decision**: §16's "define the configuration as JSON Schema, in `docs/config-schema.md`" is **on disk**:
+the document exists, in both languages, and describes the three files a node's data directory holds —
+**`settings.json`, `peers.json`, `rooms.json`** — field by field (name, type, whether it may be absent,
+what an absent one means), with every nested section unfolded (`preflight`, `sandboxes[]`, `executors[]`,
+`network` including `server_role`, `llm_configs`; `peers[]`; `rooms[]` including `rules.rate`). It also
+states the **versioning** rule per format and what is **not** covered. It is the **document**, not a
+`.schema.json`: a machine-readable schema, when one is wanted, is **generated from this description**
+rather than maintained beside it. `docs/README.md`'s map gains a row.
+
+**Why**: Three points. **§16 asked for the document, and named where.** The decision fixed the place and
+the shape; what was missing was the writing, and a schema that exists only as an intention cannot be
+validated against. **Three files, not four.** `node.key` is deliberately **out**: it is an Ed25519 JWK —
+*identity*, not configuration — and a validator for configuration must never have to handle key material.
+It stays in `api-compatibility.md` §6's marker table with every other persisted format, so nothing is lost
+by leaving it out of this one. **Each format's marker is its own.** `settings.json` is `version` = **2**,
+`peers.json` and `rooms.json` are `schema_version` = **1**; the schema says so rather than implying one
+repository-wide number, because an addition moves nothing and only a structural change moves its own
+format's marker.
+
+**Impact**: `docs/config-schema.md` and its translation are new (`docs/README.md` + zh gain a row, so the
+bilingual pair count goes **102 → 104**); nothing else changes — **no source file, no dependency, no route,
+no capability name, no audit event constant, no hash formula and no persisted format**. The
+machine-readable `.schema.json`, the SDKs (M7c/M7d), backup (M7e), observability (M7g), the budgets (M7h)
+and the CONTRIBUTING additions (M7i) follow; this one is first because the SDK's types come from it.

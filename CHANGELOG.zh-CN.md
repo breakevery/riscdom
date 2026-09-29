@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **配置 schema 落盘了**（v1.0 批 AP / M7f）：`docs/config-schema.md` 及其译文逐字段描述 **`settings.json`**、**`peers.json`** 与 **`rooms.json`** —— 类型、可选性、缺字段是什么意思、每段嵌套都展开（`preflight`、`sandboxes[]`、`executors[]`、含 `server_role` 的 `network`、`llm_configs`；`peers[]`；含 `rules.rate` 的 `rooms[]`）—— 外加**按格式**的版本化规则（配置文件 `version` = 2；peers 与 rooms 的 `schema_version` = 1）与刻意**不覆盖**的东西（`node.key` 是身份、两个 SQLite 存储、token 文件、运行时状态）。它是文档、不是 `.schema.json`；机器可读的 schema 由它生成。`docs/README.md` 多一行；**没有源文件被改动**。
+
 - **死掉的 QEMU 会被点名，且起客户机的测试不再互相抢**（v1.0 批 AN，基础设施）：本地 gate 的 QEMU flake（5 次；CI 从未见过 —— CI 没有 guest 工具、会跳过 `--ignored` 测试）是一个**端口交接**竞争，所以 `sandbox/src/vm.rs` 现在报 **「QEMU exited with code N during <QMP op>（原始错误：…）」**，而不是裸 `os error 10054`；`host-core/tests/snapshot_commands.rs` 里的两条起客户机测试以文件内的 `static SERIAL: Mutex<()>` **一次只跑一条**。批 AJ 的 60 秒探针界保留（另一个根因）。**孤儿清理** —— 在父进程被 force-kill 时杀死 QEMU 子进程 —— 需要 Job Object（`windows-sys`）或 `PR_SET_PDEATHSIG`（`libc`），故**仍开放**，而不是自行给 `sandbox` 加依赖。
 
 - **CLI 会读连接层了**（v1.0 批 AL / AC-3）：`riscdom` 多出 **`identity`**、**`peers`**、**`rooms`** 与 **`connection`** —— 四条一个词的读取、与 AC-2 提供的四条路由一一对应 —— 以键值或小表渲染，并把新节点的三个 `null` 用文字说出来（`no identity: …`、`no peer table: …`、`no rooms: …`）；`--json` 仍原样透传线上形状。`docs/control-plane-client-guide.md` §7 与两份 `cli/README.md` 各多四行。**V-4 收尾。** 没有 server 路由、`net`、`host-core` 或 `host-tauri` 文件被改动。

@@ -83,6 +83,7 @@ normative tables are the API and events documents; the guides are the working wa
 | [control-plane-client-guide.md](control-plane-client-guide.md) — [中文](control-plane-client-guide.zh-CN.md) | How to write a client: first call, errors, subscribing, the CLI, driving it from an AI supervisor, writing a remote executor handle. | living |
 | [tool-schema-control-plane.md](tool-schema-control-plane.md) — [中文](tool-schema-control-plane.zh-CN.md) | Every endpoint as an OpenAI-style tool definition — the supervisor's `tools[]`, ready to paste. | living (checked) |
 | [tool-schema-executor.md](tool-schema-executor.md) — [中文](tool-schema-executor.zh-CN.md) | The eight tools an executor's model is offered, as the exact array the kernel sends. | living (checked) |
+| [config-schema.md](config-schema.md) — [中文](config-schema.zh-CN.md) | **The configuration schema** (v1.0 M7f): every field of `settings.json`, `peers.json` and `rooms.json`, with its type, whether it may be absent, and how each format is versioned. | living (v1.0 spec) |
 | [examples/python/README.md](../examples/python/README.md) — [中文](../examples/python/README.zh-CN.md) | The runnable reference supervisor: three endpoints, stdlib only, with an offline `--self-test`. | living (self-tested) |
 | [server/README.md](../server/README.md) — [中文](../server/README.zh-CN.md) | The control plane as a program: build, run, endpoints, the stream, authentication — and what is not implemented. | living |
 

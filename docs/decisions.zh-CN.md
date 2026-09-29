@@ -1199,3 +1199,13 @@ trait 属 v1.x 工作。
 **缘由**：**那个错误是真的、但没用。** `os error 10054` 说的是 *socket* 做了什么；部署者需要知道的是 *QEMU* 做了什么。点名退出（并留下 socket 错误）把五分钟的谜题变成一眼可读，代价只是一次 `try_wait`。**flake 是共享资源，所以串行化是靶向修理。** 端口交接窗口是整机范围的，进程内唯一能拓宽它的办法是不让*我们自己的*客户机互相抢；文件内的互斥锁做到这一点，又不让每次 gate 变慢 —— 而全局 `--test-threads=1` 会。**孤儿修到了工具链的边界。** 本次观察到的孤儿（`qemu-system-riscv64 --version`，从它那次挂起一直活到现在）之所以存活，是因为*父进程被 force-kill*；`std` 里没有任何东西能在父进程死时杀死子进程，而两条真路子都是 OS API。给一个只有三个依赖的 crate 加 `windows-sys`/`libc` —— 并写下工作区的第一处 FFI —— 是 owner 的决定，不是一次 flake 修的副作用（依赖是一个承诺）。
 
 **影响**：`sandbox/src/vm.rs` 多出 `explain_qmp`、自由函数 `qmp_failure`、三处已包装的调用点（QMP connect、`migrate`、`query-status`），以及一条对着真实退出状态校文字的测试；`host-core/tests/snapshot_commands.rs` 多出 `SERIAL` 互斥锁与两条守卫。**批 AJ 的 60 秒界是另一个根因、保留不动**：它把永不退出的 `--version` 探针变成「不可用」，`read_only` 的挂起因此消失；本批处理的是 *失败* 的 QEMU，那种情况那个界从来没见过。**没有哈希公式、路由、capability 名、审计事件常量或持久化格式被改动。** 孤儿清理（Job Object / `PR_SET_PDEATHSIG`）**仍开放**，两个选项如上。
+
+## 113. 配置 schema 落盘了，它覆盖三个文件
+
+**日期**：2026-09-29 ｜ **状态**：已定；已实现（批 AP / M7f）
+
+**决策**：§16 那句「配置以 JSON Schema 描述，落在 `docs/config-schema.md`」**已落盘**：该文档以两种语言存在，逐字段描述节点数据目录里的三个文件 —— **`settings.json`、`peers.json`、`rooms.json`**（字段名、类型、是否可缺、缺了是什么意思），并把每一段嵌套展开（`preflight`、`sandboxes[]`、`executors[]`、含 `server_role` 的 `network`、`llm_configs`；`peers[]`；含 `rules.rate` 的 `rooms[]`）。它还写明**按格式各自的版本化**规则与**不覆盖**的东西。它是**文档**，不是 `.schema.json`：将来要的机器可读 schema 是**从这份描述生成**的，而不是与它手工并置。`docs/README.md` 的地图多一行。
+
+**缘由**：三点。**§16 要的就是文档，且点明了位置。** 决策已经定了地点与形状；缺的是写下来，而只作为意图存在的 schema 无法拿来校验。**三个文件，不是四个。** `node.key` 刻意**不在**其中：它是 Ed25519 JWK —— *身份*，不是配置 —— 而配置的校验器永远不该被迫处理密钥材料。它仍与每种持久化格式一起列在 `api-compatibility.md` §6 的标记表里，所以把它留在本文之外不会丢东西。**每种格式的标记各自独立。** `settings.json` 是 `version` = **2**，`peers.json` 与 `rooms.json` 是 `schema_version` = **1**；schema 如实写明，而不是暗示全仓一个号，因为加法什么都不挪、只有结构性变化才挪它自己那个格式的标记。
+
+**影响**：`docs/config-schema.md` 及其译文是新的（`docs/README.md`+zh 各多一行，双语对计数 **102 → 104**）；其余不变 —— **没有源文件、依赖、路由、capability 名、审计事件常量、哈希公式或持久化格式被改动**。机器可读的 `.schema.json`、SDK（M7c/M7d）、backup（M7e）、observability（M7g）、预算（M7h）与 CONTRIBUTING 增补（M7i）接在后；这一件在最前，因为 SDK 的类型出自它。
