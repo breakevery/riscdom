@@ -222,6 +222,41 @@ fn the_read_only_commands_answer_and_agree_with_their_mode() {
     let text = stdout(&output);
     assert!(text.contains("TOOLCHAINS (0)"), "{text}");
     assert!(text.contains("QEMUS ("), "{text}");
+
+    // The connection layer (v1.0 AC-3): the four reads over AC-2's routes. This node has no
+    // `settings.network`, so it never joined a network: each read is `null` on the wire, and the
+    // human mode says so in words rather than printing an empty shape.
+    let output = run("connection-identity", &["identity"]);
+    assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("no identity"),
+        "{}",
+        stdout(&output)
+    );
+    let output = run("connection-peers", &["peers"]);
+    assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("no peer table"),
+        "{}",
+        stdout(&output)
+    );
+    let output = run("connection-rooms", &["rooms"]);
+    assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
+    assert!(stdout(&output).contains("no rooms"), "{}", stdout(&output));
+    let output = run("connection-state", &["connection"]);
+    assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains("configured false"), "{text}");
+    assert!(text.contains("connected  false"), "{text}");
+    // And `--json` passes the wire shape through untouched: `null` stays `null`.
+    let output = run("connection-identity-json", &["--json", "identity"]);
+    assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
+    assert_eq!(
+        json(&output),
+        serde_json::Value::Null,
+        "{}",
+        stdout(&output)
+    );
 }
 
 #[test]

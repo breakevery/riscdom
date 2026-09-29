@@ -44,6 +44,11 @@ pub fn human(command: &Command, reply: &Reply) -> String {
         Command::WorkspaceImport { .. } => workspace_imported(value),
         Command::WorkspaceExport { .. } => "ok".to_string(),
         Command::ExecutorsList => executors(value),
+        // The connection layer (v1.0 AC-3): four reads over the items AC-2 serves.
+        Command::Identity => identity(value),
+        Command::Peers => peers(value),
+        Command::Rooms => rooms(value),
+        Command::Connection => connection(value),
         Command::Run { .. } => outcome(value),
         // A dispatched task answers with a `TaskOutcome`: who ran it, and the run's
         // own outcome inside (v0.9 interface E0).
@@ -215,6 +220,82 @@ fn executors(value: &Value) -> String {
         lines.push(format!("{:<28}", text(row, "agent_id")));
     }
     lines.join("\n")
+}
+
+/// `/v0/identity` — the node's public identity, or `null` when the layer is unconfigured
+/// (v1.0 AC-3).
+///
+/// The public half only, which is all the route ever carries: `node_id` (the device name) and the
+/// two fingerprints. The JWK itself is left to `--json` — a person reading a terminal wants the
+/// fingerprint, which is what they compare against another node's `peers.json`.
+fn identity(value: &Value) -> String {
+    if value.is_null() {
+        return "no identity: the connection layer is not configured".to_string();
+    }
+    [
+        format!("node_id           {}", text(value, "node_id")),
+        format!("fingerprint       {}", text(value, "fingerprint")),
+        format!("short_fingerprint {}", text(value, "short_fingerprint")),
+    ]
+    .join("\n")
+}
+
+/// `/v0/peers` — one line per peer, or a note when there is no `peers.json` (v1.0 AC-3).
+fn peers(value: &Value) -> String {
+    let Some(rows) = value.as_array() else {
+        return "no peer table: this node has no peers.json".to_string();
+    };
+    if rows.is_empty() {
+        return "this node knows nobody".to_string();
+    }
+    let mut lines = vec![format!("{:<28} {}", "NODE_ID", "ADDRESSES")];
+    for row in rows {
+        let addresses = row
+            .get("addresses")
+            .and_then(Value::as_array)
+            .map(|list| {
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_default();
+        lines.push(format!("{:<28} {}", text(row, "node_id"), addresses));
+    }
+    lines.join("\n")
+}
+
+/// `/v0/rooms` — one line per room and how many members it names (v1.0 AC-3).
+fn rooms(value: &Value) -> String {
+    let Some(rows) = value.as_array() else {
+        return "no rooms: this node has no rooms.json".to_string();
+    };
+    if rows.is_empty() {
+        return "this node defines no rooms".to_string();
+    }
+    let mut lines = vec![format!("{:<28} {}", "ROOM", "MEMBERS")];
+    for row in rows {
+        let members = row
+            .get("members")
+            .and_then(Value::as_array)
+            .map(|list| list.len().to_string())
+            .unwrap_or_else(|| "-".to_string());
+        lines.push(format!("{:<28} {}", text(row, "name"), members));
+    }
+    lines.join("\n")
+}
+
+/// `/v0/connection` — configured, connected, and any problem (v1.0 AC-3).
+///
+/// A `problem` of `null` prints `-` (the shared rule: an absent field is `-`, not a blank), which
+/// is the honest reading — there is no problem, rather than an unreadable one.
+fn connection(value: &Value) -> String {
+    [
+        format!("configured {}", text(value, "configured")),
+        format!("connected  {}", text(value, "connected")),
+        format!("problem    {}", text(value, "problem")),
+    ]
+    .join("\n")
 }
 
 /// A `TaskOutcome`: the id that was asked, who answered, and the run's outcome.

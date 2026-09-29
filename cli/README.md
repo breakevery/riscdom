@@ -30,6 +30,10 @@ riscdom [options] <command> [args]
 | `sandboxes show <name>` | `GET /v0/sandboxes/<name>` | one definition, one `key value` line per field |
 | `sandboxes requests [--status <s>]` | `GET /v0/sandboxes/requests` | the request queue, newest first, one line per request |
 | `executors list` | `GET /v0/executors` | one `agent_id` per line, or `no executors are configured (...)` (v0.9 interface E0) |
+| `identity` | `GET /v0/identity` | the node's public identity (`node_id`, two fingerprints), or `no identity: the connection layer is not configured` (v1.0 batch AL) |
+| `peers` | `GET /v0/peers` | one peer per line with its addresses, or `this node knows nobody` / `no peer table: this node has no peers.json` |
+| `rooms` | `GET /v0/rooms` | one room per line and its member count, or `this node defines no rooms` / `no rooms: this node has no rooms.json` |
+| `connection` | `GET /v0/connection` | `configured` / `connected` / `problem` |
 
 Control commands — every one an HTTP `POST`, and every one needs the token:
 

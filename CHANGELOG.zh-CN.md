@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **CLI 会读连接层了**（v1.0 批 AL / AC-3）：`riscdom` 多出 **`identity`**、**`peers`**、**`rooms`** 与 **`connection`** —— 四条一个词的读取、与 AC-2 提供的四条路由一一对应 —— 以键值或小表渲染，并把新节点的三个 `null` 用文字说出来（`no identity: …`、`no peer table: …`、`no rooms: …`）；`--json` 仍原样透传线上形状。`docs/control-plane-client-guide.md` §7 与两份 `cli/README.md` 各多四行。**V-4 收尾。** 没有 server 路由、`net`、`host-core` 或 `host-tauri` 文件被改动。
+
 - **部署方装上判定 sink，而服务器只写自己的链**（v1.0 批 AK / V-3b-2）：`AppState::install_connection_sink(self: &Arc<Self>)` 把 §6.7 的 sink 装到**本节点自己的 `server_role()`** 上，而桌面的 setup、`riscdom-server` 的 `main` 与 CLI 的内嵌模式各自在拿得到 `Arc` 的地方调它（构造器不能 —— 它们交回 `Self`，而 sink 必须持有 `Arc`）。跨区域汇总**无需**改动 `net`：服务器本就会记下兄弟的报告并判定，而独立 `riscdom-relay` 不装 sink，因为它没有链。**V-3b 至此完成。** 没有哈希公式、路由、`Capability` 变体、审计事件常量或持久化格式被改动。
 
 - **节点会探它的兄弟，而任何探测都不再无限等待**（v1.0 批 AJ / V-3b-1）：跑服务器角色的节点现在会探 §6.7 的第二层 —— **它自己 `peers.json` 里声明了 `"server"` 的那些兄弟**，而公钥也在那里（密钥经配置到来、从不经帧）。`net` 多出 `SERVER_CLAIM`、`PeerEntry::is_server`、`PeersFile::servers` / `server_keys`；`host-core` 在 V-3a 那条线程旁起**第二条探测线程**（同一个跨区域 client、不同的 peer 集与密钥），由 `start_server_role` 启动，经节点自己的 client 上报。汇总半边是 V-3b-2。另外 `host-core` 的工具探测（`qemu` / `gcc` / `zig` / `rustc --version`）现在**有界**：`exec_retrying` spawn、等 60 秒、超时 kill —— 卡住的子进程读作「不可用」，而不是把宿主挂住（那个四次拖住本地 gate 的 QEMU flake）。没有哈希公式、路由、`Capability` 变体、审计事件常量或持久化格式被改动。

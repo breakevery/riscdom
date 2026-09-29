@@ -34,6 +34,13 @@ read-only commands:
                                 (`GET /v0/sandboxes/requests`)
   executors list                the executors a task can be routed to
                                 (`GET /v0/executors`)
+  identity                      this node's public identity, when the connection
+                                layer is configured (`GET /v0/identity`)
+  peers                         who this node knows (`GET /v0/peers`)
+  rooms                         the rooms this node's rooms.json defines
+                                (`GET /v0/rooms`)
+  connection                    this node's connection state: configured,
+                                connected, and any problem (`GET /v0/connection`)
   workspace export [--out <file>]
                                 the project as a tar.gz; without --out it goes to
                                 stdout, and the count goes to stderr
@@ -196,6 +203,15 @@ pub enum Command {
     },
     /// The executors a task can be routed to (v0.9 interface E0), read-only.
     ExecutorsList,
+    /// This node's public identity (v1.0 AC-3): the four connection items AC-1 put on the
+    /// desktop and AC-2 put on the wire. `null` when the connection layer is unconfigured.
+    Identity,
+    /// Who this node knows — its `peers.json` (v1.0 AC-3).
+    Peers,
+    /// The rooms this node's `rooms.json` defines (v1.0 AC-3).
+    Rooms,
+    /// The node's connection state: configured, connected, and any problem (v1.0 AC-3).
+    Connection,
     // ---- control ----
     Run {
         task: String,
@@ -313,6 +329,10 @@ impl Command {
             | Command::SandboxesShow { .. }
             | Command::SandboxesRequests { .. }
             | Command::ExecutorsList
+            | Command::Identity
+            | Command::Peers
+            | Command::Rooms
+            | Command::Connection
             | Command::QemuStatus => "GET",
             _ => "POST",
         }
@@ -355,6 +375,12 @@ impl Command {
             }
             Command::WorkspaceExport { .. } => "/v0/workspace/export".to_string(),
             Command::ExecutorsList => "/v0/executors".to_string(),
+            // The connection layer (v1.0 AC-3): the four items AC-1 gave the desktop and AC-2 put
+            // on the wire.
+            Command::Identity => "/v0/identity".to_string(),
+            Command::Peers => "/v0/peers".to_string(),
+            Command::Rooms => "/v0/rooms".to_string(),
+            Command::Connection => "/v0/connection".to_string(),
             Command::Run { .. } => "/v0/agent/run".to_string(),
             Command::TasksDispatch { .. } => "/v0/tasks".to_string(),
             Command::VmStop => "/v0/vm/stop".to_string(),
@@ -735,6 +761,11 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
             out: flags.out.clone().map(PathBuf::from),
         }),
         (Some("executors"), Some("list"), None, None) => Some(Command::ExecutorsList),
+        // The connection layer (v1.0 AC-3): four one-word reads over the items AC-2 serves.
+        (Some("identity"), None, None, None) => Some(Command::Identity),
+        (Some("peers"), None, None, None) => Some(Command::Peers),
+        (Some("rooms"), None, None, None) => Some(Command::Rooms),
+        (Some("connection"), None, None, None) => Some(Command::Connection),
         (Some("run"), Some(task), None, None) => Some(Command::Run {
             task: task.to_string(),
             sandbox: flags.sandbox.clone(),
@@ -985,6 +1016,13 @@ mod tests {
         assert_eq!(command(&["health"]), Command::Health);
         assert_eq!(command(&["status"]), Command::Status);
         assert_eq!(command(&["agents"]), Command::Agents);
+        // The connection layer (v1.0 AC-3): four one-word reads.
+        assert_eq!(command(&["identity"]), Command::Identity);
+        assert_eq!(command(&["peers"]), Command::Peers);
+        assert_eq!(command(&["rooms"]), Command::Rooms);
+        assert_eq!(command(&["connection"]), Command::Connection);
+        // They take no words and no flags: a stray word is a usage error.
+        assert!(parse_words(&["identity", "extra"]).is_err());
         assert_eq!(
             command(&["runs", "list"]),
             Command::RunsList { limit: None }
@@ -1092,6 +1130,16 @@ mod tests {
     #[test]
     fn the_request_path_is_what_the_api_table_documents() {
         assert_eq!(Command::Health.request_path(), "/v0/health");
+        // The connection layer (v1.0 AC-3): the four reads over AC-2's routes.
+        assert_eq!(Command::Identity.request_path(), "/v0/identity");
+        assert_eq!(Command::Peers.request_path(), "/v0/peers");
+        assert_eq!(Command::Rooms.request_path(), "/v0/rooms");
+        assert_eq!(Command::Connection.request_path(), "/v0/connection");
+        assert_eq!(Command::Identity.method(), "GET");
+        assert_eq!(Command::Peers.method(), "GET");
+        assert_eq!(Command::Rooms.method(), "GET");
+        assert_eq!(Command::Connection.method(), "GET");
+        assert_eq!(Command::Identity.body(), None, "a read sends no body");
         assert_eq!(Command::Status.request_path(), "/v0/status");
         assert_eq!(Command::Agents.request_path(), "/v0/status");
         assert_eq!(Command::RunsList { limit: None }.request_path(), "/v0/runs");

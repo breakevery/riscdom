@@ -26,6 +26,10 @@ riscdom [options] <command> [args]
 | `sandboxes show <name>` | `GET /v0/sandboxes/<name>` | 一个定义，一行一个字段 |
 | `sandboxes requests [--status <s>]` | `GET /v0/sandboxes/requests` | 申请队列，新的在前，每行一条申请 |
 | `executors list` | `GET /v0/executors` | 每行一个 `agent_id`，或者 `no executors are configured (...)`（v0.9 接口交付 E0） |
+| `identity` | `GET /v0/identity` | 节点的公开身份（`node_id` 与两个指纹），或者 `no identity: the connection layer is not configured`（v1.0 批 AL） |
+| `peers` | `GET /v0/peers` | 每行一个同侪及其地址，或者 `this node knows nobody` / `no peer table: this node has no peers.json` |
+| `rooms` | `GET /v0/rooms` | 每行一个房间及其成员数，或者 `this node defines no rooms` / `no rooms: this node has no rooms.json` |
+| `connection` | `GET /v0/connection` | `configured` / `connected` / `problem` |
 
 控制类子命令——全部是 HTTP `POST`，全部需要 token：
 

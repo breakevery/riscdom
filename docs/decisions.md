@@ -3060,3 +3060,34 @@ tightened to seed `rooms.json`, so the "cannot bind" test now fails on the **bin
 missing file. `net/README.md` and its translation say §6.7 is complete. **No hash formula, route,
 capability name, audit event constant or persisted format changed, and `net`'s logic is untouched.**
 §6.7's **sibling** confirmation is complete: V-3b-1 probes and reports, this batch wires the sink.
+
+## 111. The CLI's four connection reads are four one-word commands
+
+**Date**: 2026-09-29 ｜ **Status**: Decided; implemented (batch AL / AC-3)
+
+**Decision**: `riscdom` gains four read-only commands — **`identity`**, **`peers`**, **`rooms`** and
+**`connection`** — one per route AC-2 put on the wire (`GET /v0/identity`, `/v0/peers`, `/v0/rooms`,
+`/v0/connection`). Each is a unit `Command`, a GET path, a `parse_command` arm, a `USAGE` line and a
+renderer; the human mode prints key/value lines for `identity` and `connection` and a small table for
+`peers` and `rooms`, and it **says the three `null`s in words** — `no identity: the connection layer is
+not configured`, `no peer table: this node has no peers.json`, `no rooms: this node has no rooms.json`.
+`--json` still passes the wire shape through untouched. `docs/control-plane-client-guide.md` §7 and
+`cli/README.md` gain four rows each.
+
+**Why**: Two points. **One word, not two.** The other reads that name a resource take a subcommand
+(`executors list`, `audit status`), but a connection item is not a collection of one: each of the four
+names exactly one thing, so the shape that reads best is the one that reads least — and it keeps the
+CLI's vocabulary parallel to the routes' (one route, one command). **A `null` is said in words.** AC-2
+answers `null` for absent connection data, and a renderer that printed an empty shape would make "the
+layer is unconfigured" look like "the read worked and found nothing" — which is the one distinction
+those routes exist to make. The three sentences are that distinction, and `--json` keeps the
+machine-readable `null` for anyone who prefers it.
+
+**Impact**: `cli/src/args.rs` gains the four variants, usage lines, parse arms, GET paths and the
+`method()` arm, plus assertions in the two existing parse/path tests; `cli/src/render.rs` gains the four
+renderers and their `human()` arms; `cli/tests/read_only.rs` drives all four against the embedded server
+(a fresh node answers `null`, and `--json identity` is `null` on the wire);
+`docs/control-plane-client-guide.md` §7 and both `cli/README.md` files gain four rows. **No server route,
+`net`, `host-core` or `host-tauri` file changed, and no hash formula, route definition, capability name,
+audit event constant or persisted format moved** — the CLI is an HTTP client and stays one. **V-4 is
+complete**: AC-1 the desktop, AC-2 the routes, AC-3 the CLI, AC-4 the server role.

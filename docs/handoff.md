@@ -155,6 +155,10 @@ current request authorising it (§2).
   hold the `Arc` (a constructor cannot: it hands back a `Self`). The cross-region aggregation needed no
   `net` change, and the standalone `riscdom-relay` installs no sink — it holds no chain. **V-3b is
   complete**; §6.7 is whole. **Decision §110.**
+- **And the CLI reads the connection layer** (v1.0 batch AL / AC-3, 2026-09-29): `riscdom` gains
+  **`identity`**, **`peers`**, **`rooms`** and **`connection`** — four one-word reads over AC-2's routes,
+  rendering key/value lines or a small table and saying the three `null`s in words. **V-4 is complete**
+  (desktop AC-1, routes AC-2, CLI AC-3, server role AC-4), and with it **M4 except M4e**. **Decision §111.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

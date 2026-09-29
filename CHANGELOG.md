@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The CLI reads the connection layer** (v1.0 batch AL / AC-3): `riscdom` gains **`identity`**,
+  **`peers`**, **`rooms`** and **`connection`** — four one-word reads, one per route AC-2 serves — with
+  key/value or small-table rendering, and the three `null` cases a fresh node answers said in words
+  (`no identity: …`, `no peer table: …`, `no rooms: …`); `--json` still passes the wire shape through
+  untouched. `docs/control-plane-client-guide.md` §7 and both `cli/README.md` files gain four rows each.
+  **V-4 is complete.** No server route, `net`, `host-core` or `host-tauri` file changed.
+
 - **A deployment installs the judgement sink, and a server writes its own chain** (v1.0 batch AK /
   V-3b-2): `AppState::install_connection_sink(self: &Arc<Self>)` installs §6.7's sink on **this node's own
   `server_role()`**, and the desktop's setup, `riscdom-server`'s `main` and the CLI's embedded mode call it

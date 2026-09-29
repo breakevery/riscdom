@@ -1179,3 +1179,13 @@ trait 属 v1.x 工作。
 **缘由**：两点。**sink 属于那台判定的服务器，而那台服务器就是本节点。** §6.7 说判定服务器写那两行，而一个进程拥有的唯一 `RelayServer` 就是它自己的 server role 启动的那个；跨区域侧要么是独立 relay（无链）、要么是另一个节点，而那个节点自己的部署会装自己的 sink。所以只装在 `server_role()` 上、别处不装 —— 服务器从不写别的节点的链。**安装点就是那个 `Arc`，而只有部署方持有。** `start_server_role` 跑在 `load_connection_files(&self)` 里，那里还没有 `Arc`，而 sink 需要一个来让状态活到判定到来为止。与其重塑构造器（每个测试与 `host-tauri` 都经它们建状态），不如让那个把状态包进 `Arc`、也正是运行服务器的一方调一个方法。
 
 **影响**：`host-core/src/state.rs` 多出 `install_connection_sink`；`ui/src-tauri/src/lib.rs`、`server/src/main.rs` 与 `cli/src/client.rs` 各自在造出 `Arc` 的地方调一次；`host-core/tests/connection.rs` 多出一条测试：把 sink 装到节点自己的 server role 上、经它驱动一次判定、并从**该**节点的链上读出 `host.connection.peer_offline` / `peer_recovered`（外加反面：没有 server role 的节点答 `false`）。两条旧的 server-role 测试收紧为会播种 `rooms.json`，于是「绑不上」测试如今真的失败在**绑定**上、而不是缺一个文件。`net/README.md` 及其译文写明 §6.7 已完成。**没有哈希公式、路由、capability 名、审计事件常量或持久化格式被改动，且 `net` 的逻辑未动。** §6.7 的**兄弟**确认至此完成：V-3b-1 探测与上报，本批接上 sink。
+
+## 111. CLI 的四条连接读取就是四条一个词的命令
+
+**日期**：2026-09-29 ｜ **状态**：已定；已实现（批 AL / AC-3）
+
+**决策**：`riscdom` 多出四条只读命令 —— **`identity`**、**`peers`**、**`rooms`** 与 **`connection`** —— 与 AC-2 放上线的四条路由一一对应（`GET /v0/identity`、`/v0/peers`、`/v0/rooms`、`/v0/connection`）。每条是一个单元 `Command`、一条 GET 路径、一个 `parse_command` 分支、一行 `USAGE` 与一个渲染器；人类模式给 `identity` 与 `connection` 打印键值行、给 `peers` 与 `rooms` 打印小表，且**把三个 `null` 用文字说出来** —— `no identity: the connection layer is not configured`、`no peer table: this node has no peers.json`、`no rooms: this node has no rooms.json`。`--json` 仍原样透传线上形状。`docs/control-plane-client-guide.md` §7 与 `cli/README.md` 各多四行。
+
+**缘由**：两点。**一个词，不是两个。** 其它点到资源的读取带子命令（`executors list`、`audit status`），但一个连接项不是「一个集合里的一项」：这四个各自恰指一件事，所以读起来最好的形状就是读得最少的那个 —— 而且它让 CLI 的词表与路由的词表平行（一条路由、一条命令）。**`null` 要用文字说出来。** AC-2 对缺失的连接数据答 `null`，而一个把空形状打印出来的渲染器，会把「该层未配置」弄得像「读取成功、只是没东西」—— 而那正是这些路由存在要区分的那一件事。上面三句话就是那个区分，而 `--json` 为偏好机器可读者保留 `null`。
+
+**影响**：`cli/src/args.rs` 多出四个变体、使用说明行、解析分支、GET 路径与 `method()` 分支，以及两条既有 parse/path 测试里的断言；`cli/src/render.rs` 多出四个渲染器与其 `human()` 分支；`cli/tests/read_only.rs` 对着内嵌服务器驱动这四条命令（新节点答 `null`，且 `--json identity` 在线上是 `null`）；`docs/control-plane-client-guide.md` §7 与两份 `cli/README.md` 各多四行。**没有 server 路由、`net`、`host-core` 或 `host-tauri` 文件被改动，也没有哈希公式、路由定义、capability 名、审计事件常量或持久化格式被改动** —— CLI 是 HTTP 客户端，且一直如此。**V-4 收尾**：AC-1 桌面、AC-2 路由、AC-3 CLI、AC-4 服务端角色。
