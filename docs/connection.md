@@ -605,6 +605,11 @@ path is a later batch, and two of its three triggers — the fork and the takeov
 
 **Not M4's.** The temporary centre, `provisional` and `fork` are M5/M6.
 
+**[settled]** **The segment semantics are not here.** What a temporary segment *is*, the cross-segment
+reference at its head, and the questions roadmap §7 still leaves open are
+[docs/audit-v2.md](audit-v2.md) — the audit subsystem's specification. This section is only the digest's
+transport: a commitment to a point, reported upward.
+
 **Frozen**: a digest is the head hash and the event count; the wire shape above; that the server holds the
 latest per node in memory; the 30-second batch as a *default*; and that the timer reads and never writes.
 **Not frozen**: what the aggregation role does with a digest beyond holding the latest one; how several

@@ -17,6 +17,7 @@ pub mod error;
 pub mod event;
 pub mod hash;
 pub mod run;
+pub mod segment;
 pub mod sink;
 pub mod store;
 
@@ -30,6 +31,7 @@ pub use run::{
     ACTION_RUN_ABANDONED, ACTION_RUN_END, ACTION_RUN_START, FINGERPRINT_SCHEMA_V1,
     SHORT_FINGERPRINT_LEN,
 };
+pub use segment::{Segment, SegmentKind, SegmentState};
 pub use sink::{AuditFailureReporter, AuditSink, FileAuditSink, SqliteAuditSink};
 pub use store::{
     AuditStore, EventFilter, APPEND_BACKOFF_BASE, APPEND_MAX_ATTEMPTS, AUDIT_SCHEMA_VERSION,

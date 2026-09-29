@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The segment schema lands, beside the chain** (v1.0 batch BM / M5-1a): `audit_events` gains a nullable
+  **`segment_id`** column and `SCHEMA` gains a **`segments`** table — the shape of audit v2, and nothing
+  else. **`NULL` means the main chain**, which is what every pre-M5 row already is, so an old log reads
+  correctly with no rewrite; `AUDIT_SCHEMA_VERSION` **stays 1**. `audit` also gains `Segment` /
+  `SegmentKind` / `SegmentState`; **no segment is opened and no row is written** (that is M5-1b).
+  `docs/audit-v2.md` + zh are new and write the semantics down. **`compute_hash`, `verify_chain` and the
+  append-only triggers are untouched.** **Decision §129.**
+
 - **The chain's digests travel** (v1.0 batch BK / M4e-1): `net` now reports a node's chain to its
   cross-region server, and `connection.md` §7 is a shape rather than a title. A digest is a
   **commitment to a point** — the chain's head hash and event count, read off `audit`'s existing

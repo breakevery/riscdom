@@ -95,6 +95,23 @@ CREATE TABLE IF NOT EXISTS runs (
     end_seq           INTEGER,
     status            TEXT NOT NULL
 );
+
+-- v1.0 M5-1a: the segment record. "The main chain + temporary segments" is a
+-- **semantic** split of one chain (decisions §127 point 2), so the events themselves
+-- stay in `audit_events` and this table records what a segment *is*. Like `runs`, it is
+-- **not part of the hash chain**: it holds no fact the chain's own rows do not, and it is
+-- created here so an existing database picks it up on the next open. M5-1a creates the
+-- shape and writes no row; M5-1b is what opens and closes one.
+CREATE TABLE IF NOT EXISTS segments (
+    segment_id      TEXT PRIMARY KEY,
+    kind            TEXT NOT NULL,
+    head_hash       TEXT,
+    head_prev_chain TEXT,
+    opened_at_ms    INTEGER,
+    closed_at_ms    INTEGER,
+    state           TEXT NOT NULL,
+    note            TEXT
+);
 "#;
 
 const SELECT_COLUMNS: &str =
@@ -360,11 +377,49 @@ impl AuditStore {
     /// linkage and every existing row's `hash` are untouched, so a pre-v0.8 chain
     /// verifies exactly as it did before.
     fn migrate_events_table(&self) -> Result<(), AuditError> {
-        if !self.column_exists("audit_events", "agent_id")? {
-            self.conn
-                .execute("ALTER TABLE audit_events ADD COLUMN agent_id TEXT", [])?;
-        }
+        self.add_column_if_missing(
+            "audit_events",
+            "agent_id",
+            "ALTER TABLE audit_events ADD COLUMN agent_id TEXT",
+        )?;
+        // v1.0 M5-1a: the segment tag. `NULL` means the **main chain**, which is exactly
+        // what every row written before this column existed is — so an old log reads
+        // correctly with **no rewrite**, the same "a column beside the chain" move
+        // `agent_id` made. A new table (`segments`) needs no migration call: it is in
+        // `SCHEMA` and `CREATE TABLE IF NOT EXISTS` picks it up on the next open.
+        self.add_column_if_missing(
+            "audit_events",
+            "segment_id",
+            "ALTER TABLE audit_events ADD COLUMN segment_id TEXT",
+        )?;
         Ok(())
+    }
+
+    /// Add `column` to `table` unless it is already there.
+    ///
+    /// [`Self::column_exists`] + `ALTER TABLE ADD COLUMN` is **not atomic across
+    /// processes**, and two connections can open one new file at once
+    /// (`audit/tests/concurrency.rs`): both see the column missing and both run the
+    /// `ALTER`, so the loser's answers `duplicate column name`. The column being there is
+    /// exactly what this call is for, so that one error means "already done" and is not
+    /// one (v1.0 M5-1a).
+    ///
+    /// Like every migration here, it sits **beside** the chain: it adds a column and
+    /// changes no hash and no historical row.
+    fn add_column_if_missing(
+        &self,
+        table: &str,
+        column: &str,
+        ddl: &str,
+    ) -> Result<(), AuditError> {
+        if self.column_exists(table, column)? {
+            return Ok(());
+        }
+        match self.conn.execute(ddl, []) {
+            Ok(_) => Ok(()),
+            Err(error) if error.to_string().contains("duplicate column name") => Ok(()),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Does `table` already have `column`?
@@ -392,21 +447,11 @@ impl AuditStore {
     /// altered. (The `agent_id` column that [`Self::migrate_events_table`] adds
     /// sits *beside* the chain: it changes no hash and no historical record.)
     fn migrate_runs_table(&self) -> Result<(), AuditError> {
-        let has_column = {
-            let mut stmt = self.conn.prepare("PRAGMA table_info(runs)")?;
-            let mut rows = stmt.query([])?;
-            let mut found = false;
-            while let Some(row) = rows.next()? {
-                if row.get::<_, String>(1)? == "resumed_from_snapshot" {
-                    found = true;
-                }
-            }
-            found
-        };
-        if !has_column {
-            self.conn
-                .execute("ALTER TABLE runs ADD COLUMN resumed_from_snapshot TEXT", [])?;
-        }
+        self.add_column_if_missing(
+            "runs",
+            "resumed_from_snapshot",
+            "ALTER TABLE runs ADD COLUMN resumed_from_snapshot TEXT",
+        )?;
         Ok(())
     }
 

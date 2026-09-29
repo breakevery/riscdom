@@ -1368,3 +1368,13 @@ trait 属 v1.x 工作。
 **缘由**：三点。**公式不在范围内，而设计必须把它显出来。** [decisions §127](decisions.zh-CN.md) 授权的是扩展链的*语义*、不是它的公式；一个把链再哈一遍的 digest，正是它禁止的第二个公式，所以它被定义成**对储存已有两个答案的读取**。**上报不是提问。** §6.6 已经把节点如何向上说话定好了 —— 一条带 body 的普通 §3 帧 —— 所以 digest 加入该机制、而不另造帧类型，且服务器对它不作任何回答（像心跳）。**服务器持有的是 digest，不是历史。** §6.2 说 aggregation 角色「持有的是 digest 而不是消息」；按节点在**内存**里保留最新那一份，把这句话照字面守住：不创建任何人链的第二份拷贝，也不向服务器自己的链写任何东西。
 
 **影响**：`net` 多出 `ChainDigest`、`digest_body`/`is_digest`、`Local::Digest` 变体与其 `LocalReply`、`RelayServer` 上的内存按节点储存、会话与客户端的一个 `digest` 方法、以及 `DIGEST_INTERVAL`；`host-core` 多出第三条连接线程（`start_connection_digests` / `stop_connection_digests`），只持客户端与储存、不持 state。`docs/connection.md` + zh 把 §7 写实，并去掉「deferred / 需单独授权」的注。**没有任何 `audit` 源文件被改动**，路由、capability 名、审计事件常量、哈希公式或持久化格式均未变，也不新增任何帧*类型*。关键事件的**即时推送**是 M4e-2，它三个触发器里的两个随 M5 到来。
+
+## 129. 段 schema 落地，坐在链旁边
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 BM / M5-1a）
+
+**决策**：审计储存多出 audit v2 的**形状**，其余不动。`audit_events` 多出一个**可空**的 **`segment_id`** 列，`SCHEMA` 多出一张 **`segments`** 表（`segment_id`、`kind`、`head_hash`、`head_prev_chain`、`opened_at_ms`、`closed_at_ms`、`state`、`note`）。**`NULL` 意为主链** —— 这正是该列存在之前写下的每一行的值，所以老日志**零改写**即读对。`AUDIT_SCHEMA_VERSION` **保持 1**：坐在链旁的列与坐在链旁的表都不是格式变更（`agent_id` 与 `resumed_from_snapshot` 的先例）。`audit` 还多出纯数据形状 `Segment` / `SegmentKind` / `SegmentState`；**不开任何段、不写任何行** —— 那是 M5-1b。[docs/audit-v2.md](audit-v2.zh-CN.md) + zh 是新文档，把语义写下来（段记录、跨段引用、只记录不实现的段事件名、以及仍开着的问题）；[connection.md §7](connection.zh-CN.md) 指向它。
+
+**缘由**：三点。**公式与验证者都待在原地。** [decisions §127](decisions.zh-CN.md) 第 2 条扩展的是链的*语义*、不是它的公式；链旁的列与链旁的表既不改 `compute_hash`、也不改 `verify_chain`，而一个可空的标让每一既有行读起来与从前一字不差。**`NULL` 是诚实的默认，而且免费。** 把「主链」做成缺席值，意味着不重写任何行、不跑任何回填 —— 老日志本来就已经对了。**形状先于行为写下。** 有两件事仍留给 owner 拍板 —— 临时段自己那条链的**物理形状**（一份文件加标、一链一份文件稍后并入、或一条独立链 —— 那会让 `verify_chain` 长出分段感知并触及红线 4）与**事件名族** —— 所以 audit-v2.md 把它们记为开放，而不去假定。
+
+**影响**：`audit/src/store.rs` 多出 `segments` 表与幂等的 `segment_id` 迁移；`audit/src/segment.rs` 是新文件（`Segment`、`SegmentKind`、`SegmentState`）；`docs/audit-v2.md` + zh 是新文档（双语对计数 **122 → 124**），`docs/README.md` + zh 各多一行。**`compute_hash`、`verify_chain`、`append_once` 与两个 append-only 触发器未动**，路由、capability 名、审计事件常量、哈希公式或持久化格式均未变。`append_once` 仍列它的七列，所以它写下的每一个事件都带 `segment_id = NULL` —— 主链。

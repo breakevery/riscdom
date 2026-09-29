@@ -3705,3 +3705,35 @@ write §7 out and drop the "deferred / authorised separately" notes. **No `audit
 route, capability name, audit event constant, hash formula or persisted format changes, and no new frame
 *type* is added. The **immediate push** of a key event is M4e-2, and two of its three triggers arrive with
 M5.
+
+## 129. The segment schema lands, beside the chain
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch BM / M5-1a)
+
+**Decision**: The audit store gains the **shape** of audit v2 and nothing else. `audit_events` gains a
+nullable **`segment_id`** column, and `SCHEMA` gains a **`segments`** table (`segment_id`, `kind`,
+`head_hash`, `head_prev_chain`, `opened_at_ms`, `closed_at_ms`, `state`, `note`). **`NULL` means the main
+chain** — which is what every row written before the column existed is, so an old log reads correctly with
+**no rewrite**. `AUDIT_SCHEMA_VERSION` **stays 1**: a column added beside the chain and a table beside it are
+not a format change (the `agent_id` and `resumed_from_snapshot` precedent). `audit` also gains the pure data
+shapes `Segment` / `SegmentKind` / `SegmentState`; **no segment is opened and no row is
+written** — that is M5-1b. [docs/audit-v2.md](audit-v2.md) + zh are new and write the semantics down
+(the segment record, the cross-segment reference, the segment event names recorded but not implemented, and
+the questions still open); [connection.md §7](connection.md) points to it.
+
+**Why**: Three points. **The formula and the verifier stay put.** [decisions §127](decisions.md) point 2
+extends the chain's *semantics*, not its formula; a column beside the chain and a table beside it change
+neither `compute_hash` nor `verify_chain`, and a nullable tag leaves every existing row reading exactly as it
+did. **`NULL` is the honest default, and it is free.** Making "main chain" the absent value means no row is
+rewritten and no back-fill runs — an old log is already right. **The shape is written down before the
+behaviour.** Two things remain the owner's to settle — the **physical shape** of a temporary segment's own
+chain (one file with tags, a file per chain merged later, or a separate chain that would make
+`verify_chain` segment-aware and touch red line 4) and the **event-name family** — so audit-v2.md records
+them as open rather than assuming them.
+
+**Impact**: `audit/src/store.rs` gains the `segments` table and the idempotent `segment_id` migration;
+`audit/src/segment.rs` is new (`Segment`, `SegmentKind`, `SegmentState`); `docs/audit-v2.md` + zh are new (the
+bilingual pair count goes **122 → 124**) and `docs/README.md` + zh gain a row. **`compute_hash`,
+`verify_chain`, `append_once` and both append-only triggers are untouched**, and no route, capability name,
+audit event constant, hash formula or persisted format changes. `append_once` still lists its seven columns,
+so every event it writes carries `segment_id = NULL` — the main chain.

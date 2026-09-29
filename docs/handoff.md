@@ -310,6 +310,16 @@ current request authorising it (§2).
   notes are gone. **`audit` was not touched** — the formula, `verify_chain` and the triggers are unchanged,
   and a store whose digest was just read still verifies `Intact`. The immediate push of a key event is
   M4e-2. **Decision §128.**
+- **And the segment schema landed** (v1.0 batch BM / M5-1a, 2026-09-30): audit v2's **shape**, and nothing
+  else. `audit_events` gains a nullable **`segment_id`** column and `SCHEMA` gains a **`segments`** table
+  (`segment_id`, `kind`, `head_hash`, `head_prev_chain`, `opened_at_ms`, `closed_at_ms`, `state`, `note`).
+  **`NULL` means the main chain** — what every pre-M5 row already is — so an old log reads correctly with
+  **no rewrite**, and `AUDIT_SCHEMA_VERSION` **stays 1**. `audit` also gains `Segment` / `SegmentKind` /
+  `SegmentState`; **no segment is opened and no row is written** (M5-1b). `docs/audit-v2.md` + zh are new
+  (bilingual **122 → 124**) and `connection.md §7` points at them. **`compute_hash`, `verify_chain`,
+  `append_once` and both append-only triggers are untouched.** Two things are the owner's to settle: the
+  **physical shape** of a temporary segment's own chain, and the **event-name family** (`host.audit.*`
+  recorded as the recommendation). **Decision §129.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new
