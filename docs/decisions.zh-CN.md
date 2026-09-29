@@ -1329,3 +1329,13 @@ trait 属 v1.x 工作。
 **缘由**：四点。**「绿」的那唯一一份清单仍是 `scripts/gate.sh`。** 本 job 不保留自己的命令清单 —— 它构建 gate 构建不了的东西，正是 `bundle` 给出的同一个理由。**单独一个 job，而不是 `bundle` 的扩展。** `bundle` 构建 Tauri 桌面应用、需要它的 OS 工具链；服务器程序不是 Tauri，且它们的平台集会分叉（Windows 是 M7b-4），并进去会把两条不同的平台叙事绑在同一个 `if` 上。**前端在 job 里、显式地构建。** `pack.sh` 需要 `ui/dist/app`，而 `--skip-ui-build` 让打包那一步保持纯组装；前端出错时会点名前端，而不是藏在打包器里。**与 `bundle` 同一个触发，出于同一个成本理由。** 一个 macOS runner 的开销是 Linux 的十倍；这些归档要在切 release 时要，而不是每次 push 时。
 
 **影响**：`.github/workflows/ci.yml` 多出一个 job（**无新 action** —— `checkout`、`dtolnay/rust-toolchain`、`setup-node`、`cache` 与 `upload-artifact` 全都已在用），`scripts/gate.sh` 多出一行，`docs/roadmap-v1.0.md` + zh 把 §12 的 server zip 项移到 `[已定]`，台账多出本条。**没有 crate、路由、capability 名、审计事件常量、哈希公式、持久化格式、workspace 成员、依赖、tag 或 release 被改动**，且 `scripts/pack.{sh,ps1}` 未变。已在本地尽可能验证：`sh -n scripts/pack.sh` 通过，且本 job 的 YAML 可解析。
+
+## 126. 三个仓库，且拆仓等 v1.0
+
+**日期**：2026-09-29 ｜ **状态**：已定（批 BH 记录）
+
+**决策**：项目立在**三个仓库**上，[docs/multi-repo.md](multi-repo.zh-CN.md) 现在如此声明：**本仓**是内核*与*控制平面（workspace `members` 里除 `host-tauri` 之外的那些：`cli`、`host-core`、`sandbox`、`audit`、`agent`、`worker`、`server`、`net`、`backup`、`sdk/rust`）；**`riscdom-adminapp`** 是管理程序（`host-tauri` + `ui`，后者内嵌控制平面）；**`riscdom-server`** 是作为程序的控制平面（`server` crate）。拆仓 —— [M7a](roadmap-v1.0.zh-CN.md) —— **在 v1.0 发布之后执行**，顺序是 **v1.0 → `riscdom-server` → `riscdom-adminapp`**，因为每个新仓都以**钉在 tag 上**的依赖消费内核，而 v1.0 tag 还不存在（`v0.9.9` 早于连接层、备份工具与 SDK）。连接层的 relay 二进制（`net/src/bin/riscdom-relay.rs`）**留本仓**：它只依赖 `net`。两个程序的第一份 roadmap 记在 [multi-repo.md §7](multi-repo.zh-CN.md) —— adminapp：今天桌面，之后移动端（Android / iOS），保留浏览器模式，同时连 RiscDom 节点与 `riscdom-server` 两端；server：今天命令行，之后 web 状态页与 Windows / Linux，且只服务 RiscDom。
+
+**缘由**：三个仓库的项目必须回答两个问题 —— *谁拥有什么* 与 *拆仓何时发生* —— 而上一版文档只回答了两仓版本的第一个、把第二个留成了隐含。**控制平面是内核的，不是程序的。** `server` 是控制平面程序（Layer 3），`cli` 内嵌它（`server::Server`、`ServerConfig`、`TokenAuth`、`server::token::load_or_create`），而 `riscdom-server` 无头地发布它，所以它不能随桌面程序离开；点名三个仓，能挡住「程序走了、顺手把 server 也带走」这种读法。**拆仓不能早于它所钉的那个 tag。** [M7i](multi-repo.zh-CN.md) 把 git 依赖冻在 tag 上，而 tag 在本仓发版时才打；在 v1.0 之前拆，只会钉 `v0.9.9` —— 一个比建在它上面的程序还旧的内核，正是这个 pin 要防的漂移。**relay 跟层走、不跟程序走。** 它是连接层的二进制，所以它留在 `net` 留的地方，读者也不必再从 import 里推出来。
+
+**影响**：`docs/multi-repo.md` + zh 现在描述三个仓库（§1）、注明所钉的 tag 在 v1.0 才打（§2）、把 CLA 问题扩到三个（§5）并新增 §7（各仓 roadmap 与时机）；双语对计数不变（改的是已有一对）。**没有 crate、`Cargo.toml`、CI job、脚本、路由、capability 名、审计事件常量、哈希公式或持久化格式被改动**，没有创建任何仓库，也没有向任何仓库 push。拆仓本身仍是 [M7a](roadmap-v1.0.zh-CN.md)，在 v1.0 之后。

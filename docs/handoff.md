@@ -281,6 +281,15 @@ current request authorising it (§2).
   test, lint or probe), and **it does not tag or publish** — the archives are run artifacts and cutting a
   release is the separate, authorised batch BG. The gate gains `sh -n scripts/pack.sh`; roadmap §12's
   server-zip item moves to `[settled]`. **Decision §125.**
+- **And the project now documents three repositories** (v1.0 batch BH, 2026-09-29): `docs/multi-repo.md` + zh
+  were written for two, so this batch aligns them with what now exists — **this repository** (kernel +
+  control plane), **`riscdom-adminapp`** (`host-tauri` + `ui`) and **`riscdom-server`** (the `server`
+  crate) — notes that the pinned kernel tag is cut at v1.0, widens the CLA question to three, and adds §7
+  with the two programs' first roadmaps (adminapp: desktop today, then mobile and browser, against a node
+  and a server; server: CLI today, then a web status page on Windows / Linux, RiscDom only) and the order
+  **v1.0 → server → app**. **M7a — the split — is explicitly deferred to after v1.0**: each new repository
+  pins a v1.0 tag, and `v0.9.9` predates the connection layer, the backup tool and the SDK. The relay
+  binary stays in this repository. **Decision §126.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

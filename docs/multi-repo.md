@@ -1,30 +1,37 @@
 [中文](multi-repo.zh-CN.md) | English
 
-# Working across the two repositories
+# Working across the three repositories
 
 **Status** v1.0 specification (M7i) ｜ **Date** 2026-09-29 ｜ **Audience** contributors, and whoever prepares the
-second repository.
+repositories.
 
 **What this document is.** [roadmap §11](roadmap-v1.0.md) says v1.0 needs "the **CONTRIBUTING** additions a
-second repository needs", and does not list them. This document is those additions: how the second
-repository — the management program, `riscdom-adminapp` — stands next to this one, how it gets the kernel,
-what it inherits and what it has to own. It is a **specification** for the split; the split itself is
-[M7a](roadmap-v1.0.md).
+second repository needs", and does not list them. This document is those additions: how the other
+repositories — the management program `riscdom-adminapp` and the control-plane program `riscdom-server` —
+stand next to this one, how they get the kernel, what they inherit and what they have to own. It is a
+**specification** for the split; the split itself is [M7a](roadmap-v1.0.md), which runs after v1.0 (§7).
 
-## 1. Two repositories, one kernel
+## 1. Three repositories, one kernel
 
 - **This repository is the kernel and the control plane**: the sandbox, the audit chain, the agent loop, the
-  network layer, the host core and the HTTP control plane — the crates in the workspace's `members`
-  (`cli`, `host-core`, `host-tauri`, `sandbox`, `audit`, `agent`, `worker`, `server`, `net`).
-- **The second repository is the management program**: the Tauri shell and its front end (`host-tauri` and
+  network layer, the host core and the HTTP control plane — the crates in the workspace's `members` except
+  `host-tauri`: `cli`, `host-core`, `sandbox`, `audit`, `agent`, `worker`, `server`, `net`, `backup` and
+  `sdk/rust`.
+- **`riscdom-adminapp` is the management program**: the Tauri shell and its front end (`host-tauri` and
   `ui`, which embeds `server` for the control plane a phone reaches). [RELEASE_NOTES.md](../RELEASE_NOTES.md)
   says it plainly — the program ships **inside this repository** in v0.9 and **becomes its own repository at
-  v1.0**; [decisions §9](decisions.md)'s impact says the same.
+  v1.0** (that is, after the v1.0 release, §7); [decisions §9](decisions.md)'s impact says the same.
+- **`riscdom-server` is the control plane as a program**: the `server` crate (the HTTP + SSE control plane)
+  as its own repository, so a host can install and run it without the desktop program. It stays in this
+  repository for now (§7).
 - **The relationship is the kernel's, not a fork's.** [architecture-evolution §12](architecture-evolution.md)
-  calls the second repository "a separate repository, **maintained from the same source** (like Linux's
-  coreutils / iproute2)". The program is a **kernel-level tool**: it is one consumer of a kernel it does not
+  calls a split repository "a separate repository, **maintained from the same source** (like Linux's
+  coreutils / iproute2)". Each program is a **kernel-level tool**: it is one consumer of a kernel it does not
   own, advancing in step with the kernel's features — which is why §12 also says every kernel capability must
-  have a management API, and a capability the management program cannot reach is decoration.
+  have a management API, and a capability a program cannot reach is decoration.
+- **The split waits for v1.0.** Both programs consume the kernel as a dependency pinned to a **tag** (§2),
+  and this repository has no v1.0 tag yet, so the split runs after that release; §7 records the timing and
+  the order.
 
 ## 2. How the second repository gets the kernel
 
@@ -38,6 +45,12 @@ host-tauri = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
 server     = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
 ```
 
+- **The tag is cut at v1.0, and there is one today only for v0.9.x.** `v1.0.0` above is the tag this
+  repository will cut at its v1.0 release (§7); until it exists there is nothing to pin, so **the split does
+  not execute before then**. A repository that pinned today would have to pin `v0.9.9`, which predates the
+  connection layer, the backup tool and the SDK — an older kernel than the programs that consume it. The
+  list is one line per crate: `riscdom-adminapp` names `host-tauri` and `server` (it embeds the control
+  plane); `riscdom-server` names `server` alone.
 - **The indirect crates come along, at the same revision.** A kernel crate's own dependencies are `path`
   dependencies inside this repository (`host-tauri` → `host-core` / `net`; `ui` → `host-tauri` / `server`),
   and Cargo resolves a path dependency that lives inside the same git repository against **that same
@@ -107,19 +120,41 @@ as "**the RiscDom repository** and the work distributed from it" — singular �
 already says so out loud: contributions "may be taken in somewhere other than this repository in the future,
 so this section speaks only for the flow that exists here today".
 
-**What is undecided, and when it is decided.** Whether the second repository installs its own CLA Assistant
-and signature store, shares this one, or the CLA text is amended to name both repositories is **not decided
-here** — it is decided with the split, in [M7a](roadmap-v1.0.md). Until then the rule for a contributor is
-unchanged: **a contribution to this repository is covered by this repository's CLA**, and nothing in this
-document extends it.
+**What is undecided, and when it is decided.** Whether each new repository installs its own CLA Assistant
+and signature store, shares this one, or the CLA text is amended to name all three is **not decided here** —
+it is decided with the split, in [M7a](roadmap-v1.0.md), which runs after v1.0 (§7). Until then the rule for
+a contributor is unchanged: **a contribution to this repository is covered by this repository's CLA**, and
+nothing in this document extends it.
 
 ## 6. What this document is not
 
-- **It is not the split runbook.** Creating the repository, moving the crates, cutting the first tag and
-  wiring the CI is [M7a](roadmap-v1.0.md), which needs its own authorisation (it writes to a new remote).
+- **It is not the split runbook.** Creating the repositories, moving the crates, cutting the first tag
+  and wiring the CI is [M7a](roadmap-v1.0.md) — which runs after v1.0 (§7) — and needs its own
+  authorisation (it writes to new remotes).
 - **It is not the release mechanics.** How this repository's server and packages are released, and how the
   second repository's are, is [M7b](roadmap-v1.0.md) and the release notes, not this.
 - **It is not an SDK contract.** The types a third-party consumer sees are [M7c / M7d](roadmap-v1.0.md)'s
   job; the git dependency in §2 is the kernel's own crates, not a published interface.
 - **It does not restate the CLA or CONTRIBUTING.** Where those documents already say something, this one
   points at them rather than copying them, so there is one place to change.
+
+## 7. The three repositories, and when they split
+
+**M7a — the split — is deferred to after v1.0.** [roadmap §11](roadmap-v1.0.md) settles that the management
+program moves to its own repository at v1.0, and [M8](roadmap-v1.0.md) is "the API freezes, and it ships":
+the freeze is declared and v1.0 is released. The order is **the v1.0 release first, then `riscdom-server`,
+then `riscdom-adminapp`** — each new repository pins a kernel tag (§2), so the kernel has to have one, and a
+program split out before the freeze would be pinned to a kernel still moving under it.
+
+What each new repository is for (recorded here; neither is implemented in v1.0):
+
+- **`riscdom-adminapp` — the management program.** Today a **desktop** application (Tauri + React + Vite,
+  `host-tauri` + `ui`). It goes on to **mobile (Android / iOS)** and keeps its **browser** mode; all three
+  connect to both a **RiscDom node** and a **`riscdom-server`**.
+- **`riscdom-server` — the control plane as a program.** Today a **command line** (`riscdom-server`, plus the
+  connection layer's `riscdom-relay`). It gains a **web status page** and ships for **Windows and Linux**. It
+  serves **RiscDom only**: it is not a general-purpose server-management panel.
+
+**The relay stays here.** `net/src/bin/riscdom-relay.rs` depends only on `net` — it imports `net`'s types and
+nothing from `server` — and `net` stays in this repository, so the relay binary splits with neither new
+repository: it is a connection-layer program, not a control-plane one.

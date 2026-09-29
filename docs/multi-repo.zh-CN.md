@@ -1,25 +1,30 @@
 [English](multi-repo.md) | 中文
 
-# 跨两个仓库工作
+# 跨三个仓库工作
 
 **状态** v1.0 规范（M7i）｜ **日期** 2026-09-29 ｜ **面向读者** 贡献者，以及筹备第二仓的人。
 
 **本文是什么。** [roadmap §11](roadmap-v1.0.zh-CN.md) 说 v1.0 需要「第二个仓库需要的 **CONTRIBUTING** 增补」，
-但没有列出它们。本文就是那份增补：第二仓 —— 管理程序 `riscdom-adminapp` —— 如何与本仓并立、如何取得内核、
-继承什么、又必须自己拥有什么。它是拆仓的**规格**；拆仓本身是 [M7a](roadmap-v1.0.zh-CN.md)。
+但没有列出它们。本文就是那份增补：其余仓库 —— 管理程序 `riscdom-adminapp` 与控制平面程序 `riscdom-server` ——
+如何与本仓并立、如何取得内核、继承什么、又必须自己拥有什么。它是拆仓的**规格**；拆仓本身是
+[M7a](roadmap-v1.0.zh-CN.md)，它在 v1.0 之后执行（§7）。
 
-## 1. 两个仓库、一个内核
+## 1. 三个仓库、一个内核
 
 - **本仓是内核与控制平面**：沙箱、审计链、agent 循环、网络层、宿主核心与 HTTP 控制平面 —— 即 workspace
-  `members` 里的那些 crate（`cli`、`host-core`、`host-tauri`、`sandbox`、`audit`、`agent`、`worker`、
-  `server`、`net`）。
-- **第二仓是管理程序**：Tauri 外壳与它的前端（`host-tauri` 与 `ui`，后者内嵌 `server`，供手机接入控制平面）。
-  [RELEASE_NOTES.md](../RELEASE_NOTES.md) 说得明白 —— 该程序 v0.9 **在本仓内**交付、**v1.0 成为自己的仓**；
-  [decisions §9](decisions.zh-CN.md) 的影响段同此。
-- **这层关系是内核的，不是 fork 的。** [architecture-evolution §12](architecture-evolution.zh-CN.md) 称第二仓
-  是「独立仓库，**由同一份源码维护**（像 Linux 的 coreutils / iproute2）」。该程序是一件**内核级工具**：它是
+  `members` 里除 `host-tauri` 之外的那些 crate：`cli`、`host-core`、`sandbox`、`audit`、`agent`、`worker`、
+  `server`、`net`、`backup` 与 `sdk/rust`。
+- **`riscdom-adminapp` 是管理程序**：Tauri 外壳与它的前端（`host-tauri` 与 `ui`，后者内嵌 `server`，供手机
+  接入控制平面）。[RELEASE_NOTES.md](../RELEASE_NOTES.md) 说得明白 —— 该程序 v0.9 **在本仓内**交付、
+  **v1.0 成为自己的仓**（即 v1.0 发布之后，§7）；[decisions §9](decisions.zh-CN.md) 的影响段同此。
+- **`riscdom-server` 是作为程序的控制平面**：`server` crate（HTTP + SSE 控制平面）成为自己的仓，好让一台
+  宿主无需桌面程序即可安装并运行它。它眼下仍留在本仓（§7）。
+- **这层关系是内核的，不是 fork 的。** [architecture-evolution §12](architecture-evolution.zh-CN.md) 称拆出的仓
+  是「独立仓库，**由同一份源码维护**（像 Linux 的 coreutils / iproute2）」。每个程序都是**内核级工具**：它是
   内核的一个消费者，不拥有该内核，随内核特性同步推进 —— 这也是 §12 之所以说每条内核能力都必须有管理 API、
-  而管理程序够不着的能力就是装饰。
+  而程序够不着的能力就是装饰。
+- **拆仓等 v1.0。** 两个程序都以**钉在 tag 上**的依赖消费内核（§2），而本仓还没有 v1.0 tag，所以拆仓在那次
+  发布之后执行；§7 记下时机与顺序。
 
 ## 2. 第二仓如何取得内核
 
@@ -33,6 +38,10 @@ host-tauri = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
 server     = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
 ```
 
+- **这个 tag 在 v1.0 时才打，今天只有 v0.9.x 的。** 上面的 `v1.0.0` 是本仓在 v1.0 发布时会打的 tag（§7）；
+  在它存在之前，没有东西可钉，所以**拆仓不在那之前执行**。今天要钉只能钉 `v0.9.9`，而它早于连接层、
+  备份工具与 SDK —— 一个比消费它的程序更旧的内核。清单是每个 crate 一行：`riscdom-adminapp` 点名
+  `host-tauri` 与 `server`（它内嵌控制平面）；`riscdom-server` 只点名 `server`。
 - **间接 crate 会跟着一起来，且在同一 revision。** 一个内核 crate 自己的依赖是本仓内的 `path` 依赖
   （`host-tauri` → `host-core` / `net`；`ui` → `host-tauri` / `server`），而 Cargo 会把「住在同一个 git 仓内的
   path 依赖」对着**那同一份 checkout** 解析。于是当第二仓按 `tag = "v1.0.0"` 点名 `host-tauri` 时，它同时拿到
@@ -94,17 +103,36 @@ repository** and the work distributed from it」—— 单数 —— 而签名�
 已经把这一点说出口：贡献「may be taken in somewhere other than this repository in the future, so this
 section speaks only for the flow that exists here today」。
 
-**什么未定、何时定。** 第二仓是装它自己的 CLA Assistant 与签名库、还是共用本仓这一个、还是把 CLA 文本
-改成同时点名两个仓 —— **不在此决定** —— 它随拆仓在 [M7a](roadmap-v1.0.zh-CN.md) 一并定。在那之前，给
-贡献者的规则不变：**对本仓的贡献由本仓的 CLA 覆盖**，本文不把它扩张到任何别处。
+**什么未定、何时定。** 每个新仓是装它自己的 CLA Assistant 与签名库、还是共用本仓这一个、还是把 CLA 文本
+改成同时点名三个仓 —— **不在此决定** —— 它随拆仓在 [M7a](roadmap-v1.0.zh-CN.md) 一并定，而 M7a 在 v1.0 之后
+执行（§7）。在那之前，给贡献者的规则不变：**对本仓的贡献由本仓的 CLA 覆盖**，本文不把它扩张到任何别处。
 
 ## 6. 本文不是什么
 
 - **它不是拆仓操作手册。** 创建仓库、搬 crate、打第一个 tag、接上 CI 是 [M7a](roadmap-v1.0.zh-CN.md)，
-  它需要自己的授权（它要写一个新的远端）。
+  它在 v1.0 之后执行（§7），并需要自己的授权（它要写新的远端）。
 - **它不是发布机制。** 本仓的 server 与包如何发布、第二仓的又如何发布，是 [M7b](roadmap-v1.0.zh-CN.md)
   与发行说明的事，不是本文。
 - **它不是 SDK 契约。** 第三方消费者看到的类型是 [M7c / M7d](roadmap-v1.0.zh-CN.md) 的事；§2 的 git 依赖
   是内核自己的 crate，不是一份已发布的接口。
 - **它不复述 CLA 或 CONTRIBUTING。** 那些文档已经说了的地方，本文指向它们而不复制它们，好让改动只有
   一处。
+
+## 7. 三个仓库，以及它们何时拆
+
+**M7a —— 拆仓 —— 推迟到 v1.0 之后。** [roadmap §11](roadmap-v1.0.zh-CN.md) 已定：管理程序在 v1.0 迁往
+自己的仓库；而 [M8](roadmap-v1.0.zh-CN.md) 是「API 冻结，并发布」：宣布冻结、v1.0 发布。顺序是
+**先 v1.0 发布，再 `riscdom-server`，最后 `riscdom-adminapp`** —— 每个新仓都要钉一个内核 tag（§2），所以
+内核得先有一个；在冻结之前拆出的程序，会被钉在一个仍在它脚下移动的内核上。
+
+每个新仓是干什么的（在本文记录；两者都**不在 v1.0 实现**）：
+
+- **`riscdom-adminapp` —— 管理程序。** 今天是**桌面**应用（Tauri + React + Vite，`host-tauri` + `ui`）。它
+  之后长向**移动端（Android / iOS）**并保留**浏览器**模式；三者都连 **RiscDom 节点**与 **`riscdom-server`**
+  两端。
+- **`riscdom-server` —— 作为程序的控制平面。** 今天是**命令行**（`riscdom-server`，加上连接层的
+  `riscdom-relay`）。它会有一张 **web 状态页**，并为 **Windows 与 Linux** 发布。它**只服务 RiscDom**：
+  不是通用服务器管理面板。
+
+**relay 留在这里。** `net/src/bin/riscdom-relay.rs` 只依赖 `net` —— 它只 import `net` 的类型、不碰 `server` ——
+而 `net` 留在本仓，所以 relay bin 不随任何一个新仓拆出：它是连接层的程序，不是控制平面的。

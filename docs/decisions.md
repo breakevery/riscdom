@@ -3594,3 +3594,38 @@ and decisions gain this entry. **No crate, route, capability name, audit event c
 persisted format, workspace member, dependency, tag or release** is touched, and `scripts/pack.{sh,ps1}`
 are unchanged. Verified locally to the extent a local machine can: `sh -n scripts/pack.sh` passes, and
 the job's YAML parses.
+
+## 126. Three repositories, and the split waits for v1.0
+
+**Date**: 2026-09-29 ｜ **Status**: Decided (recorded in batch BH)
+
+**Decision**: The project stands on **three repositories**, and [docs/multi-repo.md](multi-repo.md) now says
+so: **this one** is the kernel *and* the control plane (the workspace's `members` except `host-tauri`:
+`cli`, `host-core`, `sandbox`, `audit`, `agent`, `worker`, `server`, `net`, `backup`, `sdk/rust`);
+**`riscdom-adminapp`** is the management program (`host-tauri` + `ui`, which embeds the control plane);
+**`riscdom-server`** is the control plane as a program (the `server` crate). The split — [M7a](roadmap-v1.0.md)
+— **runs after the v1.0 release**, in the order **v1.0 → `riscdom-server` → `riscdom-adminapp`**, because each
+new repository consumes the kernel through a dependency pinned to a **tag** and no v1.0 tag exists yet
+(`v0.9.9` predates the connection layer, the backup tool and the SDK). The connection layer's relay binary
+(`net/src/bin/riscdom-relay.rs`) **stays in this repository**: it depends only on `net`. The two programs'
+first roadmaps are recorded in [multi-repo.md §7](multi-repo.md) — adminapp: desktop today, then mobile
+(Android / iOS), keeping the browser mode, against both a RiscDom node and a `riscdom-server`; server: the
+command line today, then a web status page and Windows / Linux, serving RiscDom only.
+
+**Why**: The two questions a three-repository project has to answer are *who owns what* and *when the split
+happens*, and the previous document answered a two-repository version of the first and left the second
+implicit. **The control plane is the kernel's, not the program's.** `server` is the control plane program
+(Layer 3), `cli` embeds it (`server::Server`, `ServerConfig`, `TokenAuth`, `server::token::load_or_create`)
+and `riscdom-server` ships it headless, so it cannot leave with the desktop program; naming the three
+repositories stops the split from being read as "the app leaves and takes the server with it". **The split
+cannot precede the tag it pins.** [M7i](multi-repo.md) froze the git dependency on a tag, and a tag is cut
+here at a release; splitting before v1.0 would pin `v0.9.9`, an older kernel than the programs built on it,
+which is the drift the pin exists to prevent. **The relay follows the layer, not the program.** It is a
+connection-layer binary, so it stays where `net` stays, and a reader no longer has to work that out from the
+imports.
+
+**Impact**: `docs/multi-repo.md` + zh now describe three repositories (§1), note that the pinned tag is cut
+at v1.0 (§2), widen the CLA question to three (§5) and add §7 (the repositories' roadmaps and the timing);
+the bilingual pair count is unchanged (an existing pair is edited). **No crate, `Cargo.toml`, CI job, script,
+route, capability name, audit event constant, hash formula or persisted format** is touched, no repository is
+created, and nothing is pushed to one. The split itself remains [M7a](roadmap-v1.0.md), after v1.0.

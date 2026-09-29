@@ -27,6 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and no CI job, tag or release is involved. `docs/server-distribution.md` + zh are new. Verified locally:
   both archives build and unpack as documented. **Decision §124.**
 
+### Changed
+
+- **The project documents three repositories, and the split waits for v1.0** (v1.0 batch BH):
+  `docs/multi-repo.md` + zh now describe three repositories — this one (kernel + control plane),
+  `riscdom-adminapp` (`host-tauri` + `ui`) and `riscdom-server` (the `server` crate) — note that the pinned
+  kernel tag is cut at v1.0, widen the CLA question to three, and add §7 with the two programs' first
+  roadmaps (adminapp: desktop today, then mobile and browser, against a node and a server; server: CLI
+  today, then a web status page on Windows / Linux, RiscDom only) and the order **v1.0 → server → app**.
+  The split ([M7a](docs/roadmap-v1.0.md)) is deferred to after v1.0. **Decision §126.**
+
 - **The TypeScript SDK exists** (v1.0 batch BC / M7d): a new package (`sdk/typescript/`, `@riscdom/sdk`,
   `private`) with **the same surface as the Rust SDK** — the 37 `GET` queries and 36 `POST` controls as
   typed methods, typed parameters, the error object as a `ClientError`, and the **event stream** as an
