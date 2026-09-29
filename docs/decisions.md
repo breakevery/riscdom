@@ -3629,3 +3629,45 @@ at v1.0 (§2), widen the CLA question to three (§5) and add §7 (the repositori
 the bilingual pair count is unchanged (an existing pair is edited). **No crate, `Cargo.toml`, CI job, script,
 route, capability name, audit event constant, hash formula or persisted format** is touched, no repository is
 created, and nothing is pushed to one. The split itself remains [M7a](roadmap-v1.0.md), after v1.0.
+
+## 127. Audit v2 and the cross-device design are authorised
+
+**Date**: 2026-09-29 ｜ **Status**: Authorised (owner)
+
+**Decision**: The owner authorises the cross-device design of v1.0 in full — M4e, M5 and M6 — on these
+eight terms:
+
+1. **Scope.** The authorisation covers the whole cross-device design: **M4e** (audit digests), **M5**
+   (audit v2 and the temporary centre) and **M6** (Layer three, dispatch across devices).
+2. **Chain semantics.** The chain's semantics extend to "**main chain + temporary segments**"; a segment's
+   head carries a **cross-segment reference** as added **metadata**, and the **hash formula does not change**
+   — §33's own condition, kept.
+3. **`provisional` / `fork`.** Events written during a temporary centre carry `provisional: true`; a
+   conflict-free run is merged and the mark cleared, a conflicting one keeps **both** sides marked `fork` —
+   **never a silent merge**.
+4. **The temporary centre and its suppression.** The three suppression layers — a waiting period, global
+   confirmation, and backoff plus precedence — are each required; **none is optional**.
+5. **M4e.** Audit digests are written in **30-second batches**, with **critical events pushed immediately**
+   rather than waiting for the batch.
+6. **M6.** Layer three dispatches across devices in **three levels of M**, with **cross-node event
+   correlation** and **cross-chain verification**.
+7. **Red line 5.** This decision is the **explicit exception** to `PROJECT_CONSTITUTION.md` §8 that
+   decisions §33 required: extending the chain to "main chain + temporary segments" was approved **on its
+   own**, in as many words, by the owner.
+8. **Who authorised it, and when.** The **owner**, on **2026-09-29**.
+
+**Why**: [PROJECT_CONSTITUTION.md](../PROJECT_CONSTITUTION.md) §8's last red line is "**When in doubt, ask
+first**", and [decisions §33](decisions.md) named the exact place the doubt sat: "the cross-device design
+of v1.0 must be approved **on its own** — extending the audit chain to 'main chain + temporary segments'
+touches the boundary of red line 5". That approval was asked for and granted; this entry is it, so §33's
+pending authorisation is answered and §7's "not authorised by this document" no longer describes the
+design's state. The design itself is unchanged: §33's mechanism, its option-A merge and its three-layer
+suppression are the ones authorised, and the hash formula is untouched (point 2) — which is what keeps this
+an authorisation and not a revision of the frozen chain.
+
+**Impact**: M4e, M5 and M6 may now be implemented; [roadmap §7](roadmap-v1.0.md) and [§15](roadmap-v1.0.md)
+move from "not authorised" to authorised, and the M5 milestone row and the closing line follow;
+`PROJECT_CONSTITUTION.md` §8 gains a pointer to this entry. **No crate, `Cargo.toml`, route, capability
+name, audit event constant, hash formula or persisted format** is touched: this batch writes the
+authorisation down and does nothing else. §33 is left as written — the ledger is append-only — and its
+pending paragraph is answered here.

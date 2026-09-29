@@ -290,6 +290,16 @@ current request authorising it (§2).
   **v1.0 → server → app**. **M7a — the split — is explicitly deferred to after v1.0**: each new repository
   pins a v1.0 tag, and `v0.9.9` predates the connection layer, the backup tool and the SDK. The relay
   binary stays in this repository. **Decision §126.**
+- **And the cross-device design is authorised** (v1.0 batch BI / M5, 2026-09-29): the approval
+  [decisions §33](decisions.md) required "on its own" — extending the audit chain to "main chain + temporary
+  segments", which touches red line 5 — is written down as **decision §127**. It covers the whole
+  cross-device design (**M4e + M5 + M6**) on eight terms: the chain semantics with the **hash formula
+  unchanged**; `provisional` / `fork` with **no silent merge**; the **three** suppression layers each
+  required; M4e's **30-second digests** with critical events pushed immediately; M6's **three levels of M**
+  with cross-chain verification; and this decision as the **explicit exception** to
+  `PROJECT_CONSTITUTION.md` §8. Roadmap §7 and §15 move from "not authorised" to authorised and its M5 row
+  and closing line follow; §8 gains a pointer. **M4e, M5 and M6 may now be implemented** — that is the next
+  batch. **Decision §127.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

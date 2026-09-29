@@ -115,6 +115,11 @@ plus a SHA-256 hash chain, with no UPDATE / DELETE API and no switch to turn aud
 - Prefer trash over rm.
 - When in doubt, ask first.
 
+**Asked, and answered.** One open question under the last line has been put to the owner and granted: the
+cross-device design of v1.0 — extending the audit chain to "main chain + temporary segments" — is
+authorised by [decisions §127](docs/decisions.md), dated 2026-09-29. The line itself is unchanged; asking
+first is how it was satisfied.
+
 ## 9. v0.1 status
 
 - [DONE] The host monitoring layer (`host-core` / `host-tauri`) cannot be modified by the AI; the frontend can

@@ -98,6 +98,10 @@ UPDATE / DELETE API、无关闭审计的开关。`sandbox` 通过 `audit::AuditS
 - 优先使用 trash 而非 rm。
 - 如有疑问，先询问。
 
+**问过了，也答了。** 最后一条之下有一个公开的问题已被提交给 owner 并获批准：v1.0 的跨设备设计 —— 把
+审计链扩展为「主链 + 临时段」—— 由 [decisions §127](docs/decisions.zh-CN.md) 授权，日期 2026-09-29。这
+一条本身未变；「先问」正是它被满足的方式。
+
 ## 9. v0.1 完成情况
 
 - [DONE] 宿主监控层（`host-core` / `host-tauri`）不可被 AI 修改；前端只能经 Tauri command 访问。

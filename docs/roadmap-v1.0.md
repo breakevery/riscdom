@@ -212,10 +212,10 @@ promise, and each has a decision behind it already.
 
 ## 7. audit v2
 
-- **[open]** **This section touches red line 5** — *when in doubt, ask first*
-  (`PROJECT_CONSTITUTION.md` §8) — and it is **not authorised by this document**. decisions §33 says so in
-  as many words: "the cross-device design of v1.0 must be approved on its own". The plan below is what
-  that approval would be asked to cover.
+- **[settled]** **This section touches red line 5** — *when in doubt, ask first*
+  (`PROJECT_CONSTITUTION.md` §8) — and it is **now authorised**: the approval decisions §33 required ("the
+  cross-device design of v1.0 must be approved on its own") was granted by the owner in **decisions §127**
+  (2026-09-29). The plan below is what that approval covers.
 - **[settled]** **One chain per device, plus temporary segments.** Extending the chain's *semantics*, not
   its formula: a segment's head carries a **cross-segment reference** — added **metadata**, with the hash
   formula unchanged.
@@ -341,7 +341,7 @@ These are open items v1.0 inherits. They are listed here so that no discussion h
 | M2 | Layer one | several instances of one definition on one node, several LLM configurations, and M dispatching through the control plane |
 | M3 | The plugin interface is designed and frozen | §8's interface is frozen — **before** the kernel API, per decisions §3 |
 | M4 | Layer two | a workgroup and a cross-region server, with the four roles and the 30-second audit batch |
-| M5 | audit v2 | the separate authorisation is obtained, and then the mechanism lands |
+| M5 | audit v2 | the separate authorisation is obtained (**decisions §127**), and the mechanism lands |
 | M6 | Layer three | three levels of M dispatching across devices, with cross-chain verification |
 | M7 | The ecosystem starts | the SDK, the separate management repository, the backup tool and the budgets |
 | M8 | The API freezes, and it ships | the freeze is declared, and v1.0 is released |
@@ -353,7 +353,8 @@ These are open items v1.0 inherits. They are listed here so that no discussion h
   cross-region server, M4e audit digests — in that dependency order, each written before it is built
   ([decisions §88](decisions.md), [connection.md](connection.md)). The temporary centre is not M4's; it is
   M5/M6's.
-- **[open]** M5 depends on an authorisation this document cannot grant; M6 depends on M5.
+- **[settled]** M5's authorisation was granted in **decisions §127** (the cross-device design is authorised);
+  M6 depends on M5.
 
 ## 14. Open questions
 
@@ -386,9 +387,10 @@ drift.
 
 ## 15. Risks
 
-- **audit v2 touches red line 5.** The one item here that is not merely difficult but **not authorised**:
-  extending the chain's semantics has to be approved on its own (decisions §33), and if that approval is
-  refused, the cross-device half of v1.0 loses its verification story.
+- **audit v2 touches red line 5 — and is now authorised.** The one item here that was not merely difficult
+  but **not authorised**: extending the chain's semantics on its own (decisions §33). That approval was
+  granted on 2026-09-29 (**decisions §127**), so the risk is retired: the cross-device half of v1.0 keeps
+  its verification story.
 - **Timing.** Several AIs collaborating is a frontier rather than a need. v1.0's third layer could be
   correct and still early — and building for a use that has not arrived is how a kernel acquires policy.
 - **No reference points.** There is no established shape for "an AI dispatching AIs", so M's design has
@@ -404,4 +406,4 @@ drift.
 
 ---
 
-*This is a draft. §14 records what is not settled; §7 records what is not authorised.*
+*This is a draft. §14 records what is not settled; §7 records what was authorised (decisions §127).*

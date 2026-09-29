@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roadmaps (adminapp: desktop today, then mobile and browser, against a node and a server; server: CLI
   today, then a web status page on Windows / Linux, RiscDom only) and the order **v1.0 → server → app**.
   The split ([M7a](docs/roadmap-v1.0.md)) is deferred to after v1.0. **Decision §126.**
+- **Audit v2 and the cross-device design are authorised** (v1.0 batch BI / M5): the owner's approval — the
+  one [decisions §33](docs/decisions.md) required "on its own" — is written down as **decision §127**: the
+  whole cross-device design (M4e + M5 + M6), the "main chain + temporary segments" semantics with the hash
+  formula unchanged, `provisional` / `fork` with no silent merge, the three required suppression layers,
+  M4e's 30-second digests with critical events pushed immediately, M6's three levels of M with cross-chain
+  verification, and this decision as the explicit exception to `PROJECT_CONSTITUTION.md` §8. Roadmap §7 and
+  §15 move from "not authorised" to authorised and §8 gains a pointer. **M4e, M5 and M6 may now be
+  implemented.** **Decision §127.**
 
 - **The TypeScript SDK exists** (v1.0 batch BC / M7d): a new package (`sdk/typescript/`, `@riscdom/sdk`,
   `private`) with **the same surface as the Rust SDK** — the 37 `GET` queries and 36 `POST` controls as

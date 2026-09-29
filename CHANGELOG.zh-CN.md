@@ -18,6 +18,7 @@
 ### 变更
 
 - **项目记录三个仓库，且拆仓等 v1.0**（v1.0 批 BH）：`docs/multi-repo.md` + zh 现在描述三个仓库 —— 本仓（内核 + 控制平面）、`riscdom-adminapp`（`host-tauri` + `ui`）与 `riscdom-server`（`server` crate）—— 注明所钉的内核 tag 在 v1.0 才打、把 CLA 问题扩到三个、并新增 §7 记录两个程序的第一份 roadmap（adminapp：今天桌面，之后移动端与浏览器，连节点与 server 两端；server：今天命令行，之后 Windows / Linux 上的 web 状态页，只服务 RiscDom）与顺序 **v1.0 → server → app**。拆仓（[M7a](docs/roadmap-v1.0.zh-CN.md)）推迟到 v1.0 之后。**决策 §126。**
+- **audit v2 与跨设备设计已获授权**（v1.0 批 BI / M5）：owner 的批准 —— [decisions §33](docs/decisions.zh-CN.md) 所要求的、必须「单独」进行的那次 —— 落盘为 **决策 §127**：整个跨设备设计（M4e + M5 + M6）、「主链 + 临时段」的语义（哈希公式不变）、`provisional` / `fork`（绝不静默合并）、三层缺一不可的抑制、M4e 的 30 秒 digest（关键事件即时推送）、M6 的三级 M 与跨链验证，以及本决策为 `PROJECT_CONSTITUTION.md` §8 的明确例外。roadmap §7 与 §15 从「未获授权」转为已授权，§8 多出指向。**M4e、M5 与 M6 现在可以实现了。** **决策 §127。**
 
 - **TypeScript SDK 存在了**（v1.0 批 BC / M7d）：一个新包（`sdk/typescript/`，`@riscdom/sdk`，`private`），带**与 Rust SDK 同一个表面** —— 37 条 `GET` 查询与 36 条 `POST` 控制作带类型的方法、带类型的参数、错误对象作 `ClientError`、以及**事件流**作一个用 **`fetch` + `ReadableStream`、绝不用 `EventSource`** 读的异步 `Subscription`。**`gap` 保持为一条恢复指令**（一个带 `lostAfter()` 的 `frameKind`）。它**没有 dependencies、也没有 devDependencies** —— 运行时是 `fetch`，测试跑在 Node 自带测试器 + 类型剥离上，所以 gate 无需安装步骤（gate 多一行，约 0.3 秒）。同样的漂移守卫把两张表钉在 tool-schema 文档上。**决策 §123。**
 
