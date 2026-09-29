@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CI builds the two server packages** (v1.0 batch BF / M7b-2): a third CI job, **`server-bundle`**,
+  runs batch BE's packer on a Linux and a macOS runner — same `if` as `bundle` (manual dispatch or a
+  `refs/tags/v*` ref), same matrix, same Linux system libraries, `.tar.gz` archives uploaded as
+  `riscdom-servers-<runner.os>`. It builds only (no test, lint or probe) and **does not tag or publish**:
+  cutting a release stays a separate, authorised act. The gate gains `sh -n scripts/pack.sh`, and roadmap
+  §12's server-zip item moves to `[settled]`. **Decision §125.**
+
 - **The two server packages can be built** (v1.0 batch BE / M7b-1): `scripts/pack.sh` and
   `scripts/pack.ps1` — twins, the same split `gate` and `commit` keep — build the release binaries and
   assemble **`riscdom-server-<version>-<platform>`** (binary, `web/`, README, `settings.example.json`)

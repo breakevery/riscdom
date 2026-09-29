@@ -1319,3 +1319,13 @@ trait 属 v1.x 工作。
 **缘由**：四点。**项目已验证的那个平台得到原生实现。** 单一 shell 脚本会需要 `zip`，而 Git for Windows 并不随附它；孪生分工 —— unix 用 `tar` 产 `.tar.gz`、Windows 用 `Compress-Archive` 产 `.zip` —— 意味着 Windows 那一半**完全不需要外部工具**，也正是 `gate` 与 `commit` 成对的原因。**打包器要自己构建，而不是手工组装。** 一个拿 `target/release` 里现有东西的包，就会发出碰巧在那里的东西；在脚本里构建两个 bin 与前端，才使一个包能从一份干净检出复现。**`npm run build`，不是 `npm ci`。** gate 已假定前端依赖已安装，而本项目的工具链除 cargo 与 npm 自己的缓存外是离线的；一个够网络的打包脚本会是另一个东西。**没有秘密、也没有个人信息同行。** token 与 key 都在本地铸造，所以打包器不拷任何数据目录；分发文档这么说，脚本也这么做 —— 包是软件，不是一个身份。
 
 **影响**：`scripts/pack.sh` + `scripts/pack.ps1` 是新文件，`docs/server-distribution.md` + zh 是新文档（双语对计数 **120 → 122**），`docs/README.md` + zh 各多一行，台账多出本条。**没有 crate、路由、capability 名、审计事件常量、哈希公式、持久化格式、workspace 成员、gate 步骤、CI job、tag 或 registry 被改动**，也**没有新增依赖**：两个脚本只用 cargo、shell 与 PowerShell。已在本机验证：两个归档按所述构建并解开（大小与结构见本批报告）。
+
+## 125. CI 在 tag 时构建两个服务器包，且从不发布它们
+
+**日期**：2026-09-29 ｜ **状态**：已定且已实现（批 BF / M7b-2）
+
+**决策**：`.github/workflows/ci.yml` 多出第三个 job —— **`server-bundle`** —— 在 Linux 与 macOS runner 上跑批 BE 的打包器。它带着与 `bundle` 相同的 `if`（`workflow_dispatch` 或 `refs/tags/v*` ref）与相同的 matrix（`[macos-latest, ubuntu-latest]`），安装 `bundle` 装的那套 Linux 系统库、一个 stable Rust 工具链与 Node 24，在 `ui/` 跑 `npm ci` 与 `npm run build`，然后跑 `sh scripts/pack.sh --skip-ui-build --output-dir target/dist`，把 `target/dist/*.tar.gz` 作为制品 **`riscdom-servers-<runner.os>`** 上传。**它只构建** —— 无 `cargo test`、无 `cargo clippy`、无 UI 探针 —— 且它**不打 tag、不发布**：归档只是 run 制品，切一次 release 仍是另一个需授权的动作（批 BG）。gate 多出一行 `sh -n scripts/pack.sh`，使打包器的语法在每次提交时被检查，而不只是在一个 runner 上。
+
+**缘由**：四点。**「绿」的那唯一一份清单仍是 `scripts/gate.sh`。** 本 job 不保留自己的命令清单 —— 它构建 gate 构建不了的东西，正是 `bundle` 给出的同一个理由。**单独一个 job，而不是 `bundle` 的扩展。** `bundle` 构建 Tauri 桌面应用、需要它的 OS 工具链；服务器程序不是 Tauri，且它们的平台集会分叉（Windows 是 M7b-4），并进去会把两条不同的平台叙事绑在同一个 `if` 上。**前端在 job 里、显式地构建。** `pack.sh` 需要 `ui/dist/app`，而 `--skip-ui-build` 让打包那一步保持纯组装；前端出错时会点名前端，而不是藏在打包器里。**与 `bundle` 同一个触发，出于同一个成本理由。** 一个 macOS runner 的开销是 Linux 的十倍；这些归档要在切 release 时要，而不是每次 push 时。
+
+**影响**：`.github/workflows/ci.yml` 多出一个 job（**无新 action** —— `checkout`、`dtolnay/rust-toolchain`、`setup-node`、`cache` 与 `upload-artifact` 全都已在用），`scripts/gate.sh` 多出一行，`docs/roadmap-v1.0.md` + zh 把 §12 的 server zip 项移到 `[已定]`，台账多出本条。**没有 crate、路由、capability 名、审计事件常量、哈希公式、持久化格式、workspace 成员、依赖、tag 或 release 被改动**，且 `scripts/pack.{sh,ps1}` 未变。已在本地尽可能验证：`sh -n scripts/pack.sh` 通过，且本 job 的 YAML 可解析。

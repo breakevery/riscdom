@@ -176,6 +176,11 @@ node scripts/check-wix-version.mjs || fail "wix version guard"
 echo "==> ui string registry"
 node scripts/check-ui-strings.mjs || fail "ui string registry"
 
+echo "==> packaging script syntax (scripts/pack.sh)"
+# The packer is run by the `server-bundle` CI job (batch BF); a syntax error would only
+# show up there, on a runner, so the gate parses it here on every commit instead.
+sh -n scripts/pack.sh || fail "pack.sh syntax"
+
 echo "==> bilingual doc links"
 sh scripts/check-bilingual.sh || fail "bilingual links"
 

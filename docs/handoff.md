@@ -273,6 +273,14 @@ current request authorising it (§2).
   (the token and node key are minted on first start), **nothing is signed**, and there is no CI job, tag or
   release: CI packaging is M7b-2 and the release act is M7b-3. `docs/server-distribution.md` + zh are new.
   Verified locally. **Decision §124.**
+- **And CI builds them** (v1.0 batch BF / M7b-2, 2026-09-29): a third job, **`server-bundle`**, runs the
+  packer on a Linux and a macOS runner — the same `if` as `bundle` (manual dispatch or a `refs/tags/v*`
+  ref) and the same matrix — installs the Linux system libraries, Node 24 and a stable toolchain, runs
+  `npm ci` + `npm run build` in `ui/`, then `sh scripts/pack.sh --skip-ui-build --output-dir target/dist`,
+  and uploads the `.tar.gz` files as the artifact `riscdom-servers-<runner.os>`. **It builds only** (no
+  test, lint or probe), and **it does not tag or publish** — the archives are run artifacts and cutting a
+  release is the separate, authorised batch BG. The gate gains `sh -n scripts/pack.sh`; roadmap §12's
+  server-zip item moves to `[settled]`. **Decision §125.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

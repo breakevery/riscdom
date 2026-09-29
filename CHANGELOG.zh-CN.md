@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **CI 构建两个服务器包**（v1.0 批 BF / M7b-2）：第三个 CI job **`server-bundle`** 在 Linux 与 macOS runner 上跑批 BE 的打包器 —— 与 `bundle` 同一个 `if`（手动 dispatch 或 `refs/tags/v*` ref）、同一个 matrix、同一套 Linux 系统库，`.tar.gz` 归档以 `riscdom-servers-<runner.os>` 上传。它只构建（无测试、无 lint、无探针）且**不打 tag、不发布**：切 release 仍是另一个需授权的动作。gate 多出 `sh -n scripts/pack.sh`，roadmap §12 的 server zip 项移到 `[已定]`。**决策 §125。**
+
 - **两个服务器包可以构建了**（v1.0 批 BE / M7b-1）：`scripts/pack.sh` 与 `scripts/pack.ps1` —— 孪生，与 `gate`、`commit` 同一种分工 —— 构建 release 二进制并组装 **`riscdom-server-<version>-<platform>`**（二进制、`web/`、README、`settings.example.json`）与 **`riscdom-relay-<version>-<platform>`**（二进制、README、空的 `examples/`）到 `target/dist/`：Windows 用 `Compress-Archive` 产 `.zip`，其它用 `tar` 产 `.tar.gz`。**两个包都不带凭据、不带数据目录**（token 与 node key 首启铸造），没有任何东西被签名，也不涉任何 CI job / tag / release。`docs/server-distribution.md` + zh 是新文档。已在本机验证：两个归档按文档构建并解开。**决策 §124。**
 
 - **TypeScript SDK 存在了**（v1.0 批 BC / M7d）：一个新包（`sdk/typescript/`，`@riscdom/sdk`，`private`），带**与 Rust SDK 同一个表面** —— 37 条 `GET` 查询与 36 条 `POST` 控制作带类型的方法、带类型的参数、错误对象作 `ClientError`、以及**事件流**作一个用 **`fetch` + `ReadableStream`、绝不用 `EventSource`** 读的异步 `Subscription`。**`gap` 保持为一条恢复指令**（一个带 `lostAfter()` 的 `frameKind`）。它**没有 dependencies、也没有 devDependencies** —— 运行时是 `fetch`，测试跑在 Node 自带测试器 + 类型剥离上，所以 gate 无需安装步骤（gate 多一行，约 0.3 秒）。同样的漂移守卫把两张表钉在 tool-schema 文档上。**决策 §123。**

@@ -3561,3 +3561,36 @@ entry. **No crate, route, capability name, audit event constant, hash formula, p
 member, gate step, CI job, tag or registry** is touched, and **no dependency is added**: both scripts use
 cargo, the shell and PowerShell only. Verified on this machine: the two archives build and unpack as
 described (see the batch's report for sizes and structure).
+
+## 125. CI builds the two server packages on a tag, and never publishes them
+
+**Date**: 2026-09-29 ｜ **Status**: Decided and implemented (batch BF / M7b-2)
+
+**Decision**: `.github/workflows/ci.yml` gains a third job, **`server-bundle`**, that runs batch BE's
+packer on a Linux and a macOS runner. It carries the same `if` as `bundle` (`workflow_dispatch` or a
+`refs/tags/v*` ref) and the same matrix (`[macos-latest, ubuntu-latest]`), installs the Linux system
+libraries `bundle` installs, a stable Rust toolchain and Node 24, runs `npm ci` and `npm run build` in
+`ui/`, then runs `sh scripts/pack.sh --skip-ui-build --output-dir target/dist` and uploads
+`target/dist/*.tar.gz` as the artifact **`riscdom-servers-<runner.os>`**. **It builds only** — no
+`cargo test`, no `cargo clippy`, no UI probe — and it **does not tag and does not publish**: the archives
+are run artifacts, and cutting a release stays a separate, authorised act (batch BG). The gate gains one
+line, `sh -n scripts/pack.sh`, so the packer's syntax is checked on every commit rather than only on a
+runner.
+
+**Why**: Four points. **The one list of "green" stays `scripts/gate.sh`.** The job keeps no command list
+of its own — it builds what the gate cannot, the same justification `bundle` gives. **A separate job, not
+an extension of `bundle`.** `bundle` builds the Tauri desktop application and needs its OS toolchain; the
+server programs are not Tauri and their platform set will diverge (Windows is M7b-4), so folding them in
+would tie two different platform stories to one `if`. **The front end is built in the job, explicitly.**
+`pack.sh` needs `ui/dist/app`, and `--skip-ui-build` keeps the packaging step pure assembly; a frontend
+failure then names the frontend instead of hiding inside the packer. **Same trigger as `bundle`, for the
+same cost reason.** A macOS runner bills at ten times a Linux one; these archives are wanted when a
+release is cut, not on every push.
+
+**Impact**: `.github/workflows/ci.yml` gains one job (no new action — `checkout`,
+`dtolnay/rust-toolchain`, `setup-node`, `cache` and `upload-artifact` are all already used),
+`scripts/gate.sh` gains one line, `docs/roadmap-v1.0.md` + zh move §12's server-zip item to `[settled]`,
+and decisions gain this entry. **No crate, route, capability name, audit event constant, hash formula,
+persisted format, workspace member, dependency, tag or release** is touched, and `scripts/pack.{sh,ps1}`
+are unchanged. Verified locally to the extent a local machine can: `sh -n scripts/pack.sh` passes, and
+the job's YAML parses.
