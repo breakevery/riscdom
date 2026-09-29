@@ -1189,3 +1189,13 @@ trait 属 v1.x 工作。
 **缘由**：两点。**一个词，不是两个。** 其它点到资源的读取带子命令（`executors list`、`audit status`），但一个连接项不是「一个集合里的一项」：这四个各自恰指一件事，所以读起来最好的形状就是读得最少的那个 —— 而且它让 CLI 的词表与路由的词表平行（一条路由、一条命令）。**`null` 要用文字说出来。** AC-2 对缺失的连接数据答 `null`，而一个把空形状打印出来的渲染器，会把「该层未配置」弄得像「读取成功、只是没东西」—— 而那正是这些路由存在要区分的那一件事。上面三句话就是那个区分，而 `--json` 为偏好机器可读者保留 `null`。
 
 **影响**：`cli/src/args.rs` 多出四个变体、使用说明行、解析分支、GET 路径与 `method()` 分支，以及两条既有 parse/path 测试里的断言；`cli/src/render.rs` 多出四个渲染器与其 `human()` 分支；`cli/tests/read_only.rs` 对着内嵌服务器驱动这四条命令（新节点答 `null`，且 `--json identity` 在线上是 `null`）；`docs/control-plane-client-guide.md` §7 与两份 `cli/README.md` 各多四行。**没有 server 路由、`net`、`host-core` 或 `host-tauri` 文件被改动，也没有哈希公式、路由定义、capability 名、审计事件常量或持久化格式被改动** —— CLI 是 HTTP 客户端，且一直如此。**V-4 收尾**：AC-1 桌面、AC-2 路由、AC-3 CLI、AC-4 服务端角色。
+
+## 112. 死掉的 QEMU 会被点名、同一文件里的两条起客户机测试串行、而孤儿清理需要一个 OS 设施
+
+**日期**：2026-09-29 ｜ **状态**：已定；(c) 与 (b) 已实现，孤儿修在它的安全阀处停下（批 AN）
+
+**决策**：批 AM 三条修里的两条落地。**（c）死掉的 QEMU 会被点名。** `sandbox/src/vm.rs` 在 QMP 操作失败时检查 QEMU 子进程：已退出则错误变成 **「QEMU exited with code N during <op>（原始错误：…）」** —— socket 错误被留在退出信息旁边 —— 而 QEMU 仍在跑时保留原错误，因为「进程还活着、socket 却死了」是另一个事实。**（b）`snapshot_commands.rs` 里两条起客户机的测试一次只跑一条**：该文件内一个 `static SERIAL: Mutex<()>`，两台客户机永不一起启动，且**不动 gate 的全局并行**。**（c2）孤儿清理在它的安全阀处停下**：当父进程被 *force-kill* 时要连带杀死 QEMU 子进程，需要一个 OS 设施 —— Windows **Job Object**（`windows-sys`）或 Unix `setsid`+`PR_SET_PDEATHSIG`（`libc`）—— 而 `sandbox` 恰好只有三个依赖、整个工作区没有任何 FFI，所以本批两者都没加。
+
+**缘由**：**那个错误是真的、但没用。** `os error 10054` 说的是 *socket* 做了什么；部署者需要知道的是 *QEMU* 做了什么。点名退出（并留下 socket 错误）把五分钟的谜题变成一眼可读，代价只是一次 `try_wait`。**flake 是共享资源，所以串行化是靶向修理。** 端口交接窗口是整机范围的，进程内唯一能拓宽它的办法是不让*我们自己的*客户机互相抢；文件内的互斥锁做到这一点，又不让每次 gate 变慢 —— 而全局 `--test-threads=1` 会。**孤儿修到了工具链的边界。** 本次观察到的孤儿（`qemu-system-riscv64 --version`，从它那次挂起一直活到现在）之所以存活，是因为*父进程被 force-kill*；`std` 里没有任何东西能在父进程死时杀死子进程，而两条真路子都是 OS API。给一个只有三个依赖的 crate 加 `windows-sys`/`libc` —— 并写下工作区的第一处 FFI —— 是 owner 的决定，不是一次 flake 修的副作用（依赖是一个承诺）。
+
+**影响**：`sandbox/src/vm.rs` 多出 `explain_qmp`、自由函数 `qmp_failure`、三处已包装的调用点（QMP connect、`migrate`、`query-status`），以及一条对着真实退出状态校文字的测试；`host-core/tests/snapshot_commands.rs` 多出 `SERIAL` 互斥锁与两条守卫。**批 AJ 的 60 秒界是另一个根因、保留不动**：它把永不退出的 `--version` 探针变成「不可用」，`read_only` 的挂起因此消失；本批处理的是 *失败* 的 QEMU，那种情况那个界从来没见过。**没有哈希公式、路由、capability 名、审计事件常量或持久化格式被改动。** 孤儿清理（Job Object / `PR_SET_PDEATHSIG`）**仍开放**，两个选项如上。

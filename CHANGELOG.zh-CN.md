@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **死掉的 QEMU 会被点名，且起客户机的测试不再互相抢**（v1.0 批 AN，基础设施）：本地 gate 的 QEMU flake（5 次；CI 从未见过 —— CI 没有 guest 工具、会跳过 `--ignored` 测试）是一个**端口交接**竞争，所以 `sandbox/src/vm.rs` 现在报 **「QEMU exited with code N during <QMP op>（原始错误：…）」**，而不是裸 `os error 10054`；`host-core/tests/snapshot_commands.rs` 里的两条起客户机测试以文件内的 `static SERIAL: Mutex<()>` **一次只跑一条**。批 AJ 的 60 秒探针界保留（另一个根因）。**孤儿清理** —— 在父进程被 force-kill 时杀死 QEMU 子进程 —— 需要 Job Object（`windows-sys`）或 `PR_SET_PDEATHSIG`（`libc`），故**仍开放**，而不是自行给 `sandbox` 加依赖。
+
 - **CLI 会读连接层了**（v1.0 批 AL / AC-3）：`riscdom` 多出 **`identity`**、**`peers`**、**`rooms`** 与 **`connection`** —— 四条一个词的读取、与 AC-2 提供的四条路由一一对应 —— 以键值或小表渲染，并把新节点的三个 `null` 用文字说出来（`no identity: …`、`no peer table: …`、`no rooms: …`）；`--json` 仍原样透传线上形状。`docs/control-plane-client-guide.md` §7 与两份 `cli/README.md` 各多四行。**V-4 收尾。** 没有 server 路由、`net`、`host-core` 或 `host-tauri` 文件被改动。
 
 - **部署方装上判定 sink，而服务器只写自己的链**（v1.0 批 AK / V-3b-2）：`AppState::install_connection_sink(self: &Arc<Self>)` 把 §6.7 的 sink 装到**本节点自己的 `server_role()`** 上，而桌面的 setup、`riscdom-server` 的 `main` 与 CLI 的内嵌模式各自在拿得到 `Arc` 的地方调它（构造器不能 —— 它们交回 `Self`，而 sink 必须持有 `Arc`）。跨区域汇总**无需**改动 `net`：服务器本就会记下兄弟的报告并判定，而独立 `riscdom-relay` 不装 sink，因为它没有链。**V-3b 至此完成。** 没有哈希公式、路由、`Capability` 变体、审计事件常量或持久化格式被改动。

@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A dead QEMU is named, and the guest-booters stop racing** (v1.0 batch AN, infrastructure): the
+  local gate's QEMU flake (5 occurrences, CI never saw it — CI has no guest tools and skips the
+  `--ignored` tests) is a **port hand-off** race, so `sandbox/src/vm.rs` now reports **"QEMU exited with
+  code N during <QMP op> (the original error was: …)"** instead of a bare `os error 10054`, and the two
+  guest-booting tests in `host-core/tests/snapshot_commands.rs` run **one at a time** behind a
+  file-local `static SERIAL: Mutex<()>`. Batch AJ's 60-second probe bound stays (a different root
+  cause). The **orphan cleanup** — killing a QEMU child whose parent was force-killed — needs a Job
+  Object (`windows-sys`) or `PR_SET_PDEATHSIG` (`libc`), so it is **open** rather than adding a
+  dependency to `sandbox` on its own.
+
 - **The CLI reads the connection layer** (v1.0 batch AL / AC-3): `riscdom` gains **`identity`**,
   **`peers`**, **`rooms`** and **`connection`** — four one-word reads, one per route AC-2 serves — with
   key/value or small-table rendering, and the three `null` cases a fresh node answers said in words

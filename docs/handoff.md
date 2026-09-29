@@ -159,6 +159,14 @@ current request authorising it (§2).
   **`identity`**, **`peers`**, **`rooms`** and **`connection`** — four one-word reads over AC-2's routes,
   rendering key/value lines or a small table and saying the three `null`s in words. **V-4 is complete**
   (desktop AC-1, routes AC-2, CLI AC-3, server role AC-4), and with it **M4 except M4e**. **Decision §111.**
+- **And the local QEMU flake is closed** (v1.0 batch AN, 2026-09-29): the gate's five QEMU/QMP failures
+  were a **port hand-off** race (never seen by CI, which skips the `--ignored` tests). `sandbox/src/vm.rs`
+  now names a dead QEMU — **"QEMU exited with code N during <QMP op> (the original error was: …)"** —
+  instead of a bare `os error 10054`, and the two guest-booters in `host-core/tests/snapshot_commands.rs`
+  run one at a time behind a file-local `SERIAL` mutex (the gate's own parallelism is untouched). Batch
+  AJ's 60-second probe bound stays: a different root cause. **Open**: the orphan cleanup (a QEMU child
+  whose parent was force-killed) needs a Job Object or `PR_SET_PDEATHSIG` — a dependency the owner has to
+  approve. **Decision §112.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

@@ -3091,3 +3091,37 @@ renderers and their `human()` arms; `cli/tests/read_only.rs` drives all four aga
 `net`, `host-core` or `host-tauri` file changed, and no hash formula, route definition, capability name,
 audit event constant or persisted format moved** — the CLI is an HTTP client and stays one. **V-4 is
 complete**: AC-1 the desktop, AC-2 the routes, AC-3 the CLI, AC-4 the server role.
+
+## 112. A dead QEMU is named, the two guest-booters in one file run one at a time, and the orphan needs an OS
+
+**Date**: 2026-09-29 ｜ **Status**: Decided; (c) and (b) implemented, the orphan fix stopped at its valve (batch AN)
+
+**Decision**: Two of batch AM's three fixes land. **(c) A dead QEMU is named.** `sandbox/src/vm.rs`
+checks the QEMU child when a QMP operation fails: if it has exited, the error becomes **"QEMU exited with
+code N during <op> (the original error was: …)"** — the socket error is kept beside the exit — and if QEMU
+is still running the original error stands, because a socket that died while its process lives is a
+different fact. **(b) The two guest-booters in `snapshot_commands.rs` run one at a time**: a `static
+SERIAL: Mutex<()>` in that file, so two guests never boot at once, without touching the gate's global
+parallelism. **(c2) The orphan cleanup stops at its valve**: killing a QEMU child when its parent is
+*force-killed* needs an OS facility — a Windows **Job Object** (`windows-sys`) or Unix
+`setsid`+`PR_SET_PDEATHSIG` (`libc`) — and `sandbox` has exactly three dependencies and the workspace has
+no FFI anywhere, so this batch added neither.
+
+**Why**: **The error was true and useless.** `os error 10054` is what the *socket* did; the deployer needs
+what *QEMU* did. Naming the exit (and keeping the socket error) turns a five-minute mystery into a one-line
+read, and it costs one `try_wait`. **The flake is a shared resource, so serialising is the targeted fix.**
+The port hand-off window is machine-wide, and the only in-process way to widen it is to stop *our own*
+guests from racing each other; a file-local mutex does that without making every gate run slower — which a
+global `--test-threads=1` would. **The orphan fix is where the tools stop.** The observed orphan
+(`qemu-system-riscv64 --version`, alive since the hang it came from) survived because the *parent was
+force-killed*; nothing in `std` kills a child on parent death, and both real routes are OS APIs. Adding
+`windows-sys`/`libc` to a crate that has three dependencies — and writing the workspace's first FFI — is a
+decision for the owner, not a side effect of a flake fix (a dependency is a promise).
+
+**Impact**: `sandbox/src/vm.rs` gains `explain_qmp`, the free `qmp_failure`, three wrapped call sites (the
+QMP connect, `migrate`, `query-status`) and a unit test that checks the wording against a real exit;
+`host-core/tests/snapshot_commands.rs` gains the `SERIAL` mutex and its two guards. **Batch AJ's 60-second
+bound is a different root cause and stays**: it turns a `--version` probe that never exits into "not
+usable", which is why the `read_only` hang is gone; this batch is about a QEMU that *fails*, which that
+bound never saw. **No hash formula, route, capability name, audit event constant or persisted format
+changed.** The orphan cleanup (Job Object / `PR_SET_PDEATHSIG`) is **open**, with the two options above.

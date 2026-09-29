@@ -298,8 +298,12 @@ impl RiscVVirtualMachine {
             }));
         }
 
-        // 2. QMP: connect, consume greeting, negotiate capabilities.
-        self.qmp = Some(QmpClient::connect(&self.config.qmp, CONNECT_TIMEOUT)?);
+        // 2. QMP: connect, consume greeting, negotiate capabilities. A QEMU that has already
+        //    given up — a handed-off port taken by somebody else, say — is named here rather than
+        //    left as a bare connect failure (v1.0 batch AN).
+        let connect = QmpClient::connect(&self.config.qmp, CONNECT_TIMEOUT);
+        let qmp = connect.map_err(|e| self.explain_qmp("the QMP connect", e))?;
+        self.qmp = Some(qmp);
 
         // 3. With `-incoming`, wait until the restored guest is actually running.
         if self.config.incoming_snapshot.is_some() {
@@ -510,7 +514,8 @@ impl RiscVVirtualMachine {
         let migrate_result = match self.qmp.as_mut() {
             Some(qmp) => qmp.migrate_to_tcp(addr, MIGRATE_TIMEOUT),
             None => Err(SandboxError::NotRunning),
-        };
+        }
+        .map_err(|e| self.explain_qmp("migrate", e));
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         let received = receiver
             .join()
@@ -591,9 +596,10 @@ impl RiscVVirtualMachine {
         let deadline = Instant::now() + timeout;
         loop {
             let status = match self.qmp.as_mut() {
-                Some(qmp) => qmp.query_status()?,
+                Some(qmp) => qmp.query_status(),
                 None => return Err(SandboxError::NotRunning),
-            };
+            }
+            .map_err(|e| self.explain_qmp("query-status", e))?;
             match status.as_str() {
                 "running" => return Ok(()),
                 "shutdown" | "internal-error" => {
@@ -609,6 +615,28 @@ impl RiscVVirtualMachine {
                 )));
             }
             std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    /// Explain a failed QMP operation (v1.0 batch AN).
+    ///
+    /// A QMP socket that dies mid-operation reports `os error 10054` on Windows — or a bare
+    /// connection reset — which says what the *socket* did and nothing about *why*. The usual why
+    /// is that QEMU is gone: it could not bind a port we handed it (`relay::PortLease` names that
+    /// window) or the guest died. So the child's own exit is checked here and named. If QEMU is
+    /// **still running**, the original error is kept: a socket that died while its process lives is
+    /// a different fact, and inventing an exit for it would be a lie.
+    fn explain_qmp(&mut self, what: &str, error: SandboxError) -> SandboxError {
+        let exited = match self.child.as_mut() {
+            Some(child) => match child.try_wait() {
+                Ok(Some(status)) => Some(status),
+                _ => None,
+            },
+            None => None,
+        };
+        match exited {
+            Some(status) => qmp_failure(what, status, &error),
+            None => error,
         }
     }
 
@@ -668,6 +696,20 @@ impl Drop for RiscVVirtualMachine {
     }
 }
 
+/// The message for a QMP failure whose QEMU has exited (v1.0 batch AN).
+///
+/// Split out so a test can check the wording without a guest: what it reports is the exit, and the
+/// original socket error is kept beside it rather than thrown away.
+fn qmp_failure(what: &str, status: std::process::ExitStatus, error: &SandboxError) -> SandboxError {
+    let how = match status.code() {
+        Some(code) => format!("code {code}"),
+        None => "no exit code (killed by a signal)".to_string(),
+    };
+    SandboxError::Qmp(format!(
+        "QEMU exited with {how} during {what} (the original error was: {error})"
+    ))
+}
+
 /// Milliseconds since the Unix epoch.
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -685,5 +727,47 @@ fn resolve_qemu_binary() -> PathBuf {
     match crate::qemu_discover::discover() {
         Ok(location) => location.exe,
         Err(_) => PathBuf::from(crate::qemu_discover::exe_name()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A QMP failure whose QEMU is gone names the exit **and** keeps the socket error
+    /// (v1.0 batch AN).
+    #[test]
+    fn a_qmp_failure_names_the_exit_of_a_dead_qemu() {
+        let status = exited_with(3);
+        let error = qmp_failure(
+            "query-status",
+            status,
+            &SandboxError::Qmp("os error 10054".to_string()),
+        );
+        let text = error.to_string();
+        assert!(text.contains("QEMU exited with code 3"), "{text}");
+        assert!(text.contains("during query-status"), "{text}");
+        assert!(
+            text.contains("os error 10054"),
+            "the socket error is kept: {text}"
+        );
+    }
+
+    /// A real child that exits `code` on its own, so the `ExitStatus` is the platform's own and
+    /// not a value this test invented.
+    fn exited_with(code: i32) -> std::process::ExitStatus {
+        #[cfg(windows)]
+        let child = {
+            let mut command = std::process::Command::new("cmd");
+            command.args(["/C", &format!("exit {code}")]);
+            command.spawn()
+        };
+        #[cfg(not(windows))]
+        let child = {
+            let mut command = std::process::Command::new("sh");
+            command.args(["-c", &format!("exit {code}")]);
+            command.spawn()
+        };
+        child.expect("spawn the stand-in").wait().expect("wait")
     }
 }

@@ -7,9 +7,19 @@ use agent::message::{ChatMessage, ChatResponse, Choice, FunctionCall, ToolCall};
 use host_core::events::RecordingEventSink;
 use host_core::state::AppState;
 use serde_json::json;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 const HELLO_C: &str = include_str!("../../agent/tests/fixtures/hello.c");
+
+/// The two guest-booting tests in this file share **one machine's ports and CPU**, so they run
+/// **one at a time** (v1.0 batch AN). `cargo test` runs a binary's tests in parallel threads, and
+/// two guests booting at once is what makes the port hand-off window
+/// (`sandbox/src/relay.rs`'s `PortLease` — a port is bound, released, and QEMU binds it a moment
+/// later) get stolen by the other guest: QEMU then fails to start and the QMP connection dies with
+/// `os error 10054`. Serialising these two closes that; it is deliberately **local to this file**,
+/// because the gate runs the workspace in its own order and a global `--test-threads=1` would cost
+/// every run.
+static SERIAL: Mutex<()> = Mutex::new(());
 
 fn unique_dir(tag: &str) -> std::path::PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -109,6 +119,9 @@ fn saving_without_a_vm_is_an_explicit_error() {
 #[test]
 #[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn save_then_resume_round_trip() {
+    // One guest-booter at a time in this file (v1.0 batch AN). A panicking sibling must not poison
+    // the lock for the other: the guard takes the inner value either way.
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let state = booted_state("roundtrip");
 
     let bytes = state.save_snapshot_real("s20c").expect("save");
@@ -146,6 +159,7 @@ fn save_then_resume_round_trip() {
 #[test]
 #[ignore = "requires a QEMU guest and a RISC-V GCC; run with --include-ignored"]
 fn invalid_and_traversal_names_are_rejected() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let state = booted_state("byname");
     for bad in ["", "../escape", "a/b", "x.mig"] {
         assert!(
