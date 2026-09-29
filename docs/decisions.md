@@ -3671,3 +3671,37 @@ move from "not authorised" to authorised, and the M5 milestone row and the closi
 name, audit event constant, hash formula or persisted format** is touched: this batch writes the
 authorisation down and does nothing else. §33 is left as written — the ledger is append-only — and its
 pending paragraph is answered here.
+
+## 128. The chain's digests travel: a point on the chain, on a 30-second timer
+
+**Date**: 2026-09-29 ｜ **Status**: Decided and implemented (batch BK / M4e-1)
+
+**Decision**: `net` reports a node's chain to its cross-region server, and §7 of
+[connection.md](connection.md) is now the shape rather than a title. **A digest is a commitment to a
+point**: the chain's **head hash** and its **event count** — read off `audit`'s existing `last_hash()` and
+`count()`, not a second hash and not the whole chain. It travels in an **ordinary signed §3 frame addressed
+to the server** (like §6.6's registration and heartbeat, not a new frame *type*), with the body
+`{ "digest": 1, "chain": <head or null>, "length": n }`; the identity is the preamble's `from`, so the
+body names nobody. The server holds **the latest digest per node, in memory**. The node reports on a
+**30-second default timer** (`net::DIGEST_INTERVAL`), started on the same `RelayClient` as the beat and the
+probe, and it **reads** the chain and never writes it. **`audit` is not touched at all**: `compute_hash`,
+`verify_chain`, the append-only triggers and the schema are unchanged, and a store whose digest was just
+read still verifies `Intact`.
+
+**Why**: Three points. **The formula is out of scope, and the design has to show it.** [decisions
+§127](decisions.md) authorises extending the chain's *semantics*, not its formula; a digest that hashed
+the chain again would be exactly the second formula it forbids, so it is defined as a **read of two facts
+the store already answers**. **A report is not a question.** §6.6 already settled how a node talks upward —
+an ordinary §3 frame with a body — so the digest joins that mechanism instead of inventing a frame type,
+and the server answers it with nothing (like a beat). **The server holds digests, not a history.** §6.2 says
+the aggregation role "holds digests rather than messages"; keeping the latest per node **in memory** keeps
+that literal: no second copy of anyone's chain is created, and nothing is written to the server's own chain.
+
+**Impact**: `net` gains `ChainDigest`, `digest_body`/`is_digest`, a `Local::Digest` variant and its
+`LocalReply`, an in-memory per-node store on `RelayServer`, a `digest` method on the session and the client,
+and `DIGEST_INTERVAL`; `host-core` gains a third connection thread (`start_connection_digests` /
+`stop_connection_digests`) that holds the client and the store, never the state. `docs/connection.md` + zh
+write §7 out and drop the "deferred / authorised separately" notes. **No `audit` source is touched**, no
+route, capability name, audit event constant, hash formula or persisted format changes, and no new frame
+*type* is added. The **immediate push** of a key event is M4e-2, and two of its three triggers arrive with
+M5.

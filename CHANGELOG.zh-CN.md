@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **链的 digest 上路**（v1.0 批 BK / M4e-1）：`net` 现在把一个节点的链报告给它所在的跨区域服务器，而 `connection.md` §7 是一份形状、不是一个标题。digest 是**对链上某一点的一份承诺** —— 链的头哈希与事件数，从 `audit` 已有的 `last_hash()` / `count()` 读出 —— 以一条普通 §3 帧承载为 `{ "digest": 1, "chain": …, "length": … }`，**在内存里按节点持有最新一份**，并按 **30 秒默认定时器**发送。`host-core` 把这个定时器作为第三条连接线程、与心跳和探测并列。**`audit` 一行不动**：哈希公式、`verify_chain` 与触发器均未变，一个刚被读过 digest 的储存仍然 `Intact`。关键事件的即时推送是 M4e-2。**决策 §128。**
+
 - **CI 构建两个服务器包**（v1.0 批 BF / M7b-2）：第三个 CI job **`server-bundle`** 在 Linux 与 macOS runner 上跑批 BE 的打包器 —— 与 `bundle` 同一个 `if`（手动 dispatch 或 `refs/tags/v*` ref）、同一个 matrix、同一套 Linux 系统库，`.tar.gz` 归档以 `riscdom-servers-<runner.os>` 上传。它只构建（无测试、无 lint、无探针）且**不打 tag、不发布**：切 release 仍是另一个需授权的动作。gate 多出 `sh -n scripts/pack.sh`，roadmap §12 的 server zip 项移到 `[已定]`。**决策 §125。**
 
 - **两个服务器包可以构建了**（v1.0 批 BE / M7b-1）：`scripts/pack.sh` 与 `scripts/pack.ps1` —— 孪生，与 `gate`、`commit` 同一种分工 —— 构建 release 二进制并组装 **`riscdom-server-<version>-<platform>`**（二进制、`web/`、README、`settings.example.json`）与 **`riscdom-relay-<version>-<platform>`**（二进制、README、空的 `examples/`）到 `target/dist/`：Windows 用 `Compress-Archive` 产 `.zip`，其它用 `tar` 产 `.tar.gz`。**两个包都不带凭据、不带数据目录**（token 与 node key 首启铸造），没有任何东西被签名，也不涉任何 CI job / tag / release。`docs/server-distribution.md` + zh 是新文档。已在本机验证：两个归档按文档构建并解开。**决策 §124。**

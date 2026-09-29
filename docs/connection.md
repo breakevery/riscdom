@@ -31,7 +31,9 @@ Each written section ends with what it **freezes** and what it **leaves open**.
 ## 1. What is frozen, and what is not
 
 - **[settled]** **Frozen here**: node identity in §2, signing (including its transport and replay protection in §3.1–§3.2) in §3, **discovery** in §4, **rooms** in §5 and **the cross-region server** in §6, plus the two standing constraints in §8, the trust model in §9 and the red-line test in §10.
-- **[open]** **Deferred**: audit digests (M4e — which also waits on M5's authorisation). §7 is a title, not a shape.
+- **[settled]** **Audit digests (M4e)**: the role is §6.2's, the shape is §7 below, and the authorisation
+  it waited on was granted — [decisions §127](decisions.md). The last piece of M4 to be written, and now
+  written.
 - **[open]** **Not frozen even inside §2–§3**: the **port numbers** a node listens on, the
   connect/read/write **timeouts**, the replay record's in-memory shape and whether a later batch
   persists it (§3.1, §3.2 — the *shape* of the transport and of the window **is** frozen), and the
@@ -250,8 +252,7 @@ This section freezes **what it is and how a frame passes through it**; the diges
 - **[settled]** **Signalling — "who is where".** It answers where a `node_id` can be reached and which network it is on, from what nodes have told it. It knows **addresses**, never payloads: a frame's `body` is not its business and it has no reason to be able to read one.
 - **[settled]** **Relay — carrying what two nodes cannot carry themselves.** It forwards a frame it received to the `node_id` that frame names (§6.3). It carries bytes it cannot usefully change (§3.1 makes the frame byte-identical on both paths).
 - **[settled]** **Management — the registry and the room definitions.** It may **publish** a node list and room definitions. **It is a source, not an authority**, and that is §4.1's rule applied one level out: a node merges what it is handed, its own `peers.json` and `rooms.json` stay authoritative for itself, and a conflict is **reported, never silently resolved**. A server is therefore never the place the truth lives — which is also what keeps this role from reading as "a service" (§6.5).
-- **[settled]** **Audit aggregation — collecting the chain's digests.** This section fixes only the **role's shape and where it sits**: one of the four roles of this deployment, reached the same way as the others, holding digests rather than messages. **What a digest is and how it is batched is §7's** — it waits
- on M5's authorisation.
+- **[settled]** **Audit aggregation — collecting the chain's digests.** This section fixes only the **role's shape and where it sits**: one of the four roles of this deployment, reached the same way as the others, holding digests rather than messages. **What a digest is and how it is batched is §7's** — written there, and authorised ([decisions §127](decisions.md)).
 
 ### 6.3 Routing and authorisation
 
@@ -292,7 +293,8 @@ registration, heartbeat and online-status table, with its two directions kept ap
 judgement** — a fact about reachability, unanimous among the witnesses that remain, and never a removal.
 **Not frozen**: the
 routing algorithm's data structure and the server's **capacity limits**; how a deployment publishes its
-address to its own users; what the aggregation role does with a digest (that is §7); how several servers
+address to its own users; what the aggregation role does with a digest beyond holding the latest one
+(that is §7's to say, and written there); how several servers
 would be run together (a commercialisation-layer item); the **numbers** §6.6 freezes for v1.0 (15 s and
 45 s are defaults of the kind §3.1's timeouts are); and where §6.6's table is kept.
 
@@ -565,12 +567,48 @@ scope later (it is a policy grouping, not a transport one); how a deployment act
 shape of any kick API (V-3 or later); whether reports are batched; and how a **partition** is resolved at the
 deployment level — that is [decisions §33](decisions.md)'s suppression machinery (M5/M6), not this section's.
 
-## 7. Audit digests — deferred (M4e, and authorised separately)
+## 7. Audit digests — M4e-1
 
-**Deferred to M4e.** Collecting the chain's digests on a **30-second** timer, with a key event pushed
-the moment it happens ([roadmap §4](roadmap-v1.0.md)). It is written **last**, and it does not start
-before the authorisation [decisions §33](decisions.md) requires for anything that touches the audit
-boundary. The temporary centre, `provisional` and `fork` are **not M4's** — they are M5/M6.
+**[settled]** **A digest is a commitment to a point on the chain**, and nothing more: the chain's
+**head hash** and the **number of events** that lead to it. It is *not* a second hash and *not* the whole
+chain — it is what a verifier can compare against, and it is read off the store the chain already lives in
+(`audit`'s last hash and its event count). **The chain's formula does not move**: this section extends what
+*travels*, never `compute_hash` or `verify_chain` ([decisions §127](decisions.md) point 2).
+
+**[settled]** **The shape on the wire** is an ordinary §3 frame — a signed message addressed to the
+server itself, the same mechanism §6.6's registration and heartbeat use — whose body is:
+
+```json
+{
+  "digest": 1,
+  "chain": "…64 hex characters, or null on an empty chain…",
+  "length": 1024
+}
+```
+
+- **`chain`** is the head hash, lowercase hex, or `null` when the chain is empty; **`length`** is the event
+  count, `0` then. Both facts are reported, never suppressed.
+- **The identity is the preamble's `from`** (§3), so the body names nobody: like a heartbeat, a digest is a
+  **statement**, and the server answers it with nothing.
+
+**[settled]** **The server holds the latest digest per node** — in **memory**, like the session table and
+the replay record. §6.2's aggregation role "holds digests rather than messages": nothing here becomes a
+second copy of anyone's history, and nothing about it is written to the server's own chain.
+
+**[settled]** **Batched on a 30-second timer, and that number is a default.** A node reports every 30
+seconds; the interval is the implementation's to configure, in the same sense §6.6's 15 s is. The timer
+**reads this node's own chain and reports it** — it writes nothing.
+
+**Not here yet — M4e-2.** A **key event** (an ejection, a fork, a temporary centre's takeover) is pushed
+the moment it happens rather than waiting for the batch ([roadmap §4](roadmap-v1.0.md)). The immediate
+path is a later batch, and two of its three triggers — the fork and the takeover — arrive with M5.
+
+**Not M4's.** The temporary centre, `provisional` and `fork` are M5/M6.
+
+**Frozen**: a digest is the head hash and the event count; the wire shape above; that the server holds the
+latest per node in memory; the 30-second batch as a *default*; and that the timer reads and never writes.
+**Not frozen**: what the aggregation role does with a digest beyond holding the latest one; how several
+servers would be run together (a commercialisation-layer item).
 
 ## 8. Architecture independence
 

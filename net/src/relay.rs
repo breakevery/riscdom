@@ -128,6 +128,11 @@ pub const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_se
 /// How long a row reads `online` after the last beat (§6.6): 45 seconds — three intervals.
 pub const ONLINE_WINDOW_MS: i64 = 3 * 15_000;
 
+/// How often a node reports its chain's digest to its cross-region server (§7, v1.0 M4e-1): 30
+/// seconds. The interval is §7's, decided there and not in the implementation; it is a **default**
+/// in the same sense §6.6's 15 s is — the loop takes whatever interval its caller passes.
+pub const DIGEST_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// The body a node **registers** with (§6.6).
 pub fn register_body(addresses: &[String], capabilities: &[String], rooms: &[String]) -> Value {
     serde_json::json!({
@@ -164,6 +169,71 @@ pub fn registered_body() -> Value {
 /// Is this body the server's answer to a registration?
 pub fn is_registered(body: &Value) -> bool {
     body.get("registered").and_then(Value::as_u64) == Some(u64::from(PROTOCOL_VERSION))
+}
+
+/// A chain digest: the chain's head and how many events lead to it (§7, v1.0
+/// M4e-1).
+///
+/// **This is not a second hash and not the whole chain.** It is a **commitment to a point**: the
+/// head hash a verifier can compare against, and the length that says which point it is. Both come
+/// from reads the store already exposes ([`audit::AuditStore::last_hash`] and
+/// [`audit::AuditStore::count`]), so the digest adds no formula — `audit`'s
+/// [`compute_hash`](audit::compute_hash) is not called here and is not changed by §7 (decisions
+/// §127 point 2: the chain's semantics extend, its formula does not).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainDigest {
+    /// The head hash (`None` for an empty chain), lowercase hex.
+    pub chain: Option<String>,
+    /// How many events lead to that head. `0` when the chain is empty.
+    pub length: u64,
+}
+
+impl ChainDigest {
+    /// Read the digest off a store's own head — the chain's last hash and its event count.
+    pub fn of(store: &audit::AuditStore) -> Result<Self, audit::AuditError> {
+        Ok(Self {
+            chain: store.last_hash()?,
+            length: store.count()? as u64,
+        })
+    }
+
+    /// The body a node reports it with (§7): an ordinary signed frame addressed to the server.
+    pub fn to_body(&self) -> Value {
+        digest_body(self.chain.as_deref(), self.length)
+    }
+
+    /// Read a digest out of a body, when the body is one.
+    pub fn of_body(body: &Value) -> Option<Self> {
+        if !is_digest(body) {
+            return None;
+        }
+        Some(Self {
+            chain: body
+                .get("chain")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            length: body.get("length").and_then(Value::as_u64)?,
+        })
+    }
+}
+
+/// The body a node **reports its chain's digest** with (§7).
+///
+/// Like a registration and a heartbeat, it is an **ordinary §3 frame addressed to the server**, not a
+/// new frame *type*: §6 left the wire syntax to the implementation (§6.6's rule, applied here). The
+/// identity travels in the preamble's `from` (§3), so the body names nobody. `chain` is `null` on an
+/// empty chain — `length` is then `0`, and both facts are reported rather than suppressed.
+pub fn digest_body(chain: Option<&str>, length: u64) -> Value {
+    serde_json::json!({
+        "digest": PROTOCOL_VERSION,
+        "chain": chain,
+        "length": length,
+    })
+}
+
+/// Is this body a chain digest (§7)?
+pub fn is_digest(body: &Value) -> bool {
+    body.get("digest").and_then(Value::as_u64) == Some(u64::from(PROTOCOL_VERSION))
 }
 
 /// What a registration **claims** ([connection.md §6.6](../../docs/connection.md)).
@@ -462,6 +532,8 @@ pub enum Local {
     Register(Registration),
     /// A heartbeat: the smallest thing a node can say (§6.6).
     Heartbeat,
+    /// A chain digest, reported on §7's timer (v1.0 M4e-1).
+    Digest { chain: Option<String>, length: u64 },
     /// A prober's report that a peer is unreachable (§6.7).
     UnreachableReport { node_id: String },
     /// A prober's report that a peer is reachable again (§6.7).
@@ -488,6 +560,12 @@ impl Local {
         }
         if is_heartbeat(body) {
             return Local::Heartbeat;
+        }
+        if let Some(digest) = ChainDigest::of_body(body) {
+            return Local::Digest {
+                chain: digest.chain,
+                length: digest.length,
+            };
         }
         if let Some(report) = crate::liveness::report_of(body) {
             return match report {
@@ -517,6 +595,9 @@ pub enum LocalReply {
     Registered { node_id: String, fresh: bool },
     /// A heartbeat was taken. Nothing is answered — a beat is a statement, not a question.
     Beat { node_id: String },
+    /// A chain digest was taken as this node's latest report (§7). Nothing is answered, for the
+    /// same reason a beat is not: a report is a statement.
+    DigestTaken { node_id: String, length: u64 },
     /// A heartbeat arrived for a node with no row: §6.6 creates a row by a **registration**, so a
     /// beat alone places nobody. Nothing is answered for it either.
     Unplaced { node_id: String },
@@ -890,6 +971,10 @@ struct ServerInner {
     sessions: SessionTable,
     online: OnlineTable,
     witnesses: WitnessTable,
+    /// The latest chain digest each node has reported (§7, v1.0 M4e-1). Memory-only: a digest is
+    /// transport state, like the session table and the replay record, and §6.2's aggregation role
+    /// "holds digests rather than messages" — nothing here becomes a second copy of the history.
+    digests: Mutex<HashMap<String, ChainDigest>>,
     transition_sink: RwLock<Option<TransitionSink>>,
 }
 
@@ -921,6 +1006,7 @@ impl RelayServer {
                 sessions: SessionTable::new(),
                 online: OnlineTable::new(),
                 witnesses: WitnessTable::new(),
+                digests: Mutex::new(HashMap::new()),
                 transition_sink: RwLock::new(None),
             }),
         })
@@ -957,6 +1043,31 @@ impl RelayServer {
     /// Wire where a judgement goes (§6.7). The chain is host-core's, so the server **hands the
     /// transition out** rather than writing a row itself: a deployment that runs the server in a
     /// process with a chain installs a sink, and the standalone relay installs none.
+    /// The latest digest each node has reported (§7), in the order their names sort.
+    pub fn digests(&self) -> Vec<(String, ChainDigest)> {
+        let digests = self
+            .inner
+            .digests
+            .lock()
+            .expect("the digest table is not poisoned");
+        let mut out: Vec<(String, ChainDigest)> = digests
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// What `node_id` last reported, if it reported at all (§7).
+    pub fn digest_of(&self, node_id: &str) -> Option<ChainDigest> {
+        self.inner
+            .digests
+            .lock()
+            .expect("the digest table is not poisoned")
+            .get(node_id)
+            .cloned()
+    }
+
     pub fn set_transition_sink(&self, sink: TransitionSink) {
         *self
             .inner
@@ -1163,6 +1274,23 @@ impl RelayServer {
                     })
                 }
             }
+            // §7: the chain's digest, taken as this node's latest report. A statement, not a
+            // question, so nothing is answered back — the same reason a beat is silent.
+            Local::Digest { chain, length } => {
+                let digest = ChainDigest {
+                    chain: chain.clone(),
+                    length: *length,
+                };
+                self.inner
+                    .digests
+                    .lock()
+                    .expect("the digest table is not poisoned")
+                    .insert(from.to_string(), digest);
+                Ok(LocalReply::DigestTaken {
+                    node_id: from.to_string(),
+                    length: *length,
+                })
+            }
             // §6.7: a prober's view, recorded as a witness report about `node_id`, and then the
             // threshold re-read. The report is a **view**, so the latest one replaces an earlier
             // one from the same witness.
@@ -1344,6 +1472,12 @@ impl RelaySession {
         self.ask(heartbeat_body())
     }
 
+    /// Report this node's chain digest to the server (§7, v1.0 M4e-1). A statement, like a beat:
+    /// nothing comes back.
+    pub fn digest(&self, digest: &ChainDigest) -> Result<(), TransportError> {
+        self.ask(digest.to_body())
+    }
+
     /// Ask a peer whether it is alive (§6.7): an ordinary §3 frame addressed to the peer.
     pub fn probe(&self, peer: &str) -> Result<(), TransportError> {
         self.send_body_to(peer, crate::liveness::probe_body())
@@ -1486,6 +1620,11 @@ impl RelayClient {
     /// Beat (§6.6).
     pub fn heartbeat(&self) -> Result<(), TransportError> {
         self.with_session(|session| session.heartbeat())
+    }
+
+    /// Report this node's chain digest to the server (§7), opening the session if needed.
+    pub fn digest(&self, digest: &ChainDigest) -> Result<(), TransportError> {
+        self.with_session(|session| session.digest(digest))
     }
 
     /// Probe a peer (§6.7), opening the session if needed.
@@ -1973,6 +2112,38 @@ mod tests {
             })
         );
         assert!(!routed.was_forwarded());
+    }
+
+    #[test]
+    fn a_digest_body_round_trips_and_is_read_as_one() {
+        // The digest reports a **point**: a head hash and a length (§7).
+        let body = digest_body(Some("abc"), 7);
+        assert!(is_digest(&body));
+        assert_eq!(
+            ChainDigest::of_body(&body),
+            Some(ChainDigest {
+                chain: Some("abc".to_string()),
+                length: 7
+            })
+        );
+        // An empty chain reports both halves honestly: no head, and a length of zero.
+        assert_eq!(
+            ChainDigest::of_body(&digest_body(None, 0)),
+            Some(ChainDigest {
+                chain: None,
+                length: 0
+            })
+        );
+        // It is not confused with anything else on the wire, and it is read as its own local frame.
+        assert_eq!(ChainDigest::of_body(&heartbeat_body()), None);
+        assert_eq!(ChainDigest::of_body(&hello_body()), None);
+        assert_eq!(
+            Local::of(&body),
+            Local::Digest {
+                chain: Some("abc".to_string()),
+                length: 7
+            }
+        );
     }
 
     #[test]

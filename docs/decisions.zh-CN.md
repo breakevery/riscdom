@@ -1358,3 +1358,13 @@ trait 属 v1.x 工作。
 **缘由**：[PROJECT_CONSTITUTION.md](../PROJECT_CONSTITUTION.md) §8 的最后一条红线是「**如有疑问，先询问**」，而 [decisions §33](decisions.zh-CN.md) 点明了疑虑确切所在：「v1.0 的跨设备设计必须**单独**获批 —— 把审计链扩展为『主链 + 临时段』会触及红线 5 的边界」。那次批准被请求、并获批准；本条即是它，所以 §33 的待授权项已得到回答，§7 的「不由本文授权」也不再描述该设计的现状。设计本身未变：被授权的是 §33 的机制、其方案 A 的并入与三层抑制，而哈希公式未动（第 2 条）—— 这正是它是一份授权、而非对已冻结链的修订的原因。
 
 **影响**：M4e、M5 与 M6 现在可以实现了；[roadmap §7](roadmap-v1.0.zh-CN.md) 与 [§15](roadmap-v1.0.zh-CN.md) 从「未获授权」转为已授权，M5 里程碑行与文末句随之；`PROJECT_CONSTITUTION.md` §8 多出一个指向本条的指针。**没有 crate、`Cargo.toml`、路由、capability 名、审计事件常量、哈希公式或持久化格式被改动**：本批只把授权写下来、不做别的。§33 原文保留 —— 台账只增不改 —— 其待授权段在此得到回答。
+
+## 128. 链的 digest 上路：链上的一点，按 30 秒定时器
+
+**日期**：2026-09-29 ｜ **状态**：已定且已实现（批 BK / M4e-1）
+
+**决策**：`net` 把一个节点的链报告给它所在的跨区域服务器，而 [connection.md](connection.zh-CN.md) 的 §7 现在是一份形状、而不是一个标题。**digest 是对链上某一点的一份承诺**：链的**头哈希**与它的**事件数** —— 从 `audit` 已有的 `last_hash()` 与 `count()` 读出，不是第二个哈希、也不是整条链。它以**一条寻址到服务器的普通 §3 帧**传输（像 §6.6 的注册与心跳，不是新的帧*类型*），body 为 `{ "digest": 1, "chain": <头或 null>, "length": n }`；身份是序言的 `from`，所以 body 不指名任何人。服务器**按节点在内存里持有最新的 digest**。节点按**30 秒默认定时器**（`net::DIGEST_INTERVAL`）上报，跑在与心跳、探测同一个 `RelayClient` 上，且它**读**链、从不写链。**`audit` 一行不动**：`compute_hash`、`verify_chain`、append-only 触发器与 schema 均未变，一个刚被读过 digest 的储存仍然 `Intact`。
+
+**缘由**：三点。**公式不在范围内，而设计必须把它显出来。** [decisions §127](decisions.zh-CN.md) 授权的是扩展链的*语义*、不是它的公式；一个把链再哈一遍的 digest，正是它禁止的第二个公式，所以它被定义成**对储存已有两个答案的读取**。**上报不是提问。** §6.6 已经把节点如何向上说话定好了 —— 一条带 body 的普通 §3 帧 —— 所以 digest 加入该机制、而不另造帧类型，且服务器对它不作任何回答（像心跳）。**服务器持有的是 digest，不是历史。** §6.2 说 aggregation 角色「持有的是 digest 而不是消息」；按节点在**内存**里保留最新那一份，把这句话照字面守住：不创建任何人链的第二份拷贝，也不向服务器自己的链写任何东西。
+
+**影响**：`net` 多出 `ChainDigest`、`digest_body`/`is_digest`、`Local::Digest` 变体与其 `LocalReply`、`RelayServer` 上的内存按节点储存、会话与客户端的一个 `digest` 方法、以及 `DIGEST_INTERVAL`；`host-core` 多出第三条连接线程（`start_connection_digests` / `stop_connection_digests`），只持客户端与储存、不持 state。`docs/connection.md` + zh 把 §7 写实，并去掉「deferred / 需单独授权」的注。**没有任何 `audit` 源文件被改动**，路由、capability 名、审计事件常量、哈希公式或持久化格式均未变，也不新增任何帧*类型*。关键事件的**即时推送**是 M4e-2，它三个触发器里的两个随 M5 到来。

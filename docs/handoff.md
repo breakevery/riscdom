@@ -300,6 +300,16 @@ current request authorising it (§2).
   `PROJECT_CONSTITUTION.md` §8. Roadmap §7 and §15 move from "not authorised" to authorised and its M5 row
   and closing line follow; §8 gains a pointer. **M4e, M5 and M6 may now be implemented** — that is the next
   batch. **Decision §127.**
+- **And the first piece is built** (v1.0 batch BK / M4e-1, 2026-09-29): the chain's digests now travel. A
+  digest is a **commitment to a point** — the chain's head hash and its event count, read off `audit`'s
+  existing `last_hash()` / `count()` (no second hash, and the whole chain is not sent); the body is
+  `{ "digest": 1, "chain": <head or null>, "length": n }`, an ordinary signed §3 frame addressed to the
+  server (a new `Local::Digest`, not a new frame *type*), and the server keeps **the latest per node, in
+  memory**. `host-core` reports on a **30-second default timer**, as a third connection thread alongside
+  the beat and the probe. `connection.md` §7 is written out and the "deferred / authorised separately"
+  notes are gone. **`audit` was not touched** — the formula, `verify_chain` and the triggers are unchanged,
+  and a store whose digest was just read still verifies `Intact`. The immediate push of a key event is
+  M4e-2. **Decision §128.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

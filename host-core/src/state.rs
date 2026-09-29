@@ -908,6 +908,9 @@ pub struct AppState {
     /// knows sibling servers (v1.0 batch AJ). A second thread beside [`Self::connection_probe`],
     /// sharing the same client — the two probe **different peer sets**.
     connection_sibling_probe: Mutex<Option<Probe>>,
+    /// The chain-digest reporter (§7, v1.0 M4e-1), when one is running. A third thread beside the
+    /// beat and the two probers, sharing the same client.
+    connection_digests: Mutex<Option<DigestReporter>>,
     /// This node's **server role**, when its settings configure one (v1.0 AC-4).
     ///
     /// The same `RelayServer` the standalone `riscdom-relay` deployment runs, embedded in this
@@ -1156,6 +1159,67 @@ impl Probe {
 }
 
 impl Drop for Probe {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// The chain-digest reporter (§7, v1.0 M4e-1): this node's own chain, reported upward every
+/// `interval`.
+///
+/// **The third thread beside [`Heartbeat`] and [`Probe`], and it shares their client** — the node
+/// has one session with its cross-region server, and a second would replace this node's entry in
+/// the server's `SessionTable`. What it adds is a **read of this node's own chain**:
+/// [`net::ChainDigest::of`] asks the store for its head hash and its event count, and that pair — a
+/// commitment to a point, not a second hash — goes up in an ordinary signed frame (§7). It calls
+/// nothing in `audit` that writes, and `audit`'s hash formula is not involved (decisions §127
+/// point 2).
+///
+/// Like the other two, the thread holds the **client** and the **store handle**, never an
+/// `Arc<AppState>`: a thread holding the state would keep it alive for as long as it reported.
+struct DigestReporter {
+    stop: Sender<()>,
+    join: Option<std::thread::JoinHandle<()>>,
+}
+
+impl DigestReporter {
+    /// Report the chain's digest every `interval`, until the handle is dropped.
+    fn start(
+        client: Arc<net::RelayClient>,
+        store: Arc<Mutex<AuditStore>>,
+        interval: Duration,
+    ) -> Self {
+        let (stop, signal) = std::sync::mpsc::channel::<()>();
+        let join = std::thread::spawn(move || loop {
+            // Read the chain, then report it. A store that cannot be read (poisoned, or a database
+            // error) skips this turn rather than killing the loop: the next interval tries again,
+            // and a digest is a report, not a transaction.
+            if let Ok(guard) = store.lock() {
+                if let Ok(digest) = net::ChainDigest::of(&guard) {
+                    let _ = client.digest(&digest);
+                }
+            }
+            match signal.recv_timeout(interval) {
+                Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+        });
+        Self {
+            stop,
+            join: Some(join),
+        }
+    }
+
+    /// Ask it to stop, and wait for it to.
+    fn stop(&mut self) {
+        let _ = self.stop.send(());
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
+impl Drop for DigestReporter {
     fn drop(&mut self) {
         self.stop();
     }
@@ -1580,6 +1644,7 @@ impl AppState {
             connection_beat: Mutex::new(None),
             connection_probe: Mutex::new(None),
             connection_sibling_probe: Mutex::new(None),
+            connection_digests: Mutex::new(None),
             connection_server: Mutex::new(None),
             connection_server_addr: Mutex::new(None),
             executors: Mutex::new(Vec::new()),
@@ -4117,6 +4182,43 @@ impl AppState {
             .ok()
             .and_then(|mut slot| slot.take());
         drop(probe);
+    }
+
+    /// Start (or restart) the chain-digest reporter with this interval (§7, v1.0 M4e-1). Answers
+    /// whether there was a **cross-region server** to report to — the same precondition the beat
+    /// and the probers have, because a digest is a report *to the server above*.
+    pub fn start_connection_digests(&self, interval: Duration) -> bool {
+        match self.connection_client() {
+            Some(client) => {
+                self.start_digests(client, interval);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Stop the digest reporter, if one is running. Also happens when the state is dropped.
+    pub fn stop_connection_digests(&self) {
+        let reporter = self
+            .connection_digests
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take());
+        drop(reporter);
+    }
+
+    /// The loop itself: it holds the client and the audit store, never the state.
+    fn start_digests(&self, client: Arc<net::RelayClient>, interval: Duration) {
+        let store = Arc::clone(&self.audit);
+        let reporter = DigestReporter::start(client, store, interval);
+        let previous = self
+            .connection_digests
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.replace(reporter));
+        // Dropping the old handle stops the loop it was the handle of; done outside the lock so the
+        // join cannot run while it is held.
+        drop(previous);
     }
 
     /// §6.7's **second level**: a node that runs the server role is an in-network server, and it

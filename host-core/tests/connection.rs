@@ -349,6 +349,10 @@ fn a_pointer_at_a_peer_this_node_does_not_know_is_refused() {
     let problem = state.connection_problem().expect("a reported problem");
     assert!(problem.contains("dev-server"), "{problem}");
     assert!(problem.contains("peers.json"), "{problem}");
+    assert!(
+        !state.start_connection_digests(Duration::from_millis(50)),
+        "no client, so there is no server to report a digest to"
+    );
 }
 
 #[test]
@@ -454,6 +458,97 @@ fn a_pointer_at_a_known_peer_wires_a_client_that_registers_and_beats() {
         stopped,
         "the loop is stopped, so nothing beats"
     );
+}
+
+#[test]
+fn a_pointer_at_a_known_peer_wires_a_client_that_reports_the_chains_digest() {
+    // §7's transport half (v1.0 M4e-1): the node reports its own chain's head and length upward, on the
+    // same session the beat and the probe use. Nothing here writes the chain, and after a digest has
+    // been taken it still verifies — what decisions §127 point 2 protects.
+    let data_dir = configured_pointing("digest", "server");
+    let workspace = unique_dir("digest-ws");
+
+    let node_key = net::NodeKey::generate().expect("key");
+    net::NodeKey::save_new_in(&data_dir, &node_key).expect("node.key");
+
+    let server_key = net::NodeKey::generate().expect("key");
+    let mut server_peers = net::PeersFile::empty();
+    server_peers.peers.push(net::PeerEntry::new(
+        &agent::device(),
+        "127.0.0.1:1",
+        node_key.public_jwk(),
+    ));
+
+    let listener = net::Listener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr").to_string();
+    let server = net::RelayServer::new(
+        "server",
+        server_key.clone(),
+        server_peers,
+        net::RoomsFile::empty(),
+        net::TransportConfig::default(),
+    )
+    .expect("server");
+    let serving = server.clone();
+    std::thread::spawn(move || {
+        let _ = serving.serve(listener);
+    });
+
+    let mut local_peers = net::PeersFile::empty();
+    local_peers.peers.push(net::PeerEntry::new(
+        "server",
+        &addr,
+        server_key.public_jwk(),
+    ));
+    net::PeersFile::save_in(&data_dir, &local_peers).expect("peers.json");
+
+    let state = state_in(&workspace, &data_dir);
+    assert!(
+        state.connection_client().is_some(),
+        "the pointer wired a client"
+    );
+
+    // Give the chain something to report: one event, so the digest has a head and a length.
+    state
+        .audit
+        .lock()
+        .expect("audit")
+        .append(audit::AuditEvent::new(
+            "host",
+            "host.test.digest",
+            serde_json::json!({ "note": "v1.0 M4e-1" }),
+        ))
+        .expect("append");
+
+    assert!(
+        state.start_connection_digests(Duration::from_millis(60)),
+        "there is a server to report to"
+    );
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while server.digest_of(&agent::device()).is_none() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the digest never landed"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let reported = server.digest_of(&agent::device()).expect("a digest");
+    let expected = net::ChainDigest::of(&state.audit.lock().expect("audit")).expect("digest");
+    assert_eq!(
+        reported, expected,
+        "the report is this node's own chain head and length"
+    );
+    assert!(reported.length > 0, "the node's chain has events");
+    assert!(reported.chain.is_some(), "a non-empty chain has a head");
+
+    state.stop_connection_digests();
+
+    // The chain was read, never written: it still verifies.
+    assert!(matches!(
+        audit::verify_chain(&state.audit.lock().expect("audit")).expect("verify"),
+        audit::ChainStatus::Intact { .. }
+    ));
 }
 
 #[test]

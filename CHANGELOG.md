@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The chain's digests travel** (v1.0 batch BK / M4e-1): `net` now reports a node's chain to its
+  cross-region server, and `connection.md` §7 is a shape rather than a title. A digest is a
+  **commitment to a point** — the chain's head hash and event count, read off `audit`'s existing
+  `last_hash()` / `count()` — carried in an ordinary signed §3 frame as
+  `{ "digest": 1, "chain": …, "length": … }`, held **in memory, latest per node**, and sent on a
+  **30-second default timer**. `host-core` runs the timer as a third connection thread beside the beat
+  and the probe. **`audit` is not touched**: the hash formula, `verify_chain` and the triggers are
+  unchanged, and a store whose digest was just read still verifies `Intact`. The immediate push of a key
+  event is M4e-2. **Decision §128.**
+
 - **CI builds the two server packages** (v1.0 batch BF / M7b-2): a third CI job, **`server-bundle`**,
   runs batch BE's packer on a Linux and a macOS runner — same `if` as `bundle` (manual dispatch or a
   `refs/tags/v*` ref), same matrix, same Linux system libraries, `.tar.gz` archives uploaded as
