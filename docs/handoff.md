@@ -149,6 +149,12 @@ current request authorising it (§2).
   side is V-3b-2. The same batch **bounds the tool probes**: `exec_retrying` now waits 60 s and kills, so a
   wedged `--version` reads as "not usable" rather than hanging the host — the QEMU flake that stalled the
   local gate four times is closed. **Decision §109.**
+- **And a deployment wires the judgement sink** (v1.0 batch AK / V-3b-2, 2026-09-29):
+  `AppState::install_connection_sink(self: &Arc<Self>)` installs §6.7's sink on **this node's own server
+  role**, and the desktop's setup, `riscdom-server`'s `main` and the CLI's embedded mode call it where they
+  hold the `Arc` (a constructor cannot: it hands back a `Self`). The cross-region aggregation needed no
+  `net` change, and the standalone `riscdom-relay` installs no sink — it holds no chain. **V-3b is
+  complete**; §6.7 is whole. **Decision §110.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

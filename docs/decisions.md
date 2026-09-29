@@ -3028,3 +3028,35 @@ translation follows. **No hash formula, route, capability name, audit event cons
 changed, and the `"server"` claim is not a `Capability` variant** — it is a string in a claim list. §6.7's
 **aggregation** side — what the cross-region server does with the reports, and installing the judgement
 sink — is **V-3b-2**.
+
+## 110. A deployment installs the judgement sink where it holds the Arc, and a server writes only its own chain
+
+**Date**: 2026-09-29 ｜ **Status**: Decided; implemented (batch AK / V-3b-2)
+
+**Decision**: `AppState` gains **`install_connection_sink(self: &Arc<Self>) -> bool`**: it installs
+`connection_judgement_sink` on **this node's own** `server_role()`, and answers whether there was one to
+install on. The three deployments call it where they hold the `Arc` — `ui/src-tauri`'s setup,
+`server/src/main.rs`, and `cli/src/client.rs`'s embedded mode — because the constructors hand back a
+`Self`, not an `Arc`, and the sink must hold one. The **aggregation** side needs no `net` change: a server
+already records a sibling's report and judges it (§6.7, V-3a's `answer_local`), and a standalone
+`riscdom-relay` still installs no sink — it holds no chain.
+
+**Why**: Two points. **The sink belongs to the server that judges, and that server is this node.** §6.7
+says the judging server writes the two rows, and the only `RelayServer` a process owns is the one its own
+server role started; the cross-region side is either the standalone relay (no chain) or another node,
+whose own deployment installs its own sink. So the install is on `server_role()` and nowhere else — a
+server never writes another node's chain. **The install point is the `Arc`, and only a deployment has
+one.** `start_server_role` runs inside `load_connection_files(&self)`, where no `Arc` exists yet, and the
+sink needs one to keep the state alive for as long as judgements arrive. Rather than reshape the
+constructors — every test and `host-tauri` build state through them — the deployment that wraps the state
+in an `Arc`, and is the thing running the server, calls one method.
+
+**Impact**: `host-core/src/state.rs` gains `install_connection_sink`; `ui/src-tauri/src/lib.rs`,
+`server/src/main.rs` and `cli/src/client.rs` each call it once where the `Arc` is made;
+`host-core/tests/connection.rs` gains a test that installs the sink on a node's own server role, drives a
+judgement through it and reads `host.connection.peer_offline` / `peer_recovered` off *that* node's chain
+(plus the negative: a node without a server role answers `false`). Two older server-role tests were
+tightened to seed `rooms.json`, so the "cannot bind" test now fails on the **bind** rather than on a
+missing file. `net/README.md` and its translation say §6.7 is complete. **No hash formula, route,
+capability name, audit event constant or persisted format changed, and `net`'s logic is untouched.**
+§6.7's **sibling** confirmation is complete: V-3b-1 probes and reports, this batch wires the sink.

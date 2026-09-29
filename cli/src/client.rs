@@ -513,6 +513,9 @@ pub fn start_embedded(workspace: &Path, data_dir: Option<&Path>) -> Result<Embed
     }
     .map_err(|e| Error::local(format!("cannot open the workspace state: {e}")))?;
     let state = Arc::new(state);
+    // v1.0 batch AK: a node that runs the server role judges the nodes below it; the judgement rows
+    // land on this node's chain. The install needs the `Arc`, so it happens here, not in construction.
+    state.install_connection_sink();
 
     let file = server::token::load_or_create(state.data_dir()).map_err(|e| {
         Error::local(format!(

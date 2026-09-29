@@ -1169,3 +1169,13 @@ trait 属 v1.x 工作。
 **缘由**：两条理由，其中一条正是批 AI 停下的理由。**密钥从不由帧到来。** §4.2 与 §6.6 让这是结构性的，所以探测者只能探它持有公钥的同侪 —— 而它持有它们的唯一地方就是它自己的 `peers.json`。批 AI 的初读（从跨区域服务器的 `OnlineTable` 取兄弟集）走不通：没有任何帧把那张表交给节点，而且即便拿到 id 也无法验证。从同一个文件读那条声明，一次合上两个缺口，且**不是新机制** —— §6.6 早就说身份来自配置，而那条声明就是 §6.6 注册与 §4 条目都携带的普通 `capabilities` 字符串。**无限等待的探测不是探测。** `Command::output()` 会阻塞在一个永不应答的子进程上 —— 一个卡住的 `qemu-system-riscv64 --version` 正是这样四次拖住 gate —— 而经同一个助手去探 QEMU、gcc、zig、rustc 的宿主会一起挂住。deadline 把它变成代码早就会给的答案：不可用。
 
 **影响**：`net/src/peers.rs` 多出 `SERVER_CLAIM`、`PeerEntry::is_server`、`PeersFile::servers` 与 `PeersFile::server_keys`（另加一条单测），`net/src/lib.rs` 重导出该常量；`host-core/src/state.rs` 多出兄弟探测线程字段、`start_sibling_probe`、它的公开起/停对、以及在 `start_server_role` 里的调用，而 `exec_retrying` 改走 `run_bounded` / `wait_bounded`（带那条 deadline 单测）；`host-core/tests/connection.rs` 多出兄弟探测者测试；`docs/connection.md` §6.7 写明探测者从哪里找到兄弟（它自己的 `peers.json`），译文同步。**没有哈希公式、路由、capability 名、审计事件常量或持久化格式被改动，且 `"server"` 不是 `Capability` 变体** —— 它是宣告列表里的一个字符串。§6.7 的**汇总**半边 —— 跨区域服务器拿那些报告做什么、以及装上判定 sink —— 是 **V-3b-2**。
+
+## 110. 部署方在拿得到 Arc 的地方装上判定 sink，而服务器只写自己的链
+
+**日期**：2026-09-29 ｜ **状态**：已定；已实现（批 AK / V-3b-2）
+
+**决策**：`AppState` 多出 **`install_connection_sink(self: &Arc<Self>) -> bool`**：它把 `connection_judgement_sink` 装到**本节点自己的** `server_role()` 上，并回答有没有可装的 server role。三个部署方在拿得到 `Arc` 的地方调用它 —— `ui/src-tauri` 的 setup、`server/src/main.rs`、`cli/src/client.rs` 的内嵌模式 —— 因为构造器交回的是 `Self` 而不是 `Arc`，而 sink 必须持有一个。**汇总**半边**无需**改动 `net`：服务器本就会记下一个兄弟的报告并判定（§6.7、V-3a 的 `answer_local`），而独立的 `riscdom-relay` 仍不装 sink —— 它没有链。
+
+**缘由**：两点。**sink 属于那台判定的服务器，而那台服务器就是本节点。** §6.7 说判定服务器写那两行，而一个进程拥有的唯一 `RelayServer` 就是它自己的 server role 启动的那个；跨区域侧要么是独立 relay（无链）、要么是另一个节点，而那个节点自己的部署会装自己的 sink。所以只装在 `server_role()` 上、别处不装 —— 服务器从不写别的节点的链。**安装点就是那个 `Arc`，而只有部署方持有。** `start_server_role` 跑在 `load_connection_files(&self)` 里，那里还没有 `Arc`，而 sink 需要一个来让状态活到判定到来为止。与其重塑构造器（每个测试与 `host-tauri` 都经它们建状态），不如让那个把状态包进 `Arc`、也正是运行服务器的一方调一个方法。
+
+**影响**：`host-core/src/state.rs` 多出 `install_connection_sink`；`ui/src-tauri/src/lib.rs`、`server/src/main.rs` 与 `cli/src/client.rs` 各自在造出 `Arc` 的地方调一次；`host-core/tests/connection.rs` 多出一条测试：把 sink 装到节点自己的 server role 上、经它驱动一次判定、并从**该**节点的链上读出 `host.connection.peer_offline` / `peer_recovered`（外加反面：没有 server role 的节点答 `false`）。两条旧的 server-role 测试收紧为会播种 `rooms.json`，于是「绑不上」测试如今真的失败在**绑定**上、而不是缺一个文件。`net/README.md` 及其译文写明 §6.7 已完成。**没有哈希公式、路由、capability 名、审计事件常量或持久化格式被改动，且 `net` 的逻辑未动。** §6.7 的**兄弟**确认至此完成：V-3b-1 探测与上报，本批接上 sink。

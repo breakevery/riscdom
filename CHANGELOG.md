@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A deployment installs the judgement sink, and a server writes its own chain** (v1.0 batch AK /
+  V-3b-2): `AppState::install_connection_sink(self: &Arc<Self>)` installs §6.7's sink on **this node's own
+  `server_role()`**, and the desktop's setup, `riscdom-server`'s `main` and the CLI's embedded mode call it
+  where they hold the `Arc` (the constructors cannot — they hand back a `Self`, and the sink must hold an
+  `Arc`). The cross-region aggregation needed **no** `net` change: a server already records a sibling's
+  report and judges it, and the standalone `riscdom-relay` installs no sink because it holds no chain.
+  **V-3b is complete.** No hash formula, route, `Capability` variant, audit event constant or persisted
+  format changed.
+
 - **A node probes its siblings, and no probe waits forever** (v1.0 batch AJ / V-3b-1): a node that runs
   the server role now probes §6.7's second level — the **siblings** its own `peers.json` declares with the
   `"server"` claim, which is also where their public keys are (a key arrives through configuration, never

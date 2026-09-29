@@ -96,7 +96,20 @@ fn tell(
     ts: i64,
     body: serde_json::Value,
 ) {
-    let message = net::SignedMessage::sign(key, from, "server", ts, body).expect("sign");
+    tell_to(server, key, from, "server", ts, body)
+}
+
+/// [`tell`] with the `to` handed in: a node's **own** server role answers to its device name, not
+/// to the literal `"server"` the stand-alone servers in these tests use.
+fn tell_to(
+    server: &net::RelayServer,
+    key: &net::NodeKey,
+    from: &str,
+    to: &str,
+    ts: i64,
+    body: serde_json::Value,
+) {
+    let message = net::SignedMessage::sign(key, from, to, ts, body).expect("sign");
     let frame = message.to_line().expect("line");
     let routed = server.route(&frame, ts).expect("routed");
     let action = routed.local().expect("a local frame").clone();
@@ -111,7 +124,20 @@ fn route_local(
     ts: i64,
     body: serde_json::Value,
 ) -> net::LocalReply {
-    let message = net::SignedMessage::sign(key, from, "server", ts, body).expect("sign");
+    route_local_to(server, key, from, "server", ts, body)
+}
+
+/// [`route_local`] with the `to` handed in: a node's **own** server role answers to its device
+/// name, not to the literal `"server"` the older tests' stand-alone server uses.
+fn route_local_to(
+    server: &net::RelayServer,
+    key: &net::NodeKey,
+    from: &str,
+    to: &str,
+    ts: i64,
+    body: serde_json::Value,
+) -> net::LocalReply {
+    let message = net::SignedMessage::sign(key, from, to, ts, body).expect("sign");
     let frame = message.to_line().expect("line");
     let routed = server.route(&frame, ts).expect("routed");
     let action = routed.local().expect("a local frame").clone();
@@ -679,6 +705,9 @@ fn a_server_role_that_cannot_bind_is_reported_and_the_node_runs() {
     let data_dir = configured_server_role("server-role-bad-bind", "256.256.256.256:1");
     let key = net::NodeKey::generate().expect("key");
     net::NodeKey::save_new_in(&data_dir, &key).expect("node.key");
+    // The three files must be usable, or the failure under test would be the files' and not the bind's.
+    net::PeersFile::save_in(&data_dir, &net::PeersFile::empty()).expect("peers.json");
+    net::RoomsFile::save_in(&data_dir, &net::RoomsFile::empty()).expect("rooms.json");
     let state = state_in(&unique_dir("server-role-bad-bind-ws"), &data_dir);
     assert_eq!(state.server_role_addr(), None);
     let problem = state.connection_problem().expect("a reported problem");
@@ -754,4 +783,98 @@ fn the_sibling_prober_probes_the_servers_peers_json_declares() {
         "the prober can be started again"
     );
     state.stop_connection_sibling_probe();
+}
+
+#[test]
+fn installing_the_sink_puts_a_nodes_own_judgement_on_its_chain() {
+    // v1.0 batch AK: a node that runs the server role judges the nodes below it, and the rows land on
+    // **its** chain. The install needs the `Arc`, so a deployment calls it where it holds one — and
+    // what it installs is the very sink the judgement test proves, on the node's own server.
+    let data_dir = configured_server_role("judge-installed", "127.0.0.1:0");
+    let workspace = unique_dir("judge-installed-ws");
+    let node_key = net::NodeKey::generate().expect("key");
+    net::NodeKey::save_new_in(&data_dir, &node_key).expect("node.key");
+    // The witness and the subject, in the server's own `peers.json` (§6.3 authorises against it).
+    let witness_key = net::NodeKey::generate().expect("key");
+    let subject_key = net::NodeKey::generate().expect("key");
+    let mut peers = net::PeersFile::empty();
+    peers.peers.push(net::PeerEntry::new(
+        "dev-witness",
+        "127.0.0.1:1",
+        witness_key.public_jwk(),
+    ));
+    peers.peers.push(net::PeerEntry::new(
+        "dev-b",
+        "127.0.0.1:2",
+        subject_key.public_jwk(),
+    ));
+    net::PeersFile::save_in(&data_dir, &peers).expect("peers.json");
+    // The server role serves with the node's own three files, so a room file must be there too.
+    net::RoomsFile::save_in(&data_dir, &net::RoomsFile::empty()).expect("rooms.json");
+
+    let state = Arc::new(state_in(&workspace, &data_dir));
+    assert!(
+        state.install_connection_sink(),
+        "there is a server role to install on"
+    );
+    let server = state.server_role().expect("the handle");
+    let device = agent::device();
+
+    const T0: i64 = 1_700_000_000_000;
+    // Both nodes register with this node's server; then the witness reports the subject gone, and
+    // the row lands in *this* node's chain. A registration is answered down the sender's session,
+    // which this server does not have — the row is created first, so the answer is ignored.
+    tell_to(
+        &server,
+        &witness_key,
+        "dev-witness",
+        &device,
+        T0,
+        net::register_body(&[], &[], &[]),
+    );
+    tell_to(
+        &server,
+        &subject_key,
+        "dev-b",
+        &device,
+        T0,
+        net::register_body(&[], &[], &[]),
+    );
+    let reply = route_local_to(
+        &server,
+        &witness_key,
+        "dev-witness",
+        &device,
+        T0 + 1_000,
+        net::unreachable_body("dev-b"),
+    );
+    assert!(
+        matches!(reply, net::LocalReply::UnreachableReported { .. }),
+        "{reply:?}"
+    );
+
+    let offline = detail_of(&state, "host.connection.peer_offline");
+    assert_eq!(offline["peer"], "dev-b");
+    assert_eq!(offline["witnesses"], serde_json::json!(["dev-witness"]));
+    assert_eq!(offline["reports"], 1);
+
+    // Recovery is being heard from, and it lands on the same chain.
+    let _ = route_local_to(
+        &server,
+        &subject_key,
+        "dev-b",
+        &device,
+        T0 + 2_000,
+        net::heartbeat_body(),
+    );
+    let recovered = detail_of(&state, "host.connection.peer_recovered");
+    assert_eq!(recovered["peer"], "dev-b");
+    assert_eq!(recovered["method"], "heartbeat");
+
+    // A node with no server role has nothing to install on, and says so rather than failing.
+    let plain = Arc::new(state_in(
+        &unique_dir("judge-installed-plain"),
+        &configured("judge-installed-norole"),
+    ));
+    assert!(!plain.install_connection_sink());
 }

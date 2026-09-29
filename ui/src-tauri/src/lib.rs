@@ -189,6 +189,10 @@ pub fn run() {
             // board that can start a second QEMU is worse than no board.
             let shared = Arc::new(state);
             app.manage(Arc::clone(&shared));
+            // v1.0 batch AK: a node that runs the server role judges the nodes below it, so the
+            // judgement rows land on **this** node's chain. Construction cannot install the sink (it
+            // hands back a `Self`, not an `Arc`); the setup, which owns the `Arc`, does.
+            shared.install_connection_sink();
             app.manage(lan::LanServer::default());
             // A node left serving its board keeps serving it after a restart.
             if let Some(settings) = shared.network() {

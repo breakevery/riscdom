@@ -74,6 +74,9 @@ async fn run(cli: Cli, app: Arc<AppState>) {
         Some(root) => config.with_web_root(root.clone()),
         None => config,
     };
+    // v1.0 batch AK: a node that runs the server role judges the nodes below it, and the rows land
+    // on this node's chain. The install needs the `Arc`, so it happens here, not in construction.
+    let _ = app.install_connection_sink();
     let server = Server::new(app, config);
     match server.start().await {
         Ok(running) => {

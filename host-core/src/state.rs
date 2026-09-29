@@ -4179,6 +4179,27 @@ impl AppState {
         Arc::new(move |transition| state.record_connection_transition(transition))
     }
 
+    /// Install §6.7's judgement sink on this node's **own** server role (v1.0 batch AK).
+    ///
+    /// A node that runs the server role is the server that judges the nodes below it, so the rows a
+    /// judgement produces belong on **this** node's chain: the sink is [`Self::connection_judgement_sink`],
+    /// installed on the `RelayServer` this state started. The cross-region side is either the
+    /// standalone `riscdom-relay` — no chain, and it installs none — or another node's server role,
+    /// whose own deployment installs its own: **a server never writes another node's chain.**
+    ///
+    /// A **deployment** calls this where it holds the `Arc<AppState>` (the desktop's setup, the
+    /// server's `main`, the CLI's embedded mode). Construction cannot: the constructors hand back a
+    /// `Self`, not an `Arc`, and an `Arc` is what the sink must hold. Answers whether there was a
+    /// server role to install on; a node without one is not a problem, only a node that judges
+    /// nobody.
+    pub fn install_connection_sink(self: &Arc<Self>) -> bool {
+        let Some(server) = self.server_role() else {
+            return false;
+        };
+        server.set_transition_sink(self.connection_judgement_sink());
+        true
+    }
+
     /// Record one judgement transition as its audit row (v1.0 V-3a).
     ///
     /// `host.connection.peer_offline` carries `{peer, witnesses, reports}` and
