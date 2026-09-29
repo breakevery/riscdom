@@ -72,6 +72,7 @@ together, why it is that way, and what was settled.
 | [net/README.md](../net/README.md) — [中文](../net/README.zh-CN.md) | The connection layer (v1.0 M4): node identity on disk today; signing, discovery, rooms and the cross-region server as the frozen sections land. | living |
 | [backup/README.md](../backup/README.md) — [中文](../backup/README.zh-CN.md) | The portability tool (v1.0 M7e): export a whole node — both roots, the audit store through SQLite's consistent path, and the derived keyring credentials — as one encrypted package. | living (AV-1 + AV-2) |
 | [sdk/rust/README.md](../sdk/rust/README.md) — [中文](../sdk/rust/README.zh-CN.md) | The Rust SDK (v1.0 M7c): a typed client for the whole control-plane surface — queries, controls and the event stream — with drift guards that hold it to the server's own routes. | living (BA + BB) |
+| [sdk/typescript/README.md](../sdk/typescript/README.md) — [中文](../sdk/typescript/README.zh-CN.md) | The TypeScript SDK (v1.0 M7d): the same surface for browser and Node, on `fetch` — no runtime dependency, the same drift guards, and the stream read with `fetch`, never `EventSource`. | living (BC) |
 
 ## 3. Distribution integrators
 

@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The TypeScript SDK exists** (v1.0 batch BC / M7d): a new package (`sdk/typescript/`, `@riscdom/sdk`,
+  `private`) with **the same surface as the Rust SDK** — the 37 `GET` queries and 36 `POST` controls as
+  typed methods, typed parameters, the error object as a `ClientError`, and the **event stream** as an
+  async `Subscription` read with **`fetch` + `ReadableStream`, never `EventSource`**. A **`gap` stays a
+  recovery instruction** (a `frameKind` with `lostAfter()`). It has **no dependencies and no
+  devDependencies** — the runtime is `fetch`, and the tests run on Node's own runner with type stripping,
+  so the gate needs no install step (one new gate line, ~0.3 s). The same drift guards hold the tables to
+  the tool-schema document. **Decision §123.**
+
 - **The Rust SDK is complete** (v1.0 batch BB / M7c-2): `sdk/rust/` gains the **36 `POST` controls** of
   api §5.2 as typed methods with typed parameters, and the **event stream** as a blocking, frame-by-frame
   `Subscription` — read with `std::io::Read` over `reqwest`'s blocking response, so **no async runtime and

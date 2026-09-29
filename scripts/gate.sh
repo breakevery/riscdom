@@ -120,6 +120,11 @@ node ui/scripts/probe-ui-lan.mjs || fail "ui probe (LAN board)"
 node ui/scripts/probe-ui-remote.mjs || fail "ui probe (remote node)"
 node ui/scripts/probe-ui-executor-selector.mjs || fail "ui probe (executor picker)"
 
+echo "==> typescript sdk (endpoint tables, client, stream)"
+# No install step: the tests run on Node's own test runner with type stripping, so this needs no
+# `node_modules` — the same reason the UI probes need none.
+node --test sdk/typescript/test/*.test.ts || fail "typescript sdk"
+
 echo "==> mirrored constants (host-core/src + host-tauri/src)"
 node scripts/check-mirrored-constants.mjs || fail "mirrored constants"
 

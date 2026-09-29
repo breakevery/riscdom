@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **TypeScript SDK 存在了**（v1.0 批 BC / M7d）：一个新包（`sdk/typescript/`，`@riscdom/sdk`，`private`），带**与 Rust SDK 同一个表面** —— 37 条 `GET` 查询与 36 条 `POST` 控制作带类型的方法、带类型的参数、错误对象作 `ClientError`、以及**事件流**作一个用 **`fetch` + `ReadableStream`、绝不用 `EventSource`** 读的异步 `Subscription`。**`gap` 保持为一条恢复指令**（一个带 `lostAfter()` 的 `frameKind`）。它**没有 dependencies、也没有 devDependencies** —— 运行时是 `fetch`，测试跑在 Node 自带测试器 + 类型剥离上，所以 gate 无需安装步骤（gate 多一行，约 0.3 秒）。同样的漂移守卫把两张表钉在 tool-schema 文档上。**决策 §123。**
+
 - **Rust SDK 完整了**（v1.0 批 BB / M7c-2）：`sdk/rust/` 补上 api §5.2 的 **36 条 `POST` 控制**作带类型的方法与带类型的参数，以及**事件流**作一个阻塞式、逐帧的 `Subscription` —— 在 `reqwest` 的阻塞响应上用 `std::io::Read` 读，所以**无 async 运行时、无新包**。envelope 是带类型的，而 **`gap` 帧保持为一条恢复指令**（一个带 `lost_after()` 的 kind，绝不是错误）。`workspace_export` 返回字节、`workspace_import` 把归档作为请求体，因为 §5.2 说那两个不是 JSON。第二条漂移守卫把控制表钉在 tool-schema 的 `controls` 块上，正如 BA 那条把查询钉住。**决策 §122。**
 
 - **Rust SDK 存在了，覆盖控制平面的查询那一半**（v1.0 批 BA / M7c-1）：一个新的 workspace crate（`sdk/rust/`，包名 `riscdom-sdk`），把 API 的 **37 条 `GET` 端点**做成带类型的方法，外加 bearer token、`{code, message, retryable, cause}` 错误作一个类型、以及带类型的请求参数。它经 `reqwest` 的 blocking 客户端说 HTTP（不强加 async 运行时）、不链接本 workspace 的任何运行时件；一条测试用 `include_str!` 读 tool-schema 文档、断言端点表与它的标记块相等 —— 而那些块已被断言对着服务器自己的 `ROUTES` —— 所以 SDK 无法漂开。`reqwest`、`serde`、`serde_json` 与 `thiserror` 都已在 `Cargo.lock` 里：**增边、不增包**。**决策 §121。**

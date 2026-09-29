@@ -1299,3 +1299,13 @@ trait 属 v1.x 工作。
 **缘由**：四点。**一表一守卫，一守卫一链。** 控制表对照它自己的标记块检查，理由与查询相同：那个块已被断言对着服务器的 `ROUTES`，所以 SDK 在无依赖、无生成步骤的前提下继承了服务器自己的真相。**流绝不能强推 async。** §3 禁止强加运行时，而本仓早已在 `cli/src/sse.rs` 用 `std::io` 读 SSE；`reqwest` 的阻塞响应实现了 `Read`，于是 SDK 在**不新增包、不写 `.await`** 的前提下得到一个一流的流式客户端 —— 对「同步 SDK 怎么读流」的诚实回答是：流就是字节，而字节不需要 executor。**`gap` 不是错误，也绝不能看起来像错误。** 把它当失败的客户端会重试一条永远填不上洞的流；忽略它的客户端会静默漏事件 —— 所以 SDK 把它做成一个 kind，并带上文档点名的游标，且在方法自己的文档里说清该怎么办。**两个控制不是 JSON，所以它们的签名不是 `Value`。** §5.2 说 workspace 归档是字节进、字节出；把那些定型为 `Value` 会是第一个调用者就会发现的一个谎。
 
 **影响**：`sdk/rust/README.md` + zh 被更新（无新对：双语计数仍为 **118**）；`docs/README.md` + zh 的行随之更新。**没有路由、capability 名、审计事件常量、哈希公式、持久化格式或内核 crate 被改动**，且**没有新包**：`reqwest` 用已声明的 feature 就把它自己的阻塞响应读出流来了。TypeScript SDK 是 BC；没有任何东西被发布到任何 registry。
+
+## 123. TypeScript SDK 存在了：同一个表面，建在 `fetch` 上，而且零依赖
+
+**日期**：2026-09-29 ｜ **状态**：已定且已实现（批 BC / M7d）
+
+**决策**：一个新包 **`sdk/typescript/`**（包名 `@riscdom/sdk`，`private`）是 [sdk.md](sdk.zh-CN.md) §4 的 TypeScript 一半：**与 Rust SDK 同一个表面** —— **37 条 `GET` 查询**与 **36 条 `POST` 控制**作按 tool-schema 文档命名的带类型方法、带类型的请求参数、`{code, message, retryable, cause}` 错误作带 `kind: "transport" | "api"` 的 `ClientError`，以及**事件流**作一个异步、逐帧的 `Subscription`。它**没有 `dependencies`、也没有 `devDependencies`**：运行时是 `fetch`（每个当代浏览器与 Node ≥18 的全局），而测试跑在 **Node 自带的测试器 + 类型剥离**上，所以 gate 不需要任何安装步骤 —— 与 UI 探针不需要安装同一个道理。流用 `fetch` 加 `ReadableStream` reader 读，**绝不用 `EventSource`**（它设不了 `Authorization`），而 **`gap` 保持为一条恢复指令**：`frameKind` 为 `"gap"`、`lostAfter()` 点名游标，绝不是错误。与 Rust SDK 相同的漂移守卫把 `QUERY_ENDPOINTS` / `CONTROL_ENDPOINTS` 钉在 tool-schema 标记块上，用 TypeScript 实现、读同一份文档。gate 多一步（`node --test sdk/typescript/test/*.test.ts`，约 0.3 秒）。
+
+**缘由**：四点。**对称就是产品。** §4 说两个 SDK 是一份契约的两种视图，于是 TS 的表、方法名与守卫与 Rust 逐一对齐 —— 会其一即会其二，而文档里的一处漂移会同时打断两条守卫。**既然依赖不可能存在，就不存在。** `fetch` 是全局，Node 自带剥离类型，所以一个再加 HTTP 客户端或测试框架的包，就是在加平台已经提供的东西 —— 而本仓的习惯是：只有平台干不了时才加边。**不安装才让 gate 保持它本来的样子。** gate 是关于「绿是什么意思」的唯一清单，它自己什么都不装；一个需要 `npm ci` 的步骤会让本地 gate 依赖网络，所以测试以 UI 探针已有的方式跑。**`gap` 在第二门语言里也不得被软化。** Rust SDK 把它做成一个 kind；TS SDK 也把它做成一个 kind，带上游标，并大声说出「忽略它会漏事件」—— 一种语义、两种实现。
+
+**影响**：`sdk/typescript/` 是新的（`package.json`、`tsconfig.json`、`src/index.ts`、两个测试文件、`README.md` + zh），`docs/README.md` + zh 各多一行，`scripts/gate.sh` 多一步。双语对计数 **118 → 120**。**没有 Rust crate、路由、capability 名、审计事件常量、哈希公式或持久化格式被改动**，没有新增任何 Node 依赖，也没有任何东西被发布到任何 registry：`M7c/d` —— SDK 整条线 —— 完成，而 `M7b`/`M7a` 仍是各自的批次。

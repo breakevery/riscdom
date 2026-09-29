@@ -3489,3 +3489,37 @@ out; typing those as `Value` would be a lie the first caller would discover.
 formula, no persisted format and no kernel crate changes**, and **no new package**: `reqwest` carries the
 stream over its blocking response with the features already declared. The TypeScript SDK is BC; nothing is
 published to any registry.
+
+## 123. The TypeScript SDK exists: the same surface, on `fetch`, with no dependency at all
+
+**Date**: 2026-09-29 ｜ **Status**: Decided and implemented (batch BC / M7d)
+
+**Decision**: A new package, **`sdk/typescript/`** (name `@riscdom/sdk`, `private`), is the TypeScript half
+of [sdk.md](sdk.md) §4: **the same surface as the Rust SDK** — the **37 `GET` queries** and **36 `POST`
+controls** as typed methods named as the tool-schema document names them, typed request parameters, the
+`{code, message, retryable, cause}` error as a `ClientError` with `kind: "transport" | "api"`, and the
+**event stream** as an async, frame-by-frame `Subscription`. It has **no `dependencies` and no
+`devDependencies`**: the runtime is `fetch` (a global in every current browser and in Node ≥18), and the
+tests run on **Node's own test runner with type stripping**, so the gate needs no install step — the same
+reason the UI probes need none. The stream is read with `fetch` and a `ReadableStream` reader, **never
+`EventSource`** (it cannot set `Authorization`), and a **`gap` stays a recovery instruction**: a
+`frameKind` of `"gap"` with `lostAfter()` naming the cursor, never an error. The same drift guards as the
+Rust SDK hold `QUERY_ENDPOINTS` / `CONTROL_ENDPOINTS` to the tool-schema marked blocks, in TypeScript,
+reading the same document. The gate gains one step (`node --test sdk/typescript/test/*.test.ts`, ~0.3 s).
+
+**Why**: Four points. **Symmetry is the product.** §4 says the two SDKs are two views of one contract, so
+the TS table, the method names and the guard mirror the Rust ones exactly — a reader who knows one knows
+the other, and a drift in the document breaks both guards. **No dependency is possible, so there is
+none.** `fetch` is a global and Node strips types on its own, so a package that added an HTTP client or a
+test framework would be adding a dependency the platform already provides — and the repository's habit is
+to add an edge only when the platform cannot do the job. **No install keeps the gate what it is.** The
+gate is the one list of what green means and it installs nothing itself; a step that needed `npm ci`
+would make a local gate network-dependent, so the tests run the way the UI probes already do. **`gap`
+cannot be softened in a second language.** The Rust SDK makes it a kind; the TS SDK makes it a kind, with
+the cursor, and says out loud that ignoring it loses events — one semantics, two implementations.
+
+**Impact**: `sdk/typescript/` is new (`package.json`, `tsconfig.json`, `src/index.ts`, two test files,
+`README.md` + zh), `docs/README.md` + zh gain a row, and `scripts/gate.sh` gains one step. The bilingual
+pair count goes **118 → 120**. **No Rust crate, route, capability name, audit event constant, hash
+formula or persisted format changes**, no Node dependency is added, and nothing is published to any
+registry: `M7c/d` — the SDK line — is complete, and `M7b`/`M7a` remain their own batches.

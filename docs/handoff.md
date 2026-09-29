@@ -256,6 +256,14 @@ current request authorising it (§2).
   are bytes in/out, because §5.2 says they are not JSON. A second drift guard holds the control table to
   the tool-schema `controls` block. **M7c is complete** — the Rust SDK's whole line. The TypeScript SDK is
   BC. **Decision §122.**
+- **And the TypeScript SDK exists** (v1.0 batch BC / M7d, 2026-09-29): a new package (`sdk/typescript/`,
+  `@riscdom/sdk`, `private`) carrying **the same surface** as the Rust SDK — the 37 queries, the 36
+  controls, typed parameters, `ClientError`, and the **event stream** as an async `Subscription` read with
+  **`fetch` + `ReadableStream`, never `EventSource`**; a **`gap` stays a recovery instruction**
+  (`frameKind` + `lostAfter()`). **No dependencies and no devDependencies**: the runtime is `fetch`, and
+  the tests run on Node's own runner with type stripping, so the gate gains one line and no install step.
+  The same drift guards hold the tables to the tool-schema document. **M7c/d — the SDK line — is complete.**
+  `M7b` (server release) and `M7a` (the split) remain their own batches. **Decision §123.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

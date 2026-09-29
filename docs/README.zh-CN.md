@@ -61,6 +61,7 @@
 | [net/README.md](../net/README.md) — [中文](../net/README.zh-CN.md) | 连接层（v1.0 M4）：今天在盘上的是节点身份；签名、发现、房间与跨区域服务器随各冻结节落地。 | 活跃 |
 | [backup/README.md](../backup/README.md) — [中文](../backup/README.zh-CN.md) | 可移植性工具（v1.0 M7e）：把整个节点 —— 两个根、经 SQLite 一致性路径取出的审计存储、以及反推出的 keyring 凭据 —— 导出为一个加密包。 | 活跃（AV-1 + AV-2） |
 | [sdk/rust/README.md](../sdk/rust/README.md) — [中文](../sdk/rust/README.zh-CN.md) | Rust SDK（v1.0 M7c）：一个带类型、覆盖整层控制平面表面的客户端 —— 查询、控制与事件流 —— 带多条漂移守卫把它钉在服务器路由上。 | 活跃（BA + BB） |
+| [sdk/typescript/README.md](../sdk/typescript/README.md) — [中文](../sdk/typescript/README.zh-CN.md) | TypeScript SDK（v1.0 M7d）：同一个表面，给浏览器与 Node，建在 `fetch` 上 —— 运行时零依赖、同样的漂移守卫，流用 `fetch` 读、绝不用 `EventSource`。 | 活跃（BC） |
 
 ## 3. 发行集成者
 
