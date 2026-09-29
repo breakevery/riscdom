@@ -3523,3 +3523,41 @@ the cursor, and says out loud that ignoring it loses events — one semantics, t
 pair count goes **118 → 120**. **No Rust crate, route, capability name, audit event constant, hash
 formula or persisted format changes**, no Node dependency is added, and nothing is published to any
 registry: `M7c/d` — the SDK line — is complete, and `M7b`/`M7a` remain their own batches.
+
+## 124. Two server packages, built by a twin script that CI does not run yet
+
+**Date**: 2026-09-29 ｜ **Status**: Decided and implemented (batch BE / M7b-1)
+
+**Decision**: `scripts/pack.sh` and `scripts/pack.ps1` — **twins**, the same split `gate` and `commit`
+keep — build **two archives** in the host's own platform format:
+**`riscdom-server-<version>-<platform>`** (the binary, the built front end under `web/`, the crate's own
+README, and a minimal `settings.example.json`) and **`riscdom-relay-<version>-<platform>`** (the binary,
+`net/README.md`, and empty `examples/peers.example.json` / `rooms.example.json`) — what
+[docs/server-distribution.md](server-distribution.md) freezes. Each script builds the release binaries
+(`cargo build --release -p server --bin riscdom-server` / `-p net --bin riscdom-relay`), builds the front
+end with `npm run build` unless told to skip, assembles the trees and writes one archive per product into
+`target/dist/` (ignored by `.gitignore`'s `**/target`). **The version comes from
+`[workspace.package] version`**, and the platform from the host. Windows gets `.zip` (PowerShell's own
+`Compress-Archive`), unix gets `.tar.gz` (the system `tar`). **Neither package carries a credential or a
+data directory**: the token and the node key are minted by the programs on their first start. **Nothing is
+signed.** No CI job, no tag, no release — those are M7b-2 and M7b-3.
+
+**Why**: Four points. **The platform the project verifies on gets a native implementation.** A single
+shell script would have needed `zip`, which Git for Windows does not ship; the twin split — `.tar.gz`
+from `tar` on unix, `.zip` from `Compress-Archive` on Windows — means the Windows half has **no external
+tool at all**, which is the same reason `gate` and `commit` are twins. **The packer builds, it does not
+assemble by hand.** A package that took whatever was in `target/release` would ship whatever happened to
+be there; building the two bins and the front end inside the script is what makes a package reproducible
+from a fresh checkout. **`npm run build`, not `npm ci`.** The gate already assumes the frontend
+dependencies are installed and the project's tooling is offline apart from cargo and npm's own cache; a
+packaging script that reached the network would be a different thing from the one the project runs.
+**Nothing secret and nothing personal travels.** The token and the key are minted locally, so the packer
+copies no data directory; the distribution document says it, and the script does it — a package is
+software, not an identity.
+
+**Impact**: `scripts/pack.sh` + `scripts/pack.ps1` are new, `docs/server-distribution.md` + zh are new
+(the bilingual pair count goes **120 → 122**), `docs/README.md` + zh gain a row, and decisions gain this
+entry. **No crate, route, capability name, audit event constant, hash formula, persisted format, workspace
+member, gate step, CI job, tag or registry** is touched, and **no dependency is added**: both scripts use
+cargo, the shell and PowerShell only. Verified on this machine: the two archives build and unpack as
+described (see the batch's report for sizes and structure).

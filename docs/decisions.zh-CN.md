@@ -1309,3 +1309,13 @@ trait 属 v1.x 工作。
 **缘由**：四点。**对称就是产品。** §4 说两个 SDK 是一份契约的两种视图，于是 TS 的表、方法名与守卫与 Rust 逐一对齐 —— 会其一即会其二，而文档里的一处漂移会同时打断两条守卫。**既然依赖不可能存在，就不存在。** `fetch` 是全局，Node 自带剥离类型，所以一个再加 HTTP 客户端或测试框架的包，就是在加平台已经提供的东西 —— 而本仓的习惯是：只有平台干不了时才加边。**不安装才让 gate 保持它本来的样子。** gate 是关于「绿是什么意思」的唯一清单，它自己什么都不装；一个需要 `npm ci` 的步骤会让本地 gate 依赖网络，所以测试以 UI 探针已有的方式跑。**`gap` 在第二门语言里也不得被软化。** Rust SDK 把它做成一个 kind；TS SDK 也把它做成一个 kind，带上游标，并大声说出「忽略它会漏事件」—— 一种语义、两种实现。
 
 **影响**：`sdk/typescript/` 是新的（`package.json`、`tsconfig.json`、`src/index.ts`、两个测试文件、`README.md` + zh），`docs/README.md` + zh 各多一行，`scripts/gate.sh` 多一步。双语对计数 **118 → 120**。**没有 Rust crate、路由、capability 名、审计事件常量、哈希公式或持久化格式被改动**，没有新增任何 Node 依赖，也没有任何东西被发布到任何 registry：`M7c/d` —— SDK 整条线 —— 完成，而 `M7b`/`M7a` 仍是各自的批次。
+
+## 124. 两个服务器包，由一个 CI 尚未运行的孪生脚本构建
+
+**日期**：2026-09-29 ｜ **状态**：已定且已实现（批 BE / M7b-1）
+
+**决策**：`scripts/pack.sh` 与 `scripts/pack.ps1` —— **孪生**，与 `gate`、`commit` 保持同一种分工 —— 以宿主自己的平台格式构建**两个归档**：**`riscdom-server-<version>-<platform>`**（二进制、`web/` 下已构建的前端、crate 自己的 README、以及一份最小 `settings.example.json`）与 **`riscdom-relay-<version>-<platform>`**（二进制、`net/README.md`、以及空的 `examples/peers.example.json` / `rooms.example.json`）—— 即 [docs/server-distribution.md](server-distribution.zh-CN.md) 冻结的内容。每个脚本构建 release 二进制（`cargo build --release -p server --bin riscdom-server` / `-p net --bin riscdom-relay`）、用 `npm run build` 构建前端（除非被要求跳过）、组装两棵树、并往 `target/dist/` 各写一个归档（被 `.gitignore` 的 `**/target` 忽略）。**版本取自 `[workspace.package] version`**，平台取自宿主。Windows 得 `.zip`（PowerShell 自带的 `Compress-Archive`），unix 得 `.tar.gz`（系统 `tar`）。**两个包都不带凭据、不带数据目录**：token 与 node key 由程序首启铸造。**没有任何东西被签名。** 无 CI job、无 tag、无 release —— 那些是 M7b-2 与 M7b-3。
+
+**缘由**：四点。**项目已验证的那个平台得到原生实现。** 单一 shell 脚本会需要 `zip`，而 Git for Windows 并不随附它；孪生分工 —— unix 用 `tar` 产 `.tar.gz`、Windows 用 `Compress-Archive` 产 `.zip` —— 意味着 Windows 那一半**完全不需要外部工具**，也正是 `gate` 与 `commit` 成对的原因。**打包器要自己构建，而不是手工组装。** 一个拿 `target/release` 里现有东西的包，就会发出碰巧在那里的东西；在脚本里构建两个 bin 与前端，才使一个包能从一份干净检出复现。**`npm run build`，不是 `npm ci`。** gate 已假定前端依赖已安装，而本项目的工具链除 cargo 与 npm 自己的缓存外是离线的；一个够网络的打包脚本会是另一个东西。**没有秘密、也没有个人信息同行。** token 与 key 都在本地铸造，所以打包器不拷任何数据目录；分发文档这么说，脚本也这么做 —— 包是软件，不是一个身份。
+
+**影响**：`scripts/pack.sh` + `scripts/pack.ps1` 是新文件，`docs/server-distribution.md` + zh 是新文档（双语对计数 **120 → 122**），`docs/README.md` + zh 各多一行，台账多出本条。**没有 crate、路由、capability 名、审计事件常量、哈希公式、持久化格式、workspace 成员、gate 步骤、CI job、tag 或 registry 被改动**，也**没有新增依赖**：两个脚本只用 cargo、shell 与 PowerShell。已在本机验证：两个归档按所述构建并解开（大小与结构见本批报告）。

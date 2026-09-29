@@ -264,6 +264,15 @@ current request authorising it (§2).
   the tests run on Node's own runner with type stripping, so the gate gains one line and no install step.
   The same drift guards hold the tables to the tool-schema document. **M7c/d — the SDK line — is complete.**
   `M7b` (server release) and `M7a` (the split) remain their own batches. **Decision §123.**
+- **And the two server packages can be built** (v1.0 batch BE / M7b-1, 2026-09-29): `scripts/pack.sh` and
+  `scripts/pack.ps1` — twins, the same split `gate` and `commit` keep — build the release binaries and
+  assemble `riscdom-server-<version>-<platform>` (binary, `web/`, README, `settings.example.json`) and
+  `riscdom-relay-<version>-<platform>` (binary, README, empty `examples/`) into `target/dist/` — `.zip` via
+  `Compress-Archive` on Windows, `.tar.gz` via `tar` elsewhere. The version comes from
+  `[workspace.package] version`, the platform from the host. **No credential and no data directory travels**
+  (the token and node key are minted on first start), **nothing is signed**, and there is no CI job, tag or
+  release: CI packaging is M7b-2 and the release act is M7b-3. `docs/server-distribution.md` + zh are new.
+  Verified locally. **Decision §124.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

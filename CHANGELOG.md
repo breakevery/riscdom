@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The two server packages can be built** (v1.0 batch BE / M7b-1): `scripts/pack.sh` and
+  `scripts/pack.ps1` — twins, the same split `gate` and `commit` keep — build the release binaries and
+  assemble **`riscdom-server-<version>-<platform>`** (binary, `web/`, README, `settings.example.json`)
+  and **`riscdom-relay-<version>-<platform>`** (binary, README, empty `examples/`) into `target/dist/`:
+  `.zip` on Windows via `Compress-Archive`, `.tar.gz` elsewhere via `tar`. **Neither package carries a
+  credential or a data directory** (the token and node key are minted on first start), nothing is signed,
+  and no CI job, tag or release is involved. `docs/server-distribution.md` + zh are new. Verified locally:
+  both archives build and unpack as documented. **Decision §124.**
+
 - **The TypeScript SDK exists** (v1.0 batch BC / M7d): a new package (`sdk/typescript/`, `@riscdom/sdk`,
   `private`) with **the same surface as the Rust SDK** — the 37 `GET` queries and 36 `POST` controls as
   typed methods, typed parameters, the error object as a `ClientError`, and the **event stream** as an
