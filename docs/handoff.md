@@ -238,6 +238,15 @@ current request authorising it (§2).
   an `unreadable:` line when settings cannot be read, and a standing `unnameable:` note. The CLI gained
   `--workspace <dir>`. `rusqlite` was already in `Cargo.lock` (**edges, no packages**). **M7e is complete**
   — spec (AT/AW) and implementation (AX/AY) both. **Decision §120.**
+- **And the Rust SDK exists** (v1.0 batch BA / M7c-1, 2026-09-29): the first half of M7c. A new workspace
+  member (`sdk/rust/`, package `riscdom-sdk`) exposing the **37 `GET` endpoints** of the control plane as
+  typed methods, with the bearer token, the `{code, message, retryable, cause}` error as a type and typed
+  request parameters — over `reqwest`'s **blocking** client, linking nothing of this workspace's runtime.
+  **The drift guard is a test**: the crate `include_str!`s `docs/tool-schema-control-plane.md`, parses its
+  marked `queries` block and asserts the SDK table equals it; that block is already asserted against the
+  server's `ROUTES`, so the chain is **SDK ⇄ tool schema ⇄ server** with no dependency and no second list.
+  `reqwest`/`serde`/`serde_json`/`thiserror` were already in `Cargo.lock` (**edges, no packages**). The
+  control endpoints and the event stream are BB; the TypeScript SDK is BC. **Decision §121.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

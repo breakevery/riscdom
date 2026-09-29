@@ -1279,3 +1279,13 @@ trait 属 v1.x 工作。
 **缘由**：四点。**审计存储是唯一一个不能信任字节拷贝的文件。** [api-compatibility.md §6](api-compatibility.zh-CN.md) 已说对 `audit.db` 的拷贝会漏 `-wal` 帧；`VACUUM INTO` 是 SQLite 的答案，且不需新包，因为 `rusqlite` 已在 `Cargo.lock` 里。**一次失败的导出胜过一个静默的缺口。** 若 SQLite 不肯交回一致的存储，工具停下，而不是发一个「历史看起来完整、其实不完整」的包 —— 这与 `not_derived` 哲学相反，且是刻意的：`not_derived` 报的是*被点名却缺席*，不是*读不了*。**keyring 之所以靠反推，是因为它无法被列出。** 账户名可从 `settings.json` 重建（运行时做同一查询用的也是同一批字段），而剩下的残渣 —— 其 executor 或 host 已消失的条目 —— 正是那条长期 `unnameable:` 声明所声明的，而不是假装完整。**两个根都必填。** §19 让包成为可移植性的单位；一个把 workspace 默认掉的开关会产出一个「半个节点却自称一个节点」的包。
 
 **影响**：`backup/` 多出 `rusqlite`（**已在 `Cargo.lock`** —— 一条边、不是包），且它的 `export` 把 workspace 作为第三个参数（`export_with` 接管 keyring，于是测试绝不碰真凭据库）。`backup/README.md` + zh 被更新（无新对：计数仍为 **116**）。**没有路由、capability 名、审计事件常量、哈希公式、持久化格式或内核 crate 被改动** —— 工具只读两个根、只写自己的包。
+
+## 121. Rust SDK 存在了：查询那一半，由一条测试钉在服务器自己的路由上
+
+**日期**：2026-09-29 ｜ **状态**：已定且已实现（批 BA / M7c-1）
+
+**决策**：一个新的 workspace 成员 **`sdk/rust/`**（包名 `riscdom-sdk`）实现了 [docs/sdk.md](sdk.zh-CN.md) §3 的前一半。它把 **[`QUERY_ENDPOINTS`](../sdk/rust/src/lib.rs) —— [control-plane-api.md](control-plane-api.zh-CN.md) §5.1 的 37 条 `GET` 端点** 作为一张提交进仓的 `(tool, method, path, capability)` 表暴露出来，**每端点一个带类型的方法**（名就用 tool-schema 文档给的名字），一个携带 **bearer** 值的 `Client`，十个带参数的端点的请求参数作带类型结构体（`AuditEvents`、`RunsDiff`、`WorkspaceFile`……），以及 §4 的错误对象作一个类型（`ApiError { status, code, message, retryable, cause }`，由带 `Transport` 分支的 `ClientError` 包装）。它经 `reqwest` 的 **blocking** 客户端说 HTTP，所以**不强加 async 运行时**，且不链接本 workspace 的任何运行时件 —— `reqwest`、`serde`、`serde_json`、`thiserror` 都已在 `Cargo.lock` 里，所以本批加的是**边、不是包**。**漂移守卫是一条测试**：crate 用 `include_str!` 读 `docs/tool-schema-control-plane.md`、解析它的 `queries` 标记块、断言 SDK 表与之相等 —— 而那个块已被断言为恰好是服务器的 `ROUTES`，于是链条是 **SDK ⇄ tool schema ⇄ server**，无依赖、无第二份清单。响应体目前是 `serde_json::Value`。控制类端点（§5.2）与事件流是下一批（BB）；TypeScript SDK 是 BC。
+
+**缘由**：四点。**表面不得是第四份拷贝。** 规格 §6 禁止会分岔的表面，而本仓已把 tool-schema 标记表断言对着 `ROUTES`；把那一件现成产物复用为 SDK 的守卫，正是让「从表生成」在不生成任何东西、也不把 `server` 拖进一个第三方 crate 的前提下为真。**零依赖，所以日后能发布。** §116 与 §118 把发布推迟；一个为守卫而对 `server` 取 path dev-dependency 的 crate 永远发不了，所以守卫改为读**文档** —— 而 `include_str!` 完全不需依赖就能做到。**用 blocking，因为 §3 这么说。** 「不强加运行时」是对消费者的承诺，而 `reqwest` 的 blocking 面在兑现它的同时不新增包，因为 `host-core` 本就依赖该 crate 与该版本。**响应用 `Value` 是诚实、不是懒惰。** API 文档*点名*每个响应类型、却不冻结其字段，而 §1 禁止 SDK 发明语义 —— 所以本批只给文档真正确下的东西定型（端点、参数、错误），把响应形状留给有文档可读的那一批。
+
+**影响**：一个新的 workspace 成员（`Cargo.toml` 的 `members` 多出 `"sdk/rust"`；gate 的第二条 clippy 行多出 `-p riscdom-sdk`，于是新 crate 像其它一样被 lint）。`sdk/rust/README.md` + zh 是新的（双语对计数 **116 → 118**）；`docs/README.md` + zh 各多一行。**没有路由、capability 名、审计事件常量、哈希公式、持久化格式或内核 crate 被改动** —— 该 crate 只读文档、只说 API。没有任何东西被发布到任何 registry。

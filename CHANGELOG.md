@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Rust SDK exists, covering the control plane's query half** (v1.0 batch BA / M7c-1): a new workspace
+  crate (`sdk/rust/`, package `riscdom-sdk`) with the **37 `GET` endpoints** of the API as typed methods,
+  the bearer token, the `{code, message, retryable, cause}` error as a type, and typed request parameters.
+  It talks HTTP over `reqwest`'s blocking client (no async runtime imposed) and links nothing of this
+  workspace's runtime; a test `include_str!`s the tool-schema document and asserts the endpoint table equals
+  its marked blocks — which are already asserted against the server's own `ROUTES` — so the SDK cannot
+  drift. `reqwest`, `serde`, `serde_json` and `thiserror` were already in `Cargo.lock`: **edges, no
+  packages**. **Decision §121.**
+
 - **`riscdom-backup` now carries the whole node** (v1.0 batch AY / M7e-2, "AV-2"): the package gains
   the other two roots of [backup.md](docs/backup.md) §1. The **audit store** is taken through
   **SQLite's consistent path** (`VACUUM INTO` into a temp file — never a byte copy, because `audit.db`

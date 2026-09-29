@@ -3411,3 +3411,42 @@ a package that is half a node and calls itself one.
 touch the real credential store). `backup/README.md` + zh are updated (no new pair: the count stays
 **116**). **No route, no capability name, no audit event constant, no hash formula, no persisted format
 and no kernel crate changes** — the tool reads the two roots and writes its own package.
+
+## 121. The Rust SDK exists: the query half, held to the server's own routes by a test
+
+**Date**: 2026-09-29 ｜ **Status**: Decided and implemented (batch BA / M7c-1)
+
+**Decision**: A new workspace member, **`sdk/rust/`** (package `riscdom-sdk`), implements the first half of
+[docs/sdk.md](sdk.md) §3. It exposes **[`QUERY_ENDPOINTS`](../sdk/rust/src/lib.rs) — the 37 `GET`
+endpoints of [control-plane-api.md](control-plane-api.md) §5.1** as a committed
+`(tool, method, path, capability)` table, **one typed method per endpoint** named as the tool-schema
+document names it, a `Client` carrying the **bearer** value, the request parameters of the ten endpoints
+that take them as typed structs (`AuditEvents`, `RunsDiff`, `WorkspaceFile`, …), and the §4 error object
+as a type (`ApiError { status, code, message, retryable, cause }`, wrapped by `ClientError` with a
+`Transport` arm). It talks HTTP over `reqwest`'s **blocking** client, so **no async runtime is imposed**,
+and it links nothing of this workspace's runtime — `reqwest`, `serde`, `serde_json` and `thiserror` are
+all already in `Cargo.lock`, so the batch adds **edges and no package**. **The drift guard is a test**:
+the crate `include_str!`s `docs/tool-schema-control-plane.md`, parses its marked `queries` block, and
+asserts the SDK table equals it — and that block is already asserted to be exactly the server's `ROUTES`,
+so the chain is **SDK ⇄ tool schema ⇄ server** with no dependency and no second list. Response bodies are
+`serde_json::Value` for now. The control endpoints (§5.2) and the event stream are the next batch (BB);
+the TypeScript SDK is BC.
+
+**Why**: Four points. **The surface must not be a fourth copy.** §6 of the spec forbids a divergent
+surface, and the repository already asserts the tool-schema marked tables against `ROUTES`; reusing that
+exact artifact as the SDK's guard is what makes "generated from the table" true without generating
+anything or dragging `server` into a third-party crate. **No dependency, so it can be published later.**
+§116 and §118 defer publication; a crate that took a path dev-dependency on `server` for its guard could
+never be published, so the guard reads a *document* instead — which `include_str!` does with no dependency
+at all. **Blocking, because §3 says so.** "No runtime imposed" is a promise to a consumer, and `reqwest`'s
+blocking face keeps it while adding no package, since `host-core` already depends on that crate and
+version. **`Value` responses are honesty, not laziness.** The API document *names* each response type but
+does not freeze its fields, and §1 forbids the SDK inventing semantics — so this batch types what the
+documents actually fix (the endpoints, the parameters, the error) and leaves the response shapes to a
+batch that has a document to read them from.
+
+**Impact**: A new workspace member (`Cargo.toml`'s `members` gains `"sdk/rust"`; the gate's second clippy
+line gains `-p riscdom-sdk`, so the new crate is linted like every other one). `sdk/rust/README.md` + zh
+are new (the bilingual pair count goes **116 → 118**); `docs/README.md` + zh gain a row. **No route, no
+capability name, no audit event constant, no hash formula, no persisted format and no kernel crate
+changes** — the crate only reads the documents and speaks the API. Nothing is published to any registry.

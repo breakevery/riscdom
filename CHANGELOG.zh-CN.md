@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **Rust SDK 存在了，覆盖控制平面的查询那一半**（v1.0 批 BA / M7c-1）：一个新的 workspace crate（`sdk/rust/`，包名 `riscdom-sdk`），把 API 的 **37 条 `GET` 端点**做成带类型的方法，外加 bearer token、`{code, message, retryable, cause}` 错误作一个类型、以及带类型的请求参数。它经 `reqwest` 的 blocking 客户端说 HTTP（不强加 async 运行时）、不链接本 workspace 的任何运行时件；一条测试用 `include_str!` 读 tool-schema 文档、断言端点表与它的标记块相等 —— 而那些块已被断言对着服务器自己的 `ROUTES` —— 所以 SDK 无法漂开。`reqwest`、`serde`、`serde_json` 与 `thiserror` 都已在 `Cargo.lock` 里：**增边、不增包**。**决策 §121。**
+
 - **`riscdom-backup` 现在带上整个节点**（v1.0 批 AY / M7e-2，「AV-2」）：包多出 [backup.md](docs/backup.zh-CN.md) §1 的另两个根。**审计存储**经 **SQLite 的一致性路径**取出（`VACUUM INTO` 到临时文件 —— 绝不逐字节拷贝，因为 `audit.db` 是 WAL 且多进程）；workspace 的 `.riscdom/` 之下的**快照**整棵遍历；**凭据**从 `settings.json` **反推**（`llm-api-key:<executor_id>:<provider_id>`、legacy 的 `llm-api-key:<provider_id>`、`remote-token:<host>`），因为 OS keyring 没有 list API。凡是点不出名的都进清单的 **`not_derived`** 列表，也会被打印。CLI 多出 `--workspace <dir>`。`rusqlite` 已在 `Cargo.lock` 里，所以没有新增包。**决策 §120。**
 
 - **`riscdom-backup` 存在了，它把一个节点的数据目录导出为一个封好的包**（v1.0 批 AX / M7e-1）：一个新的 workspace crate（`backup/`），其 `export` 读 `settings.json`、`sessions.db`、`token`、`node.key`、`peers.json` 与 `rooms.json`，写一份**清单**逐条记下每个文件的大小、SHA-256 与它格式的标记，并把一个 gzip 过的 tar 封在 **AES-256-GCM** 之下、密钥由运维者口令经 **PBKDF2-HMAC-SHA256** 推得。口令来自 `--passphrase-from-env` 或管道 stdin —— 绝不是命令行参数、绝不落盘、绝不打印。`ring`、`sha2`、`tar`、`flate2` 与 `thiserror` 都已在 `Cargo.lock` 里，所以这加的是**边、不是包**。审计存储、快照与 keyring 是 **AV-2**；在那之前 `export` 不带历史、不带快照、不带凭据，而清单会说出来，在它的 `not_derived` 列表里。**决策 §119。**

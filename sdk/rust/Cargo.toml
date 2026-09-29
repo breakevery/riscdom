@@ -1,0 +1,15 @@
+[package]
+name = "riscdom-sdk"
+description = "A typed Rust client for the RiscDom control plane (v1.0 M7c)"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+# The HTTP client. Same crate, version and features `host-core` already uses, so this adds an
+# **edge to a package already in `Cargo.lock`** — and the blocking face is exactly what
+# [sdk.md](../../docs/sdk.md) §3 asks for: no async runtime is imposed on a consumer that wants a
+# plain call.
+reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
