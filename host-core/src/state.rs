@@ -1212,24 +1212,31 @@ impl Probe {
                                         }
                                     } else if let Some(done) = net::is_segment_done(&message.body) {
                                         if done.centre == node_id {
-                                            if let Some(mut pending) =
-                                                inbox.remove(&done.segment_id)
-                                            {
-                                                pending.sort_by_key(|event| event.index);
-                                                if let Err(problem) = receive_segment(
-                                                    centre_side,
-                                                    &message.from,
-                                                    &done,
-                                                    &pending,
-                                                    net::now_ms(),
-                                                    Some(&client),
-                                                ) {
-                                                    eprintln!(
-                                                        "connection: segment {} from {} could not be \
-                                                         merged: {problem}",
-                                                        done.segment_id, message.from
-                                                    );
-                                                }
+                                            // Whatever the stream carried, in the order it sent it (v1.0
+                                            // M5-3c-2). A stream that carried **no** event arrives here as
+                                            // an empty list rather than vanishing (v1.0 M6-5-2a): M5-3c-2
+                                            // dropped that case on the floor, so a sender could believe it
+                                            // had delivered a segment the centre never heard of — and a
+                                            // legitimately empty segment was never merged. Whether
+                                            // "nothing arrived" is consistent is the verification's to say,
+                                            // not this loop's.
+                                            let mut pending =
+                                                inbox.remove(&done.segment_id).unwrap_or_default();
+                                            pending.sort_by_key(|event| event.index);
+                                            if let Err(problem) = receive_segment(
+                                                centre_side,
+                                                &node_id,
+                                                &message.from,
+                                                &done,
+                                                &pending,
+                                                net::now_ms(),
+                                                Some(&client),
+                                            ) {
+                                                eprintln!(
+                                                    "connection: segment {} from {} could not be \
+                                                     merged: {problem}",
+                                                    done.segment_id, message.from
+                                                );
                                             }
                                         }
                                     }
@@ -1632,15 +1639,23 @@ struct SegmentSink {
     agent_id: String,
 }
 
-/// Rebuild a delivered segment on the centre's side, and merge it (v1.0 M5-3c-2).
+/// Rebuild a delivered segment on the centre's side, check it, and merge it (v1.0 M5-3c-2; checked as of
+/// M6-5-2a).
 ///
 /// The centre did not open this segment, so it **adopts** the row under the name the segment arrived with
 /// (namespaced by its owner, which is what makes that name safe to adopt), writes the delivered events into
 /// the segment's own store exactly as the sender wrote them on its chain, and then calls `merge_segment`
 /// **unchanged**: the transcription is the same operation it has always been, and the main chain is only
 /// ever appended to.
+///
+/// What M6-5-2a adds is the **check between the two**, and it is deliberately modest: the delivery must
+/// match its own end frame, and the store the centre just wrote must verify intact. It cannot say the
+/// events were really on the sender's chain — that needs their hashes, which do not travel — so a segment
+/// that passes is recorded as **checked**, not as **proven**, and one that fails is recorded and **not
+/// merged**.
 fn receive_segment(
     centre_side: &SegmentSink,
+    this_node: &str,
     from: &str,
     done: &net::SegmentDone,
     events: &[net::SegmentEvent],
@@ -1661,7 +1676,12 @@ fn receive_segment(
             )
             .map_err(|error| error.to_string())?;
     }
-    {
+    // The rebuild, and its verdict (v1.0 M6-5-2a). The centre writes the delivered events into the
+    // segment's own store exactly as they arrived; the store computes their hashes, so this answers "is
+    // the store I just wrote intact" rather than "was the sender honest". A store that cannot be written
+    // is an `Err` (the delivery failed, and the caller says so); a store that is not **intact** is a
+    // verdict, not a failure of the write.
+    let rebuild: Result<(), String> = {
         let mut segment =
             audit::AuditStore::open_segment_store(&centre_side.audit_dir, &done.segment_id)
                 .map_err(|error| error.to_string())?;
@@ -1676,7 +1696,68 @@ fn receive_segment(
                 })
                 .map_err(|error| error.to_string())?;
         }
+        match audit::verify_chain(&segment) {
+            Ok(audit::ChainStatus::Intact { .. }) => Ok(()),
+            Ok(audit::ChainStatus::Broken { at_id, reason }) => Err(format!(
+                "the rebuilt segment is broken at {at_id}: {reason}"
+            )),
+            Err(error) => Err(format!(
+                "the rebuilt segment could not be verified: {error}"
+            )),
+        }
+    };
+    // What the centre can check, and what it must admit it cannot (v1.0 M6-5-2a). The envelope half is the
+    // delivery against its own end frame (and a stream that carried nothing is consistent when the end
+    // frame says so — which is how an empty segment stops being dropped). A segment whose anchor carries
+    // **no length** predates that column, so nothing is checked and the row says **skipped** rather than
+    // pretending (owner's point d). Whether these events were ever on the sender's chain is **not**
+    // checked: it needs their hashes, and that is M6-5-2b.
+    let skipped = done.anchor_length.is_none();
+    let verdict: Result<(), String> = if skipped {
+        Ok(())
+    } else {
+        net::verify_delivery(this_node, done, events)
+            .map_err(|problem| problem.reason())
+            .and(rebuild)
+    };
+    let anchor_digest = done.head_prev_chain.as_deref();
+    let anchor_length = done
+        .anchor_length
+        .and_then(|length| i64::try_from(length).ok());
+    if let Err(reason) = &verdict {
+        // Refused: nothing of this segment reaches the main chain (`merge_segment` is not called), the row
+        // is neither `folded` nor `forked` — a fork is "both sides are real", and this is "the delivery
+        // did not hold together" — and the segment's own file **stays**, because a refused delivery is
+        // still evidence (owner's point c). The refusal is recorded, so a sender is never left believing a
+        // segment the centre never took.
+        record_host_event(
+            &centre_side.sink,
+            &centre_side.agent_id,
+            audit::ACTION_CHAIN_REJECTED,
+            audit::chain_rejected_detail(
+                &done.segment_id,
+                from,
+                anchor_digest,
+                anchor_length,
+                events.len(),
+                reason,
+            ),
+        );
+        return Ok(());
     }
+    record_host_event(
+        &centre_side.sink,
+        &centre_side.agent_id,
+        audit::ACTION_CHAIN_VERIFIED,
+        audit::chain_verified_detail(
+            &done.segment_id,
+            from,
+            anchor_digest,
+            anchor_length,
+            events.len(),
+            skipped,
+        ),
+    );
     let outcome = {
         let mut store = centre_side
             .store
@@ -8233,6 +8314,7 @@ mod tests {
         let before = centre.audit.lock().expect("audit").count().expect("count");
         receive_segment(
             &centre_sink,
+            "centre",
             "dev-a",
             &done,
             &frames,
@@ -8280,6 +8362,214 @@ mod tests {
             audit::verify_chain(&rebuilt).expect("verify"),
             audit::ChainStatus::Intact { length: 2 }
         ));
+    }
+
+    /// A segment-side sink for a centre, and the store it writes into.
+    fn centre_side_for(centre: &AppState) -> SegmentSink {
+        SegmentSink {
+            audit_dir: centre.workspace_root.join(".riscdom"),
+            store: Arc::clone(&centre.audit),
+            sink: Arc::clone(&centre.sink),
+            agent_id: centre.agent_id.clone(),
+        }
+    }
+
+    /// One delivered event, at position `index` of `total`.
+    fn delivered(index: usize, total: usize, n: i64) -> net::SegmentEvent {
+        net::SegmentEvent {
+            segment_id: "seg-dev-a-9".to_string(),
+            centre: "dev-me".to_string(),
+            index,
+            total,
+            ts: 1_700_000_000_000 + n,
+            actor: "host".to_string(),
+            action: "host.test.stood-in".to_string(),
+            agent_id: None,
+            detail: serde_json::json!({ "n": n }),
+        }
+    }
+
+    /// An end frame for the delivery of `total` events.
+    fn delivery_done(total: usize, anchor_length: Option<u64>) -> net::SegmentDone {
+        net::SegmentDone {
+            segment_id: "seg-dev-a-9".to_string(),
+            centre: "dev-me".to_string(),
+            total,
+            head_prev_chain: Some("anchor-hash".to_string()),
+            anchor_length,
+        }
+    }
+
+    /// A delivery that does not match its own end frame is **recorded and not merged** (v1.0 M6-5-2a):
+    /// nothing of it reaches the main chain, the row is neither folded nor forked, and the segment's own
+    /// file stays behind as the evidence of what arrived.
+    #[test]
+    fn a_delivery_that_does_not_check_out_is_recorded_and_not_merged() {
+        let centre = state_with("delivery-refused", serde_json::json!({}));
+        let side = centre_side_for(&centre);
+        let done = delivery_done(2, Some(5));
+        // Two claimed, one delivered.
+        let frames = vec![delivered(0, 2, 1)];
+
+        receive_segment(
+            &side,
+            "dev-me",
+            "dev-a",
+            &done,
+            &frames,
+            1_700_000_000_000,
+            None,
+        )
+        .expect("a refusal is an outcome, not an error");
+
+        let rows = centre.audit.lock().expect("audit").all().expect("events");
+        assert!(
+            !rows
+                .iter()
+                .any(|stored| stored.event.action == "host.test.stood-in"),
+            "nothing of a refused delivery reaches the main chain"
+        );
+        let rejected = rows
+            .iter()
+            .find(|stored| stored.event.action == audit::ACTION_CHAIN_REJECTED)
+            .expect("the refusal is recorded");
+        assert_eq!(
+            rejected.event.detail["segment_id"],
+            serde_json::json!("seg-dev-a-9")
+        );
+        assert_eq!(rejected.event.detail["from"], serde_json::json!("dev-a"));
+        assert_eq!(rejected.event.detail["events"], serde_json::json!(1));
+        assert_eq!(rejected.event.detail["anchor_length"], serde_json::json!(5));
+        assert!(
+            rejected.event.detail["reason"]
+                .as_str()
+                .expect("a reason")
+                .contains("says 2 event(s) and 1 arrived"),
+            "{rejected:?}"
+        );
+        assert!(
+            !rows
+                .iter()
+                .any(|stored| stored.event.action == audit::ACTION_CHAIN_VERIFIED),
+            "a refused delivery is not also recorded as checked"
+        );
+
+        // The row is adopted and left alone: not `folded`, not `forked`.
+        let row = centre
+            .audit
+            .lock()
+            .expect("audit")
+            .segment("seg-dev-a-9")
+            .expect("row")
+            .expect("adopted");
+        assert_eq!(row.state, audit::SegmentState::Closed);
+        assert_eq!(row.note.as_deref(), Some("adopted from another node"));
+        // And the segment's own file is kept: a refused delivery is still evidence.
+        assert!(
+            audit::segment_db_path_in(&centre.workspace_root.join(".riscdom"), "seg-dev-a-9")
+                .exists()
+        );
+    }
+
+    /// A segment whose anchor carries no length predates the column, so nothing can be checked against
+    /// it: the row says **skipped** and the merge goes ahead (v1.0 M6-5-2a, owner's point d). The test
+    /// makes the envelope deliberately wrong to prove the skip is a skip.
+    #[test]
+    fn an_older_segment_is_recorded_as_skipped_and_still_merged() {
+        let centre = state_with("delivery-skipped", serde_json::json!({}));
+        let side = centre_side_for(&centre);
+        let done = delivery_done(2, None);
+        let frames = vec![delivered(0, 2, 1)];
+
+        receive_segment(
+            &side,
+            "dev-me",
+            "dev-a",
+            &done,
+            &frames,
+            1_700_000_000_000,
+            None,
+        )
+        .expect("an old segment is merged");
+
+        let rows = centre.audit.lock().expect("audit").all().expect("events");
+        assert!(
+            rows.iter()
+                .any(|stored| stored.event.action == "host.test.stood-in"),
+            "an old segment still reaches the main chain"
+        );
+        let verified = rows
+            .iter()
+            .find(|stored| stored.event.action == audit::ACTION_CHAIN_VERIFIED)
+            .expect("the skip is recorded");
+        assert_eq!(
+            verified.event.detail["checked"],
+            serde_json::json!("skipped")
+        );
+        assert_eq!(
+            verified.event.detail["anchor_length"],
+            serde_json::Value::Null
+        );
+        assert!(
+            !rows
+                .iter()
+                .any(|stored| stored.event.action == audit::ACTION_CHAIN_REJECTED),
+            "skipping is not a refusal"
+        );
+    }
+
+    /// A stream that ended without a single event: refused when the end frame claims events, and merged
+    /// as an empty fold when it claims none (v1.0 M6-5-2a). M5-3c-2 dropped both cases silently.
+    #[test]
+    fn a_stream_that_ended_without_an_event_is_answered() {
+        let centre = state_with("delivery-empty", serde_json::json!({}));
+        let side = centre_side_for(&centre);
+
+        // Claimed two, delivered none: refused, and nothing is transcribed.
+        let claimed = delivery_done(2, Some(5));
+        receive_segment(
+            &side,
+            "dev-me",
+            "dev-a",
+            &claimed,
+            &[],
+            1_700_000_000_000,
+            None,
+        )
+        .expect("a refusal is an outcome");
+        let rows = centre.audit.lock().expect("audit").all().expect("events");
+        let rejected = rows
+            .iter()
+            .find(|stored| stored.event.action == audit::ACTION_CHAIN_REJECTED)
+            .expect("nothing arriving is recorded");
+        assert_eq!(rejected.event.detail["events"], serde_json::json!(0));
+
+        // Claimed none, delivered none: consistent, so it is checked and folded as an empty segment.
+        let empty = net::SegmentDone {
+            segment_id: "seg-dev-a-10".to_string(),
+            centre: "dev-me".to_string(),
+            total: 0,
+            head_prev_chain: Some("anchor-hash".to_string()),
+            anchor_length: Some(5),
+        };
+        receive_segment(
+            &side,
+            "dev-me",
+            "dev-a",
+            &empty,
+            &[],
+            1_700_000_000_001,
+            None,
+        )
+        .expect("an empty segment is consistent with itself");
+        let row = centre
+            .audit
+            .lock()
+            .expect("audit")
+            .segment("seg-dev-a-10")
+            .expect("row")
+            .expect("adopted");
+        assert_eq!(row.state, audit::SegmentState::Folded);
     }
 
     /// The two key events that exist reach the server the moment they happen (v1.0 M4e-2): a fork, from
@@ -8380,6 +8670,7 @@ mod tests {
         }];
         receive_segment(
             &centre_sink,
+            "dev-me",
             "dev-a",
             &done,
             &frames,
@@ -8388,8 +8679,9 @@ mod tests {
         )
         .expect("the centre received the segment");
 
-        // The anchor travelled with the end frame and landed on the adopted row (v1.0 M6-5-1): the
-        // centre records both halves of it and **verifies neither** — that is M6-5-2.
+        // The anchor travelled with the end frame and landed on the adopted row (v1.0 M6-5-1): the centre
+        // records both halves of it, and M6-5-2a checks the delivery — never the anchor itself, which
+        // would need the sender's chain.
         let adopted = centre
             .audit
             .lock()

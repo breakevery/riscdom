@@ -4232,3 +4232,48 @@ table and the 33-name capability vocabulary are untouched; no dependency is adde
 no new event name exists yet** (`host.audit.chain_verified` / `chain_rejected` are M6-5-2). **The other two
 `[open]`s are answered as far as they need to be**: (3)'s exit is observability plus a manual tool (M6-5-3,
 because a rule would be policy), and (1)'s summary chain is M6-5-4 and needed by neither.
+
+## 145. A delivered segment is checked, and what cannot be checked is said out loud
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch CN / M6-5-2a)
+
+**Decision**: The second piece of M6-5, and the one that makes a refusal **visible**. `receive_segment` now
+checks a delivery between rebuilding it and merging it, and records which happened:
+
+- **The envelope**: the events against the end frame that closed the stream — every position `0..total`
+  exactly once, and the stream addressed to this node (`net::verify_delivery`, the only new pure function).
+- **The rebuild**: `verify_chain` on the store the centre has just written.
+- **`host.audit.chain_verified`** on a pass (detail: `segment_id`, `from`, `anchor_digest`, `anchor_length`,
+  `events`, `checked` = `"delivery"` or `"skipped"`), then the merge runs unchanged.
+- **`host.audit.chain_rejected`** on a failure (the same fields plus `reason`). **`merge_segment` is not
+  called**, the row is neither `folded` nor `forked`, and the segment's own file **stays** — a refused
+  delivery is still evidence.
+- **A stream that carried no event is answered.** `total: 0` and nothing delivered is consistent, so an empty
+  segment is checked and folded; `total: n` with nothing delivered is a gap and is refused. M5-3c-2 dropped
+  both cases on the floor: a sender could believe it had delivered a segment the centre never heard of, and a
+  legitimately empty segment never merged.
+- **A segment whose `anchor_length` is `None` is recorded as `skipped`** — it predates the length column, so
+  there is nothing to check it against (owner's point d). It merges, and the row says what was **not**
+  checked.
+
+**Why**: Three points. **A check without a record is not a check.** M5-3c-2's delivery ended in a merge or an
+`eprintln!`; nothing on either chain said whether what arrived held together, so a deployment could not see a
+bad delivery at all. **The honest bound is part of the answer.** The events' hashes do not travel (M5-3c-2
+chose that: the ids and hashes belong to the sender's chain), so the centre cannot say those events were ever
+on that chain — a passing check is recorded as **checked**, never **proven**, and the document says so rather
+than letting the event name imply more. **An empty stream is a fact, not a no-op.** `total: 0` says "nothing
+happened in this segment", which is legitimate and was being dropped; `total: n` says "events are coming",
+and their absence is a gap. **The dependency direction decides where the check lives**: `SegmentEvent` and
+`SegmentDone` are `net`'s shapes and `audit` is the leaf the connection layer depends on, so the envelope
+check is `net::verify_delivery` rather than an `audit` function — `audit` gains only the two event names and
+their detail builders, and **no new function at all**.
+
+**Impact**: `net/src/suppression.rs` gains `DeliveryProblem` and `verify_delivery` (pure, over the shapes it
+already owns), and `net/src/lib.rs` exports them; `audit/src/segment.rs` gains `ACTION_CHAIN_VERIFIED` /
+`ACTION_CHAIN_REJECTED` and `chain_verified_detail` / `chain_rejected_detail`; `host-core/src/state.rs`
+checks the delivery in `receive_segment` (which takes `this_node` so the envelope can be checked where the
+frame is read) and the drain stops discarding a `segment_done` whose stream carried nothing
+(`unwrap_or_default`). `docs/cross-chain-verification.md` + zh gain §3. **`compute_hash` and `verify_chain`
+are not touched** — `verify_chain` is *called*, never changed — the append-only triggers, the route table,
+the 33-name capability vocabulary and the wire frames are untouched, no dependency is added, and
+**anchor continuity is M6-5-2b**: it needs the events' `hash`/`prev_hash` on the wire first.

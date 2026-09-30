@@ -373,6 +373,84 @@ pub fn is_segment_event(body: &Value) -> Option<SegmentEvent> {
     })
 }
 
+/// Why a delivered segment did not pass the **envelope** check (v1.0 M6-5-2a).
+///
+/// This is about the *delivery* and not about the sender's chain: a stream is a run of [`SegmentEvent`]s
+/// and one [`SegmentDone`], and these are the ways the two can disagree with each other or with the node
+/// that was addressed. It says nothing about whether those events were really on the sender's chain —
+/// that would need the events' own hashes, which do not travel (M6-5-2b).
+///
+/// It lives here rather than in `audit` because [`SegmentEvent`] and [`SegmentDone`] are `net`'s own
+/// shapes: `audit` is a leaf the connection layer depends on, and it must not learn about frames.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeliveryProblem {
+    /// The end frame was addressed to a node that is not this one.
+    NotForThisNode { said: String, this_node: String },
+    /// The count the end frame claims and the events that arrived disagree.
+    Count { said: usize, arrived: usize },
+    /// The events' positions are not exactly `0..total` once each: a gap, or a repeat.
+    Positions { expected: usize, found: Vec<usize> },
+}
+
+impl DeliveryProblem {
+    /// One sentence, for an event's detail and for a log line.
+    pub fn reason(&self) -> String {
+        match self {
+            DeliveryProblem::NotForThisNode { said, this_node } => {
+                format!("the stream was addressed to {said}, and this node is {this_node}")
+            }
+            DeliveryProblem::Count { said, arrived } => {
+                format!("the end frame says {said} event(s) and {arrived} arrived")
+            }
+            DeliveryProblem::Positions { expected, found } => {
+                format!("the events are not the positions 0..{expected}: {found:?}")
+            }
+        }
+    }
+}
+
+/// Check a delivered segment's **envelope** against the end frame that closed it (v1.0 M6-5-2a).
+///
+/// Pure, so the check can be read without a socket and the caller decides what an answer means. Three
+/// things, and they are all the delivery itself can be asked:
+///
+/// - the stream was addressed to **this node**;
+/// - as many events arrived as the end frame says;
+/// - the events' positions are **exactly `0..total`**, each once — compared as a set, because the stream
+///   says the events arrive in order and the receiver sorts them before transcribing, so what this
+///   proves is that every position arrived exactly once.
+///
+/// A stream that carried **no** event is consistent when `total` is `0` and inconsistent when it is not —
+/// which is how an empty segment stops being silently dropped (M5-3c-2 discarded it) without a
+/// legitimate empty segment being refused.
+pub fn verify_delivery(
+    this_node: &str,
+    done: &SegmentDone,
+    events: &[SegmentEvent],
+) -> Result<(), DeliveryProblem> {
+    if done.centre != this_node {
+        return Err(DeliveryProblem::NotForThisNode {
+            said: done.centre.clone(),
+            this_node: this_node.to_string(),
+        });
+    }
+    if events.len() != done.total {
+        return Err(DeliveryProblem::Count {
+            said: done.total,
+            arrived: events.len(),
+        });
+    }
+    let mut found: Vec<usize> = events.iter().map(|event| event.index).collect();
+    found.sort_unstable();
+    if found != (0..done.total).collect::<Vec<_>>() {
+        return Err(DeliveryProblem::Positions {
+            expected: done.total,
+            found,
+        });
+    }
+    Ok(())
+}
+
 /// The body a segment stream's end travels as (v1.0 M5-3c-2).
 pub fn segment_done_body(done: &SegmentDone) -> Value {
     // `head_prev_chain` and `anchor_digest` are **one value under two names** (v1.0 M6-5-1): the field
@@ -644,6 +722,83 @@ mod tests {
         let read = is_segment_done(&empty).expect("a done frame");
         assert_eq!(read.head_prev_chain, None);
         assert_eq!(read.anchor_length, None);
+    }
+
+    /// The delivery check reads the envelope and nothing else (v1.0 M6-5-2a).
+    #[test]
+    fn a_delivery_is_checked_against_its_own_end_frame() {
+        let done = SegmentDone {
+            segment_id: "seg-dev-a-1".to_string(),
+            centre: "centre".to_string(),
+            total: 2,
+            head_prev_chain: Some("abc".to_string()),
+            anchor_length: Some(5),
+        };
+        let event = |index: usize| SegmentEvent {
+            segment_id: "seg-dev-a-1".to_string(),
+            centre: "centre".to_string(),
+            index,
+            total: 2,
+            ts: T0,
+            actor: "host".to_string(),
+            action: "host.test.x".to_string(),
+            agent_id: None,
+            detail: serde_json::json!({ "n": index }),
+        };
+
+        // Both positions, once each: it passes, in either arrival order.
+        assert_eq!(
+            verify_delivery("centre", &done, &[event(0), event(1)]),
+            Ok(())
+        );
+        assert_eq!(
+            verify_delivery("centre", &done, &[event(1), event(0)]),
+            Ok(())
+        );
+
+        // A stream that ended without an event is consistent when the end frame says so...
+        let empty = SegmentDone {
+            total: 0,
+            ..done.clone()
+        };
+        assert_eq!(verify_delivery("centre", &empty, &[]), Ok(()));
+        // ...and a gap when it does not.
+        assert_eq!(
+            verify_delivery("centre", &done, &[]),
+            Err(DeliveryProblem::Count {
+                said: 2,
+                arrived: 0
+            })
+        );
+
+        // A repeat is as wrong as a gap.
+        assert_eq!(
+            verify_delivery("centre", &done, &[event(1), event(1)]),
+            Err(DeliveryProblem::Positions {
+                expected: 2,
+                found: vec![1, 1]
+            })
+        );
+
+        // One too many: the count catches it before the positions do.
+        assert_eq!(
+            verify_delivery("centre", &done, &[event(0), event(1), event(1)]),
+            Err(DeliveryProblem::Count {
+                said: 2,
+                arrived: 3
+            })
+        );
+
+        // A stream addressed elsewhere is refused first, and says who it was for.
+        let elsewhere = DeliveryProblem::NotForThisNode {
+            said: "centre".to_string(),
+            this_node: "dev-me".to_string(),
+        };
+        assert_eq!(
+            verify_delivery("dev-me", &done, &[event(0), event(1)]),
+            Err(elsewhere.clone())
+        );
+        assert!(elsewhere.reason().contains("dev-me"), "{elsewhere:?}");
     }
 
     #[test]

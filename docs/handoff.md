@@ -431,6 +431,16 @@ current request authorising it (§2).
   are untouched; there is no verification logic and no new event name yet** (M6-5-2 compares;
   `host.audit.chain_verified` / `chain_rejected` are its). `docs/cross-chain-verification.md` + zh are new,
   and `audit-v2` §3/§4/§5 record the column, the second half and the pointer. **Decision §144.**
+- **And a delivered segment is checked, with the verdict on the chain** (v1.0 batch CN / M6-5-2a, 2026-09-30):
+  `receive_segment` verifies the **envelope** (every position `0..total` exactly once, addressed to this node)
+  and the **rebuild** (`verify_chain` on the store it just wrote), records `host.audit.chain_verified` or
+  `host.audit.chain_rejected`, and on a refusal **does not merge**: the row is neither `folded` nor `forked`
+  and the segment's file stays. A stream that carried no event is now **answered** — `total: 0` folds as an
+  empty segment, `total: n` is refused — and a segment whose anchor has no length is recorded as **skipped**.
+  The envelope check is `net::verify_delivery` (the shapes are `net`'s; `audit` is the leaf, so it gains no
+  function), and **the events' hashes still do not travel**, so a pass is *checked*, never *proven*.
+  **`compute_hash` / `verify_chain` / the triggers / the frames are untouched; anchor continuity is M6-5-2b.**
+  **Decision §145.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

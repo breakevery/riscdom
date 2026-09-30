@@ -1530,3 +1530,20 @@ trait 属 v1.x 工作。
 **缘由**：三点。**哈希点名一个点；长度说出是哪一个。** `ChainDigest { chain, length }` 正是 M4e-1 所说的「对一点的承诺」，而锚点过去只带 `chain` —— 所以一个持有摘要的中心，根本分不清它看到的头是不是该段自称承接的那个头。**按摘要而不是按区间，因为区间证明是第二套摘要结构。** 在 §127 定下的那一个公式旁边添一棵 Merkle 树或一个滚动哈希，是 owner 在第一批里否掉的新机制；而把各摘要串成*汇总链*，回答的是**中心**被告知了什么，不是某节点的内部点，而且会让中心成为历史的持有者 —— §6.2 明确拒绝这一点。**先证据，因为没有证据的检查写不出来。** 两半必须先存在于线上和行上，之后才有东西可以比对；把它们分开落地，也让 M6-5-2 保持为一个只装一个想法的小批次。
 
 **影响**：`audit/src/segment.rs`（`Segment` 多出 `head_prev_length`，`from_row` 读它）；`audit/src/store.rs`（`SCHEMA` 里的列、`migrate_segments_table`、`open_segment_inner` 在 `last_hash()` 旁边读 `last_id()`、两个 `SELECT` 与 `insert_segment` 带上该列、`adopt_segment` 收它）；`net/src/suppression.rs`（`SegmentDone` 多出 `anchor_length`，`segment_done_body` 写出两个锚点名，`is_segment_done` 宽松读取）；`host-core/src/state.rs`（`deliver_segment` 从行上读两半、`segment_frames` 携它们、`receive_segment` 交给 `adopt_segment`）；`docs/cross-chain-verification.md` + zh **是新的**，`docs/audit-v2.md` + zh 多出该列、§4 的第二半与 §5 的指针。**`compute_hash`、`verify_chain`、append-only 触发器、路由表与 33 名的能力词汇表都未动；未加依赖；尚不存在任何验证逻辑或新事件名**（`host.audit.chain_verified` / `chain_rejected` 是 M6-5-2 的）。**另外两个 `[open]` 也已答到它们需要的程度**：(3) 的出口是可观测性加一件手动工具（M6-5-3，因为一条规则就是策略），(1) 的汇总链是 M6-5-4、两者都不需要它。
+
+## 145. 交付的段会被验，而验不了的东西要明说
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 CN / M6-5-2a）
+
+**决策**：M6-5 的第二片，也是让一次拒绝**看得见**的那一片。`receive_segment` 现在在重建之后、合并之前检查一次交付，并记下发生了什么：
+
+- **信封**：事件对收尾的那个结束帧 —— 每个位置 `0..total` 恰好到一次，且这个流发给的是本节点（`net::verify_delivery`，本批唯一的纯函数）。
+- **重建**：对中心刚写出的存储调 `verify_chain`。
+- **通过时记 `host.audit.chain_verified`**（detail：`segment_id`、`from`、`anchor_digest`、`anchor_length`、`events`、`checked` = `"delivery"` 或 `"skipped"`），随后合并照旧。
+- **失败时记 `host.audit.chain_rejected`**（同样字段外加 `reason`）。**不调 `merge_segment`**，行既不是 `folded` 也不是 `forked`，而段自己的文件**留下** —— 被拒的交付也是证据。
+- **一个没带任何事件的流会被作答。** `total: 0` 且什么都没到 = 自洽，于是一个空段会被验过并并入；`total: n` 而什么都没到 = 缺口，被拒。M5-3c-2 把这两种情况都扔在地上：发送方可能以为它交付了一个中心从未听说的段，而合法的空段从未被并入。
+- **锚点的 `anchor_length` 为 `None` 的段记为 `skipped`** —— 它在长度列之前开启，无物可比（owner 的 d 点）。它照常并入，而行上写明**没**验什么。
+
+**缘由**：三点。**没有记录的检查不是检查。** M5-3c-2 的交付以一次合并或一行 `eprintln!` 结束；两条链上都没有任何东西说清「到的东西站不站得住」，所以一个部署根本看不见一次坏交付。**诚实的边界也是答案的一部分。** 事件的哈希不上线（M5-3c-2 有意如此：id 与哈希属于发送方的链），所以中心无法声称那些事件曾在那个链上 —— 通过的检查记为**已检查**、绝不是**已证明**，而文档也要明说，而不是让事件名暗示更多。**一个空流是一个事实，不是空操作。** `total: 0` 说的是「这个段里什么都没发生」，合法、且过去被丢掉；`total: n` 说的是「事件正在来的路上」，它们的缺席是缺口。**依赖方向决定检查住哪**：`SegmentEvent` 与 `SegmentDone` 是 `net` 的形状，而 `audit` 是连接层依赖的叶子，所以信封检查是 `net::verify_delivery` 而非某个 `audit` 函数 —— `audit` 只多出两个事件名与它们的 detail 构造器，**完全没多出函数**。
+
+**影响**：`net/src/suppression.rs` 多出 `DeliveryProblem` 与 `verify_delivery`（纯函数，跑在它本已拥有的形状上），`net/src/lib.rs` 导出它们；`audit/src/segment.rs` 多出 `ACTION_CHAIN_VERIFIED` / `ACTION_CHAIN_REJECTED` 与 `chain_verified_detail` / `chain_rejected_detail`；`host-core/src/state.rs` 在 `receive_segment` 里检查交付（它多收一个 `this_node`，好让信封在读帧的地方就能验），而 drain 不再丢弃「流里什么也没带」的 `segment_done`（`unwrap_or_default`）。`docs/cross-chain-verification.md` + zh 多出 §3。**`compute_hash` 与 `verify_chain` 未被触碰** —— `verify_chain` 是被**调用**、从未被修改 —— append-only 触发器、路由表、33 名能力词汇表与线上帧都未动，未加依赖，而**锚点连续性是 M6-5-2b**：它需要先把事件的 `hash`/`prev_hash` 放上线。

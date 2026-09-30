@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **交付的段会被验，而拒绝会被记下**（v1.0 批 CN / M6-5-2a，跨链验证的第二片）：到达中心的段，现在在「重建之后、合并之前」被检查 —— **信封**（每个位置 `0..total` 恰好到一次、发给的是本节点）与**重建**（对中心刚写出的存储调 `verify_chain`）—— 而裁决作为 **`host.audit.chain_verified`** 或 **`host.audit.chain_rejected`** 落到链上。拒绝意味着不调 `merge_segment`、行既不是 `folded` 也不是 `forked`、且段自己的文件留下：被拒的交付也是证据。**没带任何事件**的流现在会被作答而不是被丢弃 —— `total: 0` 自洽、作为一个空段并入；`total: n` 是缺口、被拒。锚点没有长度的段在此列之前，故记为 **skipped** 并照常并入。**它验不了的东西会明说**：事件的哈希不上线，所以通过是*已检查*、绝非*已证明*（M6-5-2b 是锚点连续性）。**`compute_hash` 与 `verify_chain` 未动，线上帧未动，`audit` 未多出函数。** `docs/cross-chain-verification.md` + zh 多出 §3。**决策 §145。**
+
 - **锚点长出第二半**（v1.0 批 CL / M6-5-1，跨链验证的第一片）：roadmap §7 的第二个 `[open]` —— *跨链引用怎么验证* —— 按**摘要**作答，于是引用补上它从未有过的那一半。`segments.head_prev_length`（紧挨 `head_prev_chain` 的 `INTEGER` 列，与头同一刻写入，早于它的行为 `NULL` —— `AUDIT_SCHEMA_VERSION` **保持 1**）以及 `segment_done` 帧上的 `anchor_digest` + `anchor_length`（`anchor_digest` ≡ `head_prev_chain`：一个值、两个名字，读取时优先新名、回落到旧名，所以较早的发送方仍读得进来）。`adopt_segment` 在中心那一行上记下两半、**一样都不验**。**`compute_hash`、`verify_chain`、append-only 触发器、路由表与能力词汇表都未动；尚无验证逻辑、无新事件名**（M6-5-2）。`docs/cross-chain-verification.md` + zh 是新的。**决策 §144。**
 
 - **一个任务可以跨机器 —— 而对端会真的跑它**（v1.0 批 CJ / M6-1b，M6-1 的终点）：`POST /v0/tasks` 多出一个可选成员 **`node`** —— 缺席就是本地队列、与从前一字不差，另一个节点的名字则把任务交出去并等它的答复（**路由表不动**）。接收方只检查**它自己 `peers.json` 里的一件事**：发送方那一条有没有声明 **`dispatch`**（一条声明，与 §6.7 的 `server` 同形，**默认拒绝**）；任务在接收方自己的队列上跑，`host.dispatch.received` 记下收据，一帧把答复带回去。**无新 capability、无新路由、无新依赖、不写调度；`audit` 未动。** 边界已记下：跨设备派发以「节点**在某个 workgroup 里**」为前提。`docs/cross-device-dispatch.md` + zh 是新的。**决策 §143。**

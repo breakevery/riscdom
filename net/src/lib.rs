@@ -104,8 +104,8 @@ pub use sign::{verify, verify_at, PeerKeys, VerifiedMessage, VerifyError};
 pub use suppression::{
     backoff_delay_ms, centre_report_from, first_in_line, is_first_in_line, is_segment_done,
     is_segment_event, is_takeover, segment_done_body, segment_event_body, takeover_body,
-    SegmentDone, SegmentEvent, Suppression, SuppressionPhase, Takeover, SUPPRESSION_BACKOFF_MAX,
-    SUPPRESSION_WAIT,
+    verify_delivery, DeliveryProblem, SegmentDone, SegmentEvent, Suppression, SuppressionPhase,
+    Takeover, SUPPRESSION_BACKOFF_MAX, SUPPRESSION_WAIT,
 };
 pub use task::{
     is_task, is_task_reply, task_body, task_from_body, task_reply_body, task_reply_from_body,

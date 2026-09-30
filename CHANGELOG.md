@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A delivered segment is checked, and a refusal is recorded** (v1.0 batch CN / M6-5-2a, the second piece of
+  cross-chain verification): a segment arriving at its centre is now checked between being rebuilt and being
+  merged — **the envelope** (every position `0..total` exactly once, addressed to this node) and **the
+  rebuild** (`verify_chain` on the store the centre just wrote) — and the verdict lands on the chain as
+  **`host.audit.chain_verified`** or **`host.audit.chain_rejected`**. A refusal means `merge_segment` is not
+  called, the row is neither `folded` nor `forked`, and the segment's own file stays: a refused delivery is
+  still evidence. A stream that carried **no** event is now answered instead of dropped — `total: 0` is
+  consistent and folds as an empty segment, `total: n` is a gap and is refused. A segment whose anchor has no
+  length predates the column, so it is recorded as **skipped** and merged. **What it cannot check is said out
+  loud**: the events' hashes do not travel, so a pass is *checked*, never *proven* (M6-5-2b is anchor
+  continuity). **`compute_hash` and `verify_chain` are untouched, the wire frames are untouched, and `audit`
+  gains no new function.** `docs/cross-chain-verification.md` + zh gain §3. **Decision §145.**
+
 - **An anchor grows a second half** (v1.0 batch CL / M6-5-1, the first piece of cross-chain verification):
   roadmap §7's second `[open]` — *how a cross-chain reference is verified* — is answered **by digest**, so the
   reference gains the half it never had. `segments.head_prev_length` (an `INTEGER` column beside

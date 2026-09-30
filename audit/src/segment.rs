@@ -32,6 +32,27 @@ pub const ACTION_SEGMENT_MERGED: &str = "host.audit.segment_merged";
 /// main chain records that the two disagree.
 pub const ACTION_SEGMENT_FORKED: &str = "host.audit.segment_forked";
 
+/// The audit event that records a delivered segment **passing** the checks its receiver can make
+/// (v1.0 M6-5-2a).
+///
+/// The checks are the delivery's own: the events match the end frame, and the store the receiver rebuilt
+/// from them is intact. A segment whose anchor carries no length predates that column, so its row is
+/// written with `checked: "skipped"` rather than pretending it was verified. What the receiver **cannot**
+/// check yet — that those events were really on the sender's chain — needs the events' own hashes and is
+/// M6-5-2b's.
+///
+/// Like the other `host.audit.*` names this is an **audit event name**, not a stream name: the twenty
+/// `control-plane-events.md` names are a different vocabulary.
+pub const ACTION_CHAIN_VERIFIED: &str = "host.audit.chain_verified";
+
+/// The audit event that records a delivered segment **failing** those checks (v1.0 M6-5-2a).
+///
+/// It replaces silence. The segment is **not** merged — nothing of it reaches the main chain — and it is
+/// not marked `forked` either: a fork is "both sides are real and nobody has said which is right", and
+/// this is "the delivery did not hold together". The segment's own file is kept: a refused delivery is
+/// still evidence.
+pub const ACTION_CHAIN_REJECTED: &str = "host.audit.chain_rejected";
+
 /// The prefix a **partial merge** leaves in a segment's `note` (v1.0 M5-2a).
 ///
 /// A merge that failed part way through cannot be undone (the chain only grows), so it records what happened
@@ -278,6 +299,47 @@ pub fn segment_forked_detail(
         "forked_at_ms": forked_at_ms,
         "reason": reason,
         "conflicting_event_id": conflicting_event_id,
+    })
+}
+
+/// The detail of a [`ACTION_CHAIN_VERIFIED`] event (v1.0 M6-5-2a): the delivery, and what was checked.
+///
+/// `checked` is `"delivery"` when both the envelope and the rebuild held, and `"skipped"` when the
+/// segment's anchor carried no length — the honest word for "nothing was checked here".
+pub fn chain_verified_detail(
+    segment_id: &str,
+    from: &str,
+    anchor_digest: Option<&str>,
+    anchor_length: Option<i64>,
+    events: usize,
+    skipped: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "segment_id": segment_id,
+        "from": from,
+        "anchor_digest": anchor_digest,
+        "anchor_length": anchor_length,
+        "events": events,
+        "checked": if skipped { "skipped" } else { "delivery" },
+    })
+}
+
+/// The detail of a [`ACTION_CHAIN_REJECTED`] event (v1.0 M6-5-2a): the delivery, and why it was refused.
+pub fn chain_rejected_detail(
+    segment_id: &str,
+    from: &str,
+    anchor_digest: Option<&str>,
+    anchor_length: Option<i64>,
+    events: usize,
+    reason: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "segment_id": segment_id,
+        "from": from,
+        "anchor_digest": anchor_digest,
+        "anchor_length": anchor_length,
+        "events": events,
+        "reason": reason,
     })
 }
 
