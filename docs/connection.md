@@ -756,7 +756,7 @@ memory and no reader reads it ([cross-chain-verification.md §7](cross-chain-ver
 produced, carried across the layer, and then consulted by nobody. They are recorded here so the next batch
 does not mistake either for a working path.
 
-### 11.1 A registration now carries claims, and nothing consumes them yet
+### 11.1 A registration carries claims, and the row now has a reader
 
 **[settled]** A §6.6 registration carries the claims a node makes about itself — `capabilities` and
 `rooms` — and since **v1.0 M6-2b-1** the first of those is no longer empty: the node derives it from its own
@@ -764,24 +764,35 @@ configuration (`server` when it runs the in-network server role, `dispatch` when
 peer; [decisions §151](decisions.md)), and no new setting is involved. The server keeps both on the node's
 row (`OnlineEntry`, "what it last said it can do") the way it always did.
 
-**[settled, and still a gap]** **Neither `server/` nor `host-core/` reads that field.** The two
-`capabilities` words the kernel actually acts on — `server`, for §6.7's siblings, and `dispatch`, for
-M6-1b's default deny — are read from a node's **own** `peers.json`, not from the server's table. So the
-row's `capabilities` now travels *with content* and is *visible over `--json`*, and nothing in the kernel
-consumes it as an answer to "what can that node do?". Giving it a reader is **M6-2b-2** (`/v0/online`); the
-open item [cross-device-dispatch.md §6](cross-device-dispatch.md) already names is that same question.
+**[settled] The row has a reader (v1.0 M6-2b-2).** `GET /v0/online` answers with this node's server
+role's own runtime table — `RelayServer::online`, one `OnlineEntry` per node registered with it — so the
+claims a registration made are now **readable**, not merely stored. Two things it is **not**: not
+§4.1/§11.2's published registry, and not this node's `peers.json` ([§4.1](#41-the-table-the-in-network-server-hands-down)).
+A node that runs no server role answers `null` (the connection layer's rule: absent data is `null`, never
+`404`), and a serving node nobody has registered with answers `[]`.
+
+**[settled] Reading it is not acting on it.** The two `capabilities` words the kernel acts on — `server`,
+for §6.7's siblings, and `dispatch`, for M6-1b's default deny — are still read from a node's **own**
+`peers.json`, never from a row, and which node a task should go to remains the caller's
+([cross-device-dispatch.md §6](cross-device-dispatch.md)). The row's other fields are named as they are:
+`addresses` (empty while no peer port is claimed), `last_heartbeat_ms` (a transport fact), and
+**`state` and `judged_at_ms`, which are this server's *opinion* of a peer** — one observer's silence, and
+the witnesses' agreement (§6.7) — rather than a fact about the world. No key travels in a row.
 
 ### 11.2 The registry can be asked for, and no production caller asks
 
-**[settled, and a gap]** §4.1's hand-down has both halves on disk: `RelayServer` answers a registry request
-with a generation and its table, and `RelayClient::request_registry` asks. **No production code calls it** — not
-`host-core`, not `server`, not the CLI; the only callers are the network crate's own tests. A node
-therefore holds the `NodeTable` it was handed **at startup and on every reconnect** (the push §4.1
-describes) and never asks for a fresh one itself. Whether a command or an M ever needs to poll it is open.
+**[settled, and still a gap — and `/v0/online` is not its reader]** §4.1's hand-down has both halves on
+disk: `RelayServer` answers a registry request with a generation and its table, and
+`RelayClient::request_registry` asks. **No production code calls it** — not `host-core`, not `server`, not
+the CLI; the only callers are the network crate's own tests. A node therefore holds the `NodeTable` it was
+handed **at startup and on every reconnect** (the push §4.1 describes) and never asks for a fresh one
+itself. §11.1's `/v0/online` does **not** close this: it reads the server's *registrations*, which is a
+different store from the *published table* §4.1 hands down. Whether a command or an M ever needs to poll the
+latter is open.
 
 The **other side** of the same coin is [§4.1](#41-the-table-the-in-network-server-hands-down): the table a
 node is handed carries each entry's `capabilities`, so a node *could* read a peer's declared claims without
 asking the peer — but today it does not, and §11.1 is why the claims it would read are the configured ones.
 
 **Frozen**: nothing here changes §4.1's push, §6.6's row, or the two claims the kernel *does* read.
-**Not frozen**: whether either gap closes, and in which batch.
+**Not frozen**: whether the registry gap (§11.2) closes, and in which batch.

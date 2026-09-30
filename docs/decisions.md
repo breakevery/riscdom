@@ -4502,3 +4502,57 @@ zh; `docs/cross-device-dispatch.md` §7 + zh; `docs/decisions.md` (the two `ask_
 SDK, no dependency, no new settings field; `net` (including `riscdom-relay`'s missing HTTP face) is
 untouched; `compute_hash` / `verify_chain` / the append-only triggers are untouched.** **M6-2b-2 is
 untouched.**
+
+## 152. The runtime table gets a reader: `GET /v0/online`
+
+**Date**: 2026-10-01 ｜ **Status**: Decided and implemented (batch CZ / M6-2b-2)
+
+**Decision**: The second half of **M6-2b**, and the reader batch CW/§11.1 said was missing:
+
+- **`GET /v0/online`** — a **literal** route in `ROUTES` with `Action::Online`, capability **`status.read`**
+  (a query about this node's own surface, like `/v0/peers` and `/v0/connection`; **no new capability
+  name**). It answers with the **server role's own runtime table** — `app.server_role()` →
+  `RelayServer::online()` — so a node that is serving reports the nodes registered with it, `capabilities`
+  and all.
+- **`null` when this node runs no server role**, `[]` when it serves but nobody has registered — the
+  connection layer's rule (absent data is `null`, never `404`; an empty table is a fact).
+- **`OnlineEntry` and `Online` gain `Serialize`** in `net` (the row is served as it stands; `Online` spells
+  `online` / `offline`, exactly what its `as_str` returns). **No view type and no key material**: an
+  `OnlineEntry` carries no key, and `addresses` is empty until a peer port is claimed.
+- **Full exposure, with the standing written down** (owner's call): `state` and `judged_at_ms` travel under
+  their own names, and §11.1 says what they are — **this server's opinion of a peer**, one observer's
+  silence and the witnesses' agreement (§6.7), not a fact about the world.
+
+**Why**: Batch CW found that the row's `capabilities` was empty by construction; batch CX gave it a writer;
+this batch gives it a **reader**, which is what "a capability description a caller can consult" means for
+the **other end** of a dispatch. Two boundaries stay where they were: the route reads
+`RelayServer::online` — the **registrations** — and **not** `RelayServer::registry` (the published table
+§4.1 hands down, whose pull still has no production caller, §11.2) and **not** `/v0/peers` (this node's own
+file). And reading is not acting: which node a task goes to is still the caller's (red line 1). The relay
+is untouched — it has no HTTP face, and this route belongs to the node's own control plane.
+
+**The chain this route drags with it — and why the batch is atomic**: a literal route is a row in `ROUTES`, a
+row in `docs/control-plane-api.md` §5.1 (**37 → 38**, both languages), a row *and* a definition in
+`docs/tool-schema-control-plane.md`'s marked blocks (**§3.1 37 → 38**, both languages), a row in both SDKs'
+committed tables (**with their `37 → 38` assertions and READMEs**), and a case in `smoke.rs`'s query table
+(**38 → 39**). Three tests read those documents back — `the_table_has_the_documented_endpoints`,
+`the_tool_schema_document_lists_exactly_the_routes_the_server_serves`, and the SDKs' own drift guards — so
+the code, the two documents and both SDKs have to land in one commit. `scripts/check-tool-schema.mjs` needs
+**no** change (`online` is the automatic derivation of `GET /v0/online`; the named-pattern exception list is
+for verb-named path-parameter routes only).
+
+**A correction this batch carries**: batches CV/CY's own wording pointed at §11.2 (the registry pull) as the
+gap `/v0/online` would close. It does not — §11.2's gap is the *published table*, a different store with no
+caller still — so the closure is written where it belongs (**§11.1**) and §11.2 says plainly that this route
+is not its reader.
+
+**Impact**: `net/src/relay.rs` (`Serialize` on `OnlineEntry` + `Online`); `server/src/routes.rs`
+(`Action::Online`, the `ROUTES` row, the handler); `server/tests/smoke.rs` (+1 case, count 38 → 39, the
+`null` loop, and a new end-to-end test that a real registration lands in the table);
+`docs/control-plane-api.md` + zh; `docs/tool-schema-control-plane.md` + zh; `sdk/rust/src/lib.rs` +
+`sdk/rust/README.md`; `sdk/typescript/src/index.ts` + `sdk/typescript/test/endpoints.test.ts` +
+`sdk/typescript/README.md`; `docs/connection.md` §11.1/§11.2 + zh; `docs/cross-device-dispatch.md` §7 + zh;
+`CHANGELOG.md` + zh; `docs/handoff.md` + zh. **No new capability name (the 33-word vocabulary is
+untouched), no CLI command, no UI panel, no `patterns` row, no dependency; `net/src/bin/riscdom-relay.rs`,
+`server/src/auth.rs`, `audit/`, `sandbox/` are untouched; `compute_hash` / `verify_chain` / the append-only
+triggers are untouched.**

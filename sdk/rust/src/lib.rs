@@ -96,6 +96,7 @@ pub const QUERY_ENDPOINTS: &[Endpoint] = &[
     endpoint("peers", "/v0/peers", "status.read"),
     endpoint("rooms", "/v0/rooms", "status.read"),
     endpoint("connection", "/v0/connection", "status.read"),
+    endpoint("online", "/v0/online", "status.read"),
 ];
 
 /// A `GET` row, so the table above reads as a table.
@@ -1061,6 +1062,11 @@ impl Client {
         self.get("/v0/connection", &[])
     }
 
+    /// `GET /v0/online` — capability `status.read`.
+    pub fn online(&self) -> Result<Value, ClientError> {
+        self.get("/v0/online", &[])
+    }
+
     /// `POST` a typed body and read a JSON answer — what the control methods below use.
     fn post_body(&self, path: &str, body: &impl Serialize) -> Result<Value, ClientError> {
         let value = serde_json::to_value(body)
@@ -1512,7 +1518,7 @@ mod tests {
             sdk, documented,
             "the SDK's query table against the document"
         );
-        assert_eq!(QUERY_ENDPOINTS.len(), 37, "§5.1 is 37 queries");
+        assert_eq!(QUERY_ENDPOINTS.len(), 38, "§5.1 is 38 queries");
         assert!(
             QUERY_ENDPOINTS
                 .iter()

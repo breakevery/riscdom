@@ -8,7 +8,7 @@ already define, which adds **no semantics** of its own. The HTTP surface is
 [control-plane-api.md](../../docs/control-plane-api.md) §5, the error model its §4, authentication its §3,
 and the stream [control-plane-events.md](../../docs/control-plane-events.md).
 
-**What is here today (batches BA + BB): the whole surface.** The **37 `GET` queries** of §5.1 and the
+**What is here today (batches BA + BB): the whole surface.** The **38 `GET` queries** of §5.1 and the
 **36 `POST` controls** of §5.2 as typed methods, the **bearer token**, the
 `{code, message, retryable, cause}` **error as a type**, typed request parameters, and the **event
 stream** as a blocking, frame-by-frame [`Subscription`].

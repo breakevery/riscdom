@@ -63,7 +63,7 @@ function sorted(rows: string[][]): string[][] {
 
 test("the endpoint table matches the documented queries", () => {
   assert.deepEqual(sorted(sdkRows(QUERY_ENDPOINTS)), sorted(markedRows("queries")));
-  assert.equal(QUERY_ENDPOINTS.length, 37, "§5.1 is 37 queries");
+  assert.equal(QUERY_ENDPOINTS.length, 38, "§5.1 is 38 queries");
   assert.ok(QUERY_ENDPOINTS.every((endpoint) => endpoint.method === "GET"));
 });
 

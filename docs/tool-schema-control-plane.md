@@ -63,7 +63,7 @@ Tool names are unique across the whole set (checked).
 
 `arguments` is the request: a query string for a `GET`, a JSON body for a `POST`.
 
-### 3.1 Queries (37)
+### 3.1 Queries (38)
 
 <!-- tool-routes:queries:begin -->
 | Tool | Method | Path | Capability | Arguments |
@@ -105,6 +105,7 @@ Tool names are unique across the whole set (checked).
 | `peers` | GET | `/v0/peers` | `status.read` | — |
 | `rooms` | GET | `/v0/rooms` | `status.read` | — |
 | `connection` | GET | `/v0/connection` | `status.read` | — |
+| `online` | GET | `/v0/online` | `status.read` | — |
 <!-- tool-routes:queries:end -->
 
 ### 3.2 Controls (36)
@@ -224,6 +225,7 @@ say what the model may ask for.
 {"type":"function","function":{"name":"peers","description":"Who this node knows: the entries of its peers.json. Null when there is no peers.json.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"rooms","description":"The rooms this node's rooms.json defines. Null when there is no rooms.json.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"connection","description":"The connection layer's state: is a cross-region server configured, is a session live, and any problem.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"online","description":"This node's server role's runtime table: one entry per node registered with it, with what it declared and the liveness this server read. Null when this node runs no server role.","parameters":{"type":"object","properties":{},"required":[]}}}
 ]
 ```
 <!-- tool-defs:queries:end -->

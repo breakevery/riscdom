@@ -59,6 +59,7 @@ use crate::sign::{authenticate_forwarded, check_identity, PeerKeys, VerifiedMess
 use crate::transport::{
     frame_bytes, Connection, Listener, Op, Relay, TransportConfig, TransportError,
 };
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
@@ -344,7 +345,11 @@ impl Registration {
 }
 
 /// Whether a row is inside or outside §6.6's window.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Serialised as the same word [`Self::as_str`] returns (`"online"` / `"offline"`), because that
+/// word is what the API document and the CLI already print (v1.0 M6-2b-2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Online {
     /// A beat arrived within [`ONLINE_WINDOW_MS`].
     Online,
@@ -363,7 +368,11 @@ impl Online {
 }
 
 /// One row of the online-status table, as it reads at a given moment (§6.6).
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Serialised by `GET /v0/online` (v1.0 M6-2b-2) as it stands: there is **no key material here**,
+/// `addresses` is empty while no peer port is claimed, `capabilities`/`rooms` are what the node
+/// declared, and `state`/`judged_at_ms` are this server's **opinion** of a peer rather than a fact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OnlineEntry {
     /// The key, and the row's only identity.
     pub node_id: String,

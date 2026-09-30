@@ -97,7 +97,7 @@ pub struct Actor {
 
 查询类命令为 `GET`。控制类命令为 `POST`。「权限」列是服务端在处理器运行前检查的前置条件（§3；§6 缺口 G2）。最后一列是与端点对应的 Tauri 命令名，便于集成者把两个面对齐。
 
-### 5.1 查询类（37）
+### 5.1 查询类（38）
 
 | 端点 | 方法 | 权限 | 请求 | 响应 | 对应 Tauri 命令 |
 |---|---|---|---|---|---|
@@ -144,6 +144,7 @@ pub struct Actor {
 | `/v0/peers` | GET | `status.read` | 无 | `[PeerEntry]`，或 `null`（无 `peers.json`） | `list_peers` |
 | `/v0/rooms` | GET | `status.read` | 无 | `[Room]`，或 `null`（无 `rooms.json`） | `list_rooms` |
 | `/v0/connection` | GET | `status.read` | 无 | `{ "configured": bool, "connected": bool, "problem": string \| null }` | `connection_status` |
+| `/v0/online` | GET | `status.read` | 无 | `[OnlineEntry]`，或 `null`（本节点未跑 server role） | — |
 
 ### 5.2 控制类（36）—— 已于 v0.9 批次 4 实装，沙箱 F1、F2b-2、F2c、项目进出与任务端点扩充
 

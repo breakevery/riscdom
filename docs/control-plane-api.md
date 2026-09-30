@@ -180,7 +180,7 @@ Query commands are `GET`. Control commands are `POST`. "Capability" is the preco
 the server checks before the handler runs (§3; §6 gap G2). The last column names the
 Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 
-### 5.1 Queries (37)
+### 5.1 Queries (38)
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
@@ -227,6 +227,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/peers` | GET | `status.read` | — | `[PeerEntry]`, or `null` (no `peers.json`) | `list_peers` |
 | `/v0/rooms` | GET | `status.read` | — | `[Room]`, or `null` (no `rooms.json`) | `list_rooms` |
 | `/v0/connection` | GET | `status.read` | — | `{ "configured": bool, "connected": bool, "problem": string \| null }` | `connection_status` |
+| `/v0/online` | GET | `status.read` | — | `[OnlineEntry]`, or `null` (this node runs no server role) | — |
 
 ### 5.2 Controls (36) — implemented in v0.9 batch 4, extended by sandbox F1, F2b-2, F2c, project in/out and the task endpoint
 

@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The runtime table gets a reader: `GET /v0/online`** (v1.0 batch CZ / M6-2b-2, the second half of M6-2b):
+  a **literal** route (capability **`status.read`**, no new name) that answers with this node's **server
+  role's** runtime table — `RelayServer::online()`, one `OnlineEntry` per node registered with it, the
+  `capabilities` batch CX gave a writer. `null` when this node runs no server role, `[]` when it serves but
+  nobody has registered. `OnlineEntry` and `Online` gain **`Serialize`** in `net` (the row is served as it
+  stands — no key material, `addresses` empty until a peer port is claimed); `state`/`judged_at_ms` travel
+  under their own names and are **this server's opinion of a peer**, as `connection.md` §11.1 now says.
+  **It reads `RelayServer::online`, not the published registry (§11.2, whose pull still has no caller) and
+  not `/v0/peers`.** The atomic chain: `ROUTES` + §5.1 (**37 → 38**) + tool-schema queries/definitions
+  (**§3.1 37 → 38**) + both SDKs (tables, methods, `37 → 38` assertions, READMEs) + `smoke.rs` (**38 → 39**)
+  — three tests read those documents back, so they land in one commit. **No CLI command, no UI panel, no
+  capability name, no dependency; the relay still has no HTTP face.** **Decision §152.**
+
 - **A node now says what it is configured to do, and a peer's declaration is shown** (v1.0 batch CX /
   M6-2b-1, the first half of M6-2b): a §6.6 registration now carries **derived claims** — `server` when
   `settings.network.server_role` is set, `dispatch` when `peers.json` knows at least one peer, both from

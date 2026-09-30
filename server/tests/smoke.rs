@@ -5,7 +5,7 @@
 //! the wire format is the deliverable, and nothing here may call QEMU or the
 //! network. The heartbeat is disabled so the streams under test are deterministic.
 
-use host_core::settings::{LocalSettings, NetworkSettings, SETTINGS_VERSION};
+use host_core::settings::{LocalSettings, NetworkSettings, ServerRoleSettings, SETTINGS_VERSION};
 use host_core::AppState;
 use host_core::EventSink;
 use net::{NodeKey, PeerEntry, PeersFile, RateRule, Room, RoomRules, RoomsFile};
@@ -119,6 +119,17 @@ fn serve_with_state(workspace: PathBuf, authn: Arc<dyn Authn>) -> (SocketAddr, A
 /// deliberately keeps the process-wide data directory and never loads them, so `with_data_dir`
 /// (which owns its directory) is what a test that wants the wiring builds state with.
 fn serve_with_data_dir(workspace: PathBuf, data_dir: PathBuf, authn: Arc<dyn Authn>) -> SocketAddr {
+    let (addr, _app) = serve_with_data_dir_and_state(workspace, data_dir, authn);
+    addr
+}
+
+/// The same, handing the state back so a test can reach what only the host knows — the server
+/// role's bound address, say, which is how a node is made to register with it (v1.0 M6-2b-2).
+fn serve_with_data_dir_and_state(
+    workspace: PathBuf,
+    data_dir: PathBuf,
+    authn: Arc<dyn Authn>,
+) -> (SocketAddr, Arc<AppState>) {
     let app = Arc::new(AppState::with_data_dir(&workspace, &data_dir).expect("data-dir state"));
     let cfg = ServerConfig::new("127.0.0.1:0".parse().expect("addr"))
         .with_heartbeat(None)
@@ -133,7 +144,7 @@ fn serve_with_data_dir(workspace: PathBuf, data_dir: PathBuf, authn: Arc<dyn Aut
     std::thread::spawn(move || {
         runtime.block_on(std::future::pending::<()>());
     });
-    addr
+    (addr, app)
 }
 
 /// Write `settings.json` into a workspace, before a state reads it.
@@ -531,10 +542,13 @@ fn every_query_endpoint_answers() {
         ("/v0/peers", 200, ""),
         ("/v0/rooms", 200, ""),
         ("/v0/connection", 200, "connected"),
+        // The server role's runtime view (v1.0 M6-2b-2): `null` here, because a fresh node with
+        // no `network.server_role` is not serving anybody.
+        ("/v0/online", 200, ""),
     ];
     assert_eq!(
         cases.len(),
-        38,
+        39,
         "the served queries (the table's rows and the three path-parameter ones), and the reserved aggregate"
     );
     for (path, want_status, key) in cases {
@@ -552,7 +566,7 @@ fn the_connection_layer_answers_over_http() {
     // HTTP. A node with nothing configured has `null` for each — absent data is `null`, never a
     // `404` (§2: a node that never joined a network is a working node that has nothing to say).
     let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
-    for path in ["/v0/identity", "/v0/peers", "/v0/rooms"] {
+    for path in ["/v0/identity", "/v0/peers", "/v0/rooms", "/v0/online"] {
         let (status, raw) = get(addr, path);
         assert_eq!(status, 200, "{path}: {raw}");
         assert!(raw.is_null(), "{path}: nothing to report, so `null`: {raw}");
@@ -625,6 +639,97 @@ fn the_connection_layer_answers_over_http() {
     assert_eq!(status, 200, "{raw}");
     assert_eq!(raw.as_array().expect("an array").len(), 1, "{raw}");
     assert_eq!(raw[0]["name"], "lab", "{raw}");
+}
+
+#[test]
+fn the_online_view_is_the_server_roles_own_runtime_table() {
+    // v1.0 M6-2b-2: `GET /v0/online` gives the `OnlineTable` a reader. It is the **server
+    // role's** view — the rows a registration and its beats made — which is a different thing
+    // from `/v0/peers` (this node's `peers.json`) and from the registry a server publishes.
+    let workspace = temp_workspace("online-ws");
+    let data_dir = temp_workspace("online-data");
+    let settings = LocalSettings {
+        version: SETTINGS_VERSION,
+        network: Some(NetworkSettings {
+            lan_enabled: true,
+            server_role: Some(ServerRoleSettings {
+                bind: "127.0.0.1:0".to_string(),
+            }),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    settings
+        .save(&data_dir.join("settings.json"))
+        .expect("settings.json");
+    let node_key = NodeKey::generate().expect("key");
+    NodeKey::save_new_in(&data_dir, &node_key).expect("node.key");
+    // The role authenticates the peer from **its own** `peers.json` (§6.3), so the node that
+    // will register has to be there with its key.
+    let peer_key = NodeKey::generate().expect("peer key");
+    let mut peers = PeersFile::empty();
+    peers.peers.push(PeerEntry::new(
+        "dev-b",
+        "127.0.0.1:2",
+        peer_key.public_jwk(),
+    ));
+    PeersFile::save_in(&data_dir, &peers).expect("peers.json");
+    RoomsFile::save_in(&data_dir, &RoomsFile::empty()).expect("rooms.json");
+
+    let (addr, state) = serve_with_data_dir_and_state(workspace, data_dir, Arc::new(NoAuth));
+
+    // A serving node nobody has registered with answers `[]`: an empty table is a fact, not the
+    // absence of one (a node that is *not* serving answers `null`; the loop above asserts that).
+    let (status, raw) = get(addr, "/v0/online");
+    assert_eq!(status, 200, "{raw}");
+    assert_eq!(raw.as_array().expect("an array").len(), 0, "{raw}");
+
+    // A peer registers on the role's own address (§6.6). The entry describes the **server**
+    // (that is what the client verifies its answers against), so it is built from the identity
+    // the node serves rather than the one being registered.
+    let (_, identity) = get(addr, "/v0/identity");
+    let role_addr = state
+        .server_role_addr()
+        .expect("the configured role is serving");
+    let server_entry = PeerEntry::new(
+        identity["node_id"].as_str().expect("a node id"),
+        &role_addr,
+        identity["public_jwk"].clone(),
+    );
+    let client = net::RelayClient::new(
+        "dev-b",
+        peer_key,
+        &server_entry,
+        net::TransportConfig::default(),
+    )
+    .expect("client");
+    client
+        .register(&net::Registration::in_rooms(["lab".to_string()]))
+        .expect("register");
+
+    // The row shows up with what the registration and the transport said: the rooms it claimed,
+    // a beat time, the liveness word — and **no key**, because none travels in a row.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let (status, raw) = get(addr, "/v0/online");
+        assert_eq!(status, 200, "{raw}");
+        let rows = raw.as_array().expect("an array");
+        if let Some(row) = rows.first() {
+            assert_eq!(row["node_id"], "dev-b", "{raw}");
+            assert_eq!(row["rooms"], serde_json::json!(["lab"]), "{raw}");
+            assert_eq!(row["state"], "online", "{raw}");
+            assert!(row["last_heartbeat_ms"].is_i64(), "{raw}");
+            assert!(row["capabilities"].is_array(), "{raw}");
+            assert!(row["addresses"].is_array(), "{raw}");
+            assert!(row.get("public_key").is_none(), "no key travels: {raw}");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the registered node never appeared: {raw}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 #[test]

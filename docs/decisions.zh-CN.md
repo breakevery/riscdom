@@ -1630,3 +1630,22 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **缘由**：批 CW 找到了这个缺口最锋利的版本 —— 行的 `capabilities` **在构造上就是空的**，因为生产里唯一的注册是 `in_rooms`，它只填 `rooms`。所以缺的那一半不是读者，而是**写者**，而写者只是 `host-core` 里的一处构造：这就是为什么本批是 (d0)，也是为什么它不需要路由、capability 与 SDK。声明是**从配置推导**的、不是手写的，因为部署者早已说过这个节点是否服务一个 workgroup、是否认识同侪；再让他们写一份声明列表，就是多一个要对齐的地方，而新造一个设置字段就是词汇。**(c') 是同一个问题在线这一侧的便宜那一半**：`/v0/peers` 自批 AC 起就带着那些声明，展示它们只需一节 CLI 输出和标题里那个「声明」二字。**给那行一个消费者仍是 M6-2b-2**（`/v0/online`），而 **relay 仍然没有 HTTP 面** —— 那是 §6.5 的红线，本批根本不碰 `net`。
 
 **影响**：`host-core/src/state.rs`（`connection_claims`、自由的 `connection_claims_from`、`start_beat` 里的注册构造）+ 它的单测；`host-core/tests/connection.rs`（一个注册中节点的声明）；`cli/src/args.rs`（usage）、`cli/src/lib.rs`（`CAPABILITY_READS` 4 → 5）、`cli/src/render.rs`（`peer_declarations`）、`cli/tests/read_only.rs`、`cli/README.md` + zh（一行）；`docs/connection.md` §11.1 + zh；`docs/cross-device-dispatch.md` §7 + zh；`docs/decisions.md`（那两处 `ask_registry`）+ zh；`docs/handoff.md` + zh；`CHANGELOG.md` + zh。**无路由表、无 §5.1/§5.2 计数、无 capability 名、无 SDK、无依赖、无新设置字段；`net`（包括 `riscdom-relay` 缺失的 HTTP 面）未动；`compute_hash` / `verify_chain` / append-only 触发器未动。** **M6-2b-2 未动。**
+
+## 152. 运行时表有了读者：`GET /v0/online`
+
+**日期**：2026-10-01 ｜ **状态**：已定且已实现（批 CZ / M6-2b-2）
+
+**决策**：**M6-2b** 的后半，也是批 CW/§11.1 说缺的那个读者：
+
+- **`GET /v0/online`** —— `ROUTES` 里的一条**字面**路由，`Action::Online`，capability **`status.read`**（关于本节点自身表面的查询，与 `/v0/peers`、`/v0/connection` 同类；**不新增 capability 名**）。它用 **server role 自己的运行时表**作答 —— `app.server_role()` → `RelayServer::online()` —— 所以在服务的节点报告注册到它的那些节点，`capabilities` 都在。
+- **本节点没跑 server role 时回 `null`**，在服务但无人注册时回 `[]` —— 连接层的规矩（缺失即 `null`，绝不是 `404`；空表是事实）。
+- **`OnlineEntry` 与 `Online` 在 `net` 里获得 `Serialize`**（行按原样被服务；`Online` 拼作 `online` / `offline`，与它的 `as_str` 一字不差）。**没有 view 类型、没有密钥材料**：`OnlineEntry` 不含密钥，`addresses` 在未声明 peer 端口前为空。
+- **全暴露，且把它的身份写下来**（owner 的裁决）：`state` 与 `judged_at_ms` 按原名旅行，而 §11.1 写明它们是什么 —— **这台服务器对某个同侪的意见**，一个观察者的沉默与见证者的一致（§6.7），而不是关于世界的事实。
+
+**缘由**：批 CW 发现行的 `capabilities` 在构造上是空的；批 CX 给了它写者；本批给它一个**读者** —— 这正是「一个调用方可以查询的能力描述」对派发的**对端**意味着什么。两条边界留在原地：这条路由读 `RelayServer::online`（**注册行**），**不是** `RelayServer::registry`（§4.1 下发的那份发布的表，它的主动获取仍无生产调用者，§11.2），也**不是** `/v0/peers`（本节点自己的文件）。而读不等于行动：一个任务该去哪个节点仍是调用方的（红线 1）。relay 未动 —— 它没有 HTTP 面，这条路由属于本节点自己的控制面。
+
+**这条路由拖着的连锁 —— 也是本批为何原子**：一条字面路由是 `ROUTES` 的一行、`docs/control-plane-api.md` §5.1 的一行（**37 → 38**，双语）、`docs/tool-schema-control-plane.md` 标记块的一行*与*一条定义（**§3.1 37 → 38**，双语）、两个 SDK 提交表里的一行（**连同它们的 `37 → 38` 断言与 README**）、以及 `smoke.rs` 查询表里的一例（**38 → 39**）。有三个测试把这些文档读回来 —— `the_table_has_the_documented_endpoints`、`the_tool_schema_document_lists_exactly_the_routes_the_server_serves`、以及两个 SDK 自己的漂移守卫 —— 所以代码、两份文档与两个 SDK 必须落在同一个提交里。`scripts/check-tool-schema.mjs` **无需**改动（`online` 是 `GET /v0/online` 的自动派生；具名例外表只针对动词命名的路径参数路由）。
+
+**本批携带的一处更正**：批 CV/CY 自己的措辞把 `/v0/online` 要收口的缺口指向了 §11.2（注册表获取）。它并不是 —— §11.2 的缺口是*发布的表*，一个不同的存储、至今仍无调用者 —— 所以收口写在它该在的地方（**§11.1**），而 §11.2 明说这条路由不是它的读者。
+
+**影响**：`net/src/relay.rs`（`OnlineEntry` + `Online` 的 `Serialize`）；`server/src/routes.rs`（`Action::Online`、`ROUTES` 行、handler）；`server/tests/smoke.rs`（+1 例、计数 38 → 39、`null` 循环，以及一个新端到端测试：真实注册落入表中）；`docs/control-plane-api.md` + zh；`docs/tool-schema-control-plane.md` + zh；`sdk/rust/src/lib.rs` + `sdk/rust/README.md`；`sdk/typescript/src/index.ts` + `sdk/typescript/test/endpoints.test.ts` + `sdk/typescript/README.md`；`docs/connection.md` §11.1/§11.2 + zh；`docs/cross-device-dispatch.md` §7 + zh；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。**不新增 capability 名（33 名词汇表未动）、不加 CLI 命令、不加 UI 面板、不动 `patterns`、不加依赖；`net/src/bin/riscdom-relay.rs`、`server/src/auth.rs`、`audit/`、`sandbox/` 未动；`compute_hash` / `verify_chain` / append-only 触发器未动。**

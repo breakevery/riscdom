@@ -40,7 +40,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 
 `arguments` 就是请求：`GET` 是查询串，`POST` 是 JSON body。
 
-### 3.1 查询类（37）
+### 3.1 查询类（38）
 
 <!-- tool-routes:queries:begin -->
 | Tool | Method | Path | Capability | Arguments |
@@ -82,6 +82,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | `peers` | GET | `/v0/peers` | `status.read` | — |
 | `rooms` | GET | `/v0/rooms` | `status.read` | — |
 | `connection` | GET | `/v0/connection` | `status.read` | — |
+| `online` | GET | `/v0/online` | `status.read` | — |
 <!-- tool-routes:queries:end -->
 
 ### 3.2 控制类（36）
@@ -199,6 +200,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 {"type":"function","function":{"name":"peers","description":"Who this node knows: the entries of its peers.json. Null when there is no peers.json.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"rooms","description":"The rooms this node's rooms.json defines. Null when there is no rooms.json.","parameters":{"type":"object","properties":{},"required":[]}}}
 {"type":"function","function":{"name":"connection","description":"The connection layer's state: is a cross-region server configured, is a session live, and any problem.","parameters":{"type":"object","properties":{},"required":[]}}}
+{"type":"function","function":{"name":"online","description":"This node's server role's runtime table: one entry per node registered with it, with what it declared and the liveness this server read. Null when this node runs no server role.","parameters":{"type":"object","properties":{},"required":[]}}}
 ]
 ```
 <!-- tool-defs:queries:end -->

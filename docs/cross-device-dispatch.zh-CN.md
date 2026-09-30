@@ -94,4 +94,6 @@
 
 **对端那一侧，今天只有一个声明。** 同侪 `peers.json` 条目里带着一个 `capabilities` 列表，而内核只从中读两个词（`server`、`dispatch`）—— 所以它说的是一个节点被*配置声明*成什么，而不是它现在能跑什么。自 **v1.0 M6-2b-1** 起，这份声明不只可读，还**被展示出来了**：`GET /v0/peers` 用本节点自己的条目作答（`capabilities` 都在），而 `riscdom node capabilities` 把它们作为最后一节 **PEER DECLARATIONS** 打印 —— 标题就写明它们是什么：每个同侪对自己说的，一个**声明而非事实** —— 于是调用方不必问任何人就能看到谁声明了什么。它就是本地文件的内容（所以可能含本节点自己那一条）。跨线去问一个同侪它能跑什么，是 **M6-2b**，仍是以后的事。同一问题牵涉的两条「被携带而无人读」的通道，记在 [connection.zh-CN.md §11](connection.zh-CN.md)。
 
+**而一个*服务*自己 workgroup 的节点，能看见它的注册者说了什么（v1.0 M6-2b-2）。** 上一段读的是本节点自己的文件；`GET /v0/online` 则用 **server role 的运行时表**作答 —— 每个注册到它的节点一行，`capabilities` 都在。没跑 server role 的节点回 `null`；在服务但无人注册的节点回 `[]`。
+
 **冻结**：命令的形状（`{node_id, executors, sandboxes, qemu, toolchain, peers}`）、它是 CLI 自己的拼装、以及它只做报告。**未冻结**：同侪的能力面是否有一天要跨线去问（M6-2b），以及 `/v0/peers` 是否有一天会带更多东西。

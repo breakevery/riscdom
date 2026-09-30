@@ -488,6 +488,16 @@ current request authorising it (§2).
   `--json`). **And the 8 `ask_registry` mentions became `request_registry`** — batch CV had named a symbol
   that does not exist. **`compute_hash` / `verify_chain` / the triggers untouched**; the relay still has no
   HTTP face. **Decision §151.**
+- **And the runtime table has a reader** (v1.0 batch CZ / M6-2b-2, 2026-10-01, the second half of M6-2b):
+  **`GET /v0/online`** — a literal route, capability `status.read` — answers with this node's **server
+  role's** table (`RelayServer::online()`), one row per node registered with it and the `capabilities`
+  batch CX gave a writer. `null` when the node runs no server role; `[]` when it serves but nobody has
+  registered. `OnlineEntry`/`Online` gained `Serialize` in `net`; `state`/`judged_at_ms` are **this server's
+  opinion of a peer** and §11.1 says so. It is **not** the published registry (§11.2's pull still has no
+  caller — batch CV/CY had pointed that gap at the wrong subsection) and **not** `/v0/peers`. The atomic
+  chain: `ROUTES` + §5.1 (37 → 38) + tool-schema (37 → 38, table + definition) + both SDKs (37 → 38) +
+  `smoke.rs` (38 → 39). **No CLI command, no UI panel, no capability name, no dependency; the relay still
+  has no HTTP face.** **Decision §152.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

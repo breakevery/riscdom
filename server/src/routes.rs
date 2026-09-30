@@ -79,6 +79,10 @@ pub(crate) enum Action {
     Rooms,
     /// `GET /v0/connection`: configured, connected, and any problem.
     Connection,
+    /// `GET /v0/online`: this node's server role's runtime view of the nodes registered with
+    /// it (v1.0 M6-2b-2). The rows a registration and its beats made — **not** the registry a
+    /// server publishes (`RelayServer::registry`) and **not** this node's `peers.json`.
+    Online,
     /// The reserved aggregate (§6, G3): answers 501.
     Resources,
     /// `/v0/executors`: the fleet this node dispatches to (v0.9 interface E0).
@@ -385,6 +389,10 @@ const ROUTES: &[(&str, &str, Capability, Action)] = &[
         Capability::StatusRead,
         Action::Connection,
     ),
+    // This node's **server role**'s runtime view (v1.0 M6-2b-2): the rows the registrations
+    // and beats on it made. A node that is not serving has nothing to show, and says `null`
+    // rather than pretending to an empty table it does not have.
+    ("GET", "/v0/online", Capability::StatusRead, Action::Online),
     // ---- controls ----
     (
         "POST",
@@ -1406,6 +1414,17 @@ pub(crate) fn dispatch(
                 .unwrap_or(false),
             "problem": app.connection_problem(),
         })),
+        // This node's server role's runtime view (v1.0 M6-2b-2). The rows exist only while the
+        // node is serving, so a node with no `network.server_role` answers `null` — the same
+        // "absent data is null, never 404" rule the other connection-layer reads follow. A
+        // serving node with nobody registered answers `[]`: that is a fact, not a gap. The
+        // rows are what the node declared (`capabilities`, `rooms`) plus transport facts
+        // (`last_heartbeat_ms`) and this server's **opinion** (`state`, `judged_at_ms`); no key
+        // travels in any of them.
+        Action::Online => match app.server_role() {
+            Some(server) => ok_json(&server.online()),
+            None => ok_json(&serde_json::Value::Null),
+        },
         // The one write on the sandbox surface (v0.9 sandbox F2b-2). The switch is
         // synchronous — validation, a stop, a start — so it runs inline here (and
         // inline in a Tauri command), and the two pre-checks exist so a refusal

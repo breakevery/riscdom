@@ -143,9 +143,14 @@ list, and the kernel reads exactly two words out of it (`server`, `dispatch`) �
 readable but **shown**: `GET /v0/peers` answers with this node's own entries, `capabilities` and all, and
 `riscdom node capabilities` prints them as a final **peer declarations** section — headed with what they are,
 what each peer says about itself, a **claim rather than a fact** — so a caller can see who has declared what
-without asking anyone. It is the local file's content (so it may include this node's own entry). Asking a
-peer what it can run, over the wire, is still later; [connection.md §11](connection.md) records the two
-carried-but-unread channels that touch the same question.
+without asking anyone. It is the local file's content (so it may include this node's own entry).
+
+**And a node that *serves* its workgroup can see what its registrants said (v1.0 M6-2b-2).** Where the
+paragraph above reads this node's own file, `GET /v0/online` answers with the **server role's runtime table**
+— one row per node registered with it, `capabilities` and all. A node that runs no server role answers
+`null`; a serving node nobody has registered with answers `[]`. Asking a peer what it can run, over the
+wire, is still later; [connection.md §11](connection.md) records the two carried-but-unread channels that
+touch the same question.
 
 **Frozen**: the command's shape (`{node_id, executors, sandboxes, qemu, toolchain, peers}`), that it is the
 CLI's own composition, and that it reports only. **Not frozen**: whether a peer's capability surface is ever

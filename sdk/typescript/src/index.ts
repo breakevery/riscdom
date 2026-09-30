@@ -86,6 +86,7 @@ export const QUERY_ENDPOINTS: readonly Endpoint[] = [
   query("peers", "/v0/peers", "status.read"),
   query("rooms", "/v0/rooms", "status.read"),
   query("connection", "/v0/connection", "status.read"),
+  query("online", "/v0/online", "status.read"),
 ];
 
 /**
@@ -801,6 +802,11 @@ export class Client {
   /** `GET /v0/connection` — capability `status.read`. */
   async connection(): Promise<unknown> {
     return this.get("/v0/connection");
+  }
+
+  /** `GET /v0/online` — capability `status.read`. */
+  async online(): Promise<unknown> {
+    return this.get("/v0/online");
   }
 
   /** `POST /v0/agent/run` — capability `agent.run`. */
