@@ -1562,3 +1562,22 @@ trait 属 v1.x 工作。
 **缘由**：三点。**哈希是让交付自证的东西。** M5-3c-2 有意把它们留在身后（它们属于发送方的链）；把它们加上，就把「这五个字段到了」变成「这一串事件重算得出且链接得上」—— 转录与被检过的转录之差。**以现有交付物，锚点那一环不可能验，而说出来是这项工作的一部分。** 锚点是 `segment_opened` 标记**之前**的链位置；一个段被交付的事件是该标记**之后**的那一段。所以第一条被交付事件的 `prev_hash` 是**标记**的哈希 —— 离锚点差一环，而标记从不被交付（它是该段*生命*的记录、不是它的事件之一）。那个假定 `events[0].prev_hash == anchor_digest` 的计划**按构造就是假的**；批 CO 在侦察时发现，owner 选了**诚实的降级**而不是造一个检查：这份链接检查证明流是一条链，绝不证明它是发送方链上的一段，文档也这么写（[cross-chain-verification.md §4](cross-chain-verification.zh-CN.md)），并把锚点那一环标为**尚欠**。**一个缺失字段不得静默削弱一个检查。** 加上哈希改变了能被要求的范围，所以第一道仍是交付**与重建**（与 M6-5-2a 一样），之后才是链接 —— 把哈希测试放到前面、记 `"skipped"`，会把 M6-5-2a 的空流拒绝撤销掉。
 
 **影响**：`net/src/suppression.rs` 多出 `LinkageProblem`、`verify_linkage`、`SegmentEvent` 的两个成员与其宽松读取，`net/src/lib.rs` 导出它们；`audit/src/segment.rs` 的两个 chain detail 构造器收 `checked` 与 `linkage`；`host-core/src/state.rs` 把源行的哈希搬进帧（`segment_frames`）并在 `receive_segment` 里跑第三道检查。`docs/cross-chain-verification.md` + zh 多出 §4 与一个列出「锚点那一环尚欠」的 §6。**`compute_hash` 与 `verify_chain` 未被触碰** —— `compute_hash` 是被*调用* —— append-only 触发器、路由表、能力词汇表与帧集合都未动，未加依赖。**M6-5-3（冲突出口）与 M6-5-4（汇总链 / 区间证明 / 点对点）未动。**
+
+## 148. 冲突用一个过滤器来观测，而关键事件的推送仍然没有读者
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 CR / M6-5-3a）
+
+**决策**：M6-5-3 的观测那一半，而本批的全部内容就是**一个 CLI 开关**加上把现状写下来。`riscdom audit events` 多出 **`--action-prefix <prefix>`** —— 服务器本来就有的过滤，只是 CLI 一直没有办法问它 —— 于是一个部署必须能看见的两件事各一条命令：
+
+```
+riscdom audit events --action-prefix host.audit.segment_forked      # 本节点的冲突
+riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒的交付
+```
+
+人类可读的表**不变**（它的 ACTION 列就是过滤器选中的东西）；行的 **detail** 用全局 `--json` 读。**无新路由、无新 capability、无新事件名、不改段行，`host-core` / `net` / `server` / `audit` / SDK 一律未动。** 把冲突标为已解决是 **M6-5-3b**，而它会是一条**追加的事件**（`host.audit.conflict_resolved`），**绝不**改行：行的 `state` 意为「未解决」，而它的 `folded` 值已经意为「已转录」。
+
+**缘由**：三点。**链已经持有这份观测。** fork 就是 `host.audit.segment_forked`（带 `{segment_id, kind, forked_at_ms, reason, conflicting_event_id}`）加一个标成 `forked` 的行；内容一点不缺，所以一个新端点换来的是**更宽的奇偶面**（路由表、两份语言的 API 文档、Rust 与 TypeScript 的端点表、CLI，以及四个奇偶测试），而信息本来就由 `action_prefix` 过滤器返回。**一个通用开关胜过一条专用命令。** `audit forks` 会把一个动作名写死、而且仍需同样的管道，而 `--action-prefix` 还能把这条线刚学会拒绝的每一种交付都亮出来。**而内核仍不选边。** 本批只读：它记下「有冲突」，从不记「两个动作里哪个对」（M6-5-3b 也只记「**有人**做了决定」）。
+
+**记下的技术债**：fork 的推送**没有读者**。自 M4e-2 起，fork 还会在发生那一刻被推到服务器（一条关键事件，每节点最新 256 条，内存中），好让聚合角色立刻听到 —— 而**没有任何路由、也没有任何命令读那份日志**（`key_events_of` 只在 host-core 的一个测试里被调用）。这条推送今天除了服务器内存之外谁也到不了。已写进 [cross-chain-verification.md §7](cross-chain-verification.zh-CN.md) 与 [handoff](handoff.zh-CN.md)，而不是留作一条被默认为可用的通知通道。
+
+**影响**：`cli/src/args.rs`（`AuditEvents` 命令多出 `action_prefix`、开关解析、query 字符串用已有的 `url_encode` 拼）、`cli/src/render.rs`（两处测试字面量；渲染器不变）、`cli/README.md` + zh 与 `docs/control-plane-client-guide.md` + zh（命令行与开关表）。**`audit/`、`net/`、`host-core/`、`server/` 与 SDK 未动**，路由表与 33 名的能力词汇表未动，未加依赖，也没有向任何链写入任何东西。

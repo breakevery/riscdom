@@ -761,7 +761,13 @@ mod tests {
         let reply = reply("[]");
         assert_eq!(human(&Command::RunsList { limit: None }, &reply), "no runs");
         assert_eq!(
-            human(&Command::AuditEvents { limit: 20 }, &reply),
+            human(
+                &Command::AuditEvents {
+                    limit: 20,
+                    action_prefix: None
+                },
+                &reply
+            ),
             "no events"
         );
         assert_eq!(human(&Command::SnapshotsList, &reply), "no snapshots");
@@ -808,10 +814,37 @@ mod tests {
         let reply = reply(
             r#"[{"id":1,"timestamp_ms":100,"actor":"host","action":"host.start","detail":{},"prev_hash":"","hash":"","agent_id":null}]"#,
         );
-        let text = human(&Command::AuditEvents { limit: 20 }, &reply);
+        let text = human(
+            &Command::AuditEvents {
+                limit: 20,
+                action_prefix: None,
+            },
+            &reply,
+        );
         assert!(text.contains("ACTION"), "{text}");
         assert!(text.contains("host.start"), "{text}");
         assert!(text.contains("host"), "{text}");
+    }
+
+    /// A filtered read renders the same table: the filter is the server's, and the ACTION column is what
+    /// names the family it selected (v1.0 M6-5-3a). The detail stays one flag away (`--json`), which is
+    /// where a conflict's `segment_id` and `reason` are read.
+    #[test]
+    fn a_filtered_read_is_the_same_table() {
+        let reply = reply(
+            r#"[{"id":9,"timestamp_ms":1,"actor":"host","action":"host.audit.segment_forked",
+                 "detail":{"segment_id":"seg-dev-a-1","reason":"already on the chain"},
+                 "prev_hash":"","hash":"","agent_id":null}]"#,
+        );
+        let text = human(
+            &Command::AuditEvents {
+                limit: 20,
+                action_prefix: Some("host.audit.segment_forked".to_string()),
+            },
+            &reply,
+        );
+        assert!(text.contains("host.audit.segment_forked"), "{text}");
+        assert!(text.contains("ACTION"), "{text}");
     }
 
     #[test]

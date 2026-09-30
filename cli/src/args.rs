@@ -163,8 +163,15 @@ pub enum Command {
         run_id: String,
     },
     AuditStatus,
+    /// Recent audit rows, newest first.
+    ///
+    /// `action_prefix` narrows them to one family of events (v1.0 M6-5-3a). It is the flag that makes a
+    /// **conflict** or a **refused delivery** visible without a new endpoint: the chain already records
+    /// both (`host.audit.segment_forked`, `host.audit.chain_rejected`), and the server's `action_prefix`
+    /// filter is what selects them.
     AuditEvents {
         limit: usize,
+        action_prefix: Option<String>,
     },
     SnapshotsList,
     /// The merged sandbox registry (v0.9 sandbox F2a-2), read-only.
@@ -347,8 +354,18 @@ impl Command {
             Command::RunsList { limit: Some(limit) } => format!("/v0/runs?limit={limit}"),
             Command::RunsGet { run_id } => format!("/v0/runs/{}", url_encode(run_id)),
             Command::AuditStatus => "/v0/audit/status".to_string(),
-            // `limit` is required by this endpoint, so the CLI always sends one.
-            Command::AuditEvents { limit } => format!("/v0/audit/events?limit={limit}"),
+            // `limit` is required by this endpoint, so the CLI always sends one. The action filter is
+            // optional and travels as an encoded query parameter (v1.0 M6-5-3a).
+            Command::AuditEvents {
+                limit,
+                action_prefix,
+            } => match action_prefix {
+                Some(prefix) => format!(
+                    "/v0/audit/events?limit={limit}&action_prefix={}",
+                    url_encode(prefix)
+                ),
+                None => format!("/v0/audit/events?limit={limit}"),
+            },
             Command::SnapshotsList => "/v0/snapshots".to_string(),
             Command::SandboxesList => "/v0/sandboxes".to_string(),
             Command::SandboxesCurrent => "/v0/sandboxes/current".to_string(),
@@ -609,6 +626,9 @@ struct Flags {
     /// `--toolchain <c|zig>`: which toolchain `toolchain download` installs
     /// (v0.9 F3a-download-apply). Absent means the C toolchain, as it always did.
     toolchain: Option<String>,
+    /// `--action-prefix <prefix>`: narrow an audit read to one family of events
+    /// (v1.0 M6-5-3a), e.g. `host.audit.segment_forked`.
+    action_prefix: Option<String>,
     api_key: Option<String>,
     api_key_file: Option<PathBuf>,
     base_url: Option<String>,
@@ -656,6 +676,7 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
             "--sandbox" => flags.sandbox = Some(value("--sandbox")?),
             "--target" => flags.target = Some(value("--target")?),
             "--input" => flags.input = Some(value("--input")?),
+            "--action-prefix" => flags.action_prefix = Some(value("--action-prefix")?),
             "--toolchain" => flags.toolchain = Some(value("--toolchain")?),
             "--api-key" => flags.api_key = Some(value("--api-key")?),
             "--api-key-file" => flags.api_key_file = Some(PathBuf::from(value("--api-key-file")?)),
@@ -726,6 +747,7 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
         (Some("audit"), Some("status"), None, None) => Some(Command::AuditStatus),
         (Some("audit"), Some("events"), None, None) => Some(Command::AuditEvents {
             limit: flags.limit.unwrap_or(DEFAULT_EVENT_LIMIT),
+            action_prefix: flags.action_prefix.clone(),
         }),
         (Some("snapshots"), Some("list"), None, None) => Some(Command::SnapshotsList),
         (Some("sandboxes"), Some("list"), None, None) => Some(Command::SandboxesList),
@@ -1041,12 +1063,28 @@ mod tests {
         assert_eq!(
             command(&["audit", "events"]),
             Command::AuditEvents {
-                limit: DEFAULT_EVENT_LIMIT
+                limit: DEFAULT_EVENT_LIMIT,
+                action_prefix: None
             }
         );
         assert_eq!(
             command(&["audit", "events", "--limit", "3"]),
-            Command::AuditEvents { limit: 3 }
+            Command::AuditEvents {
+                limit: 3,
+                action_prefix: None
+            }
+        );
+        assert_eq!(
+            command(&[
+                "audit",
+                "events",
+                "--action-prefix",
+                "host.audit.segment_forked"
+            ]),
+            Command::AuditEvents {
+                limit: DEFAULT_EVENT_LIMIT,
+                action_prefix: Some("host.audit.segment_forked".to_string())
+            }
         );
         assert_eq!(command(&["snapshots", "list"]), Command::SnapshotsList);
         // control commands
@@ -1156,8 +1194,21 @@ mod tests {
         );
         assert_eq!(Command::AuditStatus.request_path(), "/v0/audit/status");
         assert_eq!(
-            Command::AuditEvents { limit: 20 }.request_path(),
+            Command::AuditEvents {
+                limit: 20,
+                action_prefix: None
+            }
+            .request_path(),
             "/v0/audit/events?limit=20"
+        );
+        // The filter is a query parameter, encoded (v1.0 M6-5-3a): no new path, no new endpoint.
+        assert_eq!(
+            Command::AuditEvents {
+                limit: 20,
+                action_prefix: Some("host.audit.segment_forked".to_string())
+            }
+            .request_path(),
+            "/v0/audit/events?limit=20&action_prefix=host.audit.segment_forked"
         );
         assert_eq!(Command::SnapshotsList.request_path(), "/v0/snapshots");
         assert_eq!(

@@ -495,7 +495,7 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # 对着已经跑�
 | `riscdom runs list [--limit <n>]` | `GET /v0/runs` |
 | `riscdom runs get <run_id>` | `GET /v0/runs/<run_id>` |
 | `riscdom audit status` | `GET /v0/audit/status` |
-| `riscdom audit events [--limit <n>]` | `GET /v0/audit/events` |
+| `riscdom audit events [--limit <n>] [--action-prefix <p>]` | `GET /v0/audit/events` |
 | `riscdom snapshots list` | `GET /v0/snapshots` |
 | `riscdom sandboxes list` / `current` / `candidates` / `show <name>` | `GET /v0/sandboxes` / `/v0/sandboxes/current` / `/v0/sandboxes/candidates` / `/v0/sandboxes/<name>` |
 | `riscdom sandboxes switch <name>` | `POST /v0/sandboxes/switch` |

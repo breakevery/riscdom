@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **冲突只差一个过滤器**（v1.0 批 CR / M6-5-3a，冲突出口的观测那一半）：`riscdom audit events` 多出 **`--action-prefix <prefix>`** —— 服务器本来就有的过滤，只是 CLI 一直没法问它 —— 于是 `--action-prefix host.audit.segment_forked` 列出本节点的冲突、`--action-prefix host.audit.chain_rejected` 列出它被拒的交付，行的 detail 用全局 `--json` 读。**无新路由、无新 capability、无新事件名、不改段行，`cli` 与文档之外一律未动。** 内核仍**不**选边（把冲突标为已解决是 M6-5-3b，而且会是一条追加事件）。**记下的技术债**：fork 发给服务器的关键事件推送**没有读者** —— 没有任何路由或命令读那份日志 —— 写进了 `docs/cross-chain-verification.md` §7 与 handoff。**决策 §148。**
+
 - **段的事件带着自己的哈希，中心会重算它们**（v1.0 批 CP / M6-5-2b，M6-5-2 整条线的终点）：每个 `segment_event` 现在随身携带它被写下时的 `hash` 与 `prev_hash`，于是 `net::verify_linkage` 能用 `audit::compute_hash`（调用、从不修改）**重算**每个事件、并检查它**承接**前一个。裁决以两个词落在 `host.audit.chain_verified` / `chain_rejected` 上：**`checked`**（`"skipped"` / `"delivery"` / `"delivery+chained"`）与 **`linkage`**（`"ok"` / `"broken"` / `"skipped"`）。断链与其他失败一样被拒（不 merge、不 `forked`、文件保留）；**不带**哈希的发送方处于**跨版本窗** —— 交付照常被验、链接记为 skipped、段仍并入。**锚点那一环不验、以现有交付物也无法验** —— 锚点是 `segment_opened` 标记*之前*的位置，所以第一条事件的 `prev_hash` 是标记的哈希；这一点记为 **M6-5 尚欠**，写在 `docs/cross-chain-verification.md` §4，而不是假装。**`compute_hash` 与 `verify_chain` 未动，无新帧，无新依赖。** **决策 §147。**
 
 - **交付的段会被验，而拒绝会被记下**（v1.0 批 CN / M6-5-2a，跨链验证的第二片）：到达中心的段，现在在「重建之后、合并之前」被检查 —— **信封**（每个位置 `0..total` 恰好到一次、发给的是本节点）与**重建**（对中心刚写出的存储调 `verify_chain`）—— 而裁决作为 **`host.audit.chain_verified`** 或 **`host.audit.chain_rejected`** 落到链上。拒绝意味着不调 `merge_segment`、行既不是 `folded` 也不是 `forked`、且段自己的文件留下：被拒的交付也是证据。**没带任何事件**的流现在会被作答而不是被丢弃 —— `total: 0` 自洽、作为一个空段并入；`total: n` 是缺口、被拒。锚点没有长度的段在此列之前，故记为 **skipped** 并照常并入。**它验不了的东西会明说**：事件的哈希不上线，所以通过是*已检查*、绝非*已证明*（M6-5-2b 是锚点连续性）。**`compute_hash` 与 `verify_chain` 未动，线上帧未动，`audit` 未多出函数。** `docs/cross-chain-verification.md` + zh 多出 §3。**决策 §145。**

@@ -452,6 +452,13 @@ current request authorising it (§2).
   — batch CO found that the planned equality was false by construction, and the owner chose the candid
   downgrade, recorded as **owed by M6-5** in `docs/cross-chain-verification.md` §4. **`compute_hash` /
   `verify_chain` untouched, no new frame, no dependency.** **Decision §147.**
+- **And a conflict is one filter away** (v1.0 batch CR / M6-5-3a, 2026-09-30): `riscdom audit events` gains
+  **`--action-prefix`**, the server's own filter, so `--action-prefix host.audit.segment_forked` lists this
+  node's conflicts and `host.audit.chain_rejected` its refused deliveries (detail via the global `--json`).
+  **One CLI flag and the writing-down: no route, no capability, no event name, no segment-row change, nothing
+  outside `cli` + docs** — the kernel still does not choose a side. **Tech debt: the key-event push a fork
+  sends the server has no reader** (no route or command reads `key_events_of`), so the push reaches nobody
+  outside the server's memory — recorded in `cross-chain-verification.md` §7. **Decision §148.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

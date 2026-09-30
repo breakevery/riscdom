@@ -4322,3 +4322,46 @@ into the frame (`segment_frames`) and runs the third check in `receive_segment`.
 touched** — `compute_hash` is *called* — the append-only triggers, the route table, the capability
 vocabulary and the frame set are untouched, no dependency is added. **M6-5-3 (the conflict exit) and M6-5-4
 (summary chain / range proof / peer-to-peer) are untouched.**
+
+## 148. A conflict is observed through a filter, and the key-event push still has no reader
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch CR / M6-5-3a)
+
+**Decision**: The observation half of M6-5-3, and the whole of this batch is **one CLI flag** plus the
+writing-down. `riscdom audit events` gains **`--action-prefix <prefix>`** — the server's own filter, which
+the CLI simply had no way to ask for — so the two things a deployment must be able to see are one command
+each:
+
+```
+riscdom audit events --action-prefix host.audit.segment_forked      # this node's conflicts
+riscdom audit events --action-prefix host.audit.chain_rejected     # its refused deliveries
+```
+
+The human table is unchanged (its ACTION column is what the filter selects); the rows' **detail** is read
+with the global `--json`. **No new route, no new capability, no new event name, no change to the segment
+row, and nothing in `host-core` / `net` / `server` / `audit` / the SDK.** Marking a conflict resolved is
+**M6-5-3b**, and it will be an **appended event** (`host.audit.conflict_resolved`), never a change to a row
+whose `state` means "unresolved" and whose `folded` value already means "transcribed".
+
+**Why**: Three points. **The chain already holds the observation.** A fork is `host.audit.segment_forked`
+with `{segment_id, kind, forked_at_ms, reason, conflicting_event_id}` and a row marked `forked`; nothing is
+missing from it, so a new endpoint would buy a **wider parity surface** (route table, the API document in two
+languages, the Rust and TypeScript endpoint tables, the CLI, and four parity tests) for information the
+`action_prefix` filter already returns. **A generic flag beats a purpose-named command.** `audit forks` would
+hard-code one action name and still need the same plumbing, while `--action-prefix` also exposes every
+delivery this line just learned to refuse. **And the kernel still does not choose a side.** The batch is read
+only; it records that a conflict exists, never which of the two acts is right (M6-5-3b records only that a
+**person** decided).
+
+**Tech debt recorded**: the fork push has **no reader**. Since M4e-2 a fork is also pushed to the server the
+moment it happens (a key event, the newest 256 per node, in memory) so the aggregation role hears it at
+once — and **no route and no command read that log** (`key_events_of` is called only in a host-core test).
+The push reaches nobody outside the server's memory today. Written down in
+[cross-chain-verification.md §7](cross-chain-verification.md) and in [handoff](handoff.md) rather than left
+as an implied notification path.
+
+**Impact**: `cli/src/args.rs` (the `AuditEvents` command gains `action_prefix`, the flag parses, the query
+string is built with the existing `url_encode`), `cli/src/render.rs` (two test fixtures; the renderer is
+unchanged), `cli/README.md` + zh and `docs/control-plane-client-guide.md` + zh (the command's row and the
+flag table). **`audit/`, `net/`, `host-core/`, `server/` and the SDK are untouched**, the route table and the
+33-name capability vocabulary are untouched, no dependency is added, and nothing is written to any chain.

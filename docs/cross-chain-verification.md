@@ -2,7 +2,7 @@
 
 # Cross-chain verification
 
-> **Status** v1.0 specification (M6-5-1, M6-5-2a, M6-5-2b) ｜ **Date** 2026-09-30 ｜ **Audience** kernel developers, and whoever
+> **Status** v1.0 specification (M6-5-1, M6-5-2a, M6-5-2b, M6-5-3a) ｜ **Date** 2026-09-30 ｜ **Audience** kernel developers, and whoever
 > deploys more than one node.
 
 [roadmap §7](roadmap-v1.0.md) left **three questions open** and said so on purpose. [audit-v2 §5](audit-v2.md)
@@ -150,6 +150,36 @@ person to judge. No automatic adjudication, **M6**.
 - **`compute_hash`, `verify_chain`, the append-only triggers, the route table and the 33-name capability
   vocabulary are untouched.** An added column beside the chain and two added members of an existing frame's
   body are not a format change: the version stays where it is.
+
+## 7. The conflict exit: observation, and the reader that is missing (M6-5-3a)
+
+**[settled]** **A conflict is on the chain and nowhere else.** M5-2b's fork is recorded as one
+`host.audit.segment_forked` event — `{ segment_id, kind, forked_at_ms, reason, conflicting_event_id }` — plus
+the segment row's `state = forked`. **No endpoint lists segments at all** (the store's `segments()`/`segment()`
+are used only inside `audit`), so a fork is read the same way every other fact is: out of the chain.
+
+**[settled] The observation is a filter, not a new surface (v1.0 M6-5-3a).** The CLI's audit read gained
+`--action-prefix`, which the server already supported:
+
+```
+riscdom audit events --action-prefix host.audit.segment_forked      # this node's forks
+riscdom audit events --action-prefix host.audit.chain_rejected     # its refused deliveries
+```
+
+The human table names each row's action (that is what the filter selects); the row's **detail** — which
+segment, and why — is read with the global `--json`, which passes the control plane through unchanged. **No
+new route, no new capability, no new event name.**
+
+**[settled] The kernel does not choose a side.** A fork stays a fork: nothing in the kernel decides which of
+two contradicting acts is right (§5's answer to question 3). Marking a conflict **resolved** is M6-5-3b, and
+it will be an **appended event** (`host.audit.conflict_resolved`) — never a change to the segment row, whose
+`state` means "this is unresolved" and whose `folded` value already means "transcribed into the chain".
+
+**Owed: the key-event push has no reader.** Since M4e-2 a fork is *also* pushed to the server the moment it
+happens (`host.audit.segment_forked` as a key event, `key_events_of`, the newest 256 per node, in memory)
+precisely so the aggregation role hears it at once — and **no route and no command read that log**. So today
+the push reaches nobody outside the server's memory, and the only surface a deployer has is the node's own
+chain. That is recorded here as a **known gap**, not as a working notification path.
 
 **Frozen**: the anchor is a `(chain, length)` pair; `segments.head_prev_length` exists and is `NULL` for older
 rows; `anchor_digest` ≡ `head_prev_chain` (one value, two names, the old one never dropped); a delivered

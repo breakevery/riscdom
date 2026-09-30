@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A conflict is one filter away** (v1.0 batch CR / M6-5-3a, the observation half of the conflict exit):
+  `riscdom audit events` gains **`--action-prefix <prefix>`** — the server's own filter, which the CLI had no
+  way to ask for — so `--action-prefix host.audit.segment_forked` lists this node's conflicts and
+  `--action-prefix host.audit.chain_rejected` its refused deliveries, with the rows' detail read through the
+  global `--json`. **No new route, no new capability, no new event name, no change to a segment row, and
+  nothing outside `cli` + docs.** The kernel still does **not** choose a side (marking a conflict resolved is
+  M6-5-3b, and it will be an appended event). **Tech debt recorded**: the key-event push a fork sends the
+  server has **no reader** — no route or command reads that log — written into
+  `docs/cross-chain-verification.md` §7 and the handoff. **Decision §148.**
+
 - **A segment's events carry their own hashes, and the centre recomputes them** (v1.0 batch CP / M6-5-2b, the
   end of the M6-5-2 line): each `segment_event` now travels with the `hash` and `prev_hash` it was written
   with, so `net::verify_linkage` can **recompute** every event with `audit::compute_hash` (called, never
