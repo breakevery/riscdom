@@ -401,6 +401,12 @@ current request authorising it (§2).
   §2/§8 now say how shape (b) spans two nodes** — a segment is a span of its owner's chain until it reaches
   the centre, and a store of its own there. **M5 is closed**: §127's authorisation, M5-1 (the schema), M5-2
   (merge and fork) and M5-3 (a → b → c) are all in. Only **M6** remains after it. **Decision §139.**
+- **And a key event is pushed the moment it happens** (v1.0 batch CE / M4e-2, 2026-09-30): roadmap §4's other
+  half. A node pushes one as an ordinary §3 frame to the server; the server keeps the newest **256 per node**
+  in memory, deduplicated by `(action, at_ms)`, and answers nothing. Wired at the two places the facts are
+  written — a **fork** and a **takeover** — and the 30-second batch is unchanged. **`audit` untouched, no new
+  dependency, no new route or capability.** The third trigger, an **ejection**, has no producer, so the
+  mechanism stands and the event waits for its definition. **Decision §140.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

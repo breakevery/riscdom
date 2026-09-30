@@ -1213,6 +1213,7 @@ impl Probe {
                                                     &done,
                                                     &pending,
                                                     net::now_ms(),
+                                                    Some(&client),
                                                 ) {
                                                     eprintln!(
                                                         "connection: segment {} from {} could not be \
@@ -1411,17 +1412,27 @@ fn declare_takeover(watch: &CentreWatch, now: i64) -> Option<StandingSegment> {
         }
     }
     let (id, opened_id) = open_temporary_segment(&watch.store, &watch.me)?;
+    let detail = serde_json::json!({
+        "segment_id": id,
+        "centre": watch.centre,
+        "by": watch.me,
+        "at_ms": now,
+    });
     record_host_event(
         &watch.sink,
         &watch.agent_id,
         "host.connection.takeover_declared",
-        serde_json::json!({
-            "segment_id": id,
-            "centre": watch.centre,
-            "by": watch.me,
-            "at_ms": now,
-        }),
+        detail.clone(),
     );
+    // The moment it happens the server is told too (v1.0 M4e-2): a takeover is a key event (roadmap §4),
+    // and the digest batch is thirty seconds away. Non-fatal, like a digest — the chain row is the record.
+    if let Some(client) = &watch.client {
+        let _ = client.key_event(&net::KeyEvent {
+            at_ms: now,
+            action: "host.connection.takeover_declared".to_string(),
+            detail,
+        });
+    }
     Some(StandingSegment { id, opened_id })
 }
 
@@ -1578,6 +1589,7 @@ fn receive_segment(
     done: &net::SegmentDone,
     events: &[net::SegmentEvent],
     now: i64,
+    client: Option<&Arc<net::RelayClient>>,
 ) -> Result<(), String> {
     {
         let mut store = centre_side
@@ -1613,9 +1625,24 @@ fn receive_segment(
             .merge_segment(&centre_side.audit_dir, &done.segment_id)
             .map_err(|error| error.to_string())?
     };
-    let said = match outcome {
+    let said = match &outcome {
         audit::MergeOutcome::Folded { merged } => format!("folded {merged}"),
-        audit::MergeOutcome::Forked { reason } => format!("forked: {reason}"),
+        audit::MergeOutcome::Forked { reason } => {
+            // A fork is a key event (roadmap §4): the server hears it the moment it happens rather than
+            // on the thirty-second batch. Non-fatal, like a digest — the chain row is the record.
+            if let Some(client) = client {
+                let _ = client.key_event(&net::KeyEvent {
+                    at_ms: now,
+                    action: "host.audit.segment_forked".to_string(),
+                    detail: serde_json::json!({
+                        "segment_id": done.segment_id,
+                        "from": from,
+                        "reason": reason,
+                    }),
+                });
+            }
+            format!("forked: {reason}")
+        }
     };
     record_host_event(
         &centre_side.sink,
@@ -7971,8 +7998,15 @@ mod tests {
             agent_id: centre.agent_id.clone(),
         };
         let before = centre.audit.lock().expect("audit").count().expect("count");
-        receive_segment(&centre_sink, "dev-a", &done, &frames, 1_700_000_000_000)
-            .expect("the centre received the segment");
+        receive_segment(
+            &centre_sink,
+            "dev-a",
+            &done,
+            &frames,
+            1_700_000_000_000,
+            None,
+        )
+        .expect("the centre received the segment");
 
         let rows = centre.audit.lock().expect("audit").all().expect("events");
         assert_eq!(
@@ -8013,6 +8047,137 @@ mod tests {
             audit::verify_chain(&rebuilt).expect("verify"),
             audit::ChainStatus::Intact { length: 2 }
         ));
+    }
+
+    /// The two key events that exist reach the server the moment they happen (v1.0 M4e-2): a fork, from
+    /// the delivery path, and a takeover, from the suppression path. A real server and a real client, so
+    /// the push is a real §3 frame.
+    #[test]
+    fn a_fork_and_a_takeover_are_pushed_to_the_server() {
+        let server_key = net::NodeKey::generate().expect("key");
+        let me_key = net::NodeKey::generate().expect("key");
+        let mut server_peers = net::PeersFile::empty();
+        server_peers.peers.push(net::PeerEntry::new(
+            "dev-me",
+            "127.0.0.1:1",
+            me_key.public_jwk(),
+        ));
+        let listener = net::Listener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr").to_string();
+        let server = net::RelayServer::new(
+            "server",
+            server_key.clone(),
+            server_peers,
+            net::RoomsFile::empty(),
+            net::TransportConfig::default(),
+        )
+        .expect("server");
+        let serving = server.clone();
+        std::thread::spawn(move || {
+            let _ = serving.serve(listener);
+        });
+        let server_entry = net::PeerEntry::new("server", &addr, server_key.public_jwk());
+        let client = Arc::new(
+            net::RelayClient::new(
+                "dev-me",
+                me_key,
+                &server_entry,
+                net::TransportConfig::default(),
+            )
+            .expect("client"),
+        );
+
+        // A takeover, pushed by the suppression path.
+        let state = state_with("key-takeover", serde_json::json!({}));
+        let watch = CentreWatch {
+            me: "dev-me".to_string(),
+            centre: "centre".to_string(),
+            reachable: Arc::new(Mutex::new(None)),
+            peers_reachable: Arc::new(Mutex::new(std::collections::BTreeSet::new())),
+            witnesses: net::WitnessTable::new(),
+            takeover_heard: Arc::new(Mutex::new(None)),
+            peers: Vec::new(),
+            client: Some(Arc::clone(&client)),
+            store: Arc::clone(&state.audit),
+            sink: Arc::clone(&state.sink),
+            agent_id: state.agent_id.clone(),
+        };
+        assert!(
+            declare_takeover(&watch, 1_700_000_000_000).is_some(),
+            "the takeover opened its segment"
+        );
+
+        // A fork, pushed by the delivery path: an event that already stands on this chain, delivered
+        // back as if it had stood in elsewhere.
+        let centre = state_with("key-fork", serde_json::json!({}));
+        let clash = serde_json::json!({ "n": 1 });
+        centre
+            .audit
+            .lock()
+            .expect("audit")
+            .append(audit::AuditEvent::new(
+                "host",
+                "host.test.clash",
+                clash.clone(),
+            ))
+            .expect("append");
+        let centre_sink = SegmentSink {
+            audit_dir: centre.workspace_root.join(".riscdom"),
+            store: Arc::clone(&centre.audit),
+            sink: Arc::clone(&centre.sink),
+            agent_id: centre.agent_id.clone(),
+        };
+        let done = net::SegmentDone {
+            segment_id: "seg-dev-a-9".to_string(),
+            centre: "dev-me".to_string(),
+            total: 1,
+            head_prev_chain: None,
+        };
+        let frames = vec![net::SegmentEvent {
+            segment_id: "seg-dev-a-9".to_string(),
+            centre: "dev-me".to_string(),
+            index: 0,
+            total: 1,
+            ts: 1_700_000_000_000,
+            actor: "host".to_string(),
+            action: "host.test.clash".to_string(),
+            agent_id: None,
+            detail: clash,
+        }];
+        receive_segment(
+            &centre_sink,
+            "dev-a",
+            &done,
+            &frames,
+            1_700_000_000_001,
+            Some(&client),
+        )
+        .expect("the centre received the segment");
+
+        // Both facts are in the server's log, spelled as the chain spells them.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let actions = |server: &net::RelayServer| -> Vec<String> {
+            server
+                .key_events_of("dev-me")
+                .into_iter()
+                .map(|event| event.action)
+                .collect()
+        };
+        while std::time::Instant::now() < deadline
+            && !(actions(&server).contains(&"host.connection.takeover_declared".to_string())
+                && actions(&server).contains(&"host.audit.segment_forked".to_string()))
+        {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let pushed = actions(&server);
+        assert!(
+            pushed.contains(&"host.connection.takeover_declared".to_string()),
+            "the takeover was pushed: {pushed:?}"
+        );
+        assert!(
+            pushed.contains(&"host.audit.segment_forked".to_string()),
+            "the fork was pushed: {pushed:?}"
+        );
     }
 
     #[test]

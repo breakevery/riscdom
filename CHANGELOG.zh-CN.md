@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **关键事件在发生的当下被推送**（v1.0 批 CE / M4e-2）：roadmap §4 的另一半 —— 审计按计划旅行，**且**关键事件当场就走。节点把一条作为寻址到服务器本身的普通 §3 帧推送（body `{ "key_event": 1, "at_ms": …, "action": …, "detail": … }`），每事件一帧；服务器在内存里每节点保留最新 **256 条**，按 `(action, at_ms)` 去重，且什么也不答。接在两个事实被写下的地方：**fork** 与**接管**。30 秒批次未变。**`audit` 未动、无新依赖、无新路由或能力。** 第三个触发器 —— **逐出** —— 没有生产者，所以机制立着，事件在等它的定义。**决策 §140。**
+
 - **一个关闭的段走到中心，中心重建并合并它**（v1.0 批 CC / M5-3c-2，M5 的终点）：代行者把刚关掉的段以一条流交给中心 —— 每事件一帧 §3 帧，外加一帧结束它 —— 载着每个事件自己的 `ts`/`actor`/`action`/`agent_id`/`detail`，区间是开启行与关闭行**之间**的那些行。中心以段到达时的名字（带命名空间的 `seg-<owner>-<ms>`）**收养** `segments` 行，写下 `audit-segments/<id>.db`，并**原样**调用 `merge_segment`；两台节点分别记下 `host.connection.segment_delivered` / `segment_rebuilt`。**`merge_segment`、`compute_hash`、`verify_chain` 与 append-only 触发器均未动**，而 `audit-v2` §2/§8 现在说明形状 (b) 如何跨两台机器。`audit` 多出 `open_segment_for` / `adopt_segment` / `events_in_range` / `last_id` / `safe_owner`。**决策 §139。**
 
 - **恢复的发送方等一等，QEMU 的话被听见，重置的 socket 重连一次**（v1.0 批 CB / CA-1）：本地 QEMU/QMP `10054` flake 的根因。快照发送线程现在在端口移交与 QEMU 启动**之后**才起 —— 以前它可能连上我们自己仍绑着的监听器、被移交重置、并无声死亡 —— 且**它的结果被读取**并并入 `start` 的错误；QEMU 的 stdout/stderr 被**捕获**并并入错误（以前是 `Stdio::null()`）；QEMU 仍存活而 QMP socket 被重置时**重连一次**并重试。**不改公开 API、无新依赖、不新增审计事件。** `sandbox/README` + zh 已更新。**决策 §138。**

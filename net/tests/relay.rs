@@ -9,9 +9,9 @@
 //! message, and a replay is refused at the server.
 
 use net::{
-    deliver, hello_body, now_ms, verify_at, Listener, NodeKey, Path, PeerEntry, PeerKeys,
-    PeersFile, RelayClient, RelayServer, RelaySession, ReplayGuard, RoomsFile, SignedMessage,
-    TransportConfig,
+    deliver, hello_body, is_key_event, now_ms, verify_at, KeyEvent, Listener, NodeKey, Path,
+    PeerEntry, PeerKeys, PeersFile, RelayClient, RelayServer, RelaySession, ReplayGuard, RoomsFile,
+    SignedMessage, TransportConfig,
 };
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
@@ -428,4 +428,96 @@ fn the_server_never_dials_a_destination_that_has_not_dialled_in() {
     // destination the server could see but that never dialled in is not.
     assert!(!running.server.sessions().is_present("dev-b"));
     assert!(running.server.sessions().is_present("dev-a"));
+}
+
+#[test]
+fn a_key_event_is_pushed_at_once_and_kept_in_a_bounded_log() {
+    // v1.0 M4e-2: a key event is a **fact**, so the server keeps a log of them rather than a latest
+    // value (which is what a digest is), the log is bounded, and a re-pushed fact is the same fact.
+    let a = NodeKey::generate().expect("key");
+    let server_key = NodeKey::generate().expect("key");
+    let mut peers = PeersFile::empty();
+    peers.peers.push(entry("dev-a", &a, "127.0.0.1:1"));
+
+    let listener = Listener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr").to_string();
+    let server = RelayServer::new(
+        "server",
+        server_key.clone(),
+        peers,
+        RoomsFile::empty(),
+        config(Duration::from_secs(5)),
+    )
+    .expect("server");
+    let serving = server.clone();
+    std::thread::spawn(move || {
+        let _ = serving.serve(listener);
+    });
+
+    let server_entry = entry("server", &server_key, &addr);
+    let client = RelayClient::new("dev-a", a, &server_entry, config(Duration::from_secs(5)))
+        .expect("client");
+
+    let fork = KeyEvent {
+        at_ms: 1_700_000_000_000,
+        action: "host.audit.segment_forked".to_string(),
+        detail: serde_json::json!({ "segment_id": "seg-dev-a-1" }),
+    };
+    client.key_event(&fork).expect("pushed");
+    client.key_event(&fork).expect("the same fact pushed again");
+    wait_until("the key event to land", || {
+        !server.key_events_of("dev-a").is_empty()
+    });
+    assert_eq!(
+        server.key_events_of("dev-a").len(),
+        1,
+        "a re-pushed fact is not a second fact"
+    );
+
+    // Past the bound the oldest fall off, and what stays is in the order it arrived.
+    let extra = net::KEY_EVENT_LOG + 4;
+    for n in 0..extra {
+        let filler = KeyEvent {
+            at_ms: 1_000 + n as i64,
+            action: "host.test.key".to_string(),
+            detail: serde_json::json!({ "n": n }),
+        };
+        client.key_event(&filler).expect("pushed");
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let newest = extra - 1;
+    while Instant::now() < deadline
+        && !server
+            .key_events_of("dev-a")
+            .iter()
+            .any(|held| held.detail == serde_json::json!({ "n": newest }))
+    {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let log = server.key_events_of("dev-a");
+    assert_eq!(
+        log.len(),
+        net::KEY_EVENT_LOG,
+        "the log is bounded: got {}",
+        log.len()
+    );
+    assert_eq!(
+        log.last().expect("newest").detail,
+        serde_json::json!({ "n": newest }),
+        "the newest event is last"
+    );
+    assert!(
+        !log.iter()
+            .any(|held| held.action == "host.audit.segment_forked"),
+        "the oldest fell off the bounded log"
+    );
+
+    // The body is an ordinary §3 body, and it is not any other body.
+    assert_eq!(KeyEvent::of_body(&fork.to_body()), Some(fork.clone()));
+    assert!(!is_key_event(&net::digest_body(None, 0)));
+    assert_eq!(net::ChainDigest::of_body(&fork.to_body()), None);
+    assert!(matches!(
+        net::Local::of(&fork.to_body()),
+        net::Local::KeyEvent { .. }
+    ));
 }

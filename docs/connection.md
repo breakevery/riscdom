@@ -666,9 +666,44 @@ second copy of anyone's history, and nothing about it is written to the server's
 seconds; the interval is the implementation's to configure, in the same sense §6.6's 15 s is. The timer
 **reads this node's own chain and reports it** — it writes nothing.
 
-**Not here yet — M4e-2.** A **key event** (an ejection, a fork, a temporary centre's takeover) is pushed
-the moment it happens rather than waiting for the batch ([roadmap §4](roadmap-v1.0.md)). The immediate
-path is a later batch, and two of its three triggers — the fork and the takeover — arrive with M5.
+**[settled]** **A key event is pushed the moment it happens** (M4e-2). The frame is an ordinary §3 frame
+addressed to the server, like a digest — one *per event*, because an event is the news and there is nothing
+to batch. Its body:
+
+```json
+{
+  "key_event": 1,
+  "at_ms": 1700000000000,
+  "action": "host.audit.segment_forked",
+  "detail": { "segment_id": "seg-dev-a-1", "from": "dev-a", "reason": "conflicts …" }
+}
+```
+
+- **The identity is the preamble's `from`** (§3), so the body names nobody: like a beat, a key event is a
+  **statement**, and the server answers it with nothing.
+- **`action` is spelled as the chain spells it**, so a reader can find the row the event describes.
+
+**[settled]** **The server keeps a bounded log of them, not a latest value.** A digest is idempotent — the
+newest replaces the last — but a key event is a *fact*, so the aggregation role holds the newest **256** per
+node, **in memory**, like the digest table. More is not needed: a fork needs a conflicting segment and a
+takeover needs a 60 s stand-in.
+
+**[settled]** **Deduplicated by `(action, at_ms)`, and no total order is claimed.** A re-pushed fact is the
+same fact, so the second copy is dropped; two nodes' logs are independent, and nothing here says whose event
+came first — the same absence of a total order the digest has, and for the same reason: each node speaks for
+itself.
+
+**[settled]** **Two of the three triggers exist, and the batch keeps running.** A **fork**
+(`host.audit.segment_forked`) is pushed by the node that merged the conflicting segment, and a **takeover**
+(`host.connection.takeover_declared`) by the node that stood in — both from where the event was written, on
+the same client the beat and the digest use, and **non-fatally**: a push that fails is a report that did not
+arrive, not a write that did not happen. The **third trigger, an ejection, has no producer yet** — the
+mechanism is here, and the event waits for the definition that would make one. The 30-second batch is
+unaffected: it is what a node says when nothing has happened.
+
+**Frozen**: a key event is its body above; the server holds the newest 256 per node in memory; dedup is
+`(action, at_ms)`; no total order; the push is immediate and non-fatal, and the batch is unchanged.
+**Not frozen**: what an ejection *is* (there is no producer), and whether the log grows a consumer.
 
 **Not M4's.** The temporary centre, `provisional` and `fork` are M5/M6.
 

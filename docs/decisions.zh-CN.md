@@ -1480,3 +1480,15 @@ trait 属 v1.x 工作。
 **缘由**：三点。**§137 记下的张力只有一个诚实的答案，就是这个。** 一个段不能既是一台机器的储存、又是它链上一段不改道的区间：owner 第 4 点禁止改道，所以**文件**出现在确实需要它的地方 —— 中心，那个必须转录的节点。形状 (b) 描述的是**一个段跨两台机器**，而 `docs/audit-v2.md` §2/§8 现在正是这么写的。**中心得先有一行才能合并。** `merge_segment` 在*它自己的*表里查找段，而发送方的行在发送方的链上，所以中心**收养**一行 —— 用发送方带命名空间的名字（`seg-<owner>-<ms>`）；这正是命名空间不是装饰的原因：它让来自别的节点的名字在这里可以被安全收养。**转录本身什么都没变。** `merge_segment` 未动，所以 `compute_hash`、`verify_chain` 与两个 append-only 触发器均未动；被收养的行写成 `closed` 且没有开启事件 —— 中心没有开过它。
 
 **影响**：`audit` 多出 `open_segment_for`（带命名空间的 id）、`adopt_segment`、`events_in_range` 与 `last_id`，外加 `safe_owner`（把部署者的自由格式节点名变得适合做段 id 最终会成为的文件名）；不给 owner 时 `free_segment_id` 保持旧形状，所以既有 id 全不变。`net` 多出 `SegmentEvent` / `SegmentDone` 及其 body 与解析，以及 `RelaySession::segment_event_to` / `segment_done_to`（`RelayClient` 上同样两个）。`host-core` 多出 `StandingSegment`（id **与**开启行的 id，所以区间无需二次查找）、`segment_frames`、`deliver_segment`、`SegmentSink` 与 `receive_segment`，而探测线程 —— 本节点唯一的读方 —— 处理这条流并在结束标记上重建。`docs/audit-v2.md`、`docs/connection.md` §6.8 + zh 已更新。**`merge_segment` 未改，`compute_hash` / `verify_chain` / append-only 触发器未改，未加路由或能力名，未加依赖。** 跨链核对 —— 一个被合并的段是否真的承接它声称的锚点 —— 是 **M6**。
+
+## 140. 关键事件在发生的当下被推送
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 CE / M4e-2）
+
+**决策**：roadmap §4 的后半句 —— 审计按计划旅行，**且**关键事件当场推送。节点把一条关键事件作为寻址到服务器本身、每事件一帧的普通 §3 帧推送，body 为 `{ "key_event": 1, "at_ms": …, "action": …, "detail": … }`；身份是前言的 `from`，`action` 照链的拼法。服务器**在内存里每节点保留最新 256 条**（`KEY_EVENT_LOG`），按 `(action, at_ms)` 去重，且什么也不答 —— 事实是陈述。两个触发器接在事实被写下的地方：**fork**（`host.audit.segment_forked`）来自送达路径，**接管**（`host.connection.takeover_declared`）来自抑制路径。30 秒的 digest 批次未变，与它们并列运行。
+
+**缘由**：四点。**digest 与关键事件不是同一类东西。** digest 是对链上某点的承诺、幂等（最新覆盖上一份），所以 aggregation 角色每节点持一份。关键事件是**事实**，于是它得到一份**日志**；日志有界，因为链才是历史，而这是「刚刚发生了什么」。**256 是一个界，不是预算**：一次 fork 需要一个冲突段、一次接管需要一次 60 秒代行，所以任何节点一个会话里都产不出它的零头；即便每条几百字节，日志每节点也不过尔尔。**推送属于事实被写下的地方。** `audit` 不持有客户端 —— `merge_segment` 写下 fork 却只能把它返回 —— 所以推送发生在 `host-core`，在那两个本就持有客户端的调用点，用与心跳和 digest 同一个客户端。**一次没送到的推送不等于一次失败的写入**：它静默，像 digest 一样，因为链上的行才是记录，报告只是礼貌。
+
+**影响**：`net` 多出 `KeyEvent` / `key_event_body` / `is_key_event`、`KEY_EVENT_LOG`、一个 `Local::KeyEvent` 变体（连同 `Local::of` 与 `LocalReply::KeyEventTaken`）、服务器的 `key_events` 表与 `key_events_of`，以及 `RelaySession::key_event` / `RelayClient::key_event`。`host-core` 从 `declare_takeover` 与 `receive_segment` 的 fork 分支（它多接一个客户端）推送。`docs/connection.md` §7 + zh 现已写明这一切。**`audit` 未动，`compute_hash` / `verify_chain` / append-only 触发器未动，未加路由或能力名，未加依赖。**
+
+**诚实的边界**：roadmap §4 点名的第三个触发器 —— **逐出** —— **没有生产者**：无动作、无 API、无事件。机制已就位，事件在等那个能造出它的定义，那是后续批次的事，不是本批的。

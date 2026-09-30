@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A key event is pushed the moment it happens** (v1.0 batch CE / M4e-2): roadmap §4's other half — audit
+  travels on a schedule **and** a key event goes at once. A node pushes one as an ordinary §3 frame addressed
+  to the server (body `{ "key_event": 1, "at_ms": …, "action": …, "detail": … }`), one per event; the server
+  keeps the newest **256 per node** in memory, deduplicated by `(action, at_ms)`, and answers nothing. Wired at
+  the two places the facts are written: a **fork** and a **takeover**. The 30-second batch is unchanged.
+  **`audit` untouched, no new dependency, no new route or capability.** The third trigger — an **ejection** —
+  has no producer, so the mechanism stands and the event waits for its definition. **Decision §140.**
+
 - **A closed segment travels to the centre, which rebuilds and merges it** (v1.0 batch CC / M5-3c-2, the end of
   M5): a stand-in hands its just-closed segment to the centre as a stream — one §3 frame per event plus a frame
   that ends it — carrying each event's own `ts`/`actor`/`action`/`agent_id`/`detail`, over the span **between**

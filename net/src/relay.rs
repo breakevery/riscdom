@@ -60,7 +60,7 @@ use crate::transport::{
     frame_bytes, Connection, Listener, Op, Relay, TransportConfig, TransportError,
 };
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
@@ -234,6 +234,68 @@ pub fn digest_body(chain: Option<&str>, length: u64) -> Value {
 /// Is this body a chain digest (§7)?
 pub fn is_digest(body: &Value) -> bool {
     body.get("digest").and_then(Value::as_u64) == Some(u64::from(PROTOCOL_VERSION))
+}
+
+/// How many key events the server keeps **per node** (v1.0 M4e-2).
+///
+/// The log is for "what just happened", not for history: the chain holds history, and the aggregation
+/// role holders *reports*. A fork needs a conflicting segment and a takeover needs a 60 s stand-in, so
+/// 256 is far more than any node produces in a session, and 256 × a few hundred bytes is a bounded,
+/// trivial amount per node however many nodes report.
+pub const KEY_EVENT_LOG: usize = 256;
+
+/// One **key event**, on its way to the server the moment it happens (v1.0 M4e-2).
+///
+/// A digest is a *commitment* to a point on a chain, and idempotent: the newest one replaces the last. A
+/// key event is a *fact* ([roadmap §4](../../docs/roadmap-v1.0.md): an ejection, a fork, a temporary
+/// centre's takeover), so the server keeps a bounded log of them rather than a latest value. The identity
+/// travels in the preamble's `from` (§3), so the body names nobody — the same as a digest or a beat.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeyEvent {
+    /// When the node says it happened (its own clock).
+    pub at_ms: i64,
+    /// The action, spelled as the chain spells it, so a reader can find the row it describes.
+    pub action: String,
+    /// The event's detail, verbatim.
+    pub detail: Value,
+}
+
+impl KeyEvent {
+    /// The body it is pushed with (§7): an ordinary signed frame addressed to the server.
+    pub fn to_body(&self) -> Value {
+        key_event_body(self.at_ms, &self.action, &self.detail)
+    }
+
+    /// Read a key event out of a body, when the body is one.
+    pub fn of_body(body: &Value) -> Option<Self> {
+        if !is_key_event(body) {
+            return None;
+        }
+        Some(Self {
+            at_ms: body.get("at_ms").and_then(Value::as_i64)?,
+            action: body.get("action").and_then(Value::as_str)?.to_string(),
+            detail: body.get("detail")?.clone(),
+        })
+    }
+}
+
+/// The body a node **pushes a key event** with (§7, v1.0 M4e-2).
+///
+/// Like a digest, an ordinary §3 frame addressed to the server — the shape §6.6 left to the
+/// implementation. One frame per event, the moment it happens: unlike the digest's 30-second batch,
+/// there is nothing to batch, because the event *is* the news.
+pub fn key_event_body(at_ms: i64, action: &str, detail: &Value) -> Value {
+    serde_json::json!({
+        "key_event": PROTOCOL_VERSION,
+        "at_ms": at_ms,
+        "action": action,
+        "detail": detail,
+    })
+}
+
+/// Is this body a key event (§7)?
+pub fn is_key_event(body: &Value) -> bool {
+    body.get("key_event").and_then(Value::as_u64) == Some(u64::from(PROTOCOL_VERSION))
 }
 
 /// What a registration **claims** ([connection.md §6.6](../../docs/connection.md)).
@@ -534,6 +596,12 @@ pub enum Local {
     Heartbeat,
     /// A chain digest, reported on §7's timer (v1.0 M4e-1).
     Digest { chain: Option<String>, length: u64 },
+    /// A key event, pushed the moment it happens (v1.0 M4e-2).
+    KeyEvent {
+        at_ms: i64,
+        action: String,
+        detail: Value,
+    },
     /// A prober's report that a peer is unreachable (§6.7).
     UnreachableReport { node_id: String },
     /// A prober's report that a peer is reachable again (§6.7).
@@ -567,6 +635,13 @@ impl Local {
                 length: digest.length,
             };
         }
+        if let Some(event) = KeyEvent::of_body(body) {
+            return Local::KeyEvent {
+                at_ms: event.at_ms,
+                action: event.action,
+                detail: event.detail,
+            };
+        }
         if let Some(report) = crate::liveness::report_of(body) {
             return match report {
                 Report::Unreachable(node_id) => Local::UnreachableReport { node_id },
@@ -598,6 +673,9 @@ pub enum LocalReply {
     /// A chain digest was taken as this node's latest report (§7). Nothing is answered, for the
     /// same reason a beat is not: a report is a statement.
     DigestTaken { node_id: String, length: u64 },
+    /// A key event was taken into this node's log (v1.0 M4e-2). Nothing is answered, for the same
+    /// reason a digest is not: a fact is a statement.
+    KeyEventTaken { node_id: String, action: String },
     /// A heartbeat arrived for a node with no row: §6.6 creates a row by a **registration**, so a
     /// beat alone places nobody. Nothing is answered for it either.
     Unplaced { node_id: String },
@@ -975,6 +1053,10 @@ struct ServerInner {
     /// transport state, like the session table and the replay record, and §6.2's aggregation role
     /// "holds digests rather than messages" — nothing here becomes a second copy of the history.
     digests: Mutex<HashMap<String, ChainDigest>>,
+    /// The **key events** each node has pushed, newest last, at most [`KEY_EVENT_LOG`] per node (v1.0
+    /// M4e-2). Memory-only, like the digest table, and for the same reason: this is what the aggregation
+    /// role holds, not a second copy of anyone's history.
+    key_events: Mutex<HashMap<String, VecDeque<KeyEvent>>>,
     transition_sink: RwLock<Option<TransitionSink>>,
 }
 
@@ -1007,6 +1089,7 @@ impl RelayServer {
                 online: OnlineTable::new(),
                 witnesses: WitnessTable::new(),
                 digests: Mutex::new(HashMap::new()),
+                key_events: Mutex::new(HashMap::new()),
                 transition_sink: RwLock::new(None),
             }),
         })
@@ -1066,6 +1149,19 @@ impl RelayServer {
             .expect("the digest table is not poisoned")
             .get(node_id)
             .cloned()
+    }
+
+    /// The key events a node has pushed, oldest first (v1.0 M4e-2).
+    ///
+    /// At most [`KEY_EVENT_LOG`] of them, and only the ones that node pushed over its own session.
+    pub fn key_events_of(&self, node_id: &str) -> Vec<KeyEvent> {
+        self.inner
+            .key_events
+            .lock()
+            .expect("the key-event log is not poisoned")
+            .get(node_id)
+            .map(|log| log.iter().cloned().collect())
+            .unwrap_or_default()
     }
 
     pub fn set_transition_sink(&self, sink: TransitionSink) {
@@ -1291,6 +1387,40 @@ impl RelayServer {
                     length: *length,
                 })
             }
+            // §7: a key event, taken the moment it happened. A statement like a beat or a digest, so
+            // nothing is answered back — and, unlike a digest, it is **kept**: the newest
+            // [`KEY_EVENT_LOG`] events per node, deduplicated by `(action, at_ms)`, because a re-pushed
+            // fact is the same fact.
+            Local::KeyEvent {
+                at_ms,
+                action,
+                detail,
+            } => {
+                let event = KeyEvent {
+                    at_ms: *at_ms,
+                    action: action.clone(),
+                    detail: detail.clone(),
+                };
+                let mut logs = self
+                    .inner
+                    .key_events
+                    .lock()
+                    .expect("the key-event log is not poisoned");
+                let log = logs.entry(from.to_string()).or_default();
+                let seen = log
+                    .iter()
+                    .any(|held| held.action == event.action && held.at_ms == event.at_ms);
+                if !seen {
+                    log.push_back(event);
+                    while log.len() > KEY_EVENT_LOG {
+                        log.pop_front();
+                    }
+                }
+                Ok(LocalReply::KeyEventTaken {
+                    node_id: from.to_string(),
+                    action: action.clone(),
+                })
+            }
             // §6.7: a prober's view, recorded as a witness report about `node_id`, and then the
             // threshold re-read. The report is a **view**, so the latest one replaces an earlier
             // one from the same witness.
@@ -1478,6 +1608,12 @@ impl RelaySession {
         self.ask(digest.to_body())
     }
 
+    /// Push a **key event** the moment it happens (§7, v1.0 M4e-2). A statement like a digest:
+    /// nothing comes back.
+    pub fn key_event(&self, event: &KeyEvent) -> Result<(), TransportError> {
+        self.ask(event.to_body())
+    }
+
     /// Ask a peer whether it is alive (§6.7): an ordinary §3 frame addressed to the peer.
     pub fn probe(&self, peer: &str) -> Result<(), TransportError> {
         self.send_body_to(peer, crate::liveness::probe_body())
@@ -1661,6 +1797,11 @@ impl RelayClient {
     /// Report this node's chain digest to the server (§7), opening the session if needed.
     pub fn digest(&self, digest: &ChainDigest) -> Result<(), TransportError> {
         self.with_session(|session| session.digest(digest))
+    }
+
+    /// Push a **key event** the moment it happens (§7, v1.0 M4e-2), opening the session if needed.
+    pub fn key_event(&self, event: &KeyEvent) -> Result<(), TransportError> {
+        self.with_session(|session| session.key_event(event))
     }
 
     /// Probe a peer (§6.7), opening the session if needed.

@@ -4074,3 +4074,37 @@ handles the stream and rebuilds on the end marker. `docs/audit-v2.md`, `docs/con
 updated. **`merge_segment` is not changed, `compute_hash` / `verify_chain` / the append-only triggers are not
 changed, no route or capability name is added, and no dependency is added.** The cross-chain check — whether a
 merged segment really continues from the anchor it claims — is **M6**.
+
+## 140. A key event is pushed the moment it happens
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch CE / M4e-2)
+
+**Decision**: roadmap §4's second half — audit travels on a schedule **and** a key event is pushed at once.
+A node pushes a key event as an ordinary §3 frame addressed to the server, one per event, body
+`{ "key_event": 1, "at_ms": …, "action": …, "detail": … }`; the identity is the preamble's `from`, and
+`action` is spelled as the chain spells it. The server keeps the newest **256 per node** in memory
+(`KEY_EVENT_LOG`), deduplicated by `(action, at_ms)`, and answers nothing — a fact is a statement. Two triggers
+are wired where the facts are written: a **fork** (`host.audit.segment_forked`) from the delivery path, and a
+**takeover** (`host.connection.takeover_declared`) from the suppression path. The 30-second digest batch is
+unchanged and runs beside them.
+
+**Why**: Four points. **A digest and a key event are not the same kind of thing.** A digest is a commitment
+to a point on a chain and is idempotent — the newest replaces the last — so the aggregation role holds one per
+node. A key event is a *fact*, so it gets a **log**, bounded because the chain is the history and this is "what
+just happened". **256 is a bound, not a budget**: a fork needs a conflicting segment and a takeover needs a 60 s
+stand-in, so no node produces a fraction of that in a session, and even at a few hundred bytes an event the log
+is trivial per node. **The push belongs where the fact is written.** `audit` holds no client — `merge_segment`
+writes the fork and can only return it — so the push happens in `host-core`, at the two call sites that already
+hold the client, using the same client the beat and the digest use. **A push that fails is not a write that
+failed**: it is silent, like a digest, because the chain row is the record and the report is a courtesy.
+
+**Impact**: `net` gains `KeyEvent` / `key_event_body` / `is_key_event`, `KEY_EVENT_LOG`, a `Local::KeyEvent`
+variant (with `Local::of` and `LocalReply::KeyEventTaken`), the server's `key_events` table with
+`key_events_of`, and `RelaySession::key_event` / `RelayClient::key_event`. `host-core` pushes from
+`declare_takeover` and from `receive_segment`'s fork arm (which gains the client). `docs/connection.md` §7 + zh
+now say all of it. **`audit` is untouched, `compute_hash` / `verify_chain` / the append-only triggers are
+untouched, no route or capability name is added, and no dependency is added.**
+
+**The honest boundary**: the third trigger roadmap §4 names — an **ejection** — has **no producer**: no action,
+no API, no event. The mechanism is in place and the event waits for the definition that would make one, which
+is a later batch's, not this one's.
