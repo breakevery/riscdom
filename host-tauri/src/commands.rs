@@ -831,6 +831,9 @@ pub async fn dispatch_task(
             sandbox.as_deref(),
             instance.as_deref(),
             id.as_deref(),
+            // `node` (v1.0 M6-1b): the desktop command still runs the task on **this** node's fleet;
+            // handing one to a peer is the HTTP surface's business for now.
+            None,
             None,
             emitter,
         )

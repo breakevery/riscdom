@@ -4149,3 +4149,42 @@ depend on `agent`) plus four typed send methods in `net/src/relay.rs` and a row 
 `verify_chain` / the append-only triggers are untouched, no route or capability name is added, no dependency
 is added, and no scheduling is written** — one frame out, one answer or none, and the caller judges (§5's red
 line).
+
+## 143. A task crosses a machine: the receiver, the claim, and the parameter
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch CJ / M6-1b)
+
+**Decision**: The second half of M6-1, and the end of M6-1. `POST /v0/tasks` gains one optional member,
+**`node`**: absent (or this node's own name) means the local fleet, exactly as before; another node's name
+hands the task over and waits for that node's answer. **The route table does not move** — §5 calls the
+interface "hand a task to a node by name", so the name travels as a parameter. The receiving node checks **one
+thing in its own `peers.json`**: whether the sender's entry declares the word **`dispatch`**
+(`DISPATCH_CLAIM`, the same shape as §6.7's `server`), and **the default is to refuse**. The task runs on the
+receiver's own fleet, the receipt is recorded as **`host.dispatch.received`**, and the answer is one frame
+back. On the sending side `peers` and `executors` are held in `Arc`s (the probe thread holds no
+`Arc<AppState>`) and a `task_replies` slot joins the two threads.
+
+**Why**: Three points. **The claim is the right axis, and it is not a capability.** The HTTP capability
+vocabulary says what a *credential* may ask a node to do; this says what a *peer node* may hand it, and a
+batch C decision already removed the five vocabulary-only names (including `task.dispatch.remote`) on the
+principle that "a capability is a typed column of the route table" — so a new name with no route would
+grant nothing. A `peers.json` claim grants exactly one thing and is how §6.7 already says "this node is a
+server". **Default deny, because a task is work.** A node must not run whatever arrives; a node that has never
+heard of the sender, or whose entry does not carry the word, is a node that says no. **The reader is the node's
+owner, so the slot is shared.** The reply arrives on the session the probe thread reads, so the thread writes a
+slot and the waiting handle reads it — §33's `takeover_heard` shape, one fact and two threads rather than a
+shared lock order.
+
+**The boundary, recorded rather than discovered**: cross-device dispatch presumes the node is **in a
+workgroup** — no peer means nothing to dispatch to, and no reader means nothing to hear the answer. The handle
+reports the unreachable refusal or the timeout instead of pretending.
+
+**Impact**: `host-core/src/state.rs` (`peers` / `executors` become `Arc<Mutex<…>>`, a `task_replies` field,
+`TaskSink`, `may_dispatch`, `task_reply_for`, `receive_task`, the two drain branches, and `dispatch_task` /
+`dispatch_task_value` gaining `node` and a `dispatch_to_node`); `server/src/routes.rs` reads the parameter;
+`net/src/peers.rs` gains `DISPATCH_CLAIM` and `PeerEntry::may_dispatch`; `docs/cross-device-dispatch.md` + zh
+are new, and `control-plane-api.md` + zh record the parameter. **`audit` is untouched, `compute_hash` /
+`verify_chain` / the append-only triggers are untouched, the route table and the 33-name capability
+vocabulary are untouched, no dependency is added, and no scheduling is written.** The four refusals are
+messages, not variants: today all four answer `500` with a distinguishable text, which the new document
+records as **not frozen**.

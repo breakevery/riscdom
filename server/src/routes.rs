@@ -1626,6 +1626,11 @@ pub(crate) fn dispatch(
             // the id travels with the task and is checked where it arrives.
             let instance = params.get("instance");
             let id = params.get("id");
+            // Where the task should run (v1.0 M6-1b): absent (or this node's own name) means the local fleet,
+            // exactly as before; another node's name hands it over and waits for that node's answer. The
+            // parameter is a **name**, not a new route: §5 calls the dispatch interface "hand a task to a
+            // node by name", and the route table does not change.
+            let node = params.get("node");
             let emitter: Arc<dyn host_core::EventSink> =
                 Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
             match app.dispatch_task(
@@ -1634,6 +1639,7 @@ pub(crate) fn dispatch(
                 sandbox,
                 instance,
                 id,
+                node,
                 Some(&actor.agent_id),
                 emitter,
             ) {

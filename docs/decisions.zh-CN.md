@@ -1504,3 +1504,15 @@ trait 属 v1.x 工作。
 **本批不做**（M6-1b）：接收侧（drain 分支、`"dispatch"` 声明检查、执行与回帧）、`/v0/tasks` 的参数、填槽的调用方读线程，以及两节点端到端测试。**能力边界是真实的、已记下**：没有 workgroup 的节点没有可派发的对端、也没有可收回复的读方，所以跨设备派发以「节点在某个 workgroup 里」为前提。
 
 **影响**：`agent/src/dispatch.rs`（`TaskId::next` 里唯一那处格式串）；`net/src/task.rs`（新增：`TaskFrame`、`TaskReply` 及其 body 与解析器 —— 只有标量与不透明 JSON，因为 `net` 不依赖 `agent`）加上 `net/src/relay.rs` 的四个 typed 发送方法与 `net/README` 一行；`host-core/src/dispatch.rs`（`RemoteAgentHandle`、`TaskReplies`、`TaskSender`、`REMOTE_DISPATCH_TIMEOUT = 30 秒`、`REPLY_POLL = 100 毫秒`）。**`audit` 未动，`compute_hash` / `verify_chain` / append-only 触发器未动，未加路由或能力名，未加依赖，也未写任何调度** —— 一帧出，一个答复或没有，由调用方判断（§5 的红线）。
+
+## 143. 一个任务跨过一台机器：收方、声明，与那个参数
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 CJ / M6-1b）
+
+**决策**：M6-1 的后一半，也是 M6-1 的终点。`POST /v0/tasks` 多出一个可选成员 **`node`**：缺席（或写本节点自己的名字）就是本地队列，与从前一字不差；另一个节点的名字则把任务交出去、并等那个节点的答复。**路由表不动** —— §5 把这个接口叫作「按名字把一个任务交给一个节点」，所以名字作为参数旅行。接收方只检查**它自己 `peers.json` 里的一件事**：发送方那一条有没有声明 **`dispatch`** 这个词（`DISPATCH_CLAIM`，与 §6.7 的 `server` 同形），且**默认拒绝**。任务在接收方自己的队列上跑，收据记作 **`host.dispatch.received`**，答复是一帧回去。发送侧把 `peers` 与 `executors` 放进 `Arc`（探测线程不持 `Arc<AppState>`），并让一个 `task_replies` 槽把两个线程接上。
+
+**缘由**：三点。**声明是对的那条轴，而它不是 capability。** HTTP 的 capability 词汇表说的是*凭据*可以要求一个节点做什么；这条说的是*同侪节点*可以交给它什么；而批 C 的一项决策已经按「a capability is a typed column of the route table」的原则移除了五个没有路由的名字（包括 `task.dispatch.remote`）—— 所以一个没有路由的新名字什么也授予不了。一条 `peers.json` 声明只授予一件事，而 §6.7 早已用它来说「这个节点是服务器」。**默认拒绝，因为任务就是活儿。** 一个节点不该跑任何送来的东西；一个从未听说过发送方的节点、或那条目里没带这个词的节点，就是一个说「不」的节点。**读方是节点自己的，所以槽是共享的。** 回复到达探测线程所读的那个会话，所以线程写一个槽、等待中的句柄读它 —— §33 的 `takeover_heard` 形状：一个事实、两个线程，而不是一套共享锁序。
+
+**边界，是记下的而不是被发现的**：跨设备派发以「节点在**某个 workgroup 里**」为前提 —— 没有同侪就没有可派发之处，没有读方就没有可听之处。句柄会报「不可达」或超时，而不是假装。
+
+**影响**：`host-core/src/state.rs`（`peers` / `executors` 变为 `Arc<Mutex<…>>`、一个新 `task_replies` 字段、`TaskSink`、`may_dispatch`、`task_reply_for`、`receive_task`、两个 drain 分支，以及 `dispatch_task` / `dispatch_task_value` 多出 `node` 与一个 `dispatch_to_node`）；`server/src/routes.rs` 读这个参数；`net/src/peers.rs` 多出 `DISPATCH_CLAIM` 与 `PeerEntry::may_dispatch`；`docs/cross-device-dispatch.md` + zh 是新的，`control-plane-api.md` + zh 记下这个参数。**`audit` 未动，`compute_hash` / `verify_chain` / append-only 触发器未动，路由表与 33 名的能力词汇表未动，未加依赖，也未写任何调度。** 四类拒绝是消息、不是变体：今天四者都以 `500` + 可辨文本作答，这一点被新文档记为**未冻结**。

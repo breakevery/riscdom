@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A task can cross a machine — and the far node runs it** (v1.0 batch CJ / M6-1b, the end of M6-1):
+  `POST /v0/tasks` gains one optional member, **`node`** — absent means the local fleet exactly as before,
+  another node's name hands the task over and waits for its answer (**the route table does not move**). The
+  receiving node checks **one thing in its own `peers.json`**: does the sender's entry declare **`dispatch`**
+  (a claim, the same shape as §6.7's `server`, **default deny**); the task runs on the receiver's own fleet,
+  `host.dispatch.received` records the receipt, and one frame carries the answer back. **No new capability,
+  no new route, no dependency, no scheduling; `audit` untouched.** The boundary is recorded:
+  cross-device dispatch presumes the node is **in a workgroup**. `docs/cross-device-dispatch.md` + zh are new.
+  **Decision §143.**
+
 - **A task can cross a machine** (v1.0 batch CI / M6-1a, the first half of M6-1): `TaskId` becomes
   `task-<device>-<pid>-<seq>` (isomorphic with every other identity, so two nodes' tasks cannot collide),
   `net` gains the two bodies a crossing task travels as (`{"task": 1, …}` out, `{"task_reply": 1, …}`

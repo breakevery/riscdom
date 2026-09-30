@@ -881,7 +881,9 @@ pub struct AppState {
     ///
     /// `None` when nothing is configured, when there is no file (a node may know nobody) or
     /// when the file was refused.
-    peers: Mutex<Option<net::PeersFile>>,
+    /// The peer table, in an `Arc` since v1.0 M6-1b: the probe thread (which holds no `Arc<AppState>` by
+    /// design) must be able to ask whether a peer may dispatch to this node.
+    peers: Arc<Mutex<Option<net::PeersFile>>>,
     /// The room definitions, loaded at start-up: `<data_dir>/rooms.json`; the same three
     /// `None`s as [`Self::peers`].
     rooms: Mutex<Option<net::RoomsFile>>,
@@ -944,7 +946,11 @@ pub struct AppState {
     /// effect** and needs no lazy init. The node itself is deliberately **not**
     /// here: `/v0/agent/run` is how a caller runs on this node, and `/v0/tasks`
     /// reaches only the fleet this node was configured with.
-    executors: Mutex<Vec<Arc<dyn AgentHandle>>>,
+    executors: Arc<Mutex<Vec<Arc<dyn AgentHandle>>>>,
+    /// Where a peer's reply to a task lands (v1.0 M6-1b): the probe thread writes it when a `task_reply`
+    /// frame arrives, and the [`RemoteAgentHandle`](crate::dispatch::RemoteAgentHandle) that sent the task
+    /// reads its own out. One slot, two threads — §33's `takeover_heard` shape.
+    task_replies: crate::dispatch::TaskReplies,
     /// Where `settings.json` lives.
     settings_path: PathBuf,
     /// The data directory this instance owns (v0.8). The sessions DB and the
@@ -1125,6 +1131,7 @@ impl Probe {
     /// What arrives on the session is verified as §3 requires — a probe is an ordinary frame, and
     /// the answer is evidence about the peer's key-holder, so this is a §3 check and not a
     /// transport one. A frame that does not verify is dropped rather than acted on.
+    #[allow(clippy::too_many_arguments)]
     fn start(
         client: Arc<net::RelayClient>,
         mut prober: net::Prober,
@@ -1133,6 +1140,8 @@ impl Probe {
         interval: Duration,
         watch: Option<CentreWatch>,
         centre_side: Option<SegmentSink>,
+        task_side: Option<TaskSink>,
+        task_replies: crate::dispatch::TaskReplies,
     ) -> Self {
         let (stop, signal) = std::sync::mpsc::channel::<()>();
         let join = std::thread::spawn(move || {
@@ -1223,6 +1232,36 @@ impl Probe {
                                                 }
                                             }
                                         }
+                                    }
+                                }
+                                // A task a peer handed this node, and a peer's answer to a task this node
+                                // handed out (v1.0 M6-1b). Both are peer-to-peer frames, like the ones above.
+                                if let Some(task_side) = &task_side {
+                                    if let Some(frame) = net::task_from_body(&message.body) {
+                                        receive_task(task_side, &message.from, &frame, &client);
+                                    }
+                                }
+                                if let Some(reply) = net::task_reply_from_body(&message.body) {
+                                    // One slot, two threads: this one writes, the handle that sent the task
+                                    // reads its own out (v1.0 M6-1b).
+                                    if let Ok(mut slot) = task_replies.lock() {
+                                        let answer = match (reply.outcome, reply.error) {
+                                            (Some(value), _) => {
+                                                serde_json::from_value::<TaskOutcome>(value).map_err(
+                                                    |error| {
+                                                        format!(
+                                                            "the peer's answer could not be read: {error}"
+                                                        )
+                                                    },
+                                                )
+                                            }
+                                            (None, Some(error)) => Err(error),
+                                            (None, None) => Err(
+                                                "the peer sent neither an outcome nor an error"
+                                                    .to_string(),
+                                            ),
+                                        };
+                                        slot.insert(TaskId::new(reply.task_id), answer);
                                     }
                                 }
                             }
@@ -1659,6 +1698,106 @@ fn receive_segment(
     Ok(())
 }
 
+/// What the probe thread needs to **receive a task** for this node (v1.0 M6-1b).
+///
+/// The reader holds no `Arc<AppState>` by design, so it is handed the three things a received task needs:
+/// who may dispatch (this node's own peer table), what can run it (this node's fleet, the same handles
+/// `/v0/tasks` routes to locally), and somewhere to say so.
+struct TaskSink {
+    /// This node's peer table. The **entry's `capabilities` are the authorisation** (v1.0 M6-1b).
+    peers: Arc<Mutex<Option<net::PeersFile>>>,
+    /// This node's executor fleet.
+    executors: Arc<Mutex<Vec<Arc<dyn agent::AgentHandle>>>>,
+    /// Where the receipt is recorded.
+    sink: Arc<Mutex<dyn AuditSink>>,
+    /// This node's agent id.
+    agent_id: String,
+}
+
+/// May `from` dispatch to this node? (v1.0 M6-1b)
+///
+/// **Default deny.** The claim is a plain string in the sender's own `peers.json` entry — the same shape
+/// §6.7's `SERVER_CLAIM` has — so a node that does not know the sender, or whose entry does not carry it,
+/// answers no.
+fn may_dispatch(peers: &Option<net::PeersFile>, from: &str) -> bool {
+    peers
+        .as_ref()
+        .and_then(|peers| peers.entry(from))
+        .map(|entry| entry.may_dispatch())
+        .unwrap_or(false)
+}
+
+/// The answer this node owes a peer's task (v1.0 M6-1b): authorise, run, and shape the reply.
+///
+/// Split from the frame's handling so the whole decision — the refusal, the fleet's answer, the reply's
+/// shape — is testable without a socket; `receive_task` is the half that needs one.
+fn task_reply_for(task_side: &TaskSink, from: &str, frame: &net::TaskFrame) -> net::TaskReply {
+    let refused = |why: String| net::TaskReply {
+        task_id: frame.task_id.clone(),
+        agent_id: None,
+        outcome: None,
+        error: Some(why),
+    };
+    {
+        let Ok(peers) = task_side.peers.lock() else {
+            return refused("this node's peer table is not readable".to_string());
+        };
+        if !may_dispatch(&peers, from) {
+            return refused("the peer did not authorise dispatch".to_string());
+        }
+    }
+    let task = Task {
+        id: TaskId::new(frame.task_id.clone()),
+        target: AgentId::new(frame.target.clone()),
+        input: frame.input.clone(),
+        sandbox: frame.sandbox.clone(),
+        instance: frame.instance.clone().map(InstanceId::new),
+    };
+    let dispatched = match task_side.executors.lock() {
+        Ok(held) => LocalDispatcher::new(held.clone()).dispatch(task),
+        Err(_) => return refused("this node's executor list is poisoned".to_string()),
+    };
+    match dispatched {
+        Ok(outcome) => match serde_json::to_value(&outcome) {
+            Ok(value) => net::TaskReply {
+                task_id: frame.task_id.clone(),
+                agent_id: Some(outcome.agent_id.as_str().to_string()),
+                outcome: Some(value),
+                error: None,
+            },
+            Err(error) => refused(format!("the executor failed: {error}")),
+        },
+        Err(error) => refused(format!("the executor failed: {error}")),
+    }
+}
+
+/// Handle one task frame that arrived **for this node** (v1.0 M6-1b): answer it, say so, and send the answer.
+fn receive_task(
+    task_side: &TaskSink,
+    from: &str,
+    frame: &net::TaskFrame,
+    client: &Arc<net::RelayClient>,
+) {
+    let reply = task_reply_for(task_side, from, frame);
+    let said = match (&reply.error, &reply.agent_id) {
+        (Some(error), _) => format!("refused: {error}"),
+        (None, Some(agent)) => format!("ran on {agent}"),
+        _ => "ran".to_string(),
+    };
+    record_host_event(
+        &task_side.sink,
+        &task_side.agent_id,
+        "host.dispatch.received",
+        serde_json::json!({
+            "task_id": frame.task_id,
+            "target": frame.target,
+            "from": from,
+            "outcome": said,
+        }),
+    );
+    let _ = client.task_reply_to(from, &reply);
+}
+
 /// One tick's answer to what this node's own probe sees of the centre (§33's three layers; v1.0
 /// M5-3a/b/c-1).
 ///
@@ -2052,6 +2191,7 @@ impl AppState {
         sandbox: Option<&str>,
         instance: Option<&str>,
         id: Option<&str>,
+        node: Option<&str>,
         caller: Option<&str>,
         emitter: Arc<dyn EventSink>,
     ) -> Result<TaskOutcome, HostError> {
@@ -2066,7 +2206,7 @@ impl AppState {
             instance: instance.map(InstanceId::new),
         };
         let task_id = task.id.as_str().to_string();
-        let answer = self.dispatch_task_value(task)?;
+        let answer = self.dispatch_task_value(task, node)?;
         // The dispatch is the caller's act, and until this batch it left **no row on this
         // node**: the only trace was the worker's own chain, which exists when the two
         // processes share a workspace and nowhere else (v1.0 gap 2/N).
@@ -2081,6 +2221,7 @@ impl AppState {
             serde_json::json!({
                 "task_id": task_id,
                 "target": target,
+                "node": node,
                 "executor": answer.agent_id.as_str(),
                 "outcome": kind,
             }),
@@ -2092,8 +2233,20 @@ impl AppState {
         Ok(answer)
     }
 
-    /// [`dispatch_task`](Self::dispatch_task) for a task a caller already built.
-    pub fn dispatch_task_value(&self, task: Task) -> Result<TaskOutcome, HostError> {
+    /// [`dispatch_task`](Self::dispatch_task) for a task a caller already built, and **for a node**.
+    ///
+    /// `node` is where the task should run (v1.0 M6-1b): `None`, or this node's own name, means the local
+    /// fleet exactly as before; another name means the task is handed to that peer and the answer waited for.
+    pub fn dispatch_task_value(
+        &self,
+        task: Task,
+        node: Option<&str>,
+    ) -> Result<TaskOutcome, HostError> {
+        if let Some(node) = node {
+            if node != agent::device() {
+                return self.dispatch_to_node(task, node);
+            }
+        }
         let dispatcher = match self.executors.lock() {
             Ok(held) => LocalDispatcher::new(held.clone()),
             Err(_) => {
@@ -2109,6 +2262,35 @@ impl AppState {
             }
             Err(error) => Err(HostError::TaskFailed(error.to_string())),
         }
+    }
+
+    /// Hand one task to **a peer** (v1.0 M6-1b), and wait for its answer.
+    ///
+    /// The frame leaves through the same client the heartbeat and the digest use, and the answer comes back
+    /// through the node's reader — which is why a node with no workgroup cannot do this (no peer, no reader):
+    /// the handle says so rather than hanging.
+    fn dispatch_to_node(&self, task: Task, node: &str) -> Result<TaskOutcome, HostError> {
+        let Some(client) = self.connection_client() else {
+            return Err(HostError::TaskFailed(
+                "this node has no connection to hand a task over".into(),
+            ));
+        };
+        let sender: crate::dispatch::TaskSender =
+            Arc::new(move |peer: &str, frame: &net::TaskFrame| {
+                client
+                    .task_to(peer, frame)
+                    .map_err(|error| error.to_string())
+            });
+        let handle = crate::dispatch::RemoteAgentHandle::new(
+            task.target.clone(),
+            node,
+            sender,
+            Arc::clone(&self.task_replies),
+            crate::dispatch::REMOTE_DISPATCH_TIMEOUT,
+        );
+        handle
+            .run(&task)
+            .map_err(|error| HostError::TaskFailed(error.to_string()))
     }
 
     /// Dev convenience: adopt `DEEPSEEK_API_KEY` into **memory only**.
@@ -2215,7 +2397,7 @@ impl AppState {
             settings: Mutex::new(LocalSettings::default()),
             settings_problem: Mutex::new(None),
             node_key: Mutex::new(None),
-            peers: Mutex::new(None),
+            peers: Arc::new(Mutex::new(None)),
             rooms: Mutex::new(None),
             connection_problem: Mutex::new(None),
             connection_client: Mutex::new(None),
@@ -2230,7 +2412,8 @@ impl AppState {
             takeover_heard: Arc::new(Mutex::new(None)),
             connection_server: Mutex::new(None),
             connection_server_addr: Mutex::new(None),
-            executors: Mutex::new(Vec::new()),
+            executors: Arc::new(Mutex::new(Vec::new())),
+            task_replies: Arc::new(Mutex::new(HashMap::new())),
             settings_path: crate::paths::settings_path(),
             data_dir: crate::paths::default_data_dir(),
             llm_config: Mutex::new(HashMap::new()),
@@ -4783,6 +4966,15 @@ impl AppState {
                 sink: Arc::clone(&self.sink),
                 agent_id: self.agent_id.clone(),
             }),
+            // This node's side of a task's arrival, and where a peer's answer to one of ours lands (v1.0
+            // M6-1b). Handed to every prober: a frame names the node it is for, and that name decides.
+            Some(TaskSink {
+                peers: Arc::clone(&self.peers),
+                executors: Arc::clone(&self.executors),
+                sink: Arc::clone(&self.sink),
+                agent_id: self.agent_id.clone(),
+            }),
+            Arc::clone(&self.task_replies),
         );
         let previous = self
             .connection_probe
@@ -4988,6 +5180,13 @@ impl AppState {
                 sink: Arc::clone(&self.sink),
                 agent_id: self.agent_id.clone(),
             }),
+            Some(TaskSink {
+                peers: Arc::clone(&self.peers),
+                executors: Arc::clone(&self.executors),
+                sink: Arc::clone(&self.sink),
+                agent_id: self.agent_id.clone(),
+            }),
+            Arc::clone(&self.task_replies),
         );
         let previous = self
             .connection_sibling_probe
@@ -8178,6 +8377,273 @@ mod tests {
             pushed.contains(&"host.audit.segment_forked".to_string()),
             "the fork was pushed: {pushed:?}"
         );
+    }
+
+    /// A peer's entry list for the task tests: one entry per `(node, may dispatch)`.
+    fn peers_with(claims: &[(&str, bool)]) -> net::PeersFile {
+        let mut peers = net::PeersFile::empty();
+        for (node, may) in claims {
+            let key = net::NodeKey::generate().expect("key");
+            let mut entry = net::PeerEntry::new(node, "127.0.0.1:1", key.public_jwk());
+            if *may {
+                entry.capabilities = vec![net::DISPATCH_CLAIM.to_string()];
+            }
+            peers.peers.push(entry);
+        }
+        peers
+    }
+
+    /// The fleet's stand-in: it answers for one label, with no child process.
+    struct FakeHandle {
+        id: AgentId,
+    }
+
+    impl agent::AgentHandle for FakeHandle {
+        fn agent_id(&self) -> &AgentId {
+            &self.id
+        }
+
+        fn run(&self, task: &Task) -> Result<TaskOutcome, DispatchError> {
+            if task.target != self.id {
+                return Err(DispatchError::NoSuchAgent(task.target.clone()));
+            }
+            Ok(TaskOutcome {
+                task_id: task.id.clone(),
+                agent_id: self.id.clone(),
+                outcome: AgentOutcome::Final {
+                    content: "done".to_string(),
+                    iterations: 1,
+                },
+            })
+        }
+    }
+
+    fn a_task_frame() -> net::TaskFrame {
+        net::TaskFrame {
+            task_id: "task-dev-a-1-1".to_string(),
+            target: "helper".to_string(),
+            input: "hello".to_string(),
+            sandbox: None,
+            instance: None,
+        }
+    }
+
+    /// A task from a peer runs only when that peer says it may (v1.0 M6-1b): default deny.
+    #[test]
+    fn a_task_is_run_only_for_a_peer_that_declares_dispatch() {
+        let state = state_with("task-authorised", serde_json::json!({}));
+        *state.executors.lock().expect("executors") = vec![Arc::new(FakeHandle {
+            id: AgentId::new("helper"),
+        })];
+        let sink_for = |claims: &[(&str, bool)]| TaskSink {
+            peers: Arc::new(Mutex::new(Some(peers_with(claims)))),
+            executors: Arc::clone(&state.executors),
+            sink: Arc::clone(&state.sink),
+            agent_id: state.agent_id.clone(),
+        };
+        let frame = a_task_frame();
+
+        // A peer that declares it: the fleet runs the task, and the reply names the executor.
+        let reply = task_reply_for(&sink_for(&[("dev-a", true)]), "dev-a", &frame);
+        assert!(reply.error.is_none(), "{:?}", reply.error);
+        assert_eq!(reply.agent_id.as_deref(), Some("helper"));
+        assert!(reply.outcome.is_some(), "the fleet's outcome travelled");
+
+        // A peer that does not, and a node nobody knows: both refused.
+        let refused = task_reply_for(&sink_for(&[("dev-a", false)]), "dev-a", &frame);
+        assert!(
+            refused
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("did not authorise"),
+            "{:?}",
+            refused.error
+        );
+        assert!(refused.outcome.is_none() && refused.agent_id.is_none());
+        let unknown = task_reply_for(&sink_for(&[]), "stranger", &frame);
+        assert!(unknown.error.is_some(), "an unknown sender is refused too");
+
+        // A target this node's fleet does not own is the fleet's own answer, not a hang.
+        let mut missing = a_task_frame();
+        missing.target = "nobody".to_string();
+        let reply = task_reply_for(&sink_for(&[("dev-a", true)]), "dev-a", &missing);
+        assert!(
+            reply
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("the executor failed"),
+            "{:?}",
+            reply.error
+        );
+    }
+
+    /// A task handed to a peer reaches it, runs there, and its answer comes back (v1.0 M6-1b).
+    ///
+    /// One real relay and two clients: A dispatches through the production handle, B answers through the
+    /// production receiver. What the test supplies is only what the two **nodes' probe threads** would
+    /// supply — their read loops — because a test has no supervisor to start them.
+    #[test]
+    fn a_task_reaches_a_peer_and_its_answer_comes_back() {
+        let a_key = net::NodeKey::generate().expect("key");
+        let b_key = net::NodeKey::generate().expect("key");
+        let server_key = net::NodeKey::generate().expect("key");
+        let mut relay_peers = net::PeersFile::empty();
+        relay_peers.peers.push(net::PeerEntry::new(
+            "dev-a",
+            "127.0.0.1:1",
+            a_key.public_jwk(),
+        ));
+        relay_peers.peers.push(net::PeerEntry::new(
+            "dev-b",
+            "127.0.0.1:2",
+            b_key.public_jwk(),
+        ));
+        let keys = relay_peers.peer_keys().expect("keys");
+
+        let listener = net::Listener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr").to_string();
+        let server = net::RelayServer::new(
+            "server",
+            server_key.clone(),
+            relay_peers,
+            net::RoomsFile::empty(),
+            net::TransportConfig::default(),
+        )
+        .expect("server");
+        let serving = server.clone();
+        std::thread::spawn(move || {
+            let _ = serving.serve(listener);
+        });
+        let server_entry = net::PeerEntry::new("server", &addr, server_key.public_jwk());
+        let config = net::TransportConfig::default();
+
+        // B: a node whose fleet answers for `helper`, and whose peer table authorises A.
+        let b_client =
+            Arc::new(net::RelayClient::new("dev-b", b_key, &server_entry, config).expect("client"));
+        let b_state = state_with("task-peer-b", serde_json::json!({}));
+        *b_state.executors.lock().expect("executors") = vec![Arc::new(FakeHandle {
+            id: AgentId::new("helper"),
+        })];
+        let b_task_side = TaskSink {
+            peers: Arc::new(Mutex::new(Some(peers_with(&[("dev-a", true)])))),
+            executors: Arc::clone(&b_state.executors),
+            sink: Arc::clone(&b_state.sink),
+            agent_id: b_state.agent_id.clone(),
+        };
+        let b_reader = {
+            let client = Arc::clone(&b_client);
+            let keys = keys.clone();
+            let mut guard = net::ReplayGuard::new();
+            std::thread::spawn(move || {
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                while std::time::Instant::now() < deadline {
+                    match client.receive() {
+                        Ok(Some(message)) => {
+                            let now = net::now_ms();
+                            if net::verify_at(&message, "dev-b", &keys, &mut guard, now).is_err() {
+                                continue;
+                            }
+                            if let Some(frame) = net::task_from_body(&message.body) {
+                                receive_task(&b_task_side, &message.from, &frame, &client);
+                                return;
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(_) => return,
+                    }
+                }
+            })
+        };
+        // B must be dialled in before the relay can hand it anything.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !server.sessions().is_present("dev-b") {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "dev-b never dialled in"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        // A: the production handle, and a reader that fills its reply slot — which is what A's probe
+        // thread does in a deployment.
+        let a_client =
+            Arc::new(net::RelayClient::new("dev-a", a_key, &server_entry, config).expect("client"));
+        let a_state = state_with("task-peer-a", serde_json::json!({}));
+        *a_state.connection_client.lock().expect("client") = Some(Arc::clone(&a_client));
+        let a_replies = Arc::clone(&a_state.task_replies);
+        let a_reader = {
+            let client = Arc::clone(&a_client);
+            let mut guard = net::ReplayGuard::new();
+            std::thread::spawn(move || {
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                while std::time::Instant::now() < deadline {
+                    match client.receive() {
+                        Ok(Some(message)) => {
+                            let now = net::now_ms();
+                            if net::verify_at(&message, "dev-a", &keys, &mut guard, now).is_err() {
+                                continue;
+                            }
+                            if let Some(reply) = net::task_reply_from_body(&message.body) {
+                                let answer = match (reply.outcome, reply.error) {
+                                    (Some(value), _) => {
+                                        serde_json::from_value::<TaskOutcome>(value)
+                                            .map_err(|error| error.to_string())
+                                    }
+                                    (None, Some(error)) => Err(error),
+                                    (None, None) => Err("no answer".to_string()),
+                                };
+                                if let Ok(mut slot) = a_replies.lock() {
+                                    slot.insert(TaskId::new(reply.task_id), answer);
+                                }
+                                return;
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(_) => return,
+                    }
+                }
+            })
+        };
+
+        let outcome = a_state
+            .dispatch_task(
+                "helper",
+                "hello",
+                None,
+                None,
+                None,
+                Some("dev-b"),
+                None,
+                Arc::new(crate::events::RecordingEventSink::new()),
+            )
+            .expect("the peer answered");
+        assert_eq!(outcome.agent_id.as_str(), "helper");
+        assert!(
+            outcome.task_id.as_str().starts_with("task-") && outcome.task_id.as_str().len() > 10,
+            "the caller's task id came back: {}",
+            outcome.task_id
+        );
+
+        // Both sides said so: A recorded the dispatch with the node it went to, B the receipt.
+        let a_rows = a_state.audit.lock().expect("audit").all().expect("events");
+        let dispatched = a_rows
+            .iter()
+            .find(|stored| stored.event.action == "m.task.dispatch")
+            .expect("the dispatch row");
+        assert_eq!(dispatched.event.detail["node"], "dev-b");
+        assert_eq!(dispatched.event.detail["target"], "helper");
+        let b_rows = b_state.audit.lock().expect("audit").all().expect("events");
+        let received = b_rows
+            .iter()
+            .find(|stored| stored.event.action == "host.dispatch.received")
+            .expect("the receipt row");
+        assert_eq!(received.event.detail["from"], "dev-a");
+        assert_eq!(received.event.detail["target"], "helper");
+
+        let _ = b_reader.join();
+        let _ = a_reader.join();
     }
 
     #[test]

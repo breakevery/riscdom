@@ -37,6 +37,15 @@ pub const PEERS_FILE: &str = "peers.json";
 /// why the claim is read here, from `peers.json`, and not from a frame.
 pub const SERVER_CLAIM: &str = "server";
 
+/// The claim that lets a peer **dispatch a task to this node** ([docs/cross-device-dispatch.md](../../docs/cross-device-dispatch.md);
+/// v1.0 M6-1b).
+///
+/// Like [`SERVER_CLAIM`] it is an ordinary string in a `capabilities` claim list and **not** a control-plane
+/// capability name: declaring it grants nothing about the HTTP surface. What it buys is exactly one thing —
+/// this node will run a task a peer hands it — and the **default is to refuse**, so a node that has never
+/// heard of the sender, or whose entry does not carry this word, answers no.
+pub const DISPATCH_CLAIM: &str = "dispatch";
+
 /// One peer, as both `peers.json` and a handed-down table carry it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PeerEntry {
@@ -193,6 +202,13 @@ impl PeerEntry {
     /// Does this entry declare that its node serves as the network's server? (§6.7, [`SERVER_CLAIM`])
     pub fn is_server(&self) -> bool {
         self.capabilities.iter().any(|claim| claim == SERVER_CLAIM)
+    }
+
+    /// Does this entry declare that its node **may dispatch to us**? (v1.0 M6-1b, [`DISPATCH_CLAIM`])
+    pub fn may_dispatch(&self) -> bool {
+        self.capabilities
+            .iter()
+            .any(|claim| claim == DISPATCH_CLAIM)
     }
 
     /// Does `other` say the same thing about this node? Used by the merge to tell an

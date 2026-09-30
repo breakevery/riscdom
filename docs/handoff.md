@@ -413,6 +413,13 @@ current request authorising it (§2).
   `AgentHandle` seam's "remote one" — which sends one frame, waits on a shared reply slot, and reports the
   outcome or one of four distinguishable refusals. **No new capability, route, dependency or scheduling.**
   The receiving side, the `/v0/tasks` parameter and the two-node test are **M6-1b**. **Decision §142.**
+- **And the far node runs the task** (v1.0 batch CJ / M6-1b, 2026-09-30, **the end of M6-1**): `POST /v0/tasks`
+  gains the optional **`node`** member (absent = the local fleet, unchanged; another node = hand it over and
+  wait), the receiving node authorises by the **`dispatch`** claim in its own `peers.json` (**default deny**),
+  runs the task on its own fleet, records `host.dispatch.received`, and answers with one frame. **The route
+  table does not move; no new capability, dependency or scheduling; `audit` untouched.** The boundary is
+  recorded: cross-device dispatch presumes the node is in a workgroup. `docs/cross-device-dispatch.md` + zh
+  are new. **Decision §143.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

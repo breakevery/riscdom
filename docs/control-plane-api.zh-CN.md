@@ -150,7 +150,7 @@ pub struct Actor {
 | 端点 | 方法 | 权限 | 请求 | 响应 | 对应 Tauri 命令 |
 |---|---|---|---|---|---|
 | `/v0/agent/run` | POST | `agent.run` | `{ "user_input": string, "sandbox"?, "instance"? }` | `AgentOutcomeView` | `run_agent` |
-| `/v0/tasks` | POST | `agent.run` | `{ "target": string, "input": string, "sandbox"?, "instance"?, "id"? }` | `TaskOutcome`，`target` 未知时 `404` | `dispatch_task` |
+| `/v0/tasks` | POST | `agent.run` | `{ "target": string, "input": string, "sandbox"?, "instance"?, "id"?, "node"? }` | `TaskOutcome`，`target` 未知时 `404`；带 `node` 时为对端的答复，或四类可读拒绝之一 | `dispatch_task` |
 | `/v0/runs/export` | POST | `audit.export` | `{ "run_id", "path" }` | `{ "events_exported": number }` | `export_run_audit` |
 | `/v0/vm/stop` | POST | `vm.control` | — | `204 No Content` | `stop_current_vm` |
 | `/v0/snapshots/save` | POST | `snapshot.write` | `{ "name": string }` | `{ "bytes_written": number }` | `save_snapshot_real` |
