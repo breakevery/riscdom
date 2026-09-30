@@ -459,6 +459,14 @@ current request authorising it (§2).
   outside `cli` + docs** — the kernel still does not choose a side. **Tech debt: the key-event push a fork
   sends the server has no reader** (no route or command reads `key_events_of`), so the push reaches nobody
   outside the server's memory — recorded in `cross-chain-verification.md` §7. **Decision §148.**
+- **And a conflict can be marked resolved** (v1.0 batch CT / M6-5-3b, 2026-09-30, **the end of the M6-5-3
+  line**): `POST /v0/audit/conflicts/{segment_id}/resolve` (a **path-parameter** route — not a `ROUTES` row)
+  takes an optional `note` and appends **one** `host.audit.conflict_resolved` row
+  (`{segment_id, resolved_by, resolved_at_ms, note}`), asked for by `riscdom audit resolve <segment_id>
+  [--note <text>]`. **No side is chosen, nothing is transcribed, the segment row is untouched** (`state`
+  stays `forked`), and the segment is not even looked up. It declares `settings.write`, so **no capability
+  name, no §5.2 count, no SDK change** — one resolver branch, one `patterns` row (10 → 11) and one CLI verb.
+  **`compute_hash` / `verify_chain` / the triggers untouched.** **Decision §149.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

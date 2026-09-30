@@ -82,6 +82,7 @@ pub fn human(command: &Command, reply: &Reply) -> String {
         | Command::ToolchainPath { .. }
         | Command::ToolchainClear
         | Command::AuditAlertSet { .. }
+        | Command::AuditResolve { .. }
         | Command::ThemeSet { .. }
         | Command::LanguageSet { .. } => "ok".to_string(),
     }

@@ -23,6 +23,7 @@ riscdom [options] <command> [args]
 | `runs get <run_id>` | `GET /v0/runs/<run_id>` | one run |
 | `audit status` | `GET /v0/audit/status` | event count, chain verdict, pending failures |
 | `audit events [--limit <n>] [--action-prefix <p>]` | `GET /v0/audit/events` | recent events, newest first (default 20); `--action-prefix` narrows them to one family |
+| `audit resolve <segment_id> [--note <text>]` | `POST /v0/audit/conflicts/{segment_id}/resolve` | record a person's decision about a conflict — one audit row, no side chosen |
 | `snapshots list` | `GET /v0/snapshots` | stored snapshots |
 | `sandboxes list` | `GET /v0/sandboxes` | the merged sandbox registry, with `current` and `default` |
 | `sandboxes current` | `GET /v0/sandboxes/current` | the definition a run would use, and the fallback's name |
@@ -166,6 +167,7 @@ Three `POST`s that hand the *server* a path to write:
 | `--token <value>` | pass the token on the command line — it lands in the shell history, so the CLI warns |
 | `--limit <n>` | how many rows `runs list` / `audit events` ask for |
 | `--action-prefix <p>` | narrow `audit events` to one family of actions, e.g. `host.audit.segment_forked` (v1.0 M6-5-3a) |
+| `--note <text>` | what `audit resolve` writes down; optional (v1.0 M6-5-3b) |
 | `--help`, `-h` | print the usage and exit `0` |
 | `--version`, `-V` | print the version and exit `0` |
 

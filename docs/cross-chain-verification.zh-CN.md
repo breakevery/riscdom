@@ -100,7 +100,17 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 
 人类可读的表会点名每行的 action（过滤器选的就是它）；行的 **detail** —— 哪个段、为什么 —— 用全局 `--json` 读，它把控制面的 JSON 原样透出。**无新路由、无新 capability、无新事件名。**
 
-**[已定] 内核不选边。** fork 就是 fork：内核中没有任何东西裁定两个矛盾动作里哪个对（§5 对第 3 问的回答）。把冲突标为**已解决**是 M6-5-3b，而且它会是一条**追加的事件**（`host.audit.conflict_resolved`）—— **绝不**改段行：段行的 `state` 意为「未解决」，而它的 `folded` 值已经意为「已转录进链」。
+**[已定] 内核不选边。** fork 就是 fork：内核中没有任何东西裁定两个矛盾动作里哪个对（§5 对第 3 问的回答）。
+
+**[已定] 把其中一个标为已解决是一条记录，而它就在这里（v1.0 M6-5-3b）。**
+`POST /v0/audit/conflicts/{segment_id}/resolve` 收一个可选的 `note`，并**追加一条**
+`host.audit.conflict_resolved` 行：`{ segment_id, resolved_by, resolved_at_ms, note }`，其中
+`resolved_by` 是调用方自己的身份。CLI 侧写作 `riscdom audit resolve <segment_id> [--note <text>]`。**它不做**的才是要点：
+
+- **不点名任何一侧为对**，也**不转录任何东西** —— 内核没有做这个决定；
+- **不碰段行**：`state = forked` 意为*未解决*、是**索引**，而链是**记录**；
+- **不查段是否存在** —— 这个动作记录的是一个决定，因为缺一行而拒绝它，会丢掉一个真实的决定，而不是阻止一个坏决定；
+- **不新增 capability 名**：路由声明 `settings.write`，与审计告警同一名 —— 因为一个没有别的路由共享的名字属于词汇，而不是一项权力。
 
 **尚欠：关键事件的推送没有读者。** 自 M4e-2 起，fork 还会在它发生的那一刻被**推**到服务器（作为关键事件 `host.audit.segment_forked`，`key_events_of`，每节点最新 256 条，内存中），正是为了让聚合角色立刻听到 —— 而**没有任何路由、也没有任何命令读那份日志**。所以今天这条推送除了服务器的内存之外谁也到不了，部署者唯一的表面仍是自己节点的链。这一点在此记为**已知缺口**，而不是一条能用的通知通道。
 

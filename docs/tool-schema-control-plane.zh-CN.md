@@ -32,7 +32,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 两条写明的例外：
 
 - **同时服务 `GET` 与 `POST` 的路径**（共六条：`toolchain/download`、`qemu/download`、`settings/theme`、`settings/language`、`llm/config`、`sandboxes/requests`）给 `POST` 加后缀 **`_post`**，于是 `POST /v0/settings/theme` → `settings_theme_post`。
-- **十条带路径参数的路由**用一个动词，而不是把路径拼起来，因为 `runs_run_id` 对谁都没帮助：`GET /v0/runs/{run_id}` → `run_get`，`GET /v0/sandboxes/{name}` → `sandbox_get`，两条申请裁决 → `sandbox_request_approve` / `sandbox_request_reject`，队列的清理（`DELETE /v0/sandboxes/requests/{id}`，v1.0 缺口 3/N 批 D）→ `sandbox_request_delete`，以及实例模型的五条（v1.0 M2a-2；`instance_history` 属 v1.0 缺口 3/N）→ `instance_list`、`instance_create`、`instance_delete`、`instance_history` 与 `sandbox_capabilities`。
+- **十一条带路径参数的路由**用一个动词，而不是把路径拼起来，因为 `runs_run_id` 对谁都没帮助：`GET /v0/runs/{run_id}` → `run_get`，`GET /v0/sandboxes/{name}` → `sandbox_get`，两条申请裁决 → `sandbox_request_approve` / `sandbox_request_reject`，队列的清理（`DELETE /v0/sandboxes/requests/{id}`，v1.0 缺口 3/N 批 D）→ `sandbox_request_delete`，以及实例模型的五条（v1.0 M2a-2；`instance_history` 属 v1.0 缺口 3/N）→ `instance_list`、`instance_create`、`instance_delete`、`instance_history` 与 `sandbox_capabilities`，以及冲突标记（v1.0 M6-5-3b）→ `audit_conflict_resolve`。
 
 工具名在整个集合里唯一（有检查）。
 
@@ -127,7 +127,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | `workspace_export` | POST | `/v0/workspace/export` | `workspace.read` | — (bytes out, not JSON) |
 <!-- tool-routes:controls:end -->
 
-### 3.3 本机端点，与带路径参数的路由（3 + 10）
+### 3.3 本机端点，与带路径参数的路由（3 + 11）
 
 <!-- tool-routes:locals:begin -->
 | Tool | Method | Path | Capability | Arguments |
@@ -150,6 +150,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 | `instance_delete` | DELETE | `/v0/sandboxes/{name}/instances/{id}` | `sandbox.instantiate` | `name` (str), `id` (str) |
 | `instance_history` | GET | `/v0/sandboxes/{name}/instances/history` | `sandbox.read` | `name` (str) |
 | `sandbox_capabilities` | GET | `/v0/sandboxes/{name}/capabilities` | `sandbox.read` | `name` (str) |
+| `audit_conflict_resolve` | POST | `/v0/audit/conflicts/{segment_id}/resolve` | `settings.write` | `segment_id` (str), `note` (str) |
 <!-- tool-routes:patterns:end -->
 
 ## 4. 定义
@@ -272,6 +273,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 {"type":"function","function":{"name":"instance_delete","description":"Reap one instance of a definition: stop its VM and forget it.","parameters":{"type":"object","properties":{"name":{"type":"string"},"id":{"type":"string"}},"required":["name","id"]}}}
 {"type":"function","function":{"name":"instance_history","description":"The instances this definition had, as the node's history records them — derived from the audit chain, not the live table; `running` is false after a restart.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"sandbox_capabilities","description":"What one sandbox definition can do: whether it multiplexes.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
+{"type":"function","function":{"name":"audit_conflict_resolve","description":"Record a person's decision about a conflict: it appends one audit row naming who decided and what they noted. It does not choose a side or change anything else.","parameters":{"type":"object","properties":{"segment_id":{"type":"string"},"note":{"type":"string"}},"required":["segment_id"]}}}
 ]
 ```
 <!-- tool-defs:patterns:end -->
@@ -299,7 +301,7 @@ RiscDom v0.9 的承诺是工作可以分工：一个 AI 驱动节点，其它的
 
 三项检查，各有各的归属：
 
-- **路由表对代码**：`server/src/routes.rs` 自己的测试读上面三张带标记的表，与服务端的路由表（`ROUTES` + `LOCAL_ROUTES` + 八条带路径参数的路由，后者还必须能 `resolve`）比对。给服务端加了一条路由而这里没加行，构建就会失败。
+- **路由表对代码**：`server/src/routes.rs` 自己的测试读上面三张带标记的表，与服务端的路由表（`ROUTES` + `LOCAL_ROUTES` + 十一条带路径参数的路由，后者还必须能 `resolve`）比对。给服务端加了一条路由而这里没加行，构建就会失败。
 - **定义对路由表**：`scripts/check-tool-schema.mjs` 在以下情况失败：某张表的一行在定义里没有对应的 `"name"`、两条工具重名、或某个名字不是 §2 的推导结果。
 - **本文件对它的译文**：同一个脚本要求带标记的块在 `tool-schema-control-plane.md` 里逐字相同。
 

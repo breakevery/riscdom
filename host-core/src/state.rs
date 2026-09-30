@@ -6785,6 +6785,40 @@ impl AppState {
         Ok(())
     }
 
+    /// Record a person's decision about a **conflict** (v1.0 M6-5-3b).
+    ///
+    /// The kernel does **not** decide which of two contradicting acts is right (roadmap §1 — a rule would
+    /// be policy). What it does is keep the record: one [`ACTION_CONFLICT_RESOLVED`] row naming **who**
+    /// decided, **when**, and whatever they wrote down. The segment row is **not touched** — its
+    /// `state = forked` means *unresolved* and is the **index**, while the chain is the **record** — and
+    /// nothing is transcribed, so no side is silently preferred.
+    ///
+    /// The caller's identity goes in twice: as the row's `agent_id` (that is what [`Self::emit_m_action`]
+    /// is for — "an act a caller asked for") and in the detail's `resolved_by`. The row's own
+    /// `timestamp_ms` is stamped by the append; the detail's `resolved_at_ms` is read here, from the same
+    /// clock the connection threads use.
+    ///
+    /// **The segment is not looked up.** This is a statement about a decision, not a write to a row:
+    /// requiring the row would refuse to record a real decision whenever the row is gone (a rebuilt index,
+    /// a fork that lives on another node), and it would make the record depend on state that this kernel
+    /// says is not the truth. A wrong `segment_id` is a caller's typo in the caller's own chain, and a
+    /// chain that recorded it is still telling the truth about what happened.
+    ///
+    /// [`ACTION_CONFLICT_RESOLVED`]: audit::ACTION_CONFLICT_RESOLVED
+    pub fn resolve_conflict(
+        &self,
+        segment_id: &str,
+        by: &str,
+        note: Option<&str>,
+    ) -> Result<(), HostError> {
+        self.emit_m_action(
+            Some(by),
+            audit::ACTION_CONFLICT_RESOLVED,
+            audit::conflict_resolved_detail(segment_id, by, net::now_ms(), note),
+        );
+        Ok(())
+    }
+
     // ----- Audit ------------------------------------------------------------
 
     /// Event count + chain status.
@@ -8633,6 +8667,58 @@ mod tests {
             .expect("row")
             .expect("adopted");
         assert_eq!(row.state, audit::SegmentState::Folded);
+    }
+
+    /// A resolution is **one row** on the chain naming who decided (v1.0 M6-5-3b): no side is chosen, the
+    /// chain verifies, and no segment row appears or moves.
+    #[test]
+    fn a_conflict_resolution_is_one_row_naming_who_decided() {
+        let state = state_with("conflict-resolve", serde_json::json!({}));
+        let before = state.audit.lock().expect("audit").count().expect("count");
+
+        state
+            .resolve_conflict("seg-dev-a-1", "dev-me", Some("kept the centre's act"))
+            .expect("resolved");
+
+        let rows = state.audit.lock().expect("audit").all().expect("all");
+        assert_eq!(rows.len(), before + 1, "one row, and only one");
+        let row = rows.last().expect("the row");
+        assert_eq!(row.event.action, audit::ACTION_CONFLICT_RESOLVED);
+        assert_eq!(row.event.actor, "host");
+        assert_eq!(
+            row.event.detail["segment_id"],
+            serde_json::json!("seg-dev-a-1")
+        );
+        assert_eq!(row.event.detail["resolved_by"], serde_json::json!("dev-me"));
+        assert_eq!(
+            row.event.detail["note"],
+            serde_json::json!("kept the centre's act")
+        );
+        assert!(row.event.detail["resolved_at_ms"].is_i64(), "{row:?}");
+        // The caller names the row's agent id: the shape for "an act a caller asked for".
+        assert_eq!(row.event.agent_id.as_deref(), Some("dev-me"));
+        // Nothing else moved: the chain verifies and no segment row was created.
+        assert!(matches!(
+            audit::verify_chain(&state.audit.lock().expect("audit")).expect("verify"),
+            audit::ChainStatus::Intact { .. }
+        ));
+        assert!(state
+            .audit
+            .lock()
+            .expect("audit")
+            .segment("seg-dev-a-1")
+            .expect("read")
+            .is_none());
+
+        // A resolution with nothing written down records `null`, not a guess.
+        state
+            .resolve_conflict("seg-dev-a-2", "dev-me", None)
+            .expect("resolved");
+        let rows = state.audit.lock().expect("audit").all().expect("all");
+        assert_eq!(
+            rows.last().expect("row").event.detail["note"],
+            serde_json::Value::Null
+        );
     }
 
     /// A delivery whose own chain does not hold together is **recorded and not merged** (v1.0 M6-5-2b):

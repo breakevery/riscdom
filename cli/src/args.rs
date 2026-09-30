@@ -173,6 +173,15 @@ pub enum Command {
         limit: usize,
         action_prefix: Option<String>,
     },
+    /// Record a person's decision about a **conflict** (v1.0 M6-5-3b).
+    ///
+    /// It appends one `host.audit.conflict_resolved` row naming who decided and what they noted; it does
+    /// **not** choose a side, transcribe anything or touch the segment row. Reading the fork first is what
+    /// `audit events --action-prefix host.audit.segment_forked` is for.
+    AuditResolve {
+        segment_id: String,
+        note: Option<String>,
+    },
     SnapshotsList,
     /// The merged sandbox registry (v0.9 sandbox F2a-2), read-only.
     SandboxesList,
@@ -354,6 +363,11 @@ impl Command {
             Command::RunsList { limit: Some(limit) } => format!("/v0/runs?limit={limit}"),
             Command::RunsGet { run_id } => format!("/v0/runs/{}", url_encode(run_id)),
             Command::AuditStatus => "/v0/audit/status".to_string(),
+            // The segment travels **in the path**, encoded, so an id with a `/` or a space cannot
+            // reshape the route (v1.0 M6-5-3b).
+            Command::AuditResolve { segment_id, .. } => {
+                format!("/v0/audit/conflicts/{}/resolve", url_encode(segment_id))
+            }
             // `limit` is required by this endpoint, so the CLI always sends one. The action filter is
             // optional and travels as an encoded query parameter (v1.0 M6-5-3a).
             Command::AuditEvents {
@@ -523,6 +537,7 @@ impl Command {
                 Some(json!({ "path": path }))
             }
             Command::AuditAlertSet { enabled } => Some(json!({ "enabled": enabled })),
+            Command::AuditResolve { note, .. } => Some(json!({ "note": note })),
             Command::ThemeSet { theme } => Some(json!({ "theme": theme })),
             Command::LanguageSet { language } => Some(json!({ "language": language })),
             _ => None,
@@ -629,6 +644,9 @@ struct Flags {
     /// `--action-prefix <prefix>`: narrow an audit read to one family of events
     /// (v1.0 M6-5-3a), e.g. `host.audit.segment_forked`.
     action_prefix: Option<String>,
+    /// `--note <text>`: what a person wrote down when resolving a conflict
+    /// (v1.0 M6-5-3b). Optional; absent records `null`.
+    note: Option<String>,
     api_key: Option<String>,
     api_key_file: Option<PathBuf>,
     base_url: Option<String>,
@@ -677,6 +695,7 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
             "--target" => flags.target = Some(value("--target")?),
             "--input" => flags.input = Some(value("--input")?),
             "--action-prefix" => flags.action_prefix = Some(value("--action-prefix")?),
+            "--note" => flags.note = Some(value("--note")?),
             "--toolchain" => flags.toolchain = Some(value("--toolchain")?),
             "--api-key" => flags.api_key = Some(value("--api-key")?),
             "--api-key-file" => flags.api_key_file = Some(PathBuf::from(value("--api-key-file")?)),
@@ -748,6 +767,10 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
         (Some("audit"), Some("events"), None, None) => Some(Command::AuditEvents {
             limit: flags.limit.unwrap_or(DEFAULT_EVENT_LIMIT),
             action_prefix: flags.action_prefix.clone(),
+        }),
+        (Some("audit"), Some("resolve"), Some(segment_id), None) => Some(Command::AuditResolve {
+            segment_id: segment_id.to_string(),
+            note: flags.note.clone(),
         }),
         (Some("snapshots"), Some("list"), None, None) => Some(Command::SnapshotsList),
         (Some("sandboxes"), Some("list"), None, None) => Some(Command::SandboxesList),
@@ -1086,6 +1109,27 @@ mod tests {
                 action_prefix: Some("host.audit.segment_forked".to_string())
             }
         );
+        // Recording a decision (v1.0 M6-5-3b): the segment is a word of the command, the note is a flag.
+        assert_eq!(
+            command(&["audit", "resolve", "seg-dev-a-1"]),
+            Command::AuditResolve {
+                segment_id: "seg-dev-a-1".to_string(),
+                note: None
+            }
+        );
+        assert_eq!(
+            command(&[
+                "audit",
+                "resolve",
+                "seg-dev-a-1",
+                "--note",
+                "kept the centre's act"
+            ]),
+            Command::AuditResolve {
+                segment_id: "seg-dev-a-1".to_string(),
+                note: Some("kept the centre's act".to_string())
+            }
+        );
         assert_eq!(command(&["snapshots", "list"]), Command::SnapshotsList);
         // control commands
         assert_eq!(
@@ -1209,6 +1253,40 @@ mod tests {
             }
             .request_path(),
             "/v0/audit/events?limit=20&action_prefix=host.audit.segment_forked"
+        );
+        // The segment travels in the path (v1.0 M6-5-3b), so the resolve command is a POST to it.
+        assert_eq!(
+            Command::AuditResolve {
+                segment_id: "seg-dev-a-1".to_string(),
+                note: None
+            }
+            .request_path(),
+            "/v0/audit/conflicts/seg-dev-a-1/resolve"
+        );
+        assert_eq!(
+            Command::AuditResolve {
+                segment_id: "seg-dev-a-1".to_string(),
+                note: None
+            }
+            .method(),
+            "POST"
+        );
+        assert_eq!(
+            Command::AuditResolve {
+                segment_id: "seg-dev-a-1".to_string(),
+                note: Some("kept the centre's act".to_string())
+            }
+            .body(),
+            Some(json!({ "note": "kept the centre's act" }))
+        );
+        assert_eq!(
+            Command::AuditResolve {
+                segment_id: "seg-dev-a-1".to_string(),
+                note: None
+            }
+            .body(),
+            Some(json!({ "note": null })),
+            "a resolve with nothing written down records null"
         );
         assert_eq!(Command::SnapshotsList.request_path(), "/v0/snapshots");
         assert_eq!(

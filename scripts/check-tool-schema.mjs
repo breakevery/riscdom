@@ -60,6 +60,8 @@ const NAMED_PATTERN_ROUTES = {
   "POST /v0/sandboxes/{name}/instances": "instance_create",
   "DELETE /v0/sandboxes/{name}/instances/{id}": "instance_delete",
   "GET /v0/sandboxes/{name}/capabilities": "sandbox_capabilities",
+  // The conflict resolution (v1.0 M6-5-3b): a person's decision about a fork, recorded and nothing more.
+  "POST /v0/audit/conflicts/{segment_id}/resolve": "audit_conflict_resolve",
 };
 
 /** The marked blocks of a document: `name -> body`, in file order. */

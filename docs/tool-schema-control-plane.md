@@ -47,14 +47,15 @@ Two documented exceptions:
   `qemu/download`, `settings/theme`, `settings/language`, `llm/config`,
   `sandboxes/requests`) gives the `POST` the suffix **`_post`**, so
   `POST /v0/settings/theme` → `settings_theme_post`.
-- **The ten path-parameter routes** get a verb instead of a joined path, because
+- **The eleven path-parameter routes** get a verb instead of a joined path, because
   `runs_run_id` helps nobody: `GET /v0/runs/{run_id}` → `run_get`,
   `GET /v0/sandboxes/{name}` → `sandbox_get`, the two request decisions →
   `sandbox_request_approve` / `sandbox_request_reject`, the queue's cleanup
   (`DELETE /v0/sandboxes/requests/{id}`, v1.0 gap 3/N batch D) → `sandbox_request_delete`,
-  and the instance model's five (v1.0 M2a-2; `instance_history` is v1.0 gap 3/N) →
+  the instance model's five (v1.0 M2a-2; `instance_history` is v1.0 gap 3/N) →
   `instance_list`, `instance_create`, `instance_delete`, `instance_history` and
-  `sandbox_capabilities`.
+  `sandbox_capabilities`, and the conflict resolution (v1.0 M6-5-3b) →
+  `audit_conflict_resolve`.
 
 Tool names are unique across the whole set (checked).
 
@@ -149,7 +150,7 @@ Tool names are unique across the whole set (checked).
 | `workspace_export` | POST | `/v0/workspace/export` | `workspace.read` | — (bytes out, not JSON) |
 <!-- tool-routes:controls:end -->
 
-### 3.3 Host-local, and the path-parameter routes (3 + 10)
+### 3.3 Host-local, and the path-parameter routes (3 + 11)
 
 <!-- tool-routes:locals:begin -->
 | Tool | Method | Path | Capability | Arguments |
@@ -172,6 +173,7 @@ Tool names are unique across the whole set (checked).
 | `instance_delete` | DELETE | `/v0/sandboxes/{name}/instances/{id}` | `sandbox.instantiate` | `name` (str), `id` (str) |
 | `instance_history` | GET | `/v0/sandboxes/{name}/instances/history` | `sandbox.read` | `name` (str) |
 | `sandbox_capabilities` | GET | `/v0/sandboxes/{name}/capabilities` | `sandbox.read` | `name` (str) |
+| `audit_conflict_resolve` | POST | `/v0/audit/conflicts/{segment_id}/resolve` | `settings.write` | `segment_id` (str), `note` (str) |
 <!-- tool-routes:patterns:end -->
 
 ## 4. The definitions
@@ -296,6 +298,7 @@ say what the model may ask for.
 {"type":"function","function":{"name":"instance_delete","description":"Reap one instance of a definition: stop its VM and forget it.","parameters":{"type":"object","properties":{"name":{"type":"string"},"id":{"type":"string"}},"required":["name","id"]}}}
 {"type":"function","function":{"name":"instance_history","description":"The instances this definition had, as the node's history records them — derived from the audit chain, not the live table; `running` is false after a restart.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
 {"type":"function","function":{"name":"sandbox_capabilities","description":"What one sandbox definition can do: whether it multiplexes.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}
+{"type":"function","function":{"name":"audit_conflict_resolve","description":"Record a person's decision about a conflict: it appends one audit row naming who decided and what they noted. It does not choose a side or change anything else.","parameters":{"type":"object","properties":{"segment_id":{"type":"string"},"note":{"type":"string"}},"required":["segment_id"]}}}
 ]
 ```
 <!-- tool-defs:patterns:end -->
@@ -331,7 +334,7 @@ Three checks, one owner each:
 
 - **The route tables against the code**: `server/src/routes.rs`'s own tests read the three
   marked tables above and compare them with the server's route table (`ROUTES` +
-  `LOCAL_ROUTES` + the eight path-parameter routes, which must also resolve). A route added
+  `LOCAL_ROUTES` + the eleven path-parameter routes, which must also resolve). A route added
   to the server without a row here fails the build.
 - **The definitions against the tables**: `scripts/check-tool-schema.mjs` fails when a
   table row has no `"name"` in the definitions, when two tools share a name, or when a name

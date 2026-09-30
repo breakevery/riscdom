@@ -171,9 +171,21 @@ segment, and why — is read with the global `--json`, which passes the control 
 new route, no new capability, no new event name.**
 
 **[settled] The kernel does not choose a side.** A fork stays a fork: nothing in the kernel decides which of
-two contradicting acts is right (§5's answer to question 3). Marking a conflict **resolved** is M6-5-3b, and
-it will be an **appended event** (`host.audit.conflict_resolved`) — never a change to the segment row, whose
-`state` means "this is unresolved" and whose `folded` value already means "transcribed into the chain".
+two contradicting acts is right (§5's answer to question 3).
+
+**[settled] Marking one resolved is a record, and it is here (v1.0 M6-5-3b).**
+`POST /v0/audit/conflicts/{segment_id}/resolve` takes an optional `note` and appends **one**
+`host.audit.conflict_resolved` row: `{ segment_id, resolved_by, resolved_at_ms, note }`, where
+`resolved_by` is the caller's own identity. The CLI asks for it as
+`riscdom audit resolve <segment_id> [--note <text>]`. What it does **not** do is the point:
+
+- **no side is named** as right, and **nothing is transcribed** — the kernel did not decide;
+- **the segment row is not touched**: `state = forked` means *unresolved* and is the **index**, while the
+  chain is the **record**;
+- **the segment is not looked up** — the act records a decision, so refusing it because a row is missing
+  would lose a real decision rather than prevent a bad one;
+- **no new capability name**: the route declares `settings.write`, the same as the audit alert, because a
+  name no other route shares would be vocabulary rather than a power.
 
 **Owed: the key-event push has no reader.** Since M4e-2 a fork is *also* pushed to the server the moment it
 happens (`host.audit.segment_forked` as a key event, `key_events_of`, the newest 256 per node, in memory)

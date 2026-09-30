@@ -114,6 +114,9 @@ pub(crate) enum Action {
     PreflightAck,
     AuditAlert,
     AuditExport,
+    /// A person's decision about a conflict (v1.0 M6-5-3b). The path carries the segment, so this is one
+    /// of the **path-parameter** routes: it is resolved by [`resolve`], not declared in [`ROUTES`].
+    AuditResolve,
     SettingsThemeSet,
     SettingsLanguageSet,
     LlmConfigSet,
@@ -792,6 +795,23 @@ fn run_id_from(path: &str) -> Option<&str> {
     Some(rest)
 }
 
+/// `/v0/audit/conflicts/<segment_id>`, the conflict resolution's path (v1.0 M6-5-3b).
+const CONFLICTS_PREFIX: &str = "/v0/audit/conflicts/";
+
+/// The `<segment_id>` of `/v0/audit/conflicts/<segment_id>/resolve`, when the path is exactly that shape.
+///
+/// The same arrangement as the request decisions: the tail names the act, so an unknown tail is simply not
+/// a route, and an id with a `/` in it (or none at all) is not one either — the segment id becomes a file
+/// name elsewhere, and nothing here should invent a way to rename it.
+fn conflict_resolve_from(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix(CONFLICTS_PREFIX)?;
+    let (id, tail) = rest.rsplit_once('/')?;
+    if id.is_empty() || id.contains('/') || tail != "resolve" {
+        return None;
+    }
+    Some(id)
+}
+
 /// `/v0/sandboxes/requests/<id>`, the request decisions' path.
 const SANDBOX_REQUESTS_PREFIX: &str = "/v0/sandboxes/requests/";
 
@@ -964,6 +984,21 @@ pub(crate) fn resolve(method: &str, path: &str) -> Resolution {
             action: Action::Run,
             capability: Capability::RunsRead,
             path_param: vec![("run_id", run_id.to_string())],
+        };
+    }
+    if let Some(segment_id) = conflict_resolve_from(path) {
+        if method != "POST" {
+            return Resolution::MethodNotAllowed {
+                allowed: "POST".to_string(),
+            };
+        }
+        // The gate is `settings.write`, the same as the audit alert's (v1.0 M6-5-3b): recording a
+        // decision is a configuration-side act, and **no new capability name** is invented for it — a
+        // name no other route shares would be vocabulary, and the vocabulary is the route table's.
+        return Resolution::Query {
+            action: Action::AuditResolve,
+            capability: Capability::SettingsWrite,
+            path_param: vec![("segment_id", segment_id.to_string())],
         };
     }
     if let Some((id, action)) = sandbox_request_decision_from(path) {
@@ -1976,6 +2011,18 @@ pub(crate) fn dispatch(
             },
             Err(response) => *response,
         },
+        Action::AuditResolve => {
+            let segment_id = match params.required("segment_id") {
+                Ok(id) => id,
+                Err(response) => return *response,
+            };
+            // A resolution is a record, not a transition: `resolve_conflict` appends one row and touches
+            // nothing else (v1.0 M6-5-3b).
+            match app.resolve_conflict(segment_id, &actor.agent_id, params.get("note")) {
+                Ok(()) => no_content(),
+                Err(e) => host_error(e),
+            }
+        }
         Action::AuditExport => match params.required("path") {
             Ok(path) => match app.export_audit_jsonl(path.to_string()) {
                 Ok(events_exported) => {
@@ -2631,13 +2678,14 @@ mod tests {
                 "{language}: the host-local rows"
             );
 
-            // The four path-parameter routes are served but are not rows in `ROUTES`
+            // The path-parameter routes are served but are not rows in `ROUTES`
             // (a pattern is not a row), so they are checked by `resolve` instead.
             let patterns = block("patterns");
-            // Ten since v1.0 gap 3/N batch D: the queue's `DELETE {id}` joins the instance
-            // history, the instance model's four, the run, the sandbox and the two request
-            // decisions. A pattern is not a row, so this list is what keeps them visible.
-            assert_eq!(patterns.len(), 10, "{language}: the path-parameter tools");
+            // Eleven since v1.0 M6-5-3b: the conflict resolution joins the instance
+            // history, the instance model's four, the run, the sandbox, the queue's
+            // `DELETE {id}` and the two request decisions. A pattern is not a row, so this
+            // list is what keeps them visible.
+            assert_eq!(patterns.len(), 11, "{language}: the path-parameter tools");
             for (method, path, _) in &patterns {
                 assert!(
                     matches!(resolve(method, path), Resolution::Query { .. }),
@@ -2662,6 +2710,42 @@ mod tests {
                 other => panic!("{path} did not resolve to a query: {other:?}"),
             }
         }
+    }
+
+    /// The conflict resolution is a **pattern**, so `resolve` is what serves it (v1.0 M6-5-3b).
+    #[test]
+    fn resolve_the_conflict_resolution() {
+        match resolve("POST", "/v0/audit/conflicts/seg-dev-a-1/resolve") {
+            Resolution::Query {
+                action,
+                capability,
+                path_param,
+            } => {
+                assert_eq!(action, Action::AuditResolve);
+                // The same capability as the audit alert's: no new name is invented for this.
+                assert_eq!(capability, Capability::SettingsWrite);
+                assert_eq!(path_param, vec![("segment_id", "seg-dev-a-1".to_string())]);
+            }
+            other => panic!("{other:?}"),
+        }
+        // The tail names the act, and the id is one segment: anything else is not a route.
+        assert!(matches!(
+            resolve("POST", "/v0/audit/conflicts/seg-dev-a-1"),
+            Resolution::NotFound
+        ));
+        assert!(matches!(
+            resolve("POST", "/v0/audit/conflicts//resolve"),
+            Resolution::NotFound
+        ));
+        assert!(matches!(
+            resolve("POST", "/v0/audit/conflicts/a/b/resolve"),
+            Resolution::NotFound
+        ));
+        // and the method is POST.
+        assert!(matches!(
+            resolve("GET", "/v0/audit/conflicts/seg-dev-a-1/resolve"),
+            Resolution::MethodNotAllowed { .. }
+        ));
     }
 
     #[test]

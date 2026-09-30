@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A conflict can be marked resolved — by recording who decided, and nothing else** (v1.0 batch CT /
+  M6-5-3b, the end of the M6-5-3 line): `POST /v0/audit/conflicts/{segment_id}/resolve` (a **path-parameter**
+  route, so it is not a `ROUTES` row) takes an optional `note` and appends **one**
+  `host.audit.conflict_resolved` row — `{ segment_id, resolved_by, resolved_at_ms, note }` — with `resolved_by`
+  taken from the caller. The CLI asks for it as `riscdom audit resolve <segment_id> [--note <text>]`. **No side
+  is chosen, nothing is transcribed, and the segment row is not touched** (`state` stays `forked`: it means
+  *unresolved* and is the index — the chain is the record). The route declares **`settings.write`**, so **no
+  capability name, no §5.2 count and no SDK change**; the tool-schema `patterns` block gains one row (10 → 11).
+  **`compute_hash` / `verify_chain` / the triggers are untouched.** **Decision §149.**
+
 - **A conflict is one filter away** (v1.0 batch CR / M6-5-3a, the observation half of the conflict exit):
   `riscdom audit events` gains **`--action-prefix <prefix>`** — the server's own filter, which the CLI had no
   way to ask for — so `--action-prefix host.audit.segment_forked` lists this node's conflicts and

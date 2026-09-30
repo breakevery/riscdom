@@ -53,6 +53,17 @@ pub const ACTION_CHAIN_VERIFIED: &str = "host.audit.chain_verified";
 /// still evidence.
 pub const ACTION_CHAIN_REJECTED: &str = "host.audit.chain_rejected";
 
+/// The audit event that records a **person deciding what to do about a conflict** (v1.0 M6-5-3b).
+///
+/// A fork is two acts that contradict each other, and the kernel does **not** choose between them (roadmap
+/// §1: a rule would be policy). What the kernel can do is record that somebody decided — which is this
+/// event, and nothing more: the segment row keeps `state = forked` (it means *unresolved*, and it is the
+/// index; the chain is the record), nothing is transcribed, and no side is named as right.
+///
+/// Like the other `host.audit.*` names this is an **audit event name**, not a stream name: the twenty
+/// `control-plane-events.md` names are a different vocabulary.
+pub const ACTION_CONFLICT_RESOLVED: &str = "host.audit.conflict_resolved";
+
 /// The prefix a **partial merge** leaves in a segment's `note` (v1.0 M5-2a).
 ///
 /// A merge that failed part way through cannot be undone (the chain only grows), so it records what happened
@@ -361,6 +372,26 @@ pub fn chain_rejected_detail(
         "reason": reason,
         "checked": checked,
         "linkage": linkage,
+    })
+}
+
+/// The detail of a [`ACTION_CONFLICT_RESOLVED`] event (v1.0 M6-5-3b): who decided, when, and what they
+/// noted.
+///
+/// `resolved_by` is the **caller's** identity (the request's actor), and `note` is the person's own words —
+/// `null` when they wrote none. The two are deliberately the whole record: **which side is right is not
+/// here**, because the kernel did not decide it.
+pub fn conflict_resolved_detail(
+    segment_id: &str,
+    resolved_by: &str,
+    resolved_at_ms: i64,
+    note: Option<&str>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "segment_id": segment_id,
+        "resolved_by": resolved_by,
+        "resolved_at_ms": resolved_at_ms,
+        "note": note,
     })
 }
 

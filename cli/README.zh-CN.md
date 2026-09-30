@@ -19,6 +19,7 @@ riscdom [options] <command> [args]
 | `runs get <run_id>` | `GET /v0/runs/<run_id>` | 单个运行 |
 | `audit status` | `GET /v0/audit/status` | 事件总数、链的判定、待报告失败 |
 | `audit events [--limit <n>] [--action-prefix <p>]` | `GET /v0/audit/events` | 最近事件，新的在前（默认 20）；`--action-prefix` 把它缩到某一个事件族 |
+| `audit resolve <segment_id> [--note <text>]` | `POST /v0/audit/conflicts/{segment_id}/resolve` | 记录一个人对冲突的决定 —— 一行审计，不选边 |
 | `snapshots list` | `GET /v0/snapshots` | 已存快照 |
 | `sandboxes list` | `GET /v0/sandboxes` | 合并后的沙箱注册表，含 `current` 与 `default` |
 | `sandboxes current` | `GET /v0/sandboxes/current` | 一次运行会用的定义，以及兜底的名字 |
@@ -149,6 +150,7 @@ riscdom [options] <command> [args]
 | `--token <value>` | 在命令行上传 token——会落入 shell history，CLI 会打印警告 |
 | `--limit <n>` | `runs list` / `audit events` 请求多少行 |
 | `--action-prefix <p>` | 把 `audit events` 缩到某一个动作族，例如 `host.audit.segment_forked`（v1.0 M6-5-3a） |
+| `--note <text>` | `audit resolve` 写下的内容；可选（v1.0 M6-5-3b） |
 | `--help`、`-h` | 打印用法并退出 `0` |
 | `--version`、`-V` | 打印版本并退出 `0` |
 

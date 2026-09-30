@@ -4365,3 +4365,55 @@ string is built with the existing `url_encode`), `cli/src/render.rs` (two test f
 unchanged), `cli/README.md` + zh and `docs/control-plane-client-guide.md` + zh (the command's row and the
 flag table). **`audit/`, `net/`, `host-core/`, `server/` and the SDK are untouched**, the route table and the
 33-name capability vocabulary are untouched, no dependency is added, and nothing is written to any chain.
+
+## 149. A conflict is marked resolved by recording who decided — and nothing else
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch CT / M6-5-3b)
+
+**Decision**: The marking half of M6-5-3, and the end of the **M6-5-3 line**. A person can now record a
+decision about a fork:
+
+- **`POST /v0/audit/conflicts/{segment_id}/resolve`** — a **path-parameter** route, so it is resolved by
+  `resolve()` and not declared in `ROUTES` (the same arrangement as the sandbox queue's decisions and the
+  instance model). It declares **`settings.write`**, the same capability as the audit alert: **no new name**.
+- **`AppState::resolve_conflict(segment_id, by, note)`** appends **one** `host.audit.conflict_resolved` row
+  through `emit_m_action(Some(by), …)` — which is what that shape is for ("an act a caller asked for"), so
+  the row's `agent_id` names the person **and** the detail carries `resolved_by`.
+- **The detail** is `{ segment_id, resolved_by, resolved_at_ms, note }` — **which side is right is not in
+  it**, because the kernel did not decide.
+- **The segment row is not touched** (`state` stays `forked`: it means *unresolved* and is the index) and
+  **the segment is not looked up** — a resolution records a decision, so refusing one because a row is
+  missing would lose a real decision instead of preventing a bad one.
+- **`riscdom audit resolve <segment_id> [--note <text>]`** asks for it (two words, like every other command
+  in this CLI); no `--yes`, because nothing is destroyed.
+
+**Why**: Three points. **Recording is the whole of the kernel's part.** Roadmap §1 says the kernel ships
+mechanism and the caller owns policy; "which of two contradicting acts is right" is policy, so the kernel's
+part is to keep the record legible — and it is: one row, one name, one time, the person's own words.
+**A path parameter is the honest shape, and it is the cheaper one.** The segment is the thing being talked
+about, so it belongs in the path; and because a pattern is *not* a `ROUTES` row (decisions §83's "a
+capability is a typed column of the route table" is about names, not about patterns), the route adds **no
+capability name**, **no §5.2 count**, and **nothing to the SDK's control table** — the whole addition is one
+resolver branch, one `patterns` row and one CLI verb. **§83's clean-up had already removed the vocabulary
+that said a power existed when no endpoint could exercise it; inventing `audit.resolve` here would have put
+one back.**
+
+**A correction the executor caught before writing code**: the batch as first written expected this route to
+bump §5.2 from 36 to 37 and to add a control to both SDKs. That is true of a **literal** route and false of a
+**path-parameter** one: `documented_count` reads the **number in the heading** and
+`the_table_has_the_documented_endpoints` compares it with the **literal** `POST` rows, while the
+path-parameter routes live in a separate `patterns` block whose length is asserted in
+`the_tool_schema_document_lists_exactly_the_routes_the_server_serves` (11 since this batch, was 10). The work
+was stopped and this was reported rather than guessed at (batch CT's first run).
+
+**Impact**: `audit/src/segment.rs` (`ACTION_CONFLICT_RESOLVED` + `conflict_resolved_detail`);
+`host-core/src/state.rs` (`AppState::resolve_conflict`); `server/src/routes.rs` (`Action::AuditResolve`,
+`conflict_resolve_from`, the `resolve()` branch, the handler, and the `patterns` assertion 10 → 11);
+`cli/src/args.rs` + `cli/src/render.rs` (the `audit resolve` command, `--note`, the path and the body);
+`scripts/check-tool-schema.mjs` (the §2 exception list, which is a copy of the document's own list);
+`docs/tool-schema-control-plane.md` + zh (one `patterns` row and one definition, and the prose counts
+10 → 11); `docs/control-plane-api.md` + zh (one §5.2 row — **the heading's 36 does not move**);
+`docs/control-plane-client-guide.md` + zh, `cli/README.md` + zh, and `cross-chain-verification.md` §7.
+**`compute_hash`, `verify_chain` and the append-only triggers are untouched** (the act only *appends*), the
+route table, the §5.2 count and the 33-name capability vocabulary are untouched, **the SDK is untouched**,
+and no dependency is added. **M6-5-4 is untouched.**

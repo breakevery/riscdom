@@ -2105,6 +2105,78 @@ fn a_caller_that_names_itself_lands_in_the_chain() {
     assert_eq!(ask(&events)["agent_id"], at_cap, "{events}");
 }
 
+/// Recording a decision about a conflict appends **one** audit row and changes nothing else
+/// (v1.0 M6-5-3b). The route is a pattern, so the segment travels in the path.
+#[test]
+fn a_conflict_resolution_is_recorded_and_nothing_else_changes() {
+    let (addr, app) = serve_with_state(temp_workspace("resolve"), Arc::new(NoAuth));
+
+    // `call`, not `post`: the answer is `204 No Content`, so there is no JSON to parse.
+    let (status, body) = call(
+        addr,
+        "POST",
+        "/v0/audit/conflicts/seg-dev-a-1/resolve",
+        "",
+        Some(r#"{"note":"kept the centre's act"}"#),
+    );
+    assert_eq!(status, 204, "{body}");
+
+    // The row is on the chain, naming who decided and what they wrote down.
+    let (status, events) = get(
+        addr,
+        "/v0/audit/events?limit=10&action_prefix=host.audit.conflict_resolved",
+    );
+    assert_eq!(status, 200, "{events}");
+    let rows = events.as_array().expect("an array");
+    assert_eq!(rows.len(), 1, "{events}");
+    assert_eq!(rows[0]["action"], "host.audit.conflict_resolved");
+    assert_eq!(rows[0]["detail"]["segment_id"], "seg-dev-a-1");
+    assert_eq!(rows[0]["detail"]["note"], "kept the centre's act");
+    assert!(
+        rows[0]["detail"]["resolved_by"]
+            .as_str()
+            .is_some_and(|who| !who.is_empty()),
+        "the row names who decided: {events}"
+    );
+
+    // The chain is intact, and the segment was neither created nor touched: the row is the index,
+    // and this act does not move it.
+    let (status, view) = get(addr, "/v0/audit/status");
+    assert_eq!(status, 200, "{view}");
+    assert_eq!(view["chain"]["status"], "Intact", "{view}");
+    assert!(
+        app.audit
+            .lock()
+            .expect("audit")
+            .segment("seg-dev-a-1")
+            .expect("read")
+            .is_none(),
+        "a resolution creates no segment row"
+    );
+
+    // A note is optional, and the row records `null` rather than inventing one.
+    let (status, body) = call(
+        addr,
+        "POST",
+        "/v0/audit/conflicts/seg-dev-a-2/resolve",
+        "",
+        Some(r#"{}"#),
+    );
+    assert_eq!(status, 204, "{body}");
+    let (_, events) = get(
+        addr,
+        "/v0/audit/events?limit=10&action_prefix=host.audit.conflict_resolved",
+    );
+    let rows = events.as_array().expect("an array");
+    assert_eq!(rows.len(), 2, "{events}");
+    assert_eq!(rows[0]["detail"]["segment_id"], "seg-dev-a-2");
+    assert_eq!(
+        rows[0]["detail"]["note"],
+        serde_json::Value::Null,
+        "{events}"
+    );
+}
+
 #[test]
 fn the_audit_read_takes_a_window() {
     // v1.0 gap 3/N. The four fields have been applied in SQL since the store was written;

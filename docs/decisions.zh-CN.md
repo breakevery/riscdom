@@ -1581,3 +1581,21 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **记下的技术债**：fork 的推送**没有读者**。自 M4e-2 起，fork 还会在发生那一刻被推到服务器（一条关键事件，每节点最新 256 条，内存中），好让聚合角色立刻听到 —— 而**没有任何路由、也没有任何命令读那份日志**（`key_events_of` 只在 host-core 的一个测试里被调用）。这条推送今天除了服务器内存之外谁也到不了。已写进 [cross-chain-verification.md §7](cross-chain-verification.zh-CN.md) 与 [handoff](handoff.zh-CN.md)，而不是留作一条被默认为可用的通知通道。
 
 **影响**：`cli/src/args.rs`（`AuditEvents` 命令多出 `action_prefix`、开关解析、query 字符串用已有的 `url_encode` 拼）、`cli/src/render.rs`（两处测试字面量；渲染器不变）、`cli/README.md` + zh 与 `docs/control-plane-client-guide.md` + zh（命令行与开关表）。**`audit/`、`net/`、`host-core/`、`server/` 与 SDK 未动**，路由表与 33 名的能力词汇表未动，未加依赖，也没有向任何链写入任何东西。
+
+## 149. 冲突靠「记下谁做了决定」标为已解决 —— 且仅此而已
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 CT / M6-5-3b）
+
+**决策**：M6-5-3 的标记那一半，也是 **M6-5-3 整条线的终点**。人现在可以记下一个关于 fork 的决定：
+
+- **`POST /v0/audit/conflicts/{segment_id}/resolve`** —— 一条**带路径参数**的路由，因此由 `resolve()` 解析、**不进 `ROUTES`**（与沙箱队列的裁决、实例模型同一安排）。它声明 **`settings.write`**，与审计告警同名：**不加新名**。
+- **`AppState::resolve_conflict(segment_id, by, note)`** 经 `emit_m_action(Some(by), …)` **追加一条** `host.audit.conflict_resolved` 行 —— 那正是这个形状的用途（「一个调用方要求的动作」），于是行的 `agent_id` 点名了那个人，detail 里又有 `resolved_by`。
+- **detail** = `{ segment_id, resolved_by, resolved_at_ms, note }` —— **不包含哪一方对**，因为内核没有做这个决定。
+- **不碰段行**（`state` 保持 `forked`：它意为*未解决*、是索引），**也不查段是否存在** —— 一次解决记录的是一个决定，因为缺一行而拒绝它，会丢掉一个真实的决定，而不是阻止一个坏决定。
+- **`riscdom audit resolve <segment_id> [--note <text>]`** 请求它（两词，与这个 CLI 的每条命令一样）；不要 `--yes`，因为不销毁任何东西。
+
+**缘由**：三点。**记录就是内核那部分的全部。** roadmap §1 说内核发机制、调用方拥有策略；「两个矛盾动作里哪个对」是策略，所以内核的那部分是把记录做得可读 —— 而它是可读的：一行、一个名字、一个时间、那个人自己的话。**路径参数是诚实的形状，也是更便宜的那个。** 段是被谈论的东西，因此属于路径；而因为一个模式*不是* `ROUTES` 的一行（§83 的「capability 是路由表的一列」说的是名字、不是模式），这条路由**不加 capability 名**、**不动 §5.2 计数**、**不进 SDK 控制表** —— 全部改动是一个 resolver 分支、一行 `patterns`、一个 CLI 动词。**§83 的清理已经把那些「声称有能力而没有任何端点能用它」的词汇删掉了；在这里造一个 `audit.resolve` 就是把那种东西放回去。**
+
+**执行者在写代码前拦下的一处更正**：本批初稿预期这条路由会把 §5.2 从 36 改成 37、并给两个 SDK 各加一个控制。那对**字面**路由成立、对**带路径参数**的路由不成立：`documented_count` 读的是**标题里的数字**，`the_table_has_the_documented_endpoints` 拿它与 `ROUTES` 的**字面** `POST` 行比对，而带路径参数的路由另住一个 `patterns` 块，其长度由 `the_tool_schema_document_lists_exactly_the_routes_the_server_serves` 断言（本批由 10 变 11）。工作是**停下来报告**这件事，而不是猜。（批 CT 的第一次跑）
+
+**影响**：`audit/src/segment.rs`（`ACTION_CONFLICT_RESOLVED` + `conflict_resolved_detail`）；`host-core/src/state.rs`（`AppState::resolve_conflict`）；`server/src/routes.rs`（`Action::AuditResolve`、`conflict_resolve_from`、`resolve()` 分支、handler，以及 `patterns` 断言 10 → 11）；`cli/src/args.rs` + `cli/src/render.rs`（`audit resolve` 命令、`--note`、路径与 body）；`scripts/check-tool-schema.mjs`（§2 的例外表，它是文档自己那份表的副本）；`docs/tool-schema-control-plane.md` + zh（一行 `patterns` + 一份定义，以及正文里的 10 → 11）；`docs/control-plane-api.md` + zh（一行 §5.2 —— **标题的 36 不动**）；`docs/control-plane-client-guide.md` + zh、`cli/README.md` + zh，以及 `cross-chain-verification.md` §7。**`compute_hash`、`verify_chain` 与 append-only 触发器未动**（这个动作只*追加*），路由表、§5.2 计数与 33 名的能力词汇表未动，**SDK 未动**，未加依赖。**M6-5-4 未动。**

@@ -173,6 +173,7 @@ pub struct Actor {
 | `/v0/preflight/ack` | POST | `preflight.run` | — | `PreflightView` | `acknowledge_preflight` |
 | `/v0/audit/alert` | POST | `settings.write` | `{ "enabled": bool }` | `204 No Content` | `set_audit_alert` |
 | `/v0/audit/export` | POST | `audit.export` | `{ "path": string }` | `{ "events_exported": number }` | `export_audit_jsonl` |
+| `/v0/audit/conflicts/{segment_id}/resolve` | POST | `settings.write` | `{ "note"?: string }` | `204 No Content` | `audit_conflict_resolve` |
 | `/v0/settings/theme` | POST | `settings.write` | `{ "theme": string }` | `204 No Content` | `set_theme` |
 | `/v0/settings/language` | POST | `settings.write` | `{ "language": string }` | `204 No Content` | `set_language` |
 | `/v0/llm/config` | POST | `llm.configure` | `{ "api_key", "base_url", "model", "provider_id"?, "remember"?, "executor"? }` | `204 No Content` | `set_llm_config` |
