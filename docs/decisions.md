@@ -3966,3 +3966,41 @@ relay-delivered broadcast). `docs/connection.md` + zh §6.8 are updated. **`audi
 (`open_segment` is M5-1b's API and this batch only calls it): no change to `store`, `hash` or `verify`. The
 **return** — a centre that comes back, and the segment folding into the main chain — is **M5-3c**, and so are
 the segment's file and the transcription of other nodes' events.
+
+## 137. A stand-in finishes before it yields: the return closes the segment
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch BZ / M5-3c-1)
+
+**Decision**: §33's return is now a trigger, and it runs **before** the phase moves. A stand-in that sees the
+centre reachable again **closes the segment it opened** (`AuditStore::close_segment`, M5-1b's API — the row
+moves to `closed` and `host.audit.segment_closed` is appended to the main chain) and records
+**`host.connection.centre_returned`** (`{segment_id, centre, at_ms}`) **before** `observe(true)` takes it back
+to `candidate`. The narrowing lives in **`host-core`'s ticker**, not in `net`: `net::Suppression::observe`
+stays the pure phase function it has been, and the ticker holds the segment id `declare_takeover` mints (which
+now returns it). A **close that fails** is reported on stderr and does **not** hold the node in a stand-in it
+is no longer entitled to; the `centre_returned` row is written only when the close succeeded, so it always
+names a segment that really ended.
+
+**Why**: Three points. **The order is the whole point.** `observe(true)` returns to `candidate` from *any*
+phase — right for a candidate, a waiter or a backer-off, and wrong for a stand-in, which has a segment open.
+Closing first and yielding second is the only order in which a segment is ever closed. **The narrowing belongs
+where the chain is.** `net` holds no store and no sink: making `observe` aware of a segment would put the
+chain into the transport layer's phase function. The ticker already holds both handles, so the decision goes
+there. **A failed close does not veto recovery.** The centre's return is a fact about the centre; a segment row
+that cannot be updated must not keep the node standing in.
+
+**What this batch does not settle** (recorded, not resolved — batch BY's finding). A segment today is a
+**mark** — a `segments` row plus `host.audit.segment_opened`, with **no file** — and every event written while
+a node stands in goes to that node's **own main chain** (`segment_id IS NULL`; `append_once` never writes the
+column), because the owner's point 4 says a stand-in does not divert its writes. But `docs/audit-v2.md` §2/§8
+describe shape **(b)**: a segment is its **own SQLite file** (`audit-segments/<id>.db`) holding its own
+events, and `merge_segment` reads exactly that file. So `merge_segment` today would open an **empty** store,
+transcribe **zero** events and fold the row. Wiring delivery to that interface — and choosing how a segment
+travels (an event stream, a range pull, or a store rebuilt on the centre) — is **M5-3c-2**, and it waits on
+the owner's (a)–(d) decisions.
+
+**Impact**: `net` is untouched. `host-core` gains `close_standing_segment` and `react_to_centre`, the ticker
+holds `standing_segment: Option<String>`, and `declare_takeover` now **returns** the segment it opened (it
+returned nothing before). `docs/connection.md` + zh §6.8 are updated. **`audit/src` is untouched**
+(`close_segment` is M5-1b's and this batch only calls it): no change to `store`'s internals, `hash` or
+`verify`. Delivery, the centre-side rebuild and `merge_segment` are **M5-3c-2**; M4e-2 and M6 are untouched.

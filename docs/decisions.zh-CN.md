@@ -1448,3 +1448,15 @@ trait 属 v1.x 工作。
 **缘由**：三点。**触发的两半都必需。** 只有「第一顺位」会让一个节点从只是慢的中心手里接管；只有退避期满会让每个节点同时代行。退避本来就在状态机上；顺位是关于**群体**的事实，所以它在群体为人所知的地方读（`host-core` 的 workgroup）。**这些动作是一个动作。** 有广播无段，是链解释不了的宣告；有段无广播，会让两个节点各开一段却谁也没听到谁。**链的形状不动。** 开段只追加两行（`segments` 与 `segment_opened` 事件），不改写任何东西：`compute_hash`、`verify_chain` 与两个 append-only 触发器未动，哈希公式仍在 §127 第 2 条所放的位置。
 
 **影响**：`net/src/suppression.rs` 多出 `Suppression::maybe_stand_in`；`net/src/relay.rs` 多出 `RelaySession::takeover_to` / `RelayClient::takeover_to`（会话两侧）。`host-core` 多出定时器所需的 `CentreWatch` 字段（workgroup 顺位线、客户端、储存、sink 与本节点的 agent id）、一个 `workgroup_peers` 助手、`declare_takeover` / `open_temporary_segment` / `record_host_event` 三个函数，以及定时器的代行分支。`net/tests/suppression.rs` 是新的（一条经 relay 送达的广播）。`docs/connection.md` + zh §6.8 已更新。**`audit/src` 未动**（`open_segment` 是 M5-1b 的 API，本批只调用它）：`store`、`hash`、`verify` 均无改动。**回归** —— 中心回来，以及段折回主链 —— 是 **M5-3c**，段的文件与转录其他节点的事件也属 M5-3c。
+
+## 137. 代行在退让之前先收尾：回归关掉段
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 BZ / M5-3c-1）
+
+**决策**：§33 的回归现在是一个触发，且它在相位移动**之前**跑。一个看到中心重新可达的代行者，会**关掉它开过的段**（`AuditStore::close_segment`，M5-1b 的 API —— 行变为 `closed` 并把 `host.audit.segment_closed` 追加到主链），并记下 **`host.connection.centre_returned`**（`{segment_id, centre, at_ms}`），**然后** `observe(true)` 才把它带回 `candidate`。这个收窄在 **`host-core` 的定时器**里，不在 `net`：`net::Suppression::observe` 仍是它一直以来的纯相位函数，而定时器持有 `declare_takeover` 铸出的段 id（现在它返回这个 id）。**关段失败**会被报到 stderr，且**不会**把节点囚在一个它已无权维持的代行里；`centre_returned` 行只在关段成功时写下，所以它总是命名一个真正结束了的段。
+
+**缘由**：三点。**顺序就是全部意义。** `observe(true)` 会从*任何*相位回到 `candidate` —— 对候选者、等待者、退避者都对，对代行者则错，因为后者有一段开着。先关段、后退让，是段唯一会被关掉的顺序。**收窄属于链所在的地方。** `net` 不持有储存也不持有 sink：让 `observe` 知道段的事，等于把链塞进传输层的相位函数。定时器本就持有两个句柄，所以决定放在那里。**关段失败不否决恢复。** 中心的回归是关于中心的事实；一行更新不了的段行，不应让节点继续代行。
+
+**本批不解决的事**（记录，不解决 —— 批 BY 的发现）。今天一个段是一个**标记** —— 一行 `segments` 加一条 `host.audit.segment_opened`，**没有文件** —— 而节点代行期间写下的每个事件都进该节点**自己的主链**（`segment_id IS NULL`；`append_once` 从不写这一列），因为 owner 第 4 点说代行不改道它的写入。但 `docs/audit-v2.md` §2/§8 描述的 shape **(b)** 是：段是它**自己的 SQLite 文件**（`audit-segments/<id>.db`），装它自己的事件，而 `merge_segment` 读的正是那个文件。所以今天的 `merge_segment` 会打开一个**空**储存、转写**零**个事件并折叠该行。把送达接到那个接口 —— 并选择段如何旅行（事件流、范围拉取，还是在中心重建储存）—— 是 **M5-3c-2**，且它等待 owner 的 (a)–(d) 决定。
+
+**影响**：`net` 未动。`host-core` 多出 `close_standing_segment` 与 `react_to_centre`，定时器持有 `standing_segment: Option<String>`，而 `declare_takeover` 现在**返回**它开出的段（以前不返回）。`docs/connection.md` + zh §6.8 已更新。**`audit/src` 未动**（`close_segment` 是 M5-1b 的，本批只调用它）：`store` 内部、`hash`、`verify` 均无改动。送达、中心侧重重建与 `merge_segment` 是 **M5-3c-2**；M4e-2 与 M6 未动。

@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A stand-in finishes before it yields** (v1.0 batch BZ / M5-3c-1): the return is a trigger. A stand-in that
+  sees the centre reachable again **closes the segment it opened** (`close_segment` — the row goes `closed` and
+  `host.audit.segment_closed` is appended) and records **`host.connection.centre_returned`**
+  (`{segment_id, centre, at_ms}`) **before** it returns to `candidate`. The narrowing lives in the ticker
+  (`net::Suppression::observe` stays pure); a failed close is reported and does not veto recovery.
+  **`audit/src` is untouched.** Delivery, the centre-side rebuild and `merge_segment` are **M5-3c-2** — §137
+  records the open “mark vs store” tension without settling it. `connection.md` + zh §6.8 updated. **Decision
+  §137.**
+
 - **A node stands in, and says so on the chain** (v1.0 batch BX / M5-3b-2): §33's third layer is no longer
   inert either. Past the backoff, and only if it is **first in line**, a node: **sends** the takeover
   broadcast to each peer (`RelayClient::takeover_to`); opens a **temporary segment** on its own chain

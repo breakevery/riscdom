@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **代行在退让之前先收尾**（v1.0 批 BZ / M5-3c-1）：回归是一个触发。一个看到中心重新可达的代行者会**关掉它开过的段**（`close_segment` —— 行变为 `closed` 并追加 `host.audit.segment_closed`），并记下 **`host.connection.centre_returned`**（`{segment_id, centre, at_ms}`），**然后**才回到 `candidate`。收窄在定时器里（`net::Suppression::observe` 保持纯净）；关段失败会被报出且不否决恢复。**`audit/src` 未动。** 送达、中心侧重建与 `merge_segment` 是 **M5-3c-2** —— §137 记下尚未解决的「标记 vs 储存」张力。`connection.md` + zh §6.8 已更新。**决策 §137。**
+
 - **一个节点代行，并在链上说明**（v1.0 批 BX / M5-3b-2）：§33 的第三层也不再空转。跨过退避、且**是第一顺位**时，一个节点：把接管广播发给**每一个**同侪（`RelayClient::takeover_to`）；在自己的链上开一个**临时段**（`open_segment(SegmentKind::Temporary)` —— `segments` 行与它的 `segment_opened` 事件，且**不开文件**）；并把这一动作记为 **`host.connection.takeover_declared`**（`{segment_id, centre, by, at_ms}`）。在代行中听到广播记下 **`host.connection.stood_down`**。**链照旧被写** —— §33 之后才把段折回（M5-3c）—— 且 **`audit/src` 未动**。`connection.md` + zh §6.8 已更新。**决策 §136。**
 
 - **中心的报告在同侪之间走**（v1.0 批 BW / M5-3b-1）：抑制状态机不再空转。一个节点把 §6.7 向上发的那对 `{"unreachable": …}` / `{"reachable": …}` 报告发给同 workgroup 的邻居 —— **横向**寻址（`report_to`）—— 而每个节点保留**自己的一份见证表**、**主语是中心**，于是 §6.7 的规则就地判。**接管广播**是一个新 body（`{ "takeover": 1, "centre": …, "by": …, "at_ms": … }`）；听到它就**退让**。**对跨区域服务器一无所求。** `audit` 未动。代行与*发出*广播是 M5-3b-2。`connection.md` + zh §6.8 已更新。**决策 §135。**

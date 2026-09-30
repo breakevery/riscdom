@@ -379,6 +379,13 @@ current request authorising it (§2).
   (`{segment_id, centre, by, at_ms}`); hearing a broadcast while standing in records
   **`host.connection.stood_down`**. **The chain keeps being written as before**, and **`audit/src` is
   untouched**. The return and merge are M5-3c. **Decision §136.**
+- **And the return closes the segment** (v1.0 batch BZ / M5-3c-1, 2026-09-30): a stand-in that sees the centre
+  back **closes the segment it opened** (`close_segment` — the row goes `closed` and
+  `host.audit.segment_closed` is appended) and records **`host.connection.centre_returned`**
+  (`{segment_id, centre, at_ms}`) **before** `observe(true)` takes it to `candidate`. The narrowing lives in the
+  ticker (`net` stays pure); a failed close is reported and does not veto recovery. **`audit/src` is
+  untouched.** Delivery, the centre-side rebuild and `merge_segment` are **M5-3c-2**; §137 records the open
+  “mark vs store” tension. **Decision §137.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

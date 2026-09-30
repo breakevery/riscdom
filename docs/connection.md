@@ -612,8 +612,20 @@ neither is one of the chain's stream events. **The chain keeps being written as 
 §33 folds the temporary segment back into the main chain later, so a stand-in diverts no write at all
 (owner's point 4).
 
-**Not here yet.** The **return** — a centre that comes back, and the segment folding into the main chain —
-is **M5-3c**. Until then a temporary segment stays open, which is the honest state.
+**[settled]** **The return is a trigger, and it finishes before the node yields** (M5-3c-1). A stand-in that
+sees the centre reachable again **closes the segment it opened** (`AuditStore::close_segment` — the row moves
+to `closed` and `host.audit.segment_closed` is appended) and records **`host.connection.centre_returned`**
+(`{segment_id, centre, at_ms}`) **before** it goes back to `candidate`. Without that order `observe(true)`
+would move it to `candidate` at once and leave the segment open forever: the narrowing is deliberate, and it
+lives in the ticker, because `net::Suppression::observe` stays the pure phase function it has been. A **close
+that fails** is reported and does not hold the node in a stand-in it is no longer entitled to; the
+`centre_returned` row is written only when the close succeeded.
+
+**Not here yet.** The **delivery** — carrying the segment's events to the real centre, rebuilding the segment
+store there, and calling `merge_segment` — is **M5-3c-2**, and it waits on the owner's choice of how a segment
+travels ([decisions §137](decisions.md) records the open tension between "a segment is a mark" and "a segment
+is its own store"; this batch records it and does not settle it). Until then a closed segment's events still
+travel nowhere.
 
 ## 7. Audit digests — M4e-1
 

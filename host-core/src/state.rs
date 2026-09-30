@@ -1357,31 +1357,104 @@ fn open_temporary_segment(store: &Arc<Mutex<AuditStore>>) -> Option<String> {
 }
 
 /// What standing in consists of (v1.0 M5-3b-2): tell the peers, open a temporary segment, and say so on
-/// the chain.
+/// the chain. Answers the segment it opened, which the return flow needs (v1.0 M5-3c-1).
 ///
 /// The broadcast is one frame to each peer — the centre is the node that is not answering, so its peers
 /// are the ones who must hear it (§6.8, owner's point 2). The chain write is the segment row plus the
 /// takeover row beside it; the chain itself keeps being written as before, because §33 folds the segment
-/// in later (M5-3c), it does not divert writes here (owner's point 4).
-fn declare_takeover(watch: &CentreWatch, now: i64) {
+/// in later, it does not divert writes here (owner's point 4).
+fn declare_takeover(watch: &CentreWatch, now: i64) -> Option<String> {
     if let Some(client) = &watch.client {
         for peer in &watch.peers {
             let _ = client.takeover_to(peer, &watch.centre, &watch.me, now);
         }
     }
-    if let Some(segment_id) = open_temporary_segment(&watch.store) {
-        record_host_event(
+    let segment_id = open_temporary_segment(&watch.store)?;
+    record_host_event(
+        &watch.sink,
+        &watch.agent_id,
+        "host.connection.takeover_declared",
+        serde_json::json!({
+            "segment_id": segment_id,
+            "centre": watch.centre,
+            "by": watch.me,
+            "at_ms": now,
+        }),
+    );
+    Some(segment_id)
+}
+
+/// Finish a stand-in (v1.0 M5-3c-1): close the segment it opened, and say the centre came back.
+///
+/// `close_segment` is M5-1b's: it moves the row to `closed` and appends `host.audit.segment_closed` to the
+/// main chain. **A close that fails does not hold the node in a stand-in it is no longer entitled to**: it
+/// is reported on stderr and the caller still returns to `candidate`, because the centre is back and that
+/// fact does not depend on this row. The `centre_returned` row is written only when the close succeeded, so
+/// it is always the evidence of a segment that really ended.
+fn close_standing_segment(watch: &CentreWatch, segment_id: &str, now: i64) {
+    let closed = watch
+        .store
+        .lock()
+        .ok()
+        .and_then(|mut store| store.close_segment(segment_id).ok());
+    match closed {
+        Some(_) => record_host_event(
             &watch.sink,
             &watch.agent_id,
-            "host.connection.takeover_declared",
+            "host.connection.centre_returned",
             serde_json::json!({
                 "segment_id": segment_id,
                 "centre": watch.centre,
-                "by": watch.me,
                 "at_ms": now,
             }),
-        );
+        ),
+        None => eprintln!(
+            "connection: the centre returned, but segment {segment_id} could not be closed; the node \
+             returns to its centre anyway"
+        ),
     }
+}
+
+/// One tick's answer to what this node's own probe sees of the centre (§33's three layers; v1.0
+/// M5-3a/b/c-1).
+///
+/// A free function rather than a method on [`net::Suppression`]: the return flow needs the chain and the
+/// sink, and `net` holds neither — its [`net::Suppression::observe`] stays the pure phase function it has
+/// been. Answers whether this node stood in.
+fn react_to_centre(
+    watch: &CentreWatch,
+    machine: &mut net::Suppression,
+    standing_segment: &mut Option<String>,
+    reachable: bool,
+    now: i64,
+) -> bool {
+    // A stand-in that sees the centre back finishes **before** it yields (v1.0 M5-3c-1): `observe(true)`
+    // would move it to `candidate` at once, and the segment it opened would be left open forever.
+    if reachable && machine.phase() == net::SuppressionPhase::StandingIn {
+        if let Some(segment_id) = standing_segment.take() {
+            close_standing_segment(watch, &segment_id, now);
+        }
+    }
+    machine.observe(reachable, now);
+    if machine.phase() == net::SuppressionPhase::Confirming {
+        // §6.7's rule, with the same table and the same veto: only witnesses that are themselves
+        // reachable testify (v1.0 M5-3b-1).
+        let online = watch
+            .peers_reachable
+            .lock()
+            .map(|slot| slot.clone())
+            .unwrap_or_default();
+        machine.confirm(&watch.witnesses, &watch.centre, now, |witness| {
+            online.contains(witness)
+        });
+    }
+    // §33's third layer's own act: past the backoff, the first in line stands in (v1.0 M5-3b-2).
+    let stood_in = net::is_first_in_line(&watch.me, watch.peers.iter().map(String::as_str))
+        && machine.maybe_stand_in(now);
+    if stood_in {
+        *standing_segment = declare_takeover(watch, now);
+    }
+    stood_in
 }
 
 /// The suppression machine's ticker (§33's three layers; v1.0 M5-3a).
@@ -1405,64 +1478,55 @@ impl SuppressionTicker {
         let machine = Arc::new(Mutex::new(net::Suppression::new(&watch.me, now)));
         let shared = Arc::clone(&machine);
         let (stop, signal) = std::sync::mpsc::channel::<()>();
-        let join = std::thread::spawn(move || loop {
-            let now = net::now_ms();
-            // Layer three's stand-down is a fact the probe thread heard; consume it first (v1.0 M5-3b-1).
-            if let Some(heard) = watch
-                .takeover_heard
-                .lock()
-                .ok()
-                .and_then(|mut slot| slot.take())
-            {
-                let was_standing = if let Ok(mut machine) = shared.lock() {
-                    let standing = machine.phase() == net::SuppressionPhase::StandingIn;
-                    machine.stand_down(heard);
-                    standing
-                } else {
-                    false
-                };
-                // A node that had stood in yielded because someone ahead of it spoke: that is a row
-                // (v1.0 M5-3b-2). A broadcast heard while only a candidate changes nothing, and says so
-                // by writing nothing.
-                if was_standing {
-                    record_host_event(
-                        &watch.sink,
-                        &watch.agent_id,
-                        "host.connection.stood_down",
-                        serde_json::json!({ "centre": watch.centre, "at_ms": heard }),
-                    );
-                }
-            }
-            if let Some(reachable) = watch.reachable.lock().ok().and_then(|slot| *slot) {
-                let stood_in = if let Ok(mut machine) = shared.lock() {
-                    machine.observe(reachable, now);
-                    if machine.phase() == net::SuppressionPhase::Confirming {
-                        // §6.7's rule, with the same table and the same veto: only witnesses that are
-                        // themselves reachable testify (v1.0 M5-3b-1).
-                        let online = watch
-                            .peers_reachable
-                            .lock()
-                            .map(|slot| slot.clone())
-                            .unwrap_or_default();
-                        machine.confirm(&watch.witnesses, &watch.centre, now, |witness| {
-                            online.contains(witness)
-                        });
+        let join = std::thread::spawn(move || {
+            // The segment this node opened by standing in, held until the centre returns (v1.0 M5-3c-1):
+            // `declare_takeover` mints it, and the return flow needs it to close the row.
+            let mut standing_segment: Option<String> = None;
+            loop {
+                let now = net::now_ms();
+                // Layer three's stand-down is a fact the probe thread heard; consume it first (v1.0 M5-3b-1).
+                if let Some(heard) = watch
+                    .takeover_heard
+                    .lock()
+                    .ok()
+                    .and_then(|mut slot| slot.take())
+                {
+                    let was_standing = if let Ok(mut machine) = shared.lock() {
+                        let standing = machine.phase() == net::SuppressionPhase::StandingIn;
+                        machine.stand_down(heard);
+                        standing
+                    } else {
+                        false
+                    };
+                    // A node that had stood in yielded because someone ahead of it spoke: that is a row
+                    // (v1.0 M5-3b-2). A broadcast heard while only a candidate changes nothing, and says so
+                    // by writing nothing.
+                    if was_standing {
+                        record_host_event(
+                            &watch.sink,
+                            &watch.agent_id,
+                            "host.connection.stood_down",
+                            serde_json::json!({ "centre": watch.centre, "at_ms": heard }),
+                        );
                     }
-                    // §33's third layer's own act, and the one move this batch adds: past the backoff,
-                    // the first in line stands in (v1.0 M5-3b-2). Precedence is the group's, and both
-                    // halves must hold — the wait is over, *and* nothing in the line sorts first.
-                    net::is_first_in_line(&watch.me, watch.peers.iter().map(String::as_str))
-                        && machine.maybe_stand_in(now)
-                } else {
-                    false
-                };
-                if stood_in {
-                    declare_takeover(&watch, now);
                 }
-            }
-            match signal.recv_timeout(interval) {
-                Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
-                Err(RecvTimeoutError::Timeout) => {}
+                if let Some(reachable) = watch.reachable.lock().ok().and_then(|slot| *slot) {
+                    // The whole answer to what this node sees of the centre is one call (v1.0 M5-3c-1): the
+                    // return flow has to run before `observe(true)` yields, and both need the machine.
+                    if let Ok(mut machine) = shared.lock() {
+                        react_to_centre(
+                            &watch,
+                            &mut machine,
+                            &mut standing_segment,
+                            reachable,
+                            now,
+                        );
+                    }
+                }
+                match signal.recv_timeout(interval) {
+                    Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
+                    Err(RecvTimeoutError::Timeout) => {}
+                }
             }
         });
         Self {
@@ -7398,7 +7462,7 @@ mod tests {
             agent_id: state.agent_id.clone(),
         };
         let now = 1_700_000_000_000;
-        declare_takeover(&watch, now);
+        let opened = declare_takeover(&watch, now).expect("a temporary segment");
 
         let events = state.audit.lock().expect("audit").all().expect("events");
         let declared = events
@@ -7412,6 +7476,10 @@ mod tests {
             .as_str()
             .expect("the row names its segment")
             .to_string();
+        assert_eq!(
+            segment_id, opened,
+            "the row names the segment the call opened"
+        );
 
         // The segment it names is real, and it is temporary and open.
         let segment = state
@@ -7436,6 +7504,159 @@ mod tests {
             audit::verify_chain(&state.audit.lock().expect("audit")).expect("verify"),
             audit::ChainStatus::Intact { .. }
         ));
+    }
+
+    /// A `CentreWatch` over `state`'s chain, with no client and the peers given, enough for the return
+    /// flow (v1.0 M5-3c-1).
+    fn watch_for(state: &AppState, peers: &[&str]) -> CentreWatch {
+        CentreWatch {
+            me: "dev-a".to_string(),
+            centre: "centre".to_string(),
+            reachable: Arc::new(Mutex::new(None)),
+            peers_reachable: Arc::new(Mutex::new(std::collections::BTreeSet::new())),
+            witnesses: net::WitnessTable::new(),
+            takeover_heard: Arc::new(Mutex::new(None)),
+            peers: peers.iter().map(|peer| peer.to_string()).collect(),
+            client: None,
+            store: Arc::clone(&state.audit),
+            sink: Arc::clone(&state.sink),
+            agent_id: state.agent_id.clone(),
+        }
+    }
+
+    #[test]
+    fn a_standing_node_closes_its_segment_when_the_centre_returns() {
+        // v1.0 M5-3c-1: the stand-in finishes before it yields. Driven through `react_to_centre`, which is
+        // what the ticker calls, because the ticker itself waits real seconds between ticks.
+        let state = state_with("centre-returned", serde_json::json!({}));
+        let segment = state
+            .audit
+            .lock()
+            .expect("audit")
+            .open_segment(audit::SegmentKind::Temporary)
+            .expect("opened");
+        let watch = watch_for(&state, &["dev-b"]);
+        let t0 = 1_700_000_000_000i64;
+        let waited = t0 + net::SUPPRESSION_WAIT.as_millis() as i64;
+        let mut machine = net::Suppression::new("dev-a", t0);
+        machine.observe(false, t0);
+        machine.observe(false, waited);
+        watch.witnesses.record("dev-b", "centre", false, waited);
+        machine
+            .confirm(&watch.witnesses, "centre", waited, |_| true)
+            .expect("the group confirmed");
+        let deadline = machine.deadline_ms().expect("a backoff deadline");
+        assert!(machine.maybe_stand_in(deadline));
+        let mut standing = Some(segment.segment_id.clone());
+
+        let returned_at = deadline + 1;
+        react_to_centre(&watch, &mut machine, &mut standing, true, returned_at);
+
+        assert_eq!(
+            machine.phase(),
+            net::SuppressionPhase::Candidate,
+            "the centre is back"
+        );
+        assert!(standing.is_none(), "the stand-in is over");
+        let closed = state
+            .audit
+            .lock()
+            .expect("audit")
+            .segment(&segment.segment_id)
+            .expect("row")
+            .expect("a segment row");
+        assert_eq!(closed.state, audit::SegmentState::Closed);
+        let events = state.audit.lock().expect("audit").all().expect("events");
+        assert!(
+            events
+                .iter()
+                .any(|stored| stored.event.action == audit::ACTION_SEGMENT_CLOSED),
+            "the close is on the chain"
+        );
+        let returned = events
+            .iter()
+            .find(|stored| stored.event.action == "host.connection.centre_returned")
+            .expect("a return row");
+        assert_eq!(
+            returned.event.detail["segment_id"],
+            segment.segment_id.as_str()
+        );
+        assert_eq!(returned.event.detail["centre"], "centre");
+        assert_eq!(returned.event.detail["at_ms"], returned_at);
+        // The chain was appended to, never rewritten.
+        assert!(matches!(
+            audit::verify_chain(&state.audit.lock().expect("audit")).expect("verify"),
+            audit::ChainStatus::Intact { .. }
+        ));
+    }
+
+    #[test]
+    fn a_candidate_that_sees_the_centre_stays_one_and_writes_nothing() {
+        // The narrowing is only about a stand-in: a candidate that can reach the centre simply stays one.
+        let state = state_with("candidate-sees-centre", serde_json::json!({}));
+        let watch = watch_for(&state, &["dev-b"]);
+        let before = state
+            .audit
+            .lock()
+            .expect("audit")
+            .all()
+            .expect("events")
+            .len();
+        let mut machine = net::Suppression::new("dev-a", 1_700_000_000_000);
+        let mut standing: Option<String> = None;
+        let stood_in =
+            react_to_centre(&watch, &mut machine, &mut standing, true, 1_700_000_000_000);
+        assert!(!stood_in);
+        assert_eq!(machine.phase(), net::SuppressionPhase::Candidate);
+        assert!(standing.is_none());
+        let events = state.audit.lock().expect("audit").all().expect("events");
+        assert_eq!(events.len(), before, "a reachable centre writes nothing");
+        assert!(!events
+            .iter()
+            .any(|stored| stored.event.action == "host.connection.centre_returned"));
+    }
+
+    #[test]
+    fn standing_in_holds_the_segment_id_until_the_centre_returns() {
+        let state = state_with("standing-holds", serde_json::json!({}));
+        let watch = watch_for(&state, &["dev-b"]);
+        let t0 = 1_700_000_000_000i64;
+        let waited = t0 + net::SUPPRESSION_WAIT.as_millis() as i64;
+        let mut machine = net::Suppression::new("dev-a", t0);
+        machine.observe(false, t0);
+        machine.observe(false, waited);
+        watch.witnesses.record("dev-b", "centre", false, waited);
+        machine
+            .confirm(&watch.witnesses, "centre", waited, |_| true)
+            .expect("the group confirmed");
+        let deadline = machine.deadline_ms().expect("a backoff deadline");
+        let mut standing: Option<String> = None;
+        assert!(react_to_centre(
+            &watch,
+            &mut machine,
+            &mut standing,
+            false,
+            deadline
+        ));
+        assert_eq!(machine.phase(), net::SuppressionPhase::StandingIn);
+        let held = standing.expect("the takeover's segment id is held");
+        let row = state
+            .audit
+            .lock()
+            .expect("audit")
+            .segment(&held)
+            .expect("row")
+            .expect("a segment row");
+        assert_eq!(row.kind, audit::SegmentKind::Temporary);
+        assert_eq!(row.state, audit::SegmentState::Open);
+        assert!(state
+            .audit
+            .lock()
+            .expect("audit")
+            .all()
+            .expect("events")
+            .iter()
+            .any(|stored| stored.event.action == "host.connection.takeover_declared"));
     }
 
     #[test]
