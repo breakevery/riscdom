@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A closed segment travels to the centre, which rebuilds and merges it** (v1.0 batch CC / M5-3c-2, the end of
+  M5): a stand-in hands its just-closed segment to the centre as a stream — one §3 frame per event plus a frame
+  that ends it — carrying each event's own `ts`/`actor`/`action`/`agent_id`/`detail`, over the span **between**
+  the opening and closing rows. The centre **adopts** the `segments` row under the name the segment arrived
+  with (the namespaced `seg-<owner>-<ms>`), writes `audit-segments/<id>.db`, and calls `merge_segment`
+  **unchanged**; the two nodes record `host.connection.segment_delivered` / `segment_rebuilt`. **`merge_segment`,
+  `compute_hash`, `verify_chain` and the append-only triggers are untouched**, and `audit-v2` §2/§8 now say how
+  shape (b) spans two nodes. `audit` gains `open_segment_for` / `adopt_segment` / `events_in_range` /
+  `last_id` / `safe_owner`. **Decision §139.**
+
 - **A restore's sender waits, QEMU is heard, and a reset socket is reconnected once** (v1.0 batch CB /
   CA-1): the root cause of the local QEMU/QMP `10054` flake. The snapshot sender now starts **after** the
   port hand-off and the QEMU spawn — it could previously connect to our own still-bound listener, be reset

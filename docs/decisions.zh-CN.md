@@ -1470,3 +1470,13 @@ trait 属 v1.x 工作。
 **缘由**：本地 QEMU flake 的根因（批 CA 的发现）是一个**自伤的时序竞态**：发送线程在我们自己的 `PortLease` 监听器仍绑着时就被启动，于是它可能连上**我们的**socket；`hand_off` 随即重置那条连接，发送线程死亡，QEMU 的 `-incoming` 永远收不到流，而 QEMU 的死亡以 QMP socket 上无法解释的 `os error 10054` 现形。窗口就是线程启动延迟——单跑时是微秒，满负载 gate 下很宽——恰好就是观察到的形状（单跑从不复现；满 gate 下连续两次）。另两处修复正是让它隐形的东西：发送方的裁定被丢掉，QEMU 的 stderr 是 `null`。**看不见的 flake 是无从修的 flake。**
 
 **影响**：仅 `sandbox/src/vm.rs`。`start` 被拆分，spawn 之后的半段成为 `finish_start`，它的失败与发送方的失败被一并报告；`take_snapshot_sender` 读取发送方，且**绝不**因为发送方还在它 60 秒的连接超时里而阻塞一次失败的启动；`finish_start`、`stop` 与 `Drop` 忘掉捕获文件。`qmp_op` / `run_qmp_with_one_reconnect` 把重试交给 `wait_for_running` 与 `save_snapshot_real`，`explain_qmp` 补上 QEMU 的最后输出。**`sandbox` 的公开 API 未变**，**`audit` 未动**（无事件、无常量），且**未加任何 crate** —— 工作区仍没有 `windows-sys`。`net`、`host-core`、`server`、`cli`、`backup`、`sdk` 均未动。生命周期监控（CA-2）、gate 串行化（CA-3）与满环回抑制测试（CA-4 / BA-3）属后续批次。CI 从不跑这些测试（runner 上 `gate.sh` 的 `have_guest_tools` 为假），故这个 flake 是**本地特有**的。
+
+## 139. 一个关闭的段走到中心，中心重建它并合并它
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 CC / M5-3c-2）
+
+**决策**：§33 的最后一块，也是 M5 的终点。一个刚关掉段的代行者**把它交给中心**，以一条流的形式：每事件一帧 §3 帧，最后一帧结束它。**区间**是段*自己*的事件 —— 严格位于 `segment_opened` 与 `segment_closed` **之间**的那些行、绝不是那两行，因为 [docs/audit-v2.md](audit-v2.zh-CN.md) §6 说它们是段*生命*的记录，而不是段*自己*的事件。每帧载着事件自己的 `ts` / `actor` / `action` / `agent_id` / `detail` —— 不是源行的 id 或哈希，那些属于发送方的链。中心以段到达时的名字**收养** `segments` 行，用送达的事件写下 `audit-segments/<id>.db`，并**原样**调用 `merge_segment`。两台节点分别记下 `host.connection.segment_delivered` 与 `host.connection.segment_rebuilt`；合并本身仍以 `host.audit.segment_merged` / `segment_forked` 记在被并的那条链上。
+
+**缘由**：三点。**§137 记下的张力只有一个诚实的答案，就是这个。** 一个段不能既是一台机器的储存、又是它链上一段不改道的区间：owner 第 4 点禁止改道，所以**文件**出现在确实需要它的地方 —— 中心，那个必须转录的节点。形状 (b) 描述的是**一个段跨两台机器**，而 `docs/audit-v2.md` §2/§8 现在正是这么写的。**中心得先有一行才能合并。** `merge_segment` 在*它自己的*表里查找段，而发送方的行在发送方的链上，所以中心**收养**一行 —— 用发送方带命名空间的名字（`seg-<owner>-<ms>`）；这正是命名空间不是装饰的原因：它让来自别的节点的名字在这里可以被安全收养。**转录本身什么都没变。** `merge_segment` 未动，所以 `compute_hash`、`verify_chain` 与两个 append-only 触发器均未动；被收养的行写成 `closed` 且没有开启事件 —— 中心没有开过它。
+
+**影响**：`audit` 多出 `open_segment_for`（带命名空间的 id）、`adopt_segment`、`events_in_range` 与 `last_id`，外加 `safe_owner`（把部署者的自由格式节点名变得适合做段 id 最终会成为的文件名）；不给 owner 时 `free_segment_id` 保持旧形状，所以既有 id 全不变。`net` 多出 `SegmentEvent` / `SegmentDone` 及其 body 与解析，以及 `RelaySession::segment_event_to` / `segment_done_to`（`RelayClient` 上同样两个）。`host-core` 多出 `StandingSegment`（id **与**开启行的 id，所以区间无需二次查找）、`segment_frames`、`deliver_segment`、`SegmentSink` 与 `receive_segment`，而探测线程 —— 本节点唯一的读方 —— 处理这条流并在结束标记上重建。`docs/audit-v2.md`、`docs/connection.md` §6.8 + zh 已更新。**`merge_segment` 未改，`compute_hash` / `verify_chain` / append-only 触发器未改，未加路由或能力名，未加依赖。** 跨链核对 —— 一个被合并的段是否真的承接它声称的锚点 —— 是 **M6**。

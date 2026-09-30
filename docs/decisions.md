@@ -4036,3 +4036,41 @@ blocking a failing start on a sender still inside its 60 s connect timeout; `fin
 (CA-2), gate serialisation (CA-3) and the full-loop suppression test (CA-4 / BA-3) are later batches. CI
 never ran these tests (`gate.sh`'s `have_guest_tools` is false on a runner), so this flake was
 **local-only**.
+
+## 139. A closed segment travels to the centre, which rebuilds it and merges it
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch CC / M5-3c-2)
+
+**Decision**: §33's last piece, and the end of M5. A stand-in that has just closed its segment **hands it to
+the centre** as a stream: one §3 frame per event, then one that ends it. The **span** is the segment's own
+events — the rows strictly **between** `segment_opened` and `segment_closed`, never those two, because
+[docs/audit-v2.md](audit-v2.md) §6 calls them the record of the segment's *life* rather than events *of* it.
+Each frame carries the event's own `ts` / `actor` / `action` / `agent_id` / `detail` — not the source row's
+id or hashes, which belong to the sender's chain. The centre **adopts** the `segments` row under the name the
+segment arrived with, writes `audit-segments/<id>.db` from the delivered events, and calls `merge_segment`
+**unchanged**. The two nodes record `host.connection.segment_delivered` and
+`host.connection.segment_rebuilt`; the merge itself is still recorded on the merged chain as
+`host.audit.segment_merged` / `segment_forked`.
+
+**Why**: Three points. **The tension §137 recorded has one honest answer, and it is this one.** A segment
+cannot be one node's storage *and* an undiverted span of its chain: the owner's point 4 forbids diverting, so
+the **file** appears where it is actually needed — at the centre, which is the node that must transcribe.
+Shape (b) describes **two nodes' worth of one segment**, and `docs/audit-v2.md` §2/§8 now say exactly that.
+**The centre needs a row before it can merge.** `merge_segment` looks the segment up in *its own* table, and
+the sender's row is on the sender's chain, so the centre **adopts** one — under the sender's namespaced name
+(`seg-<owner>-<ms>`), which is why the namespacing is not decoration: it is what makes a name from another
+node safe to adopt here. **Nothing about the transcription changes.** `merge_segment` is untouched, so
+`compute_hash`, `verify_chain` and both append-only triggers are untouched, and an adopted row is written
+`closed` with no opening event — the centre did not open it.
+
+**Impact**: `audit` gains `open_segment_for` (the namespaced id), `adopt_segment`, `events_in_range` and
+`last_id`, plus `safe_owner` (a deployer's free-form node name made safe for the file name a segment id
+becomes); `free_segment_id` keeps its old shape when no owner is given, so every existing id is unchanged.
+`net` gains `SegmentEvent` / `SegmentDone` and their bodies and parsers, and
+`RelaySession::segment_event_to` / `segment_done_to` (and the same two on `RelayClient`). `host-core` gains
+`StandingSegment` (the id **and** the opening row's id, so the span needs no second lookup), `segment_frames`,
+`deliver_segment`, `SegmentSink` and `receive_segment`, and the probe thread — the node's only reader —
+handles the stream and rebuilds on the end marker. `docs/audit-v2.md`, `docs/connection.md` §6.8 + zh are
+updated. **`merge_segment` is not changed, `compute_hash` / `verify_chain` / the append-only triggers are not
+changed, no route or capability name is added, and no dependency is added.** The cross-chain check — whether a
+merged segment really continues from the anchor it claims — is **M6**.

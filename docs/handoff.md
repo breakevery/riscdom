@@ -393,6 +393,14 @@ current request authorising it (§2).
   **captured** (they were `Stdio::null()`) and folded into the error; a QMP socket reset while QEMU lives is
   **reconnected once**. **No public API change, no new dependency, no new audit event.** CA-2/CA-3 (lifecycle
   monitor / gate serialisation) and CA-4 (the full-loop test, BA-3) are later. **Decision §138.**
+- **And a closed segment is delivered, rebuilt and merged** (v1.0 batch CC / M5-3c-2, 2026-09-30, **the end of
+  M5**): a stand-in hands its just-closed segment to the centre as a stream — one §3 frame per event plus an
+  end frame — over the span between the opening and closing rows. The centre **adopts** the row under the name
+  the segment arrived with (`seg-<owner>-<ms>`), writes the segment's store, and calls `merge_segment`
+  **unchanged**; the two nodes record `host.connection.segment_delivered` / `segment_rebuilt`. **`audit-v2`
+  §2/§8 now say how shape (b) spans two nodes** — a segment is a span of its owner's chain until it reaches
+  the centre, and a store of its own there. **M5 is closed**: §127's authorisation, M5-1 (the schema), M5-2
+  (merge and fork) and M5-3 (a → b → c) are all in. Only **M6** remains after it. **Decision §139.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

@@ -621,11 +621,18 @@ lives in the ticker, because `net::Suppression::observe` stays the pure phase fu
 that fails** is reported and does not hold the node in a stand-in it is no longer entitled to; the
 `centre_returned` row is written only when the close succeeded.
 
-**Not here yet.** The **delivery** — carrying the segment's events to the real centre, rebuilding the segment
-store there, and calling `merge_segment` — is **M5-3c-2**, and it waits on the owner's choice of how a segment
-travels ([decisions §137](decisions.md) records the open tension between "a segment is a mark" and "a segment
-is its own store"; this batch records it and does not settle it). Until then a closed segment's events still
-travel nowhere.
+**[settled]** **Delivery is the stream** (M5-3c-2). A closed segment's events go to the centre **between
+peers** — one §3 frame per event, then one frame that ends the stream. The span is the segment's own events,
+the rows between its opening and closing rows and never those two, and each frame carries the event's own
+`ts` / `actor` / `action` / `agent_id` / `detail`, because the centre rebuilds the segment's store out of
+them. The stand-in records `host.connection.segment_delivered`. The **centre** adopts the row under the name
+the segment arrived with, writes `audit-segments/<id>.db`, calls `merge_segment` **unchanged**, and records
+`host.connection.segment_rebuilt`. **The cross-region server is asked for nothing**, and the two halves of
+the old tension are now one story: a segment is a span of its owner's chain until it reaches the centre, and
+a store of its own there ([decisions §139](decisions.md)).
+
+**Not here yet.** The **cross-chain check** — whether a merged segment really continues from the anchor it
+claims — is **M6**.
 
 ## 7. Audit digests — M4e-1
 

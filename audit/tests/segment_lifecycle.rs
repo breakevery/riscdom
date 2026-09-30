@@ -270,3 +270,148 @@ fn a_segment_gets_its_own_store_and_the_main_chain_is_not_touched() {
         "the segment is registered on the main chain, its events are not"
     );
 }
+
+/// A segment id names its owner, and stays safe to use as a file name (v1.0 M5-3c-2).
+#[test]
+fn a_segment_id_names_its_owner_and_stays_a_file_name() {
+    let path = temp_db("owner");
+    let mut store = AuditStore::open(&path).expect("open");
+    let mine = store
+        .open_segment_for(SegmentKind::Temporary, "dev-a")
+        .expect("open for owner");
+    assert!(
+        mine.segment_id.starts_with("seg-dev-a-"),
+        "the owner is in the name: {}",
+        mine.segment_id
+    );
+
+    // A deployer's name is free-form, so a hostile one has to come out harmless: no separators, no
+    // path that goes anywhere, and the id is still a single path component.
+    let nasty = store
+        .open_segment_for(SegmentKind::Temporary, "a/b\\c:d *e")
+        .expect("open for a nasty owner");
+    assert!(!nasty.segment_id.contains('/'), "{}", nasty.segment_id);
+    assert!(!nasty.segment_id.contains('\\'), "{}", nasty.segment_id);
+    assert_eq!(
+        std::path::Path::new(&nasty.segment_id).components().count(),
+        1,
+        "one component: {}",
+        nasty.segment_id
+    );
+    assert_eq!(audit::safe_owner(""), "node");
+    assert_eq!(
+        audit::safe_owner("..."),
+        "node",
+        "dots alone are not a name"
+    );
+    assert_eq!(audit::safe_owner("a b"), "a_b");
+}
+
+/// The range read answers exactly the span between two ids, and nothing for an empty one (v1.0 M5-3c-2).
+#[test]
+fn events_in_range_answers_the_span_between_two_ids() {
+    let path = temp_db("range");
+    let mut store = AuditStore::open(&path).expect("open");
+    let mut ids = Vec::new();
+    for n in 1..=3 {
+        let stored = store
+            .append(AuditEvent::new(
+                "host",
+                "host.test.range",
+                serde_json::json!({ "n": n }),
+            ))
+            .expect("append");
+        ids.push(stored.id);
+    }
+    assert_eq!(store.last_id().expect("last id"), Some(ids[2]));
+
+    let middle = store.events_in_range(ids[1], ids[1]).expect("middle");
+    assert_eq!(middle.len(), 1);
+    assert_eq!(middle[0].id, ids[1]);
+
+    // A span that excludes both markers — which is how a segment's own events are read.
+    let between = store
+        .events_in_range(ids[0] + 1, ids[2] - 1)
+        .expect("between");
+    assert_eq!(between.len(), 1);
+    assert_eq!(between[0].id, ids[1]);
+
+    assert!(
+        store
+            .events_in_range(ids[2], ids[0])
+            .expect("inverted")
+            .is_empty(),
+        "an inverted range is an honest nothing, not an error"
+    );
+    let fresh = AuditStore::in_memory().expect("memory");
+    assert_eq!(
+        fresh.last_id().expect("last id"),
+        None,
+        "an empty chain has no id"
+    );
+    assert!(fresh.events_in_range(0, 0).expect("empty").is_empty());
+
+    // Reading wrote nothing.
+    assert_eq!(store.count().expect("count"), 3);
+    assert!(matches!(
+        verify_chain(&store).expect("verify"),
+        ChainStatus::Intact { .. }
+    ));
+}
+
+/// A segment that stood in on another node is adopted, rebuilt and merged here (v1.0 M5-3c-2).
+#[test]
+fn an_adopted_segment_is_rebuilt_and_merged() {
+    let dir = temp_dir("adopted");
+    let mut main = AuditStore::open(&dir.join("audit.db")).expect("open");
+
+    main.adopt_segment("seg-peer-a-1", Some("headhash"))
+        .expect("adopt");
+    let row = main.segment("seg-peer-a-1").expect("row").expect("present");
+    assert_eq!(row.kind, SegmentKind::Temporary);
+    assert_eq!(
+        row.state,
+        SegmentState::Closed,
+        "it was closed where it stood in"
+    );
+    assert_eq!(row.head_prev_chain.as_deref(), Some("headhash"));
+    assert!(
+        main.adopt_segment("seg-peer-a-1", None).is_ok(),
+        "adopting twice is not an error"
+    );
+
+    // The rebuild: the centre writes the delivered events into the segment's own store.
+    {
+        let mut segment =
+            AuditStore::open_segment_store(&dir, "seg-peer-a-1").expect("segment store");
+        segment
+            .append(AuditEvent::new(
+                "host",
+                "host.test.stood-in",
+                serde_json::json!({ "what": "a stand-in did this" }),
+            ))
+            .expect("append");
+        assert!(matches!(
+            verify_chain(&segment).expect("verify"),
+            ChainStatus::Intact { length: 1 }
+        ));
+    }
+
+    let before = main.count().expect("count");
+    let outcome = main
+        .merge_segment(&dir, "seg-peer-a-1")
+        .expect("merge an adopted segment");
+    assert!(
+        matches!(outcome, audit::MergeOutcome::Folded { merged: 1 }),
+        "got {outcome:?}"
+    );
+    assert_eq!(
+        main.count().expect("count"),
+        before + 2,
+        "the transcribed event and the merged row"
+    );
+    assert!(matches!(
+        verify_chain(&main).expect("verify"),
+        ChainStatus::Intact { .. }
+    ));
+}

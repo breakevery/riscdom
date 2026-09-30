@@ -1132,11 +1132,15 @@ impl Probe {
         node_id: String,
         interval: Duration,
         watch: Option<CentreWatch>,
+        centre_side: Option<SegmentSink>,
     ) -> Self {
         let (stop, signal) = std::sync::mpsc::channel::<()>();
         let join = std::thread::spawn(move || {
             let mut guard = net::ReplayGuard::new();
             let mut stopped = false;
+            // The events of each segment that is arriving, by segment id (v1.0 M5-3c-2). A stream is one
+            // frame per event and they arrive in order, so this is a buffer, not a reassembly puzzle.
+            let mut inbox: HashMap<String, Vec<net::SegmentEvent>> = HashMap::new();
             while !stopped {
                 // §6.7: probe every peer of the workgroup.
                 for peer in prober.peers() {
@@ -1183,6 +1187,40 @@ impl Probe {
                                     } else if net::is_takeover(&message.body).is_some() {
                                         if let Ok(mut slot) = watch.takeover_heard.lock() {
                                             *slot = Some(now);
+                                        }
+                                    }
+                                }
+                                // A segment that stood in elsewhere, addressed to **this** node as its
+                                // centre (v1.0 M5-3c-2). Independent of `watch`: the centre is not watching
+                                // anyone, and this thread is the only reader the node has.
+                                if let Some(centre_side) = &centre_side {
+                                    if let Some(event) = net::is_segment_event(&message.body) {
+                                        if event.centre == node_id {
+                                            inbox
+                                                .entry(event.segment_id.clone())
+                                                .or_default()
+                                                .push(event);
+                                        }
+                                    } else if let Some(done) = net::is_segment_done(&message.body) {
+                                        if done.centre == node_id {
+                                            if let Some(mut pending) =
+                                                inbox.remove(&done.segment_id)
+                                            {
+                                                pending.sort_by_key(|event| event.index);
+                                                if let Err(problem) = receive_segment(
+                                                    centre_side,
+                                                    &message.from,
+                                                    &done,
+                                                    &pending,
+                                                    net::now_ms(),
+                                                ) {
+                                                    eprintln!(
+                                                        "connection: segment {} from {} could not be \
+                                                         merged: {problem}",
+                                                        done.segment_id, message.from
+                                                    );
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1348,12 +1386,15 @@ fn record_host_event(
 /// is opened, because a segment's file is M5-3c's business. Answers the new segment's name, or `None`
 /// when the store could not be locked or the chain refused the write; the caller skips its event then,
 /// so a segment row never appears without the takeover that explains it.
-fn open_temporary_segment(store: &Arc<Mutex<AuditStore>>) -> Option<String> {
+fn open_temporary_segment(store: &Arc<Mutex<AuditStore>>, owner: &str) -> Option<(String, i64)> {
     let mut store = store.lock().ok()?;
-    store
-        .open_segment(audit::SegmentKind::Temporary)
-        .ok()
-        .map(|segment| segment.segment_id)
+    let segment = store
+        .open_segment_for(audit::SegmentKind::Temporary, owner)
+        .ok()?;
+    // The row is written first and the opening event last, and the lock is held across both: the newest
+    // id **is** the opening event's, which is the span's lower bound (v1.0 M5-3c-2).
+    let opened_id = store.last_id().ok()??;
+    Some((segment.segment_id, opened_id))
 }
 
 /// What standing in consists of (v1.0 M5-3b-2): tell the peers, open a temporary segment, and say so on
@@ -1363,56 +1404,232 @@ fn open_temporary_segment(store: &Arc<Mutex<AuditStore>>) -> Option<String> {
 /// are the ones who must hear it (§6.8, owner's point 2). The chain write is the segment row plus the
 /// takeover row beside it; the chain itself keeps being written as before, because §33 folds the segment
 /// in later, it does not divert writes here (owner's point 4).
-fn declare_takeover(watch: &CentreWatch, now: i64) -> Option<String> {
+fn declare_takeover(watch: &CentreWatch, now: i64) -> Option<StandingSegment> {
     if let Some(client) = &watch.client {
         for peer in &watch.peers {
             let _ = client.takeover_to(peer, &watch.centre, &watch.me, now);
         }
     }
-    let segment_id = open_temporary_segment(&watch.store)?;
+    let (id, opened_id) = open_temporary_segment(&watch.store, &watch.me)?;
     record_host_event(
         &watch.sink,
         &watch.agent_id,
         "host.connection.takeover_declared",
         serde_json::json!({
-            "segment_id": segment_id,
+            "segment_id": id,
             "centre": watch.centre,
             "by": watch.me,
             "at_ms": now,
         }),
     );
-    Some(segment_id)
+    Some(StandingSegment { id, opened_id })
 }
 
-/// Finish a stand-in (v1.0 M5-3c-1): close the segment it opened, and say the centre came back.
+/// The segment a stand-in opened, and where it starts (v1.0 M5-3c-2).
+///
+/// The id is held so the return can close the row, and the opening event's id is held so the span of the
+/// segment's own events can be read without a second lookup: a segment's events are the rows **between**
+/// its opening and its closing row, never those two (§6 of [docs/audit-v2.md](../../docs/audit-v2.md)).
+#[derive(Debug)]
+struct StandingSegment {
+    id: String,
+    opened_id: i64,
+}
+/// Finish a stand-in (v1.0 M5-3c-1): close the segment it opened, and say the centre came back; then hand
+/// the closed segment to the centre (v1.0 M5-3c-2).
 ///
 /// `close_segment` is M5-1b's: it moves the row to `closed` and appends `host.audit.segment_closed` to the
 /// main chain. **A close that fails does not hold the node in a stand-in it is no longer entitled to**: it
 /// is reported on stderr and the caller still returns to `candidate`, because the centre is back and that
 /// fact does not depend on this row. The `centre_returned` row is written only when the close succeeded, so
-/// it is always the evidence of a segment that really ended.
-fn close_standing_segment(watch: &CentreWatch, segment_id: &str, now: i64) {
-    let closed = watch
-        .store
-        .lock()
-        .ok()
-        .and_then(|mut store| store.close_segment(segment_id).ok());
-    match closed {
-        Some(_) => record_host_event(
-            &watch.sink,
-            &watch.agent_id,
-            "host.connection.centre_returned",
-            serde_json::json!({
-                "segment_id": segment_id,
-                "centre": watch.centre,
-                "at_ms": now,
-            }),
-        ),
-        None => eprintln!(
-            "connection: the centre returned, but segment {segment_id} could not be closed; the node \
-             returns to its centre anyway"
-        ),
+/// it is always the evidence of a segment that really ended — and only a segment that ended is delivered.
+fn close_standing_segment(watch: &CentreWatch, standing: &StandingSegment, now: i64) {
+    let closed = watch.store.lock().ok().and_then(|mut store| {
+        store.close_segment(&standing.id).ok()?;
+        // The close appended the closing row last, and the lock is held across both: the newest id **is**
+        // the span's upper bound.
+        store.last_id().ok().flatten()
+    });
+    let Some(closed_id) = closed else {
+        eprintln!(
+            "connection: the centre returned, but segment {} could not be closed; the node returns to \
+             its centre anyway",
+            standing.id
+        );
+        return;
+    };
+    record_host_event(
+        &watch.sink,
+        &watch.agent_id,
+        "host.connection.centre_returned",
+        serde_json::json!({
+            "segment_id": standing.id,
+            "centre": watch.centre,
+            "at_ms": now,
+        }),
+    );
+    deliver_segment(watch, standing, closed_id, now);
+}
+
+/// Hand a closed segment's events to the centre, one frame each, and then the end (v1.0 M5-3c-2).
+///
+/// The stream is the span of the segment's own events, in order, and the end marker carries the count and
+/// the anchor. A node with no client has nothing to send them over, and says so by sending nothing.
+fn deliver_segment(watch: &CentreWatch, standing: &StandingSegment, closed_id: i64, now: i64) {
+    let Some(client) = &watch.client else {
+        return;
+    };
+    let frames = {
+        let Ok(store) = watch.store.lock() else {
+            return;
+        };
+        let Ok(events) = store.events_in_range(standing.opened_id + 1, closed_id - 1) else {
+            return;
+        };
+        let anchor = store
+            .segment(&standing.id)
+            .ok()
+            .flatten()
+            .and_then(|row| row.head_prev_chain);
+        segment_frames(&events, &standing.id, &watch.centre, anchor.as_deref())
+    };
+    let (events, done) = frames;
+    for event in &events {
+        let _ = client.segment_event_to(&watch.centre, event);
     }
+    let _ = client.segment_done_to(&watch.centre, &done);
+    record_host_event(
+        &watch.sink,
+        &watch.agent_id,
+        "host.connection.segment_delivered",
+        serde_json::json!({
+            "segment_id": standing.id,
+            "centre": watch.centre,
+            "from_id": standing.opened_id + 1,
+            "to_id": closed_id - 1,
+            "events": events.len(),
+            "at_ms": now,
+        }),
+    );
+}
+
+/// The stream one closed segment travels as (v1.0 M5-3c-2): one envelope per event, and the end marker.
+///
+/// Pure, so the wire shape can be read without a socket. The span is the caller's: a segment's own events
+/// are the rows **between** its opening and closing rows, never those two — they are the record of the
+/// segment's life, not events of it (§6 of [docs/audit-v2.md](../../docs/audit-v2.md)).
+fn segment_frames(
+    events: &[audit::StoredEvent],
+    segment_id: &str,
+    centre: &str,
+    head_prev_chain: Option<&str>,
+) -> (Vec<net::SegmentEvent>, net::SegmentDone) {
+    let total = events.len();
+    let frames = events
+        .iter()
+        .enumerate()
+        .map(|(index, stored)| net::SegmentEvent {
+            segment_id: segment_id.to_string(),
+            centre: centre.to_string(),
+            index,
+            total,
+            ts: stored.event.timestamp_ms,
+            actor: stored.event.actor.clone(),
+            action: stored.event.action.clone(),
+            agent_id: stored.event.agent_id.clone(),
+            detail: stored.event.detail.clone(),
+        })
+        .collect();
+    let done = net::SegmentDone {
+        segment_id: segment_id.to_string(),
+        centre: centre.to_string(),
+        total,
+        head_prev_chain: head_prev_chain.map(str::to_string),
+    };
+    (frames, done)
+}
+
+/// What the probe thread needs to be a **centre** (v1.0 M5-3c-2).
+///
+/// A segment that stood in elsewhere arrives here as frames, and rebuilding it means writing a segment
+/// store and then merging it: the chain, the directory those stores live in, and somewhere to say so. The
+/// node's only reader is the probe thread, so this is the bundle it is handed.
+struct SegmentSink {
+    /// The audit directory (`<workspace>/.riscdom`), where `merge_segment` looks for segment stores.
+    audit_dir: PathBuf,
+    /// The main chain.
+    store: Arc<Mutex<AuditStore>>,
+    /// Where the rebuild is recorded.
+    sink: Arc<Mutex<dyn AuditSink>>,
+    /// This node's agent id.
+    agent_id: String,
+}
+
+/// Rebuild a delivered segment on the centre's side, and merge it (v1.0 M5-3c-2).
+///
+/// The centre did not open this segment, so it **adopts** the row under the name the segment arrived with
+/// (namespaced by its owner, which is what makes that name safe to adopt), writes the delivered events into
+/// the segment's own store exactly as the sender wrote them on its chain, and then calls `merge_segment`
+/// **unchanged**: the transcription is the same operation it has always been, and the main chain is only
+/// ever appended to.
+fn receive_segment(
+    centre_side: &SegmentSink,
+    from: &str,
+    done: &net::SegmentDone,
+    events: &[net::SegmentEvent],
+    now: i64,
+) -> Result<(), String> {
+    {
+        let mut store = centre_side
+            .store
+            .lock()
+            .map_err(|_| "the chain is poisoned".to_string())?;
+        store
+            .adopt_segment(&done.segment_id, done.head_prev_chain.as_deref())
+            .map_err(|error| error.to_string())?;
+    }
+    {
+        let mut segment =
+            audit::AuditStore::open_segment_store(&centre_side.audit_dir, &done.segment_id)
+                .map_err(|error| error.to_string())?;
+        for event in events {
+            segment
+                .append(audit::AuditEvent {
+                    timestamp_ms: event.ts,
+                    actor: event.actor.clone(),
+                    action: event.action.clone(),
+                    detail: event.detail.clone(),
+                    agent_id: event.agent_id.clone(),
+                })
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    let outcome = {
+        let mut store = centre_side
+            .store
+            .lock()
+            .map_err(|_| "the chain is poisoned".to_string())?;
+        store
+            .merge_segment(&centre_side.audit_dir, &done.segment_id)
+            .map_err(|error| error.to_string())?
+    };
+    let said = match outcome {
+        audit::MergeOutcome::Folded { merged } => format!("folded {merged}"),
+        audit::MergeOutcome::Forked { reason } => format!("forked: {reason}"),
+    };
+    record_host_event(
+        &centre_side.sink,
+        &centre_side.agent_id,
+        "host.connection.segment_rebuilt",
+        serde_json::json!({
+            "segment_id": done.segment_id,
+            "from": from,
+            "events": events.len(),
+            "outcome": said,
+            "at_ms": now,
+        }),
+    );
+    Ok(())
 }
 
 /// One tick's answer to what this node's own probe sees of the centre (§33's three layers; v1.0
@@ -1424,15 +1641,15 @@ fn close_standing_segment(watch: &CentreWatch, segment_id: &str, now: i64) {
 fn react_to_centre(
     watch: &CentreWatch,
     machine: &mut net::Suppression,
-    standing_segment: &mut Option<String>,
+    standing_segment: &mut Option<StandingSegment>,
     reachable: bool,
     now: i64,
 ) -> bool {
     // A stand-in that sees the centre back finishes **before** it yields (v1.0 M5-3c-1): `observe(true)`
     // would move it to `candidate` at once, and the segment it opened would be left open forever.
     if reachable && machine.phase() == net::SuppressionPhase::StandingIn {
-        if let Some(segment_id) = standing_segment.take() {
-            close_standing_segment(watch, &segment_id, now);
+        if let Some(standing) = standing_segment.take() {
+            close_standing_segment(watch, &standing, now);
         }
     }
     machine.observe(reachable, now);
@@ -1480,8 +1697,8 @@ impl SuppressionTicker {
         let (stop, signal) = std::sync::mpsc::channel::<()>();
         let join = std::thread::spawn(move || {
             // The segment this node opened by standing in, held until the centre returns (v1.0 M5-3c-1):
-            // `declare_takeover` mints it, and the return flow needs it to close the row.
-            let mut standing_segment: Option<String> = None;
+            // `declare_takeover` mints it, and the return flow needs it to close the row and hand it on.
+            let mut standing_segment: Option<StandingSegment> = None;
             loop {
                 let now = net::now_ms();
                 // Layer three's stand-down is a fact the probe thread heard; consume it first (v1.0 M5-3b-1).
@@ -4531,6 +4748,14 @@ impl AppState {
             node_id,
             interval,
             watch,
+            // This node's side of a segment's arrival (v1.0 M5-3c-2). Handed to every prober: a frame
+            // names the centre it is for, and only that name decides whether this node acts on it.
+            Some(SegmentSink {
+                audit_dir: self.workspace_root.join(".riscdom"),
+                store: Arc::clone(&self.audit),
+                sink: Arc::clone(&self.sink),
+                agent_id: self.agent_id.clone(),
+            }),
         );
         let previous = self
             .connection_probe
@@ -4730,6 +4955,12 @@ impl AppState {
             node_id,
             interval,
             None,
+            Some(SegmentSink {
+                audit_dir: self.workspace_root.join(".riscdom"),
+                store: Arc::clone(&self.audit),
+                sink: Arc::clone(&self.sink),
+                agent_id: self.agent_id.clone(),
+            }),
         );
         let previous = self
             .connection_sibling_probe
@@ -7477,7 +7708,7 @@ mod tests {
             .expect("the row names its segment")
             .to_string();
         assert_eq!(
-            segment_id, opened,
+            segment_id, opened.id,
             "the row names the segment the call opened"
         );
 
@@ -7547,7 +7778,17 @@ mod tests {
             .expect("the group confirmed");
         let deadline = machine.deadline_ms().expect("a backoff deadline");
         assert!(machine.maybe_stand_in(deadline));
-        let mut standing = Some(segment.segment_id.clone());
+        let opened_id = state
+            .audit
+            .lock()
+            .expect("audit")
+            .last_id()
+            .expect("last id")
+            .expect("the opening event");
+        let mut standing = Some(StandingSegment {
+            id: segment.segment_id.clone(),
+            opened_id,
+        });
 
         let returned_at = deadline + 1;
         react_to_centre(&watch, &mut machine, &mut standing, true, returned_at);
@@ -7603,7 +7844,7 @@ mod tests {
             .expect("events")
             .len();
         let mut machine = net::Suppression::new("dev-a", 1_700_000_000_000);
-        let mut standing: Option<String> = None;
+        let mut standing: Option<StandingSegment> = None;
         let stood_in =
             react_to_centre(&watch, &mut machine, &mut standing, true, 1_700_000_000_000);
         assert!(!stood_in);
@@ -7630,7 +7871,7 @@ mod tests {
             .confirm(&watch.witnesses, "centre", waited, |_| true)
             .expect("the group confirmed");
         let deadline = machine.deadline_ms().expect("a backoff deadline");
-        let mut standing: Option<String> = None;
+        let mut standing: Option<StandingSegment> = None;
         assert!(react_to_centre(
             &watch,
             &mut machine,
@@ -7639,7 +7880,7 @@ mod tests {
             deadline
         ));
         assert_eq!(machine.phase(), net::SuppressionPhase::StandingIn);
-        let held = standing.expect("the takeover's segment id is held");
+        let held = standing.expect("the takeover's segment id is held").id;
         let row = state
             .audit
             .lock()
@@ -7657,6 +7898,121 @@ mod tests {
             .expect("events")
             .iter()
             .any(|stored| stored.event.action == "host.connection.takeover_declared"));
+    }
+
+    /// A closed segment travels to the centre and is merged there (v1.0 M5-3c-2): the stream's frames, the
+    /// rebuild, `merge_segment` unchanged, and both chains still verifying.
+    #[test]
+    fn a_closed_segment_travels_and_is_merged_on_the_centre() {
+        // The stand-in's side: open a segment, do something inside it, close it.
+        let sender = state_with("segment-sender", serde_json::json!({}));
+        let segment = sender
+            .audit
+            .lock()
+            .expect("audit")
+            .open_segment_for(audit::SegmentKind::Temporary, "dev-a")
+            .expect("opened");
+        let opened_id = sender
+            .audit
+            .lock()
+            .expect("audit")
+            .last_id()
+            .expect("id")
+            .expect("the opening event");
+        for n in 1..=2 {
+            sender
+                .audit
+                .lock()
+                .expect("audit")
+                .append(audit::AuditEvent::new(
+                    "host",
+                    "host.test.stood-in",
+                    serde_json::json!({ "n": n }),
+                ))
+                .expect("append");
+        }
+        let mut sender_store = sender.audit.lock().expect("audit");
+        let closed = sender_store
+            .close_segment(&segment.segment_id)
+            .expect("closed");
+        let closed_id = sender_store
+            .last_id()
+            .expect("id")
+            .expect("the closing event");
+        let events = sender_store
+            .events_in_range(opened_id + 1, closed_id - 1)
+            .expect("the span");
+        let anchor = closed.head_prev_chain.clone();
+        drop(sender_store);
+
+        assert_eq!(events.len(), 2, "the span is the segment's own events");
+        assert!(
+            !events
+                .iter()
+                .any(|stored| stored.event.action.starts_with("host.audit.segment_")),
+            "the markers are the record of the segment's life, not events of it"
+        );
+
+        let (frames, done) =
+            segment_frames(&events, &segment.segment_id, "centre", anchor.as_deref());
+        assert_eq!(frames.len(), 2);
+        assert_eq!(done.total, 2);
+        assert!(
+            frames.iter().all(|frame| frame.centre == "centre"),
+            "every frame names the centre it is for"
+        );
+
+        // The centre's side: nothing of this segment exists here yet.
+        let centre = state_with("segment-centre", serde_json::json!({}));
+        let centre_sink = SegmentSink {
+            audit_dir: centre.workspace_root.join(".riscdom"),
+            store: Arc::clone(&centre.audit),
+            sink: Arc::clone(&centre.sink),
+            agent_id: centre.agent_id.clone(),
+        };
+        let before = centre.audit.lock().expect("audit").count().expect("count");
+        receive_segment(&centre_sink, "dev-a", &done, &frames, 1_700_000_000_000)
+            .expect("the centre received the segment");
+
+        let rows = centre.audit.lock().expect("audit").all().expect("events");
+        assert_eq!(
+            rows.iter()
+                .filter(|stored| stored.event.action == "host.test.stood-in")
+                .count(),
+            2,
+            "the segment's events are on the centre's chain"
+        );
+        assert!(rows.len() > before, "the centre's chain only grew");
+        let row = centre
+            .audit
+            .lock()
+            .expect("audit")
+            .segment(&done.segment_id)
+            .expect("row")
+            .expect("adopted");
+        assert_eq!(row.kind, audit::SegmentKind::Temporary);
+        assert_eq!(row.state, audit::SegmentState::Folded);
+        assert_eq!(
+            row.head_prev_chain, anchor,
+            "the anchor travelled with the stream"
+        );
+        assert!(rows
+            .iter()
+            .any(|stored| stored.event.action == "host.connection.segment_rebuilt"));
+        assert!(matches!(
+            audit::verify_chain(&centre.audit.lock().expect("audit")).expect("verify"),
+            audit::ChainStatus::Intact { .. }
+        ));
+        // And the rebuild's own store verifies as a chain in its own right.
+        let rebuilt = audit::AuditStore::open_segment_store(
+            &centre.workspace_root.join(".riscdom"),
+            &done.segment_id,
+        )
+        .expect("segment store");
+        assert!(matches!(
+            audit::verify_chain(&rebuilt).expect("verify"),
+            audit::ChainStatus::Intact { length: 2 }
+        ));
     }
 
     #[test]

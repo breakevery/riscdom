@@ -99,8 +99,9 @@ pub use rooms::{
 };
 pub use sign::{verify, verify_at, PeerKeys, VerifiedMessage, VerifyError};
 pub use suppression::{
-    backoff_delay_ms, centre_report_from, first_in_line, is_first_in_line, is_takeover,
-    takeover_body, Suppression, SuppressionPhase, Takeover, SUPPRESSION_BACKOFF_MAX,
+    backoff_delay_ms, centre_report_from, first_in_line, is_first_in_line, is_segment_done,
+    is_segment_event, is_takeover, segment_done_body, segment_event_body, takeover_body,
+    SegmentDone, SegmentEvent, Suppression, SuppressionPhase, Takeover, SUPPRESSION_BACKOFF_MAX,
     SUPPRESSION_WAIT,
 };
 pub use transport::{

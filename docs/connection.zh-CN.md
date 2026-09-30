@@ -389,7 +389,9 @@ M4d 跨区域服务器、M4e 审计 digest。尚未写完的一节写 **deferred
 
 **[已定]** **回归是一个触发，且它在节点退让之前先完成**（M5-3c-1）。一个看到中心重新可达的代行者，会**关掉它开过的段**（`AuditStore::close_segment` —— 行变为 `closed` 并追加 `host.audit.segment_closed`），并记下 **`host.connection.centre_returned`**（`{segment_id, centre, at_ms}`），**然后**才回到 `candidate`。没有这个顺序，`observe(true)` 会立刻把它移到 `candidate`，使段永远开着：这个收窄是有意的，而且它在定时器里，因为 `net::Suppression::observe` 仍是它一直以来的纯相位函数。**关段失败**会被报出，且不会把节点囚在一个它已无权维持的代行里；`centre_returned` 行只在关段成功时写下。
 
-**尚不在此。** **送达** —— 把段的事件带到真中心、在那里重建段储存、并调用 `merge_segment` —— 是 **M5-3c-2**，且它等待 owner 选择段如何旅行的方式（[decisions §137](decisions.zh-CN.md) 记下了「段是标记」与「段是自己的储存」之间尚未解决的张力；本批只记录，不解决）。在那之前，关掉的段的事件仍然哪里也不去。
+**[已定]** **送达就是那条流**（M5-3c-2）。一个关闭的段的事件**在同侪之间**走到中心 —— 每事件一帧 §3 帧，最后一帧结束这条流。区间是段*自己*的事件，即它的开启行与关闭行之间的那些行、绝不是那两行；每帧载着事件自己的 `ts` / `actor` / `action` / `agent_id` / `detail`，因为中心要用它们重建段的储存。代行者记下 `host.connection.segment_delivered`。**中心**以段到达时的名字收养那一行、写下 `audit-segments/<id>.db`、**原样**调用 `merge_segment`，并记下 `host.connection.segment_rebuilt`。**对跨区域服务器一无所求**，而旧张力的两半如今是同一个故事：段在被送达中心之前是其主人链上的一段区间，到了中心才是它自己的储存（[decisions §139](decisions.zh-CN.md)）。
+
+**尚不在此。** **跨链核对** —— 一个被合并的段是否真的承接了它所声称的锚点 —— 是 **M6**。
 ## 7. 审计 digest —— M4e-1
 
 **[已定]** **digest 是对链上某一点的一份承诺**，仅此而已：链的**头哈希**与通向它的**事件数**。它*不是*第二个哈希，也*不是*整条链 —— 它是验证者可以据以比对的东西，并且由链已经住在其中的那个储存里读出（`audit` 的最后哈希与事件计数）。**链的公式不动**：本节扩展的是*传输的东西*，绝不是 `compute_hash` 或 `verify_chain`（[decisions §127](decisions.zh-CN.md) 第 2 条）。

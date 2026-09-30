@@ -1501,6 +1501,24 @@ impl RelaySession {
         self.send_body_to(peer, crate::suppression::takeover_body(centre, by, at_ms))
     }
 
+    /// Hand a peer one event of a closed segment (v1.0 M5-3c-2).
+    pub fn segment_event_to(
+        &self,
+        peer: &str,
+        event: &crate::suppression::SegmentEvent,
+    ) -> Result<(), TransportError> {
+        self.send_body_to(peer, crate::suppression::segment_event_body(event))
+    }
+
+    /// Tell a peer a segment's stream is complete (v1.0 M5-3c-2).
+    pub fn segment_done_to(
+        &self,
+        peer: &str,
+        done: &crate::suppression::SegmentDone,
+    ) -> Result<(), TransportError> {
+        self.send_body_to(peer, crate::suppression::segment_done_body(done))
+    }
+
     /// Answer a probe (§6.7): the smallest evidence that the node behind this session works.
     pub fn answer_alive(&self, to: &str) -> Result<(), TransportError> {
         self.send_body_to(to, crate::liveness::alive_body())
@@ -1664,6 +1682,24 @@ impl RelayClient {
         at_ms: i64,
     ) -> Result<(), TransportError> {
         self.with_session(|session| session.takeover_to(peer, centre, by, at_ms))
+    }
+
+    /// Hand a peer one event of a closed segment (v1.0 M5-3c-2).
+    pub fn segment_event_to(
+        &self,
+        peer: &str,
+        event: &crate::suppression::SegmentEvent,
+    ) -> Result<(), TransportError> {
+        self.with_session(|session| session.segment_event_to(peer, event))
+    }
+
+    /// Tell a peer a segment's stream is complete (v1.0 M5-3c-2).
+    pub fn segment_done_to(
+        &self,
+        peer: &str,
+        done: &crate::suppression::SegmentDone,
+    ) -> Result<(), TransportError> {
+        self.with_session(|session| session.segment_done_to(peer, done))
     }
 
     /// Answer a probe (§6.7).

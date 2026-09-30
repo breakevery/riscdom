@@ -47,6 +47,15 @@ main chain by **transcription** (M5-2). The main chain therefore stays one linea
 both the formula and `verify_chain` stay where they are. [§8](#8-where-the-temporary-segments-live) says where
 the files live and [§9](#9-how-each-chain-is-verified) how each is verified.
 
+**[settled]** **That sentence is about the centre's side** (v1.0 M5-3c-2). A stand-in **diverts none of its
+writes**: its events go to its **own main chain**, exactly where they would have gone without a segment (the
+owner's point 4), and its `segments` row marks the **span** — the rows between its
+`host.audit.segment_opened` and `host.audit.segment_closed` events (§6 calls those two the record of the
+segment's *life*, not events *of* it). The **file** of §8 is where the segment lives **once it reaches the
+real centre**: the centre adopts the row under the name the segment arrived with, writes the delivered events
+into `audit-segments/<id>.db`, and only then transcribes them into its own chain. Shape (b) therefore
+describes **two nodes' worth of one segment**, not one node's storage.
+
 The two shapes that were weighed and are **not** the project's. **(a) One file, one chain, segments as
 tags** — a temporary centre appending straight into the main `audit_events` under its `segment_id`. That is
 not available to a centre standing in *while the real one is unreachable*: the two are different machines,
@@ -137,7 +146,9 @@ vocabulary (`agent:*`, `vm:*`, `m:*`, …) and this does not touch them.
 
 - **`provisional` and `fork`** — the marking, the fold and the conflict rule — are **M5-2**, and they need
   §5's questions answered first.
-- **The temporary centre** — who takes over, the three suppression layers, and the return — is **M5-3**.
+- **The temporary centre** — who takes over, the three suppression layers, the return, and the delivery of a
+  closed segment to the centre — **landed** as M5-3a/b/c in v1.0. How a segment is stored is §2's answer: it
+  is a span of its owner's chain until it is merged somewhere else.
 - **The immediate push of a key event** (an ejection, a fork, a takeover) is **M4e-2**; [connection.md
   §7](connection.md) covers the batched digest it is beside.
 - **The physical shape of a segment's own chain** is **settled as (b)** — see §8.

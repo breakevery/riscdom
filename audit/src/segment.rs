@@ -202,6 +202,38 @@ pub fn segment_opened_detail(segment: &Segment) -> serde_json::Value {
     })
 }
 
+/// The part of a segment id that names its owner, made safe for a file name (v1.0 M5-3c-2).
+///
+/// A `node_id` is a deployer's own name and a name is free-form, while a segment id becomes a path
+/// (`audit-segments/<segment_id>.db`, [`segment_db_path_in`](crate::segment_db_path_in)). So: ASCII letters,
+/// digits, `-`, `_` and `.` are kept, every other character becomes `_` (which covers the separators, so
+/// nothing here can steer the path), the result is capped at 48 characters, trailing dots go, and a name
+/// that leaves nothing usable answers `node`.
+pub fn safe_owner(owner: &str) -> String {
+    let mut out = String::new();
+    for ch in owner.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+        if out.chars().count() >= OWNER_MAX_CHARS {
+            break;
+        }
+    }
+    while out.ends_with('.') {
+        out.pop();
+    }
+    if out.is_empty() {
+        "node".to_string()
+    } else {
+        out
+    }
+}
+
+/// How much of an owner's name a segment id keeps (see [`safe_owner`]).
+const OWNER_MAX_CHARS: usize = 48;
+
 /// What a merge did (v1.0 M5-2a; M5-2b added the fork).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MergeOutcome {

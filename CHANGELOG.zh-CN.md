@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **一个关闭的段走到中心，中心重建并合并它**（v1.0 批 CC / M5-3c-2，M5 的终点）：代行者把刚关掉的段以一条流交给中心 —— 每事件一帧 §3 帧，外加一帧结束它 —— 载着每个事件自己的 `ts`/`actor`/`action`/`agent_id`/`detail`，区间是开启行与关闭行**之间**的那些行。中心以段到达时的名字（带命名空间的 `seg-<owner>-<ms>`）**收养** `segments` 行，写下 `audit-segments/<id>.db`，并**原样**调用 `merge_segment`；两台节点分别记下 `host.connection.segment_delivered` / `segment_rebuilt`。**`merge_segment`、`compute_hash`、`verify_chain` 与 append-only 触发器均未动**，而 `audit-v2` §2/§8 现在说明形状 (b) 如何跨两台机器。`audit` 多出 `open_segment_for` / `adopt_segment` / `events_in_range` / `last_id` / `safe_owner`。**决策 §139。**
+
 - **恢复的发送方等一等，QEMU 的话被听见，重置的 socket 重连一次**（v1.0 批 CB / CA-1）：本地 QEMU/QMP `10054` flake 的根因。快照发送线程现在在端口移交与 QEMU 启动**之后**才起 —— 以前它可能连上我们自己仍绑着的监听器、被移交重置、并无声死亡 —— 且**它的结果被读取**并并入 `start` 的错误；QEMU 的 stdout/stderr 被**捕获**并并入错误（以前是 `Stdio::null()`）；QEMU 仍存活而 QMP socket 被重置时**重连一次**并重试。**不改公开 API、无新依赖、不新增审计事件。** `sandbox/README` + zh 已更新。**决策 §138。**
 
 - **代行在退让之前先收尾**（v1.0 批 BZ / M5-3c-1）：回归是一个触发。一个看到中心重新可达的代行者会**关掉它开过的段**（`close_segment` —— 行变为 `closed` 并追加 `host.audit.segment_closed`），并记下 **`host.connection.centre_returned`**（`{segment_id, centre, at_ms}`），**然后**才回到 `candidate`。收窄在定时器里（`net::Suppression::observe` 保持纯净）；关段失败会被报出且不否决恢复。**`audit/src` 未动。** 送达、中心侧重建与 `merge_segment` 是 **M5-3c-2** —— §137 记下尚未解决的「标记 vs 储存」张力。`connection.md` + zh §6.8 已更新。**决策 §137。**

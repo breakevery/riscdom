@@ -32,7 +32,7 @@ pub use run::{
     SHORT_FINGERPRINT_LEN,
 };
 pub use segment::{
-    cleared_detail, is_provisional, partial_merge_recorded, segment_closed_detail,
+    cleared_detail, is_provisional, partial_merge_recorded, safe_owner, segment_closed_detail,
     segment_forked_detail, segment_merged_detail, segment_opened_detail, MergeOutcome, Segment,
     SegmentKind, SegmentState, ACTION_SEGMENT_CLOSED, ACTION_SEGMENT_FORKED, ACTION_SEGMENT_MERGED,
     ACTION_SEGMENT_OPENED, PARTIAL_MERGE_PREFIX, PROVISIONAL,

@@ -599,9 +599,33 @@ impl AuditStore {
     /// The `segments` table has **no append-only trigger** — it is the record *beside* the chain, like
     /// `runs` — so its own rows may be updated; the chain's rows are only ever appended.
     pub fn open_segment(&mut self, kind: SegmentKind) -> Result<Segment, AuditError> {
+        self.open_segment_inner(kind, None)
+    }
+
+    /// Open a segment whose id **names the node that opened it** (v1.0 M5-3c-2).
+    ///
+    /// `seg-<owner>-<ms>` instead of `seg-<ms>`: a segment stands in on a node, and two nodes of one
+    /// deployment may open segments in the same millisecond. The owner is part of the name so the two
+    /// cannot collide **once they meet** — and they meet, because a closed segment travels to the centre
+    /// and is merged there under the name it arrived with (see [`Self::adopt_segment`]). The owner is a
+    /// deployer's free-form name, so it is made file-name safe ([`safe_owner`]) before it joins an id that
+    /// becomes a path (`audit-segments/<segment_id>.db`).
+    pub fn open_segment_for(
+        &mut self,
+        kind: SegmentKind,
+        owner: &str,
+    ) -> Result<Segment, AuditError> {
+        self.open_segment_inner(kind, Some(owner))
+    }
+
+    fn open_segment_inner(
+        &mut self,
+        kind: SegmentKind,
+        owner: Option<&str>,
+    ) -> Result<Segment, AuditError> {
         let now = crate::event::now_ms();
         let segment = Segment {
-            segment_id: self.free_segment_id(now)?,
+            segment_id: self.free_segment_id(now, owner)?,
             kind,
             head_hash: None,
             head_prev_chain: self.last_hash()?,
@@ -709,20 +733,93 @@ impl AuditStore {
         Ok(())
     }
 
-    /// A `segment_id` no row uses yet: the opened-at millisecond, disambiguated if two segments open
-    /// inside one.
-    fn free_segment_id(&self, now: i64) -> Result<String, AuditError> {
-        let base = format!("seg-{now}");
+    /// A `segment_id` no row uses yet: the opened-at millisecond — namespaced by its owner, when one is
+    /// given — disambiguated if two segments open inside one.
+    fn free_segment_id(&self, now: i64, owner: Option<&str>) -> Result<String, AuditError> {
+        let mint = |suffix: Option<u32>| match (owner, suffix) {
+            (Some(owner), Some(n)) => {
+                format!("seg-{}-{now}-{n}", crate::segment::safe_owner(owner))
+            }
+            (Some(owner), None) => format!("seg-{}-{now}", crate::segment::safe_owner(owner)),
+            (None, Some(n)) => format!("seg-{now}-{n}"),
+            (None, None) => format!("seg-{now}"),
+        };
+        let base = mint(None);
         if self.segment(&base)?.is_none() {
             return Ok(base);
         }
         for n in 2..=u32::MAX {
-            let candidate = format!("seg-{now}-{n}");
+            let candidate = mint(Some(n));
             if self.segment(&candidate)?.is_none() {
                 return Ok(candidate);
             }
         }
         Err(AuditError::Other("could not mint a segment id".to_string()))
+    }
+
+    /// Register a segment that stood in **on another node**, so it can be merged here (v1.0 M5-3c-2).
+    ///
+    /// The centre did not open this segment — its owner did, on its own chain — so **no opening event is
+    /// appended here**, and the row is written **`closed`**: all the centre needs is the record
+    /// [`Self::merge_segment`] looks up. The id is the one the segment travelled under, and an id already
+    /// present is left exactly as it is: adopting twice is not an error. `head_prev_chain` is the
+    /// cross-segment reference the owner reported — the point on *its* chain the segment continues from.
+    pub fn adopt_segment(
+        &mut self,
+        segment_id: &str,
+        head_prev_chain: Option<&str>,
+    ) -> Result<(), AuditError> {
+        if self.segment(segment_id)?.is_some() {
+            return Ok(());
+        }
+        self.insert_segment(&Segment {
+            segment_id: segment_id.to_string(),
+            kind: SegmentKind::Temporary,
+            head_hash: None,
+            head_prev_chain: head_prev_chain.map(str::to_string),
+            opened_at_ms: None,
+            closed_at_ms: None,
+            state: SegmentState::Closed,
+            note: Some("adopted from another node".to_string()),
+        })
+    }
+
+    /// The events whose ids fall inside `[start_id, end_id]`, oldest first (v1.0 M5-3c-2).
+    ///
+    /// A segment's own events are exactly the rows between its opening and its closing event — those two
+    /// are the record of its *life*, not events *of* it ([docs/audit-v2.md](../../docs/audit-v2.md) §6) — and
+    /// this is how the centre is handed the ones a stand-in wrote. An empty or inverted range answers an
+    /// empty list rather than an error: an honest nothing is a legitimate answer here.
+    pub fn events_in_range(
+        &self,
+        start_id: i64,
+        end_id: i64,
+    ) -> Result<Vec<StoredEvent>, AuditError> {
+        let sql = format!(
+            "SELECT {SELECT_COLUMNS} FROM audit_events WHERE id >= ?1 AND id <= ?2 ORDER BY id ASC"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([start_id, end_id], RawRow::from_row)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?.into_stored()?);
+        }
+        Ok(out)
+    }
+
+    /// The id of the newest event, or `None` on an empty chain (v1.0 M5-3c-2).
+    ///
+    /// A caller that holds the store's lock across a write reads this to learn exactly which row it just
+    /// wrote — which is how a segment's span is pinned without a second lookup.
+    pub fn last_id(&self) -> Result<Option<i64>, AuditError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM audit_events ORDER BY id DESC LIMIT 1")?;
+        let mut rows = stmt.query([])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
     }
 
     /// Merge a temporary segment's events into the main chain by **transcription** (v1.0 M5-2a), or record

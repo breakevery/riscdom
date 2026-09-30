@@ -280,6 +280,121 @@ pub fn is_takeover(body: &Value) -> Option<Takeover> {
     })
 }
 
+/// One event of a closed segment, on its way to the centre (v1.0 M5-3c-2).
+///
+/// A stand-in's events were written to its own main chain, and the centre merges them by transcription.
+/// What travels is not the source row (its `id` and hashes belong to the sender's chain) but the five
+/// fields that decide what the transcription writes: when, who, what, the detail, and the agent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SegmentEvent {
+    /// The segment it belongs to — the name it was opened under.
+    pub segment_id: String,
+    /// The centre it is being handed to.
+    pub centre: String,
+    /// Where it sits in the stream, from zero.
+    pub index: usize,
+    /// How many events the stream holds.
+    pub total: usize,
+    /// When the event was written on the sender's chain.
+    pub ts: i64,
+    /// The event's actor.
+    pub actor: String,
+    /// The event's action.
+    pub action: String,
+    /// The event's agent id, when it had one.
+    pub agent_id: Option<String>,
+    /// The event's detail, verbatim.
+    pub detail: Value,
+}
+
+/// The end of a segment's stream (v1.0 M5-3c-2).
+///
+/// A stream needs an end, and this is it: the count is checked against what arrived, and the sender's
+/// cross-segment reference travels with it so the centre can record the same anchor the segment was
+/// opened with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SegmentDone {
+    /// The segment whose stream just ended.
+    pub segment_id: String,
+    /// The centre it was handed to.
+    pub centre: String,
+    /// How many events the sender sent.
+    pub total: usize,
+    /// The cross-segment reference the segment was opened with, when the sender had one.
+    pub head_prev_chain: Option<String>,
+}
+
+/// The body one segment event travels as (v1.0 M5-3c-2).
+///
+/// An ordinary §3 frame's body, like §6.6's registration and §6.7's reports — one event per frame,
+/// because a frame has a size ceiling ([`DEFAULT_MAX_FRAME_BYTES`](crate::DEFAULT_MAX_FRAME_BYTES))
+/// and a segment may hold more than one frame's worth.
+pub fn segment_event_body(event: &SegmentEvent) -> Value {
+    serde_json::json!({
+        "segment_event": PROTOCOL_VERSION,
+        "segment_id": event.segment_id,
+        "centre": event.centre,
+        "index": event.index,
+        "total": event.total,
+        "ts": event.ts,
+        "actor": event.actor,
+        "action": event.action,
+        "agent_id": event.agent_id,
+        "detail": event.detail,
+    })
+}
+
+/// Read a segment event out of a body, when the body is one.
+///
+/// Every field is required: a stream frame that cannot be rebuilt into an event is not a frame this
+/// node should act on, and `None` says so rather than half an event.
+pub fn is_segment_event(body: &Value) -> Option<SegmentEvent> {
+    if body.get("segment_event").and_then(Value::as_u64) != Some(u64::from(PROTOCOL_VERSION)) {
+        return None;
+    }
+    Some(SegmentEvent {
+        segment_id: body.get("segment_id")?.as_str()?.to_string(),
+        centre: body.get("centre")?.as_str()?.to_string(),
+        index: body.get("index")?.as_u64()? as usize,
+        total: body.get("total")?.as_u64()? as usize,
+        ts: body.get("ts")?.as_i64()?,
+        actor: body.get("actor")?.as_str()?.to_string(),
+        action: body.get("action")?.as_str()?.to_string(),
+        agent_id: body
+            .get("agent_id")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        detail: body.get("detail")?.clone(),
+    })
+}
+
+/// The body a segment stream's end travels as (v1.0 M5-3c-2).
+pub fn segment_done_body(done: &SegmentDone) -> Value {
+    serde_json::json!({
+        "segment_done": PROTOCOL_VERSION,
+        "segment_id": done.segment_id,
+        "centre": done.centre,
+        "total": done.total,
+        "head_prev_chain": done.head_prev_chain,
+    })
+}
+
+/// Read a segment stream's end out of a body, when the body is one.
+pub fn is_segment_done(body: &Value) -> Option<SegmentDone> {
+    if body.get("segment_done").and_then(Value::as_u64) != Some(u64::from(PROTOCOL_VERSION)) {
+        return None;
+    }
+    Some(SegmentDone {
+        segment_id: body.get("segment_id")?.as_str()?.to_string(),
+        centre: body.get("centre")?.as_str()?.to_string(),
+        total: body.get("total")?.as_u64()? as usize,
+        head_prev_chain: match body.get("head_prev_chain") {
+            Some(Value::String(head)) => Some(head.clone()),
+            _ => None,
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
