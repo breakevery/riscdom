@@ -602,8 +602,18 @@ the centre's here), and it asks the cross-region server for nothing: §6's four 
 `{ "takeover": 1, "centre": <node_id>, "by": <node_id>, "at_ms": <ms> }`. A node that hears one **stands
 down** — §33's third layer, in one frame.
 
-**Not here yet.** What a node *does* past the backoff — standing in, and **sending** the broadcast — is
-**M5-3b-2**; the return and the merge are **M5-3c**.
+**[settled]** **Standing in is an act, and it is three things** (M5-3b-2). Past the backoff, and only if it
+is **first in line**, a node: **sends** the takeover broadcast to **each** of its peers; opens a
+**temporary segment** on its own chain (the `segments` row and its `segment_opened` event — the segment's
+*file* is later work); and records the act as **`host.connection.takeover_declared`**, whose detail names
+the segment, the centre, the node and the moment. A node that hears a broadcast while it is standing in
+records **`host.connection.stood_down`**. Both rows are **new names in the `host.connection.*` family**, and
+neither is one of the chain's stream events. **The chain keeps being written as the node always wrote it**:
+§33 folds the temporary segment back into the main chain later, so a stand-in diverts no write at all
+(owner's point 4).
+
+**Not here yet.** The **return** — a centre that comes back, and the segment folding into the main chain —
+is **M5-3c**. Until then a temporary segment stays open, which is the honest state.
 
 ## 7. Audit digests — M4e-1
 

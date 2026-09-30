@@ -372,6 +372,13 @@ current request authorising it (§2).
   broadcast** is a new body (`{ "takeover": 1, "centre": …, "by": …, "at_ms": … }`); hearing one **stands the
   node down**. **The cross-region server is asked for nothing**; `audit` is untouched. Standing in and
   *sending* the broadcast are M5-3b-2; the return and merge are M5-3c. **Decision §135.**
+- **And a node stands in, and says so on the chain** (v1.0 batch BX / M5-3b-2, 2026-09-30): §33's third
+  layer is no longer inert either. Past the backoff, and only if it is **first in line**, a node **sends** the
+  takeover broadcast to each peer, **opens a temporary segment** on its own chain (the `segments` row and its
+  `segment_opened` event — **no file**), and records **`host.connection.takeover_declared`**
+  (`{segment_id, centre, by, at_ms}`); hearing a broadcast while standing in records
+  **`host.connection.stood_down`**. **The chain keeps being written as before**, and **`audit/src` is
+  untouched**. The return and merge are M5-3c. **Decision §136.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

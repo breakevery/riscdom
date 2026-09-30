@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **一个节点代行，并在链上说明**（v1.0 批 BX / M5-3b-2）：§33 的第三层也不再空转。跨过退避、且**是第一顺位**时，一个节点：把接管广播发给**每一个**同侪（`RelayClient::takeover_to`）；在自己的链上开一个**临时段**（`open_segment(SegmentKind::Temporary)` —— `segments` 行与它的 `segment_opened` 事件，且**不开文件**）；并把这一动作记为 **`host.connection.takeover_declared`**（`{segment_id, centre, by, at_ms}`）。在代行中听到广播记下 **`host.connection.stood_down`**。**链照旧被写** —— §33 之后才把段折回（M5-3c）—— 且 **`audit/src` 未动**。`connection.md` + zh §6.8 已更新。**决策 §136。**
+
 - **中心的报告在同侪之间走**（v1.0 批 BW / M5-3b-1）：抑制状态机不再空转。一个节点把 §6.7 向上发的那对 `{"unreachable": …}` / `{"reachable": …}` 报告发给同 workgroup 的邻居 —— **横向**寻址（`report_to`）—— 而每个节点保留**自己的一份见证表**、**主语是中心**，于是 §6.7 的规则就地判。**接管广播**是一个新 body（`{ "takeover": 1, "centre": …, "by": …, "at_ms": … }`）；听到它就**退让**。**对跨区域服务器一无所求。** `audit` 未动。代行与*发出*广播是 M5-3b-2。`connection.md` + zh §6.8 已更新。**决策 §135。**
 
 - **三层挡在怀疑与代行之间**（v1.0 批 BU / M5-3a）：`net` 多出**抑制状态机** —— `SUPPRESSION_WAIT = 60 秒`、`SUPPRESSION_BACKOFF_MAX = 30 秒`、`SuppressionPhase`（`candidate` / `waiting` / `confirming` / `backing-off` / `standing-in`）、按 **`node_id` 序**的顺位、以及由 `(node_id, now)` 导出的确定性退避 —— 并以 **§6.7 的见证规则复用为群体确认**（不写第二条活性规则）。`host-core` 用定时器驱动它，输入是探测线程发布的中心可达性。**只是本地状态：无链、无段、`audit` 一行未动。** 接管与广播属 M5-3b。`connection.md` + zh 新增 §6.8。**决策 §134。**

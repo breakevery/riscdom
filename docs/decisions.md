@@ -3932,3 +3932,37 @@ broadcast (`stand_down`) and calling `confirm` with §6.7's rule once the phase 
 `docs/connection.md` + zh §6.8 are updated. **`audit` is untouched** (no segment is opened here), and so are
 `compute_hash`, `verify_chain`, the append-only triggers, the routes and the capability vocabulary. Standing
 in, sending the broadcast and the segment wiring are **M5-3b-2**; the return and the merge are **M5-3c**.
+
+## 136. Standing in is an act: the broadcast, a temporary segment, and the row that says so
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch BX / M5-3b-2)
+
+**Decision**: §33's third layer is no longer inert either. Past the backoff, and only if it is **first in
+line** (`is_first_in_line`, `node_id` order), a node **stands in** — three acts, and they are one act: it
+**sends** the takeover broadcast to **each** of its peers (`Suppression::maybe_stand_in` on the machine,
+`RelayClient::takeover_to` on the wire); it **opens a temporary segment** on its own chain
+(`AuditStore::open_segment(SegmentKind::Temporary)` — the `segments` row and its `segment_opened` event, and
+**no file**); and it records the act as **`host.connection.takeover_declared`** with detail
+`{segment_id, centre, by, at_ms}`. A node that hears a broadcast while it is **standing in** records
+**`host.connection.stood_down`**. Both names are **new in the `host.connection.*` family** and neither is one
+of the chain's stream events. **A stand-in diverts no write**: the node keeps writing its own chain exactly as
+before, because §33 folds the temporary segment back later.
+
+**Why**: Three points. **Both halves of the trigger are required.** "First in line" alone would let a node
+take over from a centre that is merely slow; the elapsed backoff alone would let every node stand in at once.
+The machine already held the backoff; the line is a fact about the **group**, so it is read where the group is
+known (`host-core`'s workgroup). **The acts are one act.** A broadcast with no segment is an announcement the
+chain cannot explain; a segment with no broadcast would let two nodes open two segments with neither hearing
+the other. **The chain's shape does not move.** Opening a segment appends two rows (`segments` and the
+`segment_opened` event) and rewrites nothing: `compute_hash`, `verify_chain` and both append-only triggers are
+untouched, and the hash formula stays where §127 point 2 put it.
+
+**Impact**: `net/src/suppression.rs` gains `Suppression::maybe_stand_in`; `net/src/relay.rs` gains
+`RelaySession::takeover_to` / `RelayClient::takeover_to` (both sides of the session). `host-core` gains the
+`CentreWatch` fields the ticker needs (the workgroup line, the client, the store, the sink and this node's
+agent id), a `workgroup_peers` helper, the `declare_takeover` / `open_temporary_segment` /
+`record_host_event` functions and the ticker's stand-in branch. `net/tests/suppression.rs` is new (one
+relay-delivered broadcast). `docs/connection.md` + zh §6.8 are updated. **`audit/src` is untouched**
+(`open_segment` is M5-1b's API and this batch only calls it): no change to `store`, `hash` or `verify`. The
+**return** — a centre that comes back, and the segment folding into the main chain — is **M5-3c**, and so are
+the segment's file and the transcription of other nodes' events.

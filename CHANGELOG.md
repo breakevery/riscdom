@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A node stands in, and says so on the chain** (v1.0 batch BX / M5-3b-2): §33's third layer is no longer
+  inert either. Past the backoff, and only if it is **first in line**, a node: **sends** the takeover
+  broadcast to each peer (`RelayClient::takeover_to`); opens a **temporary segment** on its own chain
+  (`open_segment(SegmentKind::Temporary)` — the `segments` row and its `segment_opened` event, and **no
+  file**); and records **`host.connection.takeover_declared`** (`{segment_id, centre, by, at_ms}`). Hearing a
+  broadcast while standing in records **`host.connection.stood_down`**. **The chain keeps being written as
+  before** — §33 folds the segment back later (M5-3c) — and **`audit/src` is untouched**. `connection.md` +
+  zh §6.8 updated. **Decision §136.**
+
 - **The centre's reports travel between peers** (v1.0 batch BW / M5-3b-1): the suppression machine is no longer
   inert. A node sends its workgroup neighbours the same `{"unreachable": …}` / `{"reachable": …}` reports
   §6.7 sends upward — addressed **sideways** (`report_to`) — and each node keeps **its own witness table** with

@@ -1087,6 +1087,19 @@ struct CentreWatch {
     witnesses: net::WitnessTable,
     /// When a takeover broadcast was heard, if one was.
     takeover_heard: Arc<Mutex<Option<i64>>>,
+    /// The **workgroup** this node's precedence is read in (v1.0 M5-3b-2): §33's line, ordered by
+    /// `node_id`. The centre is not in it — a node that is not answering cannot stand in for itself.
+    peers: Vec<String>,
+    /// The client the broadcast leaves through, when there is one — the same session as the beat and
+    /// the probe. `None` in a deployment with no cross-region server: the machine still walks its
+    /// layers, but it has no one to tell.
+    client: Option<Arc<net::RelayClient>>,
+    /// The chain, for the temporary segment a takeover opens (v1.0 M5-3b-2).
+    store: Arc<Mutex<AuditStore>>,
+    /// Where a takeover is recorded on the chain (v1.0 M5-3b-2).
+    sink: Arc<Mutex<dyn AuditSink>>,
+    /// This node's agent id, so the row a takeover writes is named the way every other `host.*` row is.
+    agent_id: String,
 }
 
 ///
@@ -1313,12 +1326,71 @@ impl Drop for DigestReporter {
     }
 }
 
+/// Write one `host.*` row from a thread that holds a sink and not an `Arc<AppState>` (v1.0 M5-3b-2).
+///
+/// The takeover is declared by the suppression ticker, which — like every other connection thread —
+/// holds handles rather than the state, so it names its own row here. A failed write is the sink's
+/// reporter's to queue, exactly as [`AppState::emit_host`] leaves it.
+fn record_host_event(
+    sink: &Arc<Mutex<dyn AuditSink>>,
+    agent_id: &str,
+    action: &str,
+    detail: serde_json::Value,
+) {
+    if let Ok(mut sink) = sink.lock() {
+        let _ = sink.record(audit::AuditEvent::new("host", action, detail).with_agent(agent_id));
+    }
+}
+
+/// Open a temporary segment on the main chain, from the ticker (v1.0 M5-3b-2).
+///
+/// `open_segment` writes the `segments` row and the `segment_opened` event and nothing else — no file
+/// is opened, because a segment's file is M5-3c's business. Answers the new segment's name, or `None`
+/// when the store could not be locked or the chain refused the write; the caller skips its event then,
+/// so a segment row never appears without the takeover that explains it.
+fn open_temporary_segment(store: &Arc<Mutex<AuditStore>>) -> Option<String> {
+    let mut store = store.lock().ok()?;
+    store
+        .open_segment(audit::SegmentKind::Temporary)
+        .ok()
+        .map(|segment| segment.segment_id)
+}
+
+/// What standing in consists of (v1.0 M5-3b-2): tell the peers, open a temporary segment, and say so on
+/// the chain.
+///
+/// The broadcast is one frame to each peer — the centre is the node that is not answering, so its peers
+/// are the ones who must hear it (§6.8, owner's point 2). The chain write is the segment row plus the
+/// takeover row beside it; the chain itself keeps being written as before, because §33 folds the segment
+/// in later (M5-3c), it does not divert writes here (owner's point 4).
+fn declare_takeover(watch: &CentreWatch, now: i64) {
+    if let Some(client) = &watch.client {
+        for peer in &watch.peers {
+            let _ = client.takeover_to(peer, &watch.centre, &watch.me, now);
+        }
+    }
+    if let Some(segment_id) = open_temporary_segment(&watch.store) {
+        record_host_event(
+            &watch.sink,
+            &watch.agent_id,
+            "host.connection.takeover_declared",
+            serde_json::json!({
+                "segment_id": segment_id,
+                "centre": watch.centre,
+                "by": watch.me,
+                "at_ms": now,
+            }),
+        );
+    }
+}
+
 /// The suppression machine's ticker (§33's three layers; v1.0 M5-3a).
 ///
 /// **What it can and cannot do yet.** It advances the machine from **what this node's probes see**
 /// ([`net::Suppression::observe`]) — the wait, and the move to *confirming*. The **group's confirmation**
-/// ([`net::Suppression::confirm`]) needs the peers' reports, and that exchange is **M5-3b**'s; until it lands
-/// the machine stops at *confirming*, which is the honest state of this batch.
+/// ([`net::Suppression::confirm`]) needs the peers' reports, and M5-3b wired that exchange; **M5-3b-2** adds
+/// the act itself — past the backoff, the first in line broadcasts a takeover, opens a temporary segment, and
+/// says so on the chain. What remains (M5-3c) is folding the segment back into the main chain.
 ///
 /// Like [`Heartbeat`], [`Probe`] and [`DigestReporter`], the thread holds no `Arc<AppState>` — and it holds
 /// the *machine* behind an `Arc` so a caller can read the phase while it runs.
@@ -1342,12 +1414,27 @@ impl SuppressionTicker {
                 .ok()
                 .and_then(|mut slot| slot.take())
             {
-                if let Ok(mut machine) = shared.lock() {
+                let was_standing = if let Ok(mut machine) = shared.lock() {
+                    let standing = machine.phase() == net::SuppressionPhase::StandingIn;
                     machine.stand_down(heard);
+                    standing
+                } else {
+                    false
+                };
+                // A node that had stood in yielded because someone ahead of it spoke: that is a row
+                // (v1.0 M5-3b-2). A broadcast heard while only a candidate changes nothing, and says so
+                // by writing nothing.
+                if was_standing {
+                    record_host_event(
+                        &watch.sink,
+                        &watch.agent_id,
+                        "host.connection.stood_down",
+                        serde_json::json!({ "centre": watch.centre, "at_ms": heard }),
+                    );
                 }
             }
             if let Some(reachable) = watch.reachable.lock().ok().and_then(|slot| *slot) {
-                if let Ok(mut machine) = shared.lock() {
+                let stood_in = if let Ok(mut machine) = shared.lock() {
                     machine.observe(reachable, now);
                     if machine.phase() == net::SuppressionPhase::Confirming {
                         // §6.7's rule, with the same table and the same veto: only witnesses that are
@@ -1361,6 +1448,16 @@ impl SuppressionTicker {
                             online.contains(witness)
                         });
                     }
+                    // §33's third layer's own act, and the one move this batch adds: past the backoff,
+                    // the first in line stands in (v1.0 M5-3b-2). Precedence is the group's, and both
+                    // halves must hold — the wait is over, *and* nothing in the line sorts first.
+                    net::is_first_in_line(&watch.me, watch.peers.iter().map(String::as_str))
+                        && machine.maybe_stand_in(now)
+                } else {
+                    false
+                };
+                if stood_in {
+                    declare_takeover(&watch, now);
                 }
             }
             match signal.recv_timeout(interval) {
@@ -4346,11 +4443,22 @@ impl AppState {
         };
         let watch = centre.map(|centre| CentreWatch {
             me: node_id.clone(),
+            // §33's line (v1.0 M5-3b-2): the workgroup without the centre — a node that is not
+            // answering cannot stand in for itself.
+            peers: workgroup
+                .iter()
+                .filter(|id| **id != centre)
+                .cloned()
+                .collect(),
             centre,
             reachable: Arc::clone(&self.centre_reachable),
             peers_reachable: Arc::clone(&self.peers_reachable),
             witnesses: self.centre_witnesses.clone(),
             takeover_heard: Arc::clone(&self.takeover_heard),
+            client: Some(Arc::clone(&client)),
+            store: Arc::clone(&self.audit),
+            sink: Arc::clone(&self.sink),
+            agent_id: self.agent_id.clone(),
         });
         let probe = Probe::start(
             client,
@@ -4428,20 +4536,27 @@ impl AppState {
     /// M5-3a). Answers whether there was a **centre** to watch — the in-network server this node knows.
     ///
     /// The machine is local state and nothing else: it **watches** what this node's own probes see (the
-    /// probe thread publishes the centre's reachability) and advances through the wait to *confirming*.
-    /// The group's confirmation and the takeover are **M5-3b**'s; until that lands the machine stops where
-    /// this batch's mechanism stops.
+    /// probe thread publishes the centre's reachability and the peers' reports) and walks the three layers
+    /// to the takeover — past the backoff, the first in line stands in (v1.0 M5-3b-2). What it does **not**
+    /// do is fold the segment back: the return to the centre is M5-3c's.
     pub fn start_connection_suppression(&self, interval: Duration) -> bool {
         let Some(centre) = self.centre_node() else {
             return false;
         };
+        let workgroup = self.workgroup_peers();
         let watch = CentreWatch {
             me: agent::device(),
+            // §33's line (v1.0 M5-3b-2): the workgroup without the centre.
+            peers: workgroup.into_iter().filter(|id| *id != centre).collect(),
             centre,
             reachable: Arc::clone(&self.centre_reachable),
             peers_reachable: Arc::clone(&self.peers_reachable),
             witnesses: self.centre_witnesses.clone(),
             takeover_heard: Arc::clone(&self.takeover_heard),
+            client: self.connection_client(),
+            store: Arc::clone(&self.audit),
+            sink: Arc::clone(&self.sink),
+            agent_id: self.agent_id.clone(),
         };
         let ticker = SuppressionTicker::start(watch, interval, net::now_ms());
         let previous = self
@@ -4485,6 +4600,25 @@ impl AppState {
             .iter()
             .map(|entry| entry.node_id.clone())
             .find(|id| Some(id) != server_node_id.as_ref() && id != &node_id)
+    }
+
+    /// The workgroup this node's precedence is read in (v1.0 M5-3b-2): its `peers.json` members other
+    /// than itself and its cross-region server — the same set [`Self::start_probe`] probes, said once.
+    /// The order is `node_id` order (§33's precedence, which is this set's smallest).
+    fn workgroup_peers(&self) -> Vec<String> {
+        let node_id = agent::device();
+        let server_node_id = self
+            .connection_client()
+            .map(|client| client.server_node_id().to_string());
+        let Some(peers) = self.peers() else {
+            return Vec::new();
+        };
+        peers
+            .peers
+            .iter()
+            .map(|entry| entry.node_id.clone())
+            .filter(|id| id != &node_id && Some(id) != server_node_id.as_ref())
+            .collect()
     }
 
     /// §6.7's **second level**: a node that runs the server role is an in-network server, and it
@@ -7241,6 +7375,67 @@ mod tests {
         )
         .unwrap();
         AppState::in_memory(&root).expect("state")
+    }
+
+    #[test]
+    fn a_takeover_opens_a_temporary_segment_and_declares_it() {
+        // v1.0 M5-3b-2: what standing in consists of. The broadcast goes to the peers (nothing leaves
+        // here: no client is wired, so there is nowhere for the frame to go), and the chain gains a
+        // temporary segment plus the row that names it. Driven directly, because the ticker that calls
+        // this waits a real `SUPPRESSION_WAIT` first and a unit test will not.
+        let state = state_with("takeover-declares", serde_json::json!({}));
+        let watch = CentreWatch {
+            me: "dev-me".to_string(),
+            centre: "centre".to_string(),
+            reachable: Arc::new(Mutex::new(None)),
+            peers_reachable: Arc::new(Mutex::new(std::collections::BTreeSet::new())),
+            witnesses: net::WitnessTable::new(),
+            takeover_heard: Arc::new(Mutex::new(None)),
+            peers: vec!["dev-b".to_string(), "dev-c".to_string()],
+            client: None,
+            store: Arc::clone(&state.audit),
+            sink: Arc::clone(&state.sink),
+            agent_id: state.agent_id.clone(),
+        };
+        let now = 1_700_000_000_000;
+        declare_takeover(&watch, now);
+
+        let events = state.audit.lock().expect("audit").all().expect("events");
+        let declared = events
+            .iter()
+            .find(|stored| stored.event.action == "host.connection.takeover_declared")
+            .expect("a takeover row");
+        assert_eq!(declared.event.detail["centre"], "centre");
+        assert_eq!(declared.event.detail["by"], "dev-me");
+        assert_eq!(declared.event.detail["at_ms"], now);
+        let segment_id = declared.event.detail["segment_id"]
+            .as_str()
+            .expect("the row names its segment")
+            .to_string();
+
+        // The segment it names is real, and it is temporary and open.
+        let segment = state
+            .audit
+            .lock()
+            .expect("audit")
+            .segment(&segment_id)
+            .expect("looked up")
+            .expect("a segment row");
+        assert_eq!(segment.kind, audit::SegmentKind::Temporary);
+        assert_eq!(segment.state, audit::SegmentState::Open);
+
+        // And the chain says the segment opened — `open_segment`'s own row, beside the takeover's.
+        assert!(
+            events
+                .iter()
+                .any(|stored| stored.event.action == audit::ACTION_SEGMENT_OPENED),
+            "the segment's opening is on the chain"
+        );
+        // The chain was appended to, never rewritten: it still verifies.
+        assert!(matches!(
+            audit::verify_chain(&state.audit.lock().expect("audit")).expect("verify"),
+            audit::ChainStatus::Intact { .. }
+        ));
     }
 
     #[test]

@@ -182,6 +182,20 @@ impl Suppression {
     pub fn backoff_elapsed(&self, now: i64) -> bool {
         matches!((self.phase, self.deadline_ms), (SuppressionPhase::BackingOff, Some(deadline)) if now >= deadline)
     }
+
+    /// **Stand in, if the backoff is over.** The caller has already checked that this node is
+    /// **first in line** ([`is_first_in_line`] — precedence is a fact about the group, not about this
+    /// machine); this is the other half, and it moves `BackingOff` → `StandingIn` **once**. Answers whether it
+    /// did (v1.0 M5-3b-2).
+    pub fn maybe_stand_in(&mut self, now: i64) -> bool {
+        if self.phase != SuppressionPhase::BackingOff || !self.backoff_elapsed(now) {
+            return false;
+        }
+        self.phase = SuppressionPhase::StandingIn;
+        self.since_ms = now;
+        self.deadline_ms = None;
+        true
+    }
 }
 
 /// **Layer three, the precedence half**: who is first in line (§33's precedence, pinned by the owner to
@@ -399,7 +413,7 @@ mod tests {
 
     #[test]
     fn the_machine_never_stands_in_by_itself() {
-        // M5-3a stops at the backoff: `StandingIn` is M5-3b's act, and nothing here reaches it.
+        // M5-3a stops at the backoff: `StandingIn` is M5-3b's act, and nothing there reaches it.
         let mut machine = Suppression::new("dev-a", T0);
         machine.observe(false, T0);
         machine.observe(false, T0 + WAIT_MS);
@@ -409,8 +423,22 @@ mod tests {
             .confirm(&table, "centre", T0 + WAIT_MS, |_| true)
             .expect("judged");
         assert_eq!(machine.phase(), SuppressionPhase::BackingOff);
-        assert_ne!(machine.phase(), SuppressionPhase::StandingIn);
+        // Now M5-3b-2's half: only past the deadline, and only once.
+        let deadline = machine.deadline_ms().expect("a deadline");
+        assert!(!machine.maybe_stand_in(deadline - 1), "not yet");
+        assert_eq!(machine.phase(), SuppressionPhase::BackingOff);
+        assert!(machine.maybe_stand_in(deadline), "past the backoff");
+        assert_eq!(machine.phase(), SuppressionPhase::StandingIn);
+        assert!(!machine.maybe_stand_in(deadline + 1), "once");
         assert_eq!(SuppressionPhase::StandingIn.as_str(), "standing-in");
+    }
+
+    #[test]
+    fn standing_in_is_not_reached_from_a_wait() {
+        let mut machine = Suppression::new("dev-a", T0);
+        // No confirm yet: a wait cannot be skipped into a takeover.
+        assert!(!machine.maybe_stand_in(T0 + WAIT_MS * 10));
+        assert_eq!(machine.phase(), SuppressionPhase::Candidate);
     }
 
     #[test]

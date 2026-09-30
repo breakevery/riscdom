@@ -1438,3 +1438,13 @@ trait 属 v1.x 工作。
 **缘由**：三点。**中心正是那个不作答的节点。** §6.7 的报告发给服务器，而我们正在测其可达性的服务器*就是*不见了的那个，所以方向必须改 —— 而同侪（它刚说过话，按定义是活的）是唯一可行的收方。**N² 不是新东西。** §6.7 的探测本来就是「每节点探每个同 workgroup 同侪」，所以把同样的报告横向寻址，不会给一台 LAN 增加新量级的流量。**服务器上没有新东西。** 把报告向上汇总，就需要把判决再推下去 —— 那是 §6 已冻的四个角色所没有的行为 —— 所以确认在证据已经到达的地方做：本地。
 
 **影响**：`net/src/suppression.rs` 多出 `Takeover`、`takeover_body` / `is_takeover` 与 `centre_report_from`；`net/src/relay.rs` 多出 `RelaySession::report_to` / `RelayClient::report_to`；`host-core` 由它的探测线程接通送达 —— 一个 `CentreWatch` 束（`centre`、`reachable`、`peers_reachable`、`witnesses`、`takeover_heard`）、接收环喂本地表并记下听到的广播、每拍把本节点自己的中心报告发给每个同侪、以及定时器消费广播（`stand_down`）并在相位为 `confirming` 时以 §6.7 的规则调 `confirm`。`docs/connection.md` + zh §6.8 已更新。**`audit` 未动**（本批不开段），`compute_hash`、`verify_chain`、append-only 触发器、路由与能力词汇表同样未动。代行、发出广播与段接线是 **M5-3b-2**；回归与合并是 **M5-3c**。
+
+## 136. 代行是一个动作：广播、一个临时段、以及说明它的那一行
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 BX / M5-3b-2）
+
+**决策**：§33 的第三层也不再空转。跨过退避、且**是第一顺位**（`is_first_in_line`，`node_id` 序）时，一个节点**代行** —— 三个动作，而它们是一个动作：把接管广播发给**它的每一个**同侪（状态机上 `Suppression::maybe_stand_in`，线上 `RelayClient::takeover_to`）；在自己的链上**开一个临时段**（`AuditStore::open_segment(SegmentKind::Temporary)` —— `segments` 行与它的 `segment_opened` 事件，且**不开文件**）；并把这一动作记为 **`host.connection.takeover_declared`**，detail 为 `{segment_id, centre, by, at_ms}`。一个在**代行中**听到广播的节点记下 **`host.connection.stood_down`**。两个名字都是 `host.connection.*` 族里的**新名字**，都不是链的流事件。**代行不改道任何写入**：节点照旧写自己的链，因为 §33 之后才把临时段折回。
+
+**缘由**：三点。**触发的两半都必需。** 只有「第一顺位」会让一个节点从只是慢的中心手里接管；只有退避期满会让每个节点同时代行。退避本来就在状态机上；顺位是关于**群体**的事实，所以它在群体为人所知的地方读（`host-core` 的 workgroup）。**这些动作是一个动作。** 有广播无段，是链解释不了的宣告；有段无广播，会让两个节点各开一段却谁也没听到谁。**链的形状不动。** 开段只追加两行（`segments` 与 `segment_opened` 事件），不改写任何东西：`compute_hash`、`verify_chain` 与两个 append-only 触发器未动，哈希公式仍在 §127 第 2 条所放的位置。
+
+**影响**：`net/src/suppression.rs` 多出 `Suppression::maybe_stand_in`；`net/src/relay.rs` 多出 `RelaySession::takeover_to` / `RelayClient::takeover_to`（会话两侧）。`host-core` 多出定时器所需的 `CentreWatch` 字段（workgroup 顺位线、客户端、储存、sink 与本节点的 agent id）、一个 `workgroup_peers` 助手、`declare_takeover` / `open_temporary_segment` / `record_host_event` 三个函数，以及定时器的代行分支。`net/tests/suppression.rs` 是新的（一条经 relay 送达的广播）。`docs/connection.md` + zh §6.8 已更新。**`audit/src` 未动**（`open_segment` 是 M5-1b 的 API，本批只调用它）：`store`、`hash`、`verify` 均无改动。**回归** —— 中心回来，以及段折回主链 —— 是 **M5-3c**，段的文件与转录其他节点的事件也属 M5-3c。

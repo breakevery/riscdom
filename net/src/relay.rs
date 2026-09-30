@@ -1490,6 +1490,17 @@ impl RelaySession {
         self.send_body_to(peer, report.to_body())
     }
 
+    /// Announce a **takeover** to a peer (v1.0 M5-3b-2): what §33's third layer reacts to.
+    pub fn takeover_to(
+        &self,
+        peer: &str,
+        centre: &str,
+        by: &str,
+        at_ms: i64,
+    ) -> Result<(), TransportError> {
+        self.send_body_to(peer, crate::suppression::takeover_body(centre, by, at_ms))
+    }
+
     /// Answer a probe (§6.7): the smallest evidence that the node behind this session works.
     pub fn answer_alive(&self, to: &str) -> Result<(), TransportError> {
         self.send_body_to(to, crate::liveness::alive_body())
@@ -1642,6 +1653,17 @@ impl RelayClient {
     /// Tell a **peer** what this node's own probe sees (v1.0 M5-3b-1).
     pub fn report_to(&self, peer: &str, report: &Report) -> Result<(), TransportError> {
         self.with_session(|session| session.report_to(peer, report))
+    }
+
+    /// Announce a **takeover** to a peer (v1.0 M5-3b-2).
+    pub fn takeover_to(
+        &self,
+        peer: &str,
+        centre: &str,
+        by: &str,
+        at_ms: i64,
+    ) -> Result<(), TransportError> {
+        self.with_session(|session| session.takeover_to(peer, centre, by, at_ms))
     }
 
     /// Answer a probe (§6.7).
