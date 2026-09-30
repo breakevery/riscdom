@@ -20,6 +20,35 @@ pub const ACTION_SEGMENT_OPENED: &str = "host.audit.segment_opened";
 /// The audit event that records a segment **closing** (v1.0 M5-1b).
 pub const ACTION_SEGMENT_CLOSED: &str = "host.audit.segment_closed";
 
+/// The audit event that records a segment's events being **merged** into the main chain (v1.0 M5-2a).
+///
+/// Reserved by [docs/audit-v2.md](../../docs/audit-v2.md) §6 in M5-1a and written by the merge in M5-2a.
+pub const ACTION_SEGMENT_MERGED: &str = "host.audit.segment_merged";
+
+/// The name of the detail member that marks an event as written during a temporary centre (decisions
+/// §33/§127): `detail.provisional = true`.
+pub const PROVISIONAL: &str = "provisional";
+
+/// The **cleared** form of an event's detail: the same object with `provisional` removed (v1.0 M5-2a).
+///
+/// This is what "the mark is cleared" means when the mark is cleared by a merge: the transcribed event is
+/// written **without** it. Nothing already on the chain is rewritten — the segment's own file keeps its
+/// rows, `provisional` and all (decisions §127 point 3; the chain is append-only).
+pub fn cleared_detail(detail: serde_json::Value) -> serde_json::Value {
+    match detail {
+        serde_json::Value::Object(mut map) => {
+            map.remove(PROVISIONAL);
+            serde_json::Value::Object(map)
+        }
+        other => other,
+    }
+}
+
+/// Whether an event's detail carries the `provisional` mark.
+pub fn is_provisional(detail: &serde_json::Value) -> bool {
+    detail.get(PROVISIONAL).and_then(serde_json::Value::as_bool) == Some(true)
+}
+
 /// Which chain a segment belongs to ([docs/audit-v2.md](../../docs/audit-v2.md)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SegmentKind {
@@ -154,10 +183,34 @@ pub fn segment_opened_detail(segment: &Segment) -> serde_json::Value {
     })
 }
 
+/// What a merge did (v1.0 M5-2a).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MergeReport {
+    /// The segment that was merged.
+    pub segment_id: String,
+    /// How many events were transcribed onto the main chain.
+    pub merged: usize,
+}
+
 /// The detail of a [`ACTION_SEGMENT_CLOSED`] event (v1.0 M5-1b): what closed, and when.
 pub fn segment_closed_detail(segment_id: &str, closed_at_ms: i64) -> serde_json::Value {
     serde_json::json!({
         "segment_id": segment_id,
         "closed_at_ms": closed_at_ms,
+    })
+}
+
+/// The detail of a [`ACTION_SEGMENT_MERGED`] event (v1.0 M5-2a): what was merged, and how much of it.
+pub fn segment_merged_detail(
+    segment_id: &str,
+    kind: SegmentKind,
+    merged_at_ms: i64,
+    event_count: usize,
+) -> serde_json::Value {
+    serde_json::json!({
+        "segment_id": segment_id,
+        "kind": kind.as_str(),
+        "merged_at_ms": merged_at_ms,
+        "event_count": event_count,
     })
 }

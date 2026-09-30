@@ -106,6 +106,9 @@ records them so the implementation meets them deliberately:
 All three are marked `[open]` in roadmap §7, and (2) and (3) are inputs the merge stage (M5-2) needs; (1)
 bears on how a segment's head is shaped now that §2 fixes the physical shape as (b).
 
+**M5-2a refuses rather than decides.** When a merge would put an act on the main chain that is already there,
+it stops (§10); which side is right is question 3 above, and it is **M5-2b**'s.
+
 ## 6. The segment events (reserved)
 
 **[settled]** **The lifecycle events are on the main chain**, and M5-1b writes them:
@@ -114,9 +117,11 @@ bears on how a segment's head is shaped now that §2 fixes the physical shape as
   `{ "segment_id": …, "kind": "main" | "temporary", "head_prev_chain": <hash or null> }`.
 - `host.audit.segment_closed` — a segment closed. Detail:
   `{ "segment_id": …, "closed_at_ms": <epoch ms> }`.
-- `host.audit.segment_merged` — a segment's events were written into the main chain. **Reserved**: §2 fixes
-the shape as transcription, and **M5-2** is what implements it; the name is recorded here so the merge has
-one to use.
+- `host.audit.segment_merged` — a segment's events were written into the main chain. Detail:
+  `{ "segment_id": …, "kind": …, "merged_at_ms": …, "event_count": … }`. **Written by the merge**
+  ([§10](#10-merging)).
+- `host.audit.segment_forked` — a conflict was detected. **Reserved**: §5's question 3 is what decides how a
+conflict is handled, and **M5-2b** is the batch that does it.
 
 Both are written with `segment_id IS NULL` (the record of the segment's *life* is not one of the segment's
 own events), both are ordinary appends, and both carry the words §3 stores (`kind` is `SegmentKind::as_str`).
@@ -176,3 +181,26 @@ second formula.
 **Cross-chain verification is M6.** `head_prev_chain` (§4) is the **anchor** a later batch checks the two
 against; §5's question 2 — by digest, by range, or both — is where its shape is settled. Until then the two
 chains are each verifiable on their own, and their *relationship* is recorded metadata.
+
+## 10. Merging
+
+**[settled]** **A merge is transcription** (M5-2a). `AuditStore::merge_segment(audit_dir, segment_id)` reads
+the segment's own store and, for each of its events, **appends a new event to the main chain** — the same
+`actor`, `action`, `timestamp_ms` and `agent_id`, and the **cleared** detail — then appends the
+`segment_merged` event (§6) and marks the row **`folded`**, recording the main head it landed on. The
+segment's own file is **not** touched: it is the original evidence, and its rows keep their `provisional`
+mark.
+
+**[settled]** **The mark is cleared by transcription, not by a rewrite.** A still-provisional event is
+written into the main chain **without** `provisional` (§127 point 3); nothing already on the chain is
+updated. That is what makes "cleared" compatible with a chain that is append-only.
+
+**[settled]** **A merge that can see a conflict refuses.** Before writing anything, M5-2a checks whether the
+main chain already holds an event with the same `actor`, `action` and cleared detail; if it does, the merge
+is refused and nothing is written. That is the **narrowest** possible test — exact equality — so no *rule*
+about which side is right is chosen here. **Deciding a conflict is M5-2b** (§5, question 3).
+
+Only a `temporary` segment in state `open` or `closed` is mergeable, and a second merge is refused. **A
+partial merge is recorded, not hidden**: if an append fails part way through, the events already written
+stay (the chain only grows) and the failure and its count are written on the segment row's `note`, for
+M5-2b to resolve.

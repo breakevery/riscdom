@@ -339,6 +339,15 @@ current request authorising it (§2).
   verification is M6, anchored on `head_prev_chain`. `docs/audit-v2.md` + zh revise §2/§5/§6/§7 and add §8/§9.
   **`audit/src/hash.rs` is untouched and `verify_chain`'s logic is untouched**; **host-core is not touched**
   (the audit directory is the caller's). **M5-1 is complete (a/b/c).** **Decision §131.**
+- **And a segment merges by transcription** (v1.0 batch BQ / M5-2a, 2026-09-30): `audit` gains
+  `AuditStore::merge_segment(audit_dir, segment_id)`. It reads the temporary segment's own store and appends
+  each event to the main chain as a new event — the `provisional` member **removed**, so the mark is *cleared
+  by writing* and never by an update — then appends `host.audit.segment_merged`
+  (`{ segment_id, kind, merged_at_ms, event_count }`) and marks the row `folded`. **The segment's file keeps
+  its rows and their mark**, a merge that can see a conflict **refuses** (exact equality — no conflict rule
+  is chosen; that is M5-2b), and a partial merge is recorded on the row's `note`. `audit-v2.md` + zh gain §10.
+  **`compute_hash`, `verify_chain` and both append-only triggers are untouched**; host-core is not touched
+  (M5-3 calls it). **Decision §132.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

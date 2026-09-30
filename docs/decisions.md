@@ -3802,3 +3802,37 @@ is verified). **`compute_hash`, `verify_chain`, `append_once` and both append-on
 no route, capability name, audit event constant, hash formula or persisted format changes, and **host-core is
 not touched**: the audit directory is the caller's, so this crate composes no host layout. The merge event
 name (`host.audit.segment_merged`) is reserved in §6 and implemented by M5-2.
+
+## 132. A segment is merged by transcription, and the mark is cleared by writing
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch BQ / M5-2a)
+
+**Decision**: `audit` gains `AuditStore::merge_segment(audit_dir, segment_id) -> Result<MergeReport,
+AuditError>`. It reads the temporary segment's own store and **appends each of its events to the main chain**
+as a new event — the same `actor`, `action`, `timestamp_ms` and `agent_id`, and the detail with the
+`provisional` member **removed** — then appends **`host.audit.segment_merged`**
+(`{ segment_id, kind, merged_at_ms, event_count }`) and marks the row **`folded`**, recording the main head it
+landed on. **The segment's file is not touched**: it keeps its rows and their `provisional` mark. Before
+writing anything the merge **refuses** when the main chain already holds an event with the same `actor`,
+`action` and cleared detail — the narrowest test, so no conflict *rule* is chosen; deciding a conflict is
+**M5-2b**. Only a `temporary` segment in `open` or `closed` is mergeable, and a second merge is refused.
+`provisional`'s carrier is the **detail member** (`detail.provisional = true`, decisions §33's wording). If an
+append fails part way the events already written stay (the chain only grows) and the partial count is recorded
+on the segment row's `note`.
+
+**Why**: Three points. **Transcription is what shape (b) makes possible.** A segment is a different file, so
+nothing can be *moved*: the merge has to be a **read + append**, and that is also what keeps the segment
+intact as evidence. **"Cleared" cannot be an update.** The chain is append-only and its triggers refuse
+`UPDATE`, so the mark cannot be taken off a row — it is **left off the copy** the merge writes, which is the
+only reading of §127's "the mark is cleared" the chain's own guarantee permits. **Refusing is not deciding.**
+M5-2a must not become the place a conflict rule is chosen by accident, so its check is exact equality and its
+answer is "no"; §5's question 3 stays open for M5-2b and the owner.
+
+**Impact**: `audit/src/store.rs` gains `merge_segment` and its helpers (`merged_already`, `main_chain_has`,
+`mark_segment_folded`, `set_segment_note`); `audit/src/segment.rs` gains `MergeReport`,
+`ACTION_SEGMENT_MERGED`, `PROVISIONAL`, `cleared_detail`, `is_provisional` and `segment_merged_detail`;
+`docs/audit-v2.md` + zh gain §10 (merging) and revise §5/§6. **`compute_hash`, `verify_chain`, `append_once`
+and both append-only triggers are untouched**, no route, capability name, audit event constant, hash formula
+or persisted format changes, and **host-core is not touched** (M5-3 is what calls this). Conflict
+**detection**, the **`forked`** marking and **adjudication** are M5-2b; `host.audit.segment_forked` stays
+reserved.

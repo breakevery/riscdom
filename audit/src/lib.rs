@@ -32,8 +32,9 @@ pub use run::{
     SHORT_FINGERPRINT_LEN,
 };
 pub use segment::{
-    segment_closed_detail, segment_opened_detail, Segment, SegmentKind, SegmentState,
-    ACTION_SEGMENT_CLOSED, ACTION_SEGMENT_OPENED,
+    cleared_detail, is_provisional, segment_closed_detail, segment_merged_detail,
+    segment_opened_detail, MergeReport, Segment, SegmentKind, SegmentState, ACTION_SEGMENT_CLOSED,
+    ACTION_SEGMENT_MERGED, ACTION_SEGMENT_OPENED, PROVISIONAL,
 };
 pub use sink::{AuditFailureReporter, AuditSink, FileAuditSink, SqliteAuditSink};
 pub use store::{

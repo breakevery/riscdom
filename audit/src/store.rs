@@ -5,8 +5,9 @@ use crate::event::{AuditEvent, StoredEvent};
 use crate::hash::{compute_hash, GENESIS_PREV_HASH};
 use crate::run::{RebuildReport, RunRecord, RunStatus};
 use crate::segment::{
-    segment_closed_detail, segment_opened_detail, Segment, SegmentKind, SegmentState,
-    ACTION_SEGMENT_CLOSED, ACTION_SEGMENT_OPENED,
+    cleared_detail, segment_closed_detail, segment_merged_detail, segment_opened_detail,
+    MergeReport, Segment, SegmentKind, SegmentState, ACTION_SEGMENT_CLOSED, ACTION_SEGMENT_MERGED,
+    ACTION_SEGMENT_OPENED,
 };
 use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -721,6 +722,156 @@ impl AuditStore {
             }
         }
         Err(AuditError::Other("could not mint a segment id".to_string()))
+    }
+
+    /// Merge a temporary segment's events into the main chain by **transcription** (v1.0 M5-2a).
+    ///
+    /// The physical shape is (b): a segment is its own file ([docs/audit-v2.md](../../docs/audit-v2.md) §8),
+    /// so "merging" cannot move rows — it **reads** the segment's events and **appends** each to the main
+    /// chain as a **new** event (new id, new hash, chained onto the main head), then appends
+    /// [`ACTION_SEGMENT_MERGED`] and marks the row `folded`. The segment's own file is left exactly as it
+    /// was: it stays the original evidence.
+    ///
+    /// **The mark is cleared by transcription, not by a rewrite.** Each transcribed event is written with the
+    /// `provisional` member removed (§127 point 3: "a conflict-free run is merged and the mark cleared"); the
+    /// rows in the segment's file keep it. The chain stays append-only — this never updates or deletes an
+    /// `audit_events` row.
+    ///
+    /// **Conflict handling is not this batch's (M5-2b).** What M5-2a does is the **narrowest** refusal it can:
+    /// before anything is written it checks whether the main chain already holds an event with the same
+    /// `actor`, `action` and *cleared* detail, and refuses the merge if one is there. It decides no policy —
+    /// it does not say which side is right, only that this merge is not this batch's to make.
+    pub fn merge_segment(
+        &mut self,
+        audit_dir: &Path,
+        segment_id: &str,
+    ) -> Result<MergeReport, AuditError> {
+        let segment = self
+            .segment(segment_id)?
+            .ok_or_else(|| AuditError::Other(format!("no segment {segment_id}")))?;
+        if segment.kind != SegmentKind::Temporary {
+            return Err(AuditError::Other(format!(
+                "{segment_id} is not a temporary segment"
+            )));
+        }
+        if !matches!(segment.state, SegmentState::Open | SegmentState::Closed) {
+            return Err(AuditError::Other(format!(
+                "{segment_id} is {} — only an open or closed segment can be merged",
+                segment.state.as_str()
+            )));
+        }
+        if self.merged_already(segment_id)? {
+            return Err(AuditError::Other(format!("{segment_id} is already merged")));
+        }
+
+        // Read the segment **before writing anything**: a store that cannot be opened or read leaves the main
+        // chain untouched.
+        let segment_store = AuditStore::open_segment_store(audit_dir, segment_id)?;
+        let events = segment_store.all()?;
+
+        // The narrowest refusal there is: an event whose `actor`, `action` and cleared detail already appear
+        // on the main chain is a conflict, and M5-2a does not decide those. Exact equality, so no conflict
+        // *rule* is chosen here.
+        for event in &events {
+            let cleared = cleared_detail(event.event.detail.clone());
+            if self.main_chain_has(&event.event.actor, &event.event.action, &cleared)? {
+                return Err(AuditError::Other(format!(
+                    "{segment_id} conflicts with the main chain ({} {} is already there); \
+                     conflict handling is M5-2b",
+                    event.event.actor, event.event.action
+                )));
+            }
+        }
+
+        let mut merged = 0usize;
+        for event in &events {
+            let outgoing = AuditEvent {
+                timestamp_ms: event.event.timestamp_ms,
+                actor: event.event.actor.clone(),
+                action: event.event.action.clone(),
+                detail: cleared_detail(event.event.detail.clone()),
+                agent_id: event.event.agent_id.clone(),
+            };
+            match self.append(outgoing) {
+                Ok(_) => merged += 1,
+                Err(error) => {
+                    // The chain only ever grows, so a failure part way through cannot be undone here. Record
+                    // what happened on the segment's row (which is not append-only) and report — M5-2b owns
+                    // the resolution of a partial merge.
+                    let _ = self.set_segment_note(
+                        segment_id,
+                        &format!(
+                            "merge failed after {merged} of {} events: {error}",
+                            events.len()
+                        ),
+                    );
+                    return Err(error);
+                }
+            }
+        }
+
+        let now = crate::event::now_ms();
+        self.append(AuditEvent::new(
+            "host",
+            ACTION_SEGMENT_MERGED,
+            segment_merged_detail(segment_id, segment.kind, now, merged),
+        ))?;
+        self.mark_segment_folded(segment_id, self.last_hash()?.as_deref())?;
+
+        Ok(MergeReport {
+            segment_id: segment_id.to_string(),
+            merged,
+        })
+    }
+
+    /// Whether this segment already has a `segment_merged` event on the main chain.
+    fn merged_already(&self, segment_id: &str) -> Result<bool, AuditError> {
+        for row in self.scan()? {
+            if row.action != ACTION_SEGMENT_MERGED {
+                continue;
+            }
+            let detail: serde_json::Value = serde_json::from_str(&row.detail_json)?;
+            if detail.get("segment_id").and_then(serde_json::Value::as_str) == Some(segment_id) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Whether an `(actor, action, detail)` triple already appears on the main chain.
+    fn main_chain_has(
+        &self,
+        actor: &str,
+        action: &str,
+        detail: &serde_json::Value,
+    ) -> Result<bool, AuditError> {
+        for row in self.scan()? {
+            if row.actor == actor && row.action == action {
+                let existing: serde_json::Value = serde_json::from_str(&row.detail_json)?;
+                if existing == *detail {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    /// Mark `segment_id` folded, recording where on the main chain its events landed.
+    fn mark_segment_folded(&self, segment_id: &str, head: Option<&str>) -> Result<(), AuditError> {
+        self.conn.execute(
+            "UPDATE segments SET state = ?2, head_hash = ?3 WHERE segment_id = ?1",
+            params![segment_id, SegmentState::Folded.as_str(), head],
+        )?;
+        Ok(())
+    }
+
+    /// Record what happened on the segment's row, which is **not** append-only (v1.0 M5-2a).
+    fn set_segment_note(&self, segment_id: &str, note: &str) -> Result<(), AuditError> {
+        self.conn.execute(
+            "UPDATE segments SET note = ?2 WHERE segment_id = ?1",
+            params![segment_id, note],
+        )?;
+        Ok(())
     }
 
     /// Fetch a single event by id.

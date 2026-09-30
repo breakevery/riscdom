@@ -1398,3 +1398,13 @@ trait 属 v1.x 工作。
 **缘由**：三点。**主链保持纯净。** 一份装着两条链的文件，会让「这条链是否完好」变成关于**文件**、而不是关于**链**的问题；把段放进它自己的文件，主储存就与从前一模一样。**公式与验证者待在原地，这正是 (b) 的要害。** 形状（c）—— 一份文件内的第二条链 —— 是唯一会迫使 `verify_chain` 长出分段感知模式、即在红线 4 的验证面上动刀的形状；（b）什么都不需要。**代行的中心是另一台机器。** 形状（a）假定段的行可以直接追加进主 `audit_events`，但一个在*真中心不可达时*代行的中心在别处：它的事件在相遇之前不可能在这份文件里，而把一个尚未被核实的中心的行写进受信的链，正与 `provisional` 的用意相反。
 
 **影响**：`audit` 多出 `segment_db_path_in` 与 `AuditStore::open_segment_store`；`docs/audit-v2.md` + zh 修订 §2、§5、§6、§7 并新增 §8（段住在哪）与 §9（每条链如何验证）。**`compute_hash`、`verify_chain`、`append_once` 与两个 append-only 触发器未动**，路由、capability 名、审计事件常量、哈希公式或持久化格式均未变，且**未碰 host-core**：审计目录是调用者的，所以本 crate 不拼任何宿主布局。并入事件名（`host.audit.segment_merged`）在 §6 预留，由 M5-2 实现。
+
+## 132. 一个段靠转录并入，而标靠写入清掉
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 BQ / M5-2a）
+
+**决策**：`audit` 多出 `AuditStore::merge_segment(audit_dir, segment_id) -> Result<MergeReport, AuditError>`。它读临时段自己的储存，把它的**每一个事件作为新事件追加到主链** —— 同一个 `actor`、`action`、`timestamp_ms` 与 `agent_id`，以及**去掉** `provisional` 成员的 detail —— 然后追加 **`host.audit.segment_merged`**（`{ segment_id, kind, merged_at_ms, event_count }`）并把该行标为 **`folded`**，记下它落在主链的哪个位置。**段文件不被触碰**：它保留自己的行与 `provisional` 标。在写任何东西之前，若主链已有一条 `actor`、`action` 与清标后 detail 都相同的事件，并入会**拒绝** —— 最窄的判据，因此**不选择任何冲突规则**；裁定冲突是 **M5-2b**。只有处于 `open` 或 `closed` 的 `temporary` 段可并入，第二次并入被拒绝。`provisional` 的载体是**detail 成员**（`detail.provisional = true`，decisions §33 的字面）。若某次追加中途失败，已写下的事件留下（链只生长），部分计数记在段行的 `note` 上。
+
+**缘由**：三点。**转录正是形状 (b) 才使得出来的手段。** 段是另一个文件，所以什么都*搬*不动：并入只能是**读 + 追加**，而这也正是让段作为证据保持完整的原因。**「清标」不能是一次更新。** 链是 append-only 且触发器拒绝 `UPDATE`，所以标无法从某行上取下来 —— 它只是**不在并入写出的副本上**，这是链自己的保证所允许的、对 §127「标被清掉」的唯一读法。**拒绝不是裁定。** M5-2a 不能变成冲突规则被顺手选中的地方，所以它的判据是完全相等、答案是否；§5 的第 3 问留给 M5-2b 与 owner。
+
+**影响**：`audit/src/store.rs` 多出 `merge_segment` 及其助手（`merged_already`、`main_chain_has`、`mark_segment_folded`、`set_segment_note`）；`audit/src/segment.rs` 多出 `MergeReport`、`ACTION_SEGMENT_MERGED`、`PROVISIONAL`、`cleared_detail`、`is_provisional` 与 `segment_merged_detail`；`docs/audit-v2.md` + zh 新增 §10（并入）并修订 §5/§6。**`compute_hash`、`verify_chain`、`append_once` 与两个 append-only 触发器未动**，路由、capability 名、审计事件常量、哈希公式或持久化格式均未变，且**未碰 host-core**（调用它的是 M5-3）。冲突的**检测**、**`forked`** 标记与**裁定**是 M5-2b；`host.audit.segment_forked` 仍预留。

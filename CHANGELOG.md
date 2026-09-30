@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A segment merges into the main chain by transcription** (v1.0 batch BQ / M5-2a): `audit` gains
+  `AuditStore::merge_segment(audit_dir, segment_id)`. It reads the temporary segment's own store and
+  **appends each event to the main chain** as a new event — with the `provisional` member **removed**, so the
+  mark is *cleared by writing*, never by an update (the chain is append-only) — then appends
+  **`host.audit.segment_merged`** and marks the row **`folded`**. The **segment's file is untouched** (it keeps
+  its rows and their mark), a merge that can see a conflict **refuses** (exact equality; no conflict rule is
+  chosen — that is M5-2b), and a partial merge is recorded on the row's `note`. **`compute_hash`,
+  `verify_chain` and the append-only triggers are untouched.** **Decision §132.**
+
 - **A segment opens and closes, and the chain records it** (v1.0 batch BN / M5-1b): `audit` gains
   `AuditStore::open_segment(kind)` / `close_segment(&segment_id)`. Opening writes the `segments` row — with
   **`head_prev_chain` = the chain's head read before the event** — and appends **`host.audit.segment_opened`**
