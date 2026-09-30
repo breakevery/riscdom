@@ -4188,3 +4188,47 @@ are new, and `control-plane-api.md` + zh record the parameter. **`audit` is unto
 vocabulary are untouched, no dependency is added, and no scheduling is written.** The four refusals are
 messages, not variants: today all four answer `500` with a distinguishable text, which the new document
 records as **not frozen**.
+
+## 144. The anchor grows a second half: a length beside the cross-segment reference
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch CL / M6-5-1)
+
+**Decision**: The first piece of M6-5 (cross-chain verification), and it lands **evidence only — no check**.
+[roadmap §7](roadmap-v1.0.md)'s second `[open]` — "how a cross-chain reference is verified (by digest, by
+range, or by both)" — is answered **by digest**, and a digest of a point needs both halves of that point, so
+the anchor gains the half it never had:
+
+- **`segments.head_prev_length`**, an `INTEGER` column beside `head_prev_chain`, written at the same moment
+  as the head (before the segment's opening event is appended, so it names the *same* point) and `NULL` for
+  a row opened before the column existed. The migration is `add_column_if_missing("segments", …)` — the same
+  idempotent move `agent_id` and `segment_id` made — and **`AUDIT_SCHEMA_VERSION` stays 1**: a column beside
+  the chain is not a format change.
+- **`anchor_digest` and `anchor_length`** on the `segment_done` frame. `anchor_digest` and `head_prev_chain`
+  are **one value under two names** (the M5-3c-2 field keeps its name; the anchor vocabulary gets its own),
+  both written from the same row field so they cannot drift, and read `anchor_digest`-first with a fallback to
+  `head_prev_chain` so a sender that predates this batch still reads.
+- **`adopt_segment(segment_id, head_prev_chain, head_prev_length)`** records both halves on the centre's row.
+  **It verifies neither** — the comparison is M6-5-2.
+
+**Why**: Three points. **A hash names a point; a length says which one.** `ChainDigest { chain, length }` is
+M4e-1's "commitment to a point", and the anchor was carrying only `chain` — so a centre holding a digest
+could not tell whether the head it saw was the head the segment claims to continue from. **By digest, not by
+range, because a range proof is a second digest structure.** A Merkle tree or a rolling hash beside the one
+formula §127 fixes is a new mechanism the owner declined for the first piece; a *summary chain* over the
+digests would answer what the **centre** was told, not what a node's interior point is, and would make the
+centre a holder of history — which §6.2 explicitly refuses. **Evidence first, because a check without
+evidence cannot be written.** The two halves have to exist on the wire and on the row before anything can
+compare them, and landing them apart keeps M6-5-2 a small batch with one idea in it.
+
+**Impact**: `audit/src/segment.rs` (`Segment` gains `head_prev_length`, `from_row` reads it);
+`audit/src/store.rs` (the column in `SCHEMA`, `migrate_segments_table`, `open_segment_inner` reads
+`last_id()` beside `last_hash()`, both `SELECT`s and `insert_segment` carry the column, `adopt_segment` takes
+it); `net/src/suppression.rs` (`SegmentDone` gains `anchor_length`, `segment_done_body` writes both anchor
+names, `is_segment_done` reads them leniently); `host-core/src/state.rs` (`deliver_segment` reads both halves
+off the row, `segment_frames` carries them, `receive_segment` hands them to `adopt_segment`);
+`docs/cross-chain-verification.md` + zh are **new**, and `docs/audit-v2.md` + zh gain the column, the second
+half in §4 and the pointer in §5. **`compute_hash`, `verify_chain`, the append-only triggers, the route
+table and the 33-name capability vocabulary are untouched; no dependency is added; no verification logic and
+no new event name exists yet** (`host.audit.chain_verified` / `chain_rejected` are M6-5-2). **The other two
+`[open]`s are answered as far as they need to be**: (3)'s exit is observability plus a manual tool (M6-5-3,
+because a rule would be policy), and (1)'s summary chain is M6-5-4 and needed by neither.

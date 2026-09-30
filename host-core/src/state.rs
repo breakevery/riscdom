@@ -1536,12 +1536,25 @@ fn deliver_segment(watch: &CentreWatch, standing: &StandingSegment, closed_id: i
         let Ok(events) = store.events_in_range(standing.opened_id + 1, closed_id - 1) else {
             return;
         };
+        // Both halves of the anchor travel with the end frame (v1.0 M6-5-1): the hash the segment
+        // continues from, and how long the chain was there. The row is the source; a row that predates
+        // the length column answers `None`, and the frame says so rather than inventing a number.
         let anchor = store
             .segment(&standing.id)
             .ok()
             .flatten()
-            .and_then(|row| row.head_prev_chain);
-        segment_frames(&events, &standing.id, &watch.centre, anchor.as_deref())
+            .map(|row| (row.head_prev_chain, row.head_prev_length));
+        let (digest, length) = match anchor {
+            Some((digest, length)) => (digest, length),
+            None => (None, None),
+        };
+        segment_frames(
+            &events,
+            &standing.id,
+            &watch.centre,
+            digest.as_deref(),
+            length,
+        )
     };
     let (events, done) = frames;
     for event in &events {
@@ -1573,6 +1586,7 @@ fn segment_frames(
     segment_id: &str,
     centre: &str,
     head_prev_chain: Option<&str>,
+    head_prev_length: Option<i64>,
 ) -> (Vec<net::SegmentEvent>, net::SegmentDone) {
     let total = events.len();
     let frames = events
@@ -1595,6 +1609,9 @@ fn segment_frames(
         centre: centre.to_string(),
         total,
         head_prev_chain: head_prev_chain.map(str::to_string),
+        // The wire's length is a count, like `ChainDigest.length`; the row's is an id. A value that
+        // cannot be one is not reported as one (v1.0 M6-5-1).
+        anchor_length: head_prev_length.and_then(|length| u64::try_from(length).ok()),
     };
     (frames, done)
 }
@@ -1636,7 +1653,12 @@ fn receive_segment(
             .lock()
             .map_err(|_| "the chain is poisoned".to_string())?;
         store
-            .adopt_segment(&done.segment_id, done.head_prev_chain.as_deref())
+            .adopt_segment(
+                &done.segment_id,
+                done.head_prev_chain.as_deref(),
+                done.anchor_length
+                    .and_then(|length| i64::try_from(length).ok()),
+            )
             .map_err(|error| error.to_string())?;
     }
     {
@@ -8169,6 +8191,7 @@ mod tests {
             .events_in_range(opened_id + 1, closed_id - 1)
             .expect("the span");
         let anchor = closed.head_prev_chain.clone();
+        let anchor_length = closed.head_prev_length;
         drop(sender_store);
 
         assert_eq!(events.len(), 2, "the span is the segment's own events");
@@ -8179,10 +8202,21 @@ mod tests {
             "the markers are the record of the segment's life, not events of it"
         );
 
-        let (frames, done) =
-            segment_frames(&events, &segment.segment_id, "centre", anchor.as_deref());
+        let (frames, done) = segment_frames(
+            &events,
+            &segment.segment_id,
+            "centre",
+            anchor.as_deref(),
+            anchor_length,
+        );
         assert_eq!(frames.len(), 2);
         assert_eq!(done.total, 2);
+        // Both halves of the anchor travel with the end frame (v1.0 M6-5-1).
+        assert_eq!(done.head_prev_chain, anchor);
+        assert_eq!(
+            done.anchor_length,
+            anchor_length.and_then(|length| u64::try_from(length).ok())
+        );
         assert!(
             frames.iter().all(|frame| frame.centre == "centre"),
             "every frame names the centre it is for"
@@ -8330,7 +8364,8 @@ mod tests {
             segment_id: "seg-dev-a-9".to_string(),
             centre: "dev-me".to_string(),
             total: 1,
-            head_prev_chain: None,
+            head_prev_chain: Some("anchor-hash".to_string()),
+            anchor_length: Some(7),
         };
         let frames = vec![net::SegmentEvent {
             segment_id: "seg-dev-a-9".to_string(),
@@ -8352,6 +8387,18 @@ mod tests {
             Some(&client),
         )
         .expect("the centre received the segment");
+
+        // The anchor travelled with the end frame and landed on the adopted row (v1.0 M6-5-1): the
+        // centre records both halves of it and **verifies neither** — that is M6-5-2.
+        let adopted = centre
+            .audit
+            .lock()
+            .expect("audit")
+            .segment("seg-dev-a-9")
+            .expect("segment")
+            .expect("the adopted row");
+        assert_eq!(adopted.head_prev_chain.as_deref(), Some("anchor-hash"));
+        assert_eq!(adopted.head_prev_length, Some(7));
 
         // Both facts are in the server's log, spelled as the chain spells them.
         let deadline = std::time::Instant::now() + Duration::from_secs(5);

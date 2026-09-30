@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An anchor grows a second half** (v1.0 batch CL / M6-5-1, the first piece of cross-chain verification):
+  roadmap §7's second `[open]` — *how a cross-chain reference is verified* — is answered **by digest**, so the
+  reference gains the half it never had. `segments.head_prev_length` (an `INTEGER` column beside
+  `head_prev_chain`, written at the same moment as the head, `NULL` for a row that predates it —
+  `AUDIT_SCHEMA_VERSION` stays **1**) and `anchor_digest` + `anchor_length` on the `segment_done` frame
+  (`anchor_digest` ≡ `head_prev_chain`: one value under two names, read new-name-first with a fallback so an
+  older sender still reads). `adopt_segment` records both halves on the centre's row and **verifies
+  neither**. **`compute_hash`, `verify_chain`, the append-only triggers, the route table and the capability
+  vocabulary are untouched; no verification logic and no new event name yet** (M6-5-2).
+  `docs/cross-chain-verification.md` + zh are new. **Decision §144.**
+
 - **A task can cross a machine — and the far node runs it** (v1.0 batch CJ / M6-1b, the end of M6-1):
   `POST /v0/tasks` gains one optional member, **`node`** — absent means the local fleet exactly as before,
   another node's name hands the task over and waits for its answer (**the route table does not move**). The

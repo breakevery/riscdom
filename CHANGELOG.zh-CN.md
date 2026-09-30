@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **锚点长出第二半**（v1.0 批 CL / M6-5-1，跨链验证的第一片）：roadmap §7 的第二个 `[open]` —— *跨链引用怎么验证* —— 按**摘要**作答，于是引用补上它从未有过的那一半。`segments.head_prev_length`（紧挨 `head_prev_chain` 的 `INTEGER` 列，与头同一刻写入，早于它的行为 `NULL` —— `AUDIT_SCHEMA_VERSION` **保持 1**）以及 `segment_done` 帧上的 `anchor_digest` + `anchor_length`（`anchor_digest` ≡ `head_prev_chain`：一个值、两个名字，读取时优先新名、回落到旧名，所以较早的发送方仍读得进来）。`adopt_segment` 在中心那一行上记下两半、**一样都不验**。**`compute_hash`、`verify_chain`、append-only 触发器、路由表与能力词汇表都未动；尚无验证逻辑、无新事件名**（M6-5-2）。`docs/cross-chain-verification.md` + zh 是新的。**决策 §144。**
+
 - **一个任务可以跨机器 —— 而对端会真的跑它**（v1.0 批 CJ / M6-1b，M6-1 的终点）：`POST /v0/tasks` 多出一个可选成员 **`node`** —— 缺席就是本地队列、与从前一字不差，另一个节点的名字则把任务交出去并等它的答复（**路由表不动**）。接收方只检查**它自己 `peers.json` 里的一件事**：发送方那一条有没有声明 **`dispatch`**（一条声明，与 §6.7 的 `server` 同形，**默认拒绝**）；任务在接收方自己的队列上跑，`host.dispatch.received` 记下收据，一帧把答复带回去。**无新 capability、无新路由、无新依赖、不写调度；`audit` 未动。** 边界已记下：跨设备派发以「节点**在某个 workgroup 里**」为前提。`docs/cross-device-dispatch.md` + zh 是新的。**决策 §143。**
 
 - **一个任务可以跨机器**（v1.0 批 CI / M6-1a，M6-1 的前一半）：`TaskId` 变为 `task-<device>-<pid>-<seq>`（与其它每一个身份同构，于是两个节点的任务不会撞号），`net` 多出一个跨机器任务旅行所需的两个 body（出去 `{"task": 1, …}`、回来 `{"task_reply": 1, …}`）与 typed 发送方法 —— 同侪之间的普通 §3 帧，这正是 §14.6 所说「M 没有自己的协议」—— 而 `host-core` 多出 **`RemoteAgentHandle`**，即 `AgentHandle` 那道缝预留的「远程那一个」。`run` 发一帧、通过一个共享槽等回复，并报告结果或四类可辨拒绝之一（不可达 / 未授权 / 执行失败 / 超时）。**无新 capability、无新路由、无新依赖、不写调度；`audit` 未动。** 接收侧、`/v0/tasks` 的参数与两节点端到端测试是 **M6-1b**。**决策 §142。**

@@ -420,6 +420,17 @@ current request authorising it (§2).
   table does not move; no new capability, dependency or scheduling; `audit` untouched.** The boundary is
   recorded: cross-device dispatch presumes the node is in a workgroup. `docs/cross-device-dispatch.md` + zh
   are new. **Decision §143.**
+- **And the anchor grows a second half** (v1.0 batch CL / M6-5-1, 2026-09-30, **the first piece of M6-5**):
+  roadmap §7's second `[open]` is answered **by digest**, so the cross-segment reference gains the length it
+  never had. `segments.head_prev_length` (an `INTEGER` column beside `head_prev_chain`, read at the same
+  moment as the head, `NULL` for a row that predates it; the migration is `add_column_if_missing` and
+  `AUDIT_SCHEMA_VERSION` stays **1**) plus `anchor_digest` + `anchor_length` on the `segment_done` frame —
+  `anchor_digest` ≡ `head_prev_chain`, one value under two names, read new-name-first with a fallback so an
+  older sender still reads. `adopt_segment` records both halves on the centre's row and **verifies neither**.
+  **`compute_hash`, `verify_chain`, the append-only triggers, the route table and the capability vocabulary
+  are untouched; there is no verification logic and no new event name yet** (M6-5-2 compares;
+  `host.audit.chain_verified` / `chain_rejected` are its). `docs/cross-chain-verification.md` + zh are new,
+  and `audit-v2` §3/§4/§5 record the column, the second half and the pointer. **Decision §144.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

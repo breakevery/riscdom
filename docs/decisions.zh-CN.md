@@ -1516,3 +1516,17 @@ trait 属 v1.x 工作。
 **边界，是记下的而不是被发现的**：跨设备派发以「节点在**某个 workgroup 里**」为前提 —— 没有同侪就没有可派发之处，没有读方就没有可听之处。句柄会报「不可达」或超时，而不是假装。
 
 **影响**：`host-core/src/state.rs`（`peers` / `executors` 变为 `Arc<Mutex<…>>`、一个新 `task_replies` 字段、`TaskSink`、`may_dispatch`、`task_reply_for`、`receive_task`、两个 drain 分支，以及 `dispatch_task` / `dispatch_task_value` 多出 `node` 与一个 `dispatch_to_node`）；`server/src/routes.rs` 读这个参数；`net/src/peers.rs` 多出 `DISPATCH_CLAIM` 与 `PeerEntry::may_dispatch`；`docs/cross-device-dispatch.md` + zh 是新的，`control-plane-api.md` + zh 记下这个参数。**`audit` 未动，`compute_hash` / `verify_chain` / append-only 触发器未动，路由表与 33 名的能力词汇表未动，未加依赖，也未写任何调度。** 四类拒绝是消息、不是变体：今天四者都以 `500` + 可辨文本作答，这一点被新文档记为**未冻结**。
+
+## 144. 锚点长出第二半：跨段引用旁边的一个长度
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 CL / M6-5-1）
+
+**决策**：M6-5（跨链验证）的第一片，而且它只落地**证据 —— 不做检查**。[roadmap §7](roadmap-v1.0.zh-CN.md) 的第二个 `[open]`（「跨链引用怎么验证（按摘要、按区间，还是两者都要）」）按**摘要**回答；而一个点的摘要需要那个点的两半，所以锚点补上它从未有过的那一半：
+
+- **`segments.head_prev_length`**，紧挨 `head_prev_chain` 的一个 `INTEGER` 列，与头在**同一刻**写入（在段自己的开启事件被追加**之前**，所以两者点名的是*同一个*点），并且对在此列存在之前开启的行的值为 `NULL`。迁移是 `add_column_if_missing("segments", …)` —— 与 `agent_id`、`segment_id` 用过的同一个幂等动作 —— 且 **`AUDIT_SCHEMA_VERSION` 保持 1**：链旁边多一列不是格式变更。
+- **`segment_done` 帧上的 `anchor_digest` 与 `anchor_length`**。`anchor_digest` 与 `head_prev_chain` 是**一个值、两个名字**（M5-3c-2 的字段保住它的名字；锚点词汇拿到自己的那个），两者都由同一行字段写出因而不会分叉，读取时优先 `anchor_digest`、回落到 `head_prev_chain`，所以早于本批的发送方仍然读得进来。
+- **`adopt_segment(segment_id, head_prev_chain, head_prev_length)`** 在中心那一行上记下两半。**它一样都不验** —— 比较是 M6-5-2。
+
+**缘由**：三点。**哈希点名一个点；长度说出是哪一个。** `ChainDigest { chain, length }` 正是 M4e-1 所说的「对一点的承诺」，而锚点过去只带 `chain` —— 所以一个持有摘要的中心，根本分不清它看到的头是不是该段自称承接的那个头。**按摘要而不是按区间，因为区间证明是第二套摘要结构。** 在 §127 定下的那一个公式旁边添一棵 Merkle 树或一个滚动哈希，是 owner 在第一批里否掉的新机制；而把各摘要串成*汇总链*，回答的是**中心**被告知了什么，不是某节点的内部点，而且会让中心成为历史的持有者 —— §6.2 明确拒绝这一点。**先证据，因为没有证据的检查写不出来。** 两半必须先存在于线上和行上，之后才有东西可以比对；把它们分开落地，也让 M6-5-2 保持为一个只装一个想法的小批次。
+
+**影响**：`audit/src/segment.rs`（`Segment` 多出 `head_prev_length`，`from_row` 读它）；`audit/src/store.rs`（`SCHEMA` 里的列、`migrate_segments_table`、`open_segment_inner` 在 `last_hash()` 旁边读 `last_id()`、两个 `SELECT` 与 `insert_segment` 带上该列、`adopt_segment` 收它）；`net/src/suppression.rs`（`SegmentDone` 多出 `anchor_length`，`segment_done_body` 写出两个锚点名，`is_segment_done` 宽松读取）；`host-core/src/state.rs`（`deliver_segment` 从行上读两半、`segment_frames` 携它们、`receive_segment` 交给 `adopt_segment`）；`docs/cross-chain-verification.md` + zh **是新的**，`docs/audit-v2.md` + zh 多出该列、§4 的第二半与 §5 的指针。**`compute_hash`、`verify_chain`、append-only 触发器、路由表与 33 名的能力词汇表都未动；未加依赖；尚不存在任何验证逻辑或新事件名**（`host.audit.chain_verified` / `chain_rejected` 是 M6-5-2 的）。**另外两个 `[open]` 也已答到它们需要的程度**：(3) 的出口是可观测性加一件手动工具（M6-5-3，因为一条规则就是策略），(1) 的汇总链是 M6-5-4、两者都不需要它。

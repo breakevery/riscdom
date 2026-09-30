@@ -120,6 +120,59 @@ fn opening_a_segment_writes_the_row_and_the_event_on_the_main_chain() {
     );
 }
 
+/// The anchor's second half: how long the chain was at the point the segment continues from
+/// (v1.0 M6-5-1). A hash names a point; the length says *which* point, and it is read before the
+/// segment's own opening event is appended.
+#[test]
+fn opening_a_segment_records_the_chain_length_it_continues_from() {
+    let path = temp_db("anchor-length");
+    let mut store = AuditStore::open(&path).expect("open");
+
+    // An empty chain: the honest answer is "nothing yet" — the `None` both halves carry.
+    let first = store
+        .open_segment(SegmentKind::Temporary)
+        .expect("open on an empty chain");
+    assert_eq!(first.head_prev_chain, None);
+    assert_eq!(first.head_prev_length, None, "no event to count");
+
+    // Three more events, then a second segment: both halves name the same point.
+    for n in 1..=3 {
+        store
+            .append(AuditEvent::new(
+                "sandbox",
+                "vm.start",
+                serde_json::json!({ "n": n }),
+            ))
+            .expect("append");
+    }
+    let head_before = store.last_hash().expect("head").expect("a head");
+    let id_before = store.last_id().expect("id").expect("an id");
+    let count_before = store.count().expect("count");
+    assert_eq!(id_before, count_before as i64, "the length is the last id");
+
+    let second = store
+        .open_segment(SegmentKind::Temporary)
+        .expect("open again");
+    assert_eq!(
+        second.head_prev_chain.as_deref(),
+        Some(head_before.as_str())
+    );
+    assert_eq!(second.head_prev_length, Some(id_before));
+
+    // It survives a round trip through the table, and the chain is untouched by any of it.
+    let rows = store.segments().expect("segments");
+    let read_back = rows
+        .iter()
+        .find(|row| row.segment_id == second.segment_id)
+        .expect("the second row");
+    assert_eq!(read_back.head_prev_length, second.head_prev_length);
+    assert_eq!(read_back.head_prev_chain, second.head_prev_chain);
+    assert!(matches!(
+        verify_chain(&store).expect("verify"),
+        ChainStatus::Intact { .. }
+    ));
+}
+
 #[test]
 fn closing_a_segment_updates_the_row_and_writes_the_event() {
     let path = temp_db("close");
@@ -365,7 +418,7 @@ fn an_adopted_segment_is_rebuilt_and_merged() {
     let dir = temp_dir("adopted");
     let mut main = AuditStore::open(&dir.join("audit.db")).expect("open");
 
-    main.adopt_segment("seg-peer-a-1", Some("headhash"))
+    main.adopt_segment("seg-peer-a-1", Some("headhash"), Some(7))
         .expect("adopt");
     let row = main.segment("seg-peer-a-1").expect("row").expect("present");
     assert_eq!(row.kind, SegmentKind::Temporary);
@@ -375,9 +428,19 @@ fn an_adopted_segment_is_rebuilt_and_merged() {
         "it was closed where it stood in"
     );
     assert_eq!(row.head_prev_chain.as_deref(), Some("headhash"));
+    // Both halves of the anchor are recorded, and neither is verified here (v1.0 M6-5-1).
+    assert_eq!(row.head_prev_length, Some(7));
     assert!(
-        main.adopt_segment("seg-peer-a-1", None).is_ok(),
+        main.adopt_segment("seg-peer-a-1", None, None).is_ok(),
         "adopting twice is not an error"
+    );
+    assert_eq!(
+        main.segment("seg-peer-a-1")
+            .expect("row")
+            .expect("present")
+            .head_prev_length,
+        Some(7),
+        "a second adopt does not overwrite the recorded anchor"
     );
 
     // The rebuild: the centre writes the delivered events into the segment's own store.

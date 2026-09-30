@@ -32,6 +32,7 @@
 | [plugin-interface.md](plugin-interface.md) — [中文](plugin-interface.zh-CN.md) | v1.0 规范（M3），**面向插件作者**：被冻结的插件接口 —— 传输、机制层与语义层、capability 声明与 manifest。 | 活跃（v1.0 规范） |
 | [connection.md](connection.md) — [中文](connection.zh-CN.md) | v1.0 规范（M4），面向内核开发者与部署者：连接层 —— 节点身份与签名、发现、房间、跨区域服务器，以及 §7 的链 digest。 | 活跃（v1.0 规范） |
 | [cross-device-dispatch.md](cross-device-dispatch.md) — [中文](cross-device-dispatch.zh-CN.md) | v1.0 规范（M6-1）：把一个任务交给**另一个节点** —— `node` 参数、两个 §3 帧、`dispatch` 声明与它的默认拒绝、四类可读的拒绝，以及 workgroup 边界。 | living（v1.0 规范） |
+| [cross-chain-verification.md](cross-chain-verification.md) — [中文](cross-chain-verification.zh-CN.md) | v1.0 规范（M6-5-1）：roadmap §7 的三个未决问题 —— 按摘要回答、锚点的第二半、冲突的出口，以及仍属 M6-5-2/‑3/‑4 的部分。 | living（v1.0 规范） |
 | [audit-v2.md](audit-v2.md) — [中文](audit-v2.zh-CN.md) | v1.0 规范（M5-1a）：审计链向「主链 + 临时段」的扩展 —— 段记录、跨段引用、预留的段事件，以及仍开着的问题。 | 活跃（v1.0 规范） |
 | [handoff.md](handoff.md) — [中文](handoff.zh-CN.md) | 跨对话交接：§1 是易变快照，§2–12 是新会话不得破坏的稳定约束。 | 活跃（§1）、稳定（§2–12） |
 | [run-provenance.md](run-provenance.md) — [中文](run-provenance.zh-CN.md) | 设计：一次运行记录下关于自己的什么，以及指纹为什么长这样。 | 快照（v0.4 批次 1a） |

@@ -38,6 +38,7 @@
 | `kind` | `TEXT` NOT NULL | `main` 或 `temporary`（[`audit::SegmentKind`](../audit/src/segment.rs)）。 |
 | `head_hash` | `TEXT` | 段有事件后的最后一个哈希；在那之前为 `NULL`。 |
 | `head_prev_chain` | `TEXT` | **跨段引用**（§4）：段开启时主链的头。 |
+| `head_prev_length` | `INTEGER` | 同一刻链的**长度**（v1.0 M6-5-1）—— 锚点的第二半，使验证者知道那个哈希点名的是*哪一个*点。在此列存在之前开启的行为 `NULL`。 |
 | `opened_at_ms` | `INTEGER` | 开启时间。 |
 | `closed_at_ms` | `INTEGER` | 关闭时间；开着时为 `NULL`。 |
 | `state` | `TEXT` NOT NULL | `open` / `closed` / `folded` / `forked`（[`audit::SegmentState`](../audit/src/segment.rs)）。 |
@@ -45,11 +46,11 @@
 
 `main` / `temporary`、`open` / `closed` / `folded` / `forked` 是**落盘的字**；读回者是 [`SegmentKind::parse`](../audit/src/segment.rs) / [`SegmentState::parse`](../audit/src/segment.rs)——它们对不认识的单词答 `None`，而不是去猜。
 
-**[已定]** **M5-1b 开与关一个段。** `AuditStore::open_segment(kind)` 写下该行 —— `head_prev_chain` 取**那一刻**链的头，在任何追加**之前**读出 —— 然后把开启事件（§6）追加到**主链**；若那次追加失败，行被移除，所以一个段行总是带着它的开启事件。`AuditStore::close_segment(&segment_id)` 置 `state = closed` 与 `closed_at_ms`，然后追加关闭事件，若那次追加失败就把行放回 `open`。`segments` 表**没有 append-only 触发器** —— 它是坐在链*旁边*的记录，与 `runs` 一样 —— 所以它自己的行可以被更新；链的行只被追加。
+**[已定]** **M5-1b 开与关一个段。** `AuditStore::open_segment(kind)` 写下该行 —— `head_prev_chain` 取**那一刻**链的头、`head_prev_length` 取同一刻链的长度（v1.0 M6-5-1），两者都在任何追加**之前**读出 —— 然后把开启事件（§6）追加到**主链**；若那次追加失败，行被移除，所以一个段行总是带着它的开启事件。`AuditStore::close_segment(&segment_id)` 置 `state = closed` 与 `closed_at_ms`，然后追加关闭事件，若那次追加失败就把行放回 `open`。`segments` 表**没有 append-only 触发器** —— 它是坐在链*旁边*的记录，与 `runs` 一样 —— 所以它自己的行可以被更新；链的行只被追加。
 
 ## 4. 跨段引用
 
-**[已定]** **段首记录它从何处承接，而那份记录是元数据。** 字段是 `head_prev_chain`：段开启时主链的头哈希。同时握着段与链的验证者，可以检查该段确实接在它自称的位置上，**而无需以任何不同方式重算哈希** —— 引用坐在事件旁边，[`compute_hash`](../audit/src/hash.rs) 从不读它。
+**[已定]** **段首记录它从何处承接，而那份记录是元数据。** 字段是 `head_prev_chain`：段开启时主链的头哈希 —— 而自 **v1.0 M6-5-1** 起，旁边还有 `head_prev_length`，同一刻链的长度。**哈希点名一个点；长度说出是哪一个**，这正是验证者拿自己持有的摘要去比对一个它看不到的点的前提（[cross-chain-verification.md](cross-chain-verification.zh-CN.md) §2）。同时握着段与链的验证者，可以检查该段确实接在它自称的位置上，**而无需以任何不同方式重算哈希** —— 引用坐在事件旁边，[`compute_hash`](../audit/src/hash.rs) 从不读它。
 
 **为什么不把它折进哈希。** 任何加进 `compute_hash` 的输入，都会改变它之后的每一个哈希，也就是另一个公式 —— 那正是 decisions §127 第 2 条所禁止的（「哈希公式不变」）。把引用放进一列，正是让链的保证仍是它自己的保证。
 
@@ -62,6 +63,9 @@
 3. 当两个段都声称同一个动作时，**冲突怎么判定**。
 
 三者都在 roadmap §7 标为 `[open]`；其中（2）与（3）是并入阶段（M5-2）需要的输入；（1）关乎在 §2 已把物理形状定为 (b) 之后，段首如何成形。
+
+**[已定]** **这三个问题被怎样回答、以及先后次序**，见
+[cross-chain-verification.md](cross-chain-verification.zh-CN.md)：(2) 按**摘要**回答 —— 锚点在 v1.0 M6-5-1 长出它的第二半 `head_prev_length`，而比较本身是 M6-5-2；(3) 的出口是**可观测性加一件手动工具**（M6-5-3），因为一条规则就是策略；(1) 的汇总链是 **M6-5-4**，两者都不需要它。
 
 **M5-2a 宁可拒绝、不去裁定；M5-2b 把冲突记下并停住。** 当一次并入要把一个已在主链上的动作写进去时，它被 **fork** 而不是并入（§11）；哪一方是对的，是上面第 3 个问题，属 M6。
 

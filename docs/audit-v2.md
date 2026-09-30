@@ -74,6 +74,7 @@ The `segments` table (created by M5-1a; written by M5-1b):
 | `kind` | `TEXT` NOT NULL | `main` or `temporary` ([`audit::SegmentKind`](../audit/src/segment.rs)). |
 | `head_hash` | `TEXT` | The segment's last hash once it has events; `NULL` until then. |
 | `head_prev_chain` | `TEXT` | The **cross-segment reference** (§4): the main chain's head when the segment opened. |
+| `head_prev_length` | `INTEGER` | The chain's **length** at that same moment (v1.0 M6-5-1) — the anchor's second half, so a verifier knows *which* point the hash names. `NULL` for a row opened before the column existed. |
 | `opened_at_ms` | `INTEGER` | When it opened. |
 | `closed_at_ms` | `INTEGER` | When it closed; `NULL` while it is open. |
 | `state` | `TEXT` NOT NULL | `open` / `closed` / `folded` / `forked` ([`audit::SegmentState`](../audit/src/segment.rs)). |
@@ -84,7 +85,8 @@ reader is [`SegmentKind::parse`](../audit/src/segment.rs) / [`SegmentState::pars
 which answers `None` for a word it does not know rather than guessing.
 
 **[settled]** **M5-1b opens and closes one.** `AuditStore::open_segment(kind)` writes the row — with
-`head_prev_chain` set to the chain's head **at that moment**, read *before* anything is appended — and then
+`head_prev_chain` set to the chain's head **at that moment** and `head_prev_length` to the chain's length at
+that same moment (v1.0 M6-5-1), both read *before* anything is appended — and then
 appends the opening event (§6) to the **main chain**; if that append fails the row is removed, so a segment
 row always has its opening event. `AuditStore::close_segment(&segment_id)` sets `state = closed` and
 `closed_at_ms`, then appends the closing event, and puts the row back to `open` if that append fails. The
@@ -94,7 +96,10 @@ own rows may be updated; the chain's rows are only ever appended.
 ## 4. Cross-segment references
 
 **[settled]** **A segment's head records where it continues from, and that record is metadata.** The field
-is `head_prev_chain`: the main chain's head hash at the moment the segment opened. A verifier that holds both
+is `head_prev_chain`: the main chain's head hash at the moment the segment opened — and, since **v1.0
+M6-5-1**, `head_prev_length` beside it, the chain's length at that same moment. **A hash names a point; the
+length says which one**, which is what a verifier needs to compare a digest it holds against a point it
+cannot see ([cross-chain-verification.md](cross-chain-verification.md) §2). A verifier that holds both
 the segment and the chain can check the segment really continues where it says it does **without recomputing
 any hash differently** — the reference sits beside the events, and
 [`compute_hash`](../audit/src/hash.rs) never reads it.
@@ -118,6 +123,12 @@ bears on how a segment's head is shaped now that §2 fixes the physical shape as
 **M5-2a refuses rather than decides; M5-2b records the conflict and stops.** When a merge would put an act on
 the main chain that is already there, it is **forked** rather than merged (§11); which side is right is
 question 3 above, and it belongs to M6.
+
+**[settled]** **How the three are answered, and in what order** is
+[cross-chain-verification.md](cross-chain-verification.md): (2) is answered **by digest** — the anchor grows
+its second half, `head_prev_length`, in v1.0 M6-5-1, and the comparison itself is M6-5-2; (3)'s exit is
+**observability plus a manual tool** (M6-5-3), because a rule would be policy; (1)'s summary chain is
+**M6-5-4** and is not needed by either.
 
 ## 6. The segment events (reserved)
 

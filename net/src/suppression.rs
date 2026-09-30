@@ -322,6 +322,11 @@ pub struct SegmentDone {
     pub total: usize,
     /// The cross-segment reference the segment was opened with, when the sender had one.
     pub head_prev_chain: Option<String>,
+    /// How long the sender's chain was at that reference (v1.0 M6-5-1). The anchor's second half: the
+    /// hash says *which point* and this says *how far along*, so a centre holding a digest of its own
+    /// for that sender can compare rather than guess (M6-5-2 does the comparing). `None` when the sender
+    /// opened the segment before it recorded a length.
+    pub anchor_length: Option<u64>,
 }
 
 /// The body one segment event travels as (v1.0 M5-3c-2).
@@ -370,12 +375,17 @@ pub fn is_segment_event(body: &Value) -> Option<SegmentEvent> {
 
 /// The body a segment stream's end travels as (v1.0 M5-3c-2).
 pub fn segment_done_body(done: &SegmentDone) -> Value {
+    // `head_prev_chain` and `anchor_digest` are **one value under two names** (v1.0 M6-5-1): the field
+    // has kept its M5-3c-2 name so every existing reader keeps working, and the new name is the anchor
+    // vocabulary's own. Both are written from the same struct field, so they cannot drift.
     serde_json::json!({
         "segment_done": PROTOCOL_VERSION,
         "segment_id": done.segment_id,
         "centre": done.centre,
         "total": done.total,
         "head_prev_chain": done.head_prev_chain,
+        "anchor_digest": done.head_prev_chain,
+        "anchor_length": done.anchor_length,
     })
 }
 
@@ -388,10 +398,17 @@ pub fn is_segment_done(body: &Value) -> Option<SegmentDone> {
         segment_id: body.get("segment_id")?.as_str()?.to_string(),
         centre: body.get("centre")?.as_str()?.to_string(),
         total: body.get("total")?.as_u64()? as usize,
-        head_prev_chain: match body.get("head_prev_chain") {
-            Some(Value::String(head)) => Some(head.clone()),
-            _ => None,
-        },
+        // The anchor digest is read under its new name first and falls back to the M5-3c-2 name, so a
+        // segment from a sender that predates M6-5-1 still reads (v1.0 M6-5-1). Both spellings are a
+        // string or nothing: `null` on an empty chain is "no anchor", not an error.
+        head_prev_chain: body
+            .get("anchor_digest")
+            .and_then(Value::as_str)
+            .or_else(|| body.get("head_prev_chain").and_then(Value::as_str))
+            .map(str::to_string),
+        // The length is optional and lenient: absent or not a number means "the sender did not say",
+        // which is the honest reading for a segment opened before the length was recorded.
+        anchor_length: body.get("anchor_length").and_then(Value::as_u64),
     })
 }
 
@@ -574,6 +591,59 @@ mod tests {
             None
         );
         assert_eq!(is_takeover(&serde_json::json!({ "takeover": 1 })), None);
+    }
+
+    /// The end of a segment's stream carries the whole anchor, and an older sender still reads
+    /// (v1.0 M6-5-1).
+    #[test]
+    fn a_segment_end_frame_carries_the_anchor_and_tolerates_an_older_sender() {
+        let done = SegmentDone {
+            segment_id: "seg-dev-a-1".to_string(),
+            centre: "centre".to_string(),
+            total: 3,
+            head_prev_chain: Some("abc123".to_string()),
+            anchor_length: Some(9),
+        };
+        let body = segment_done_body(&done);
+        // The digest travels under both of its names, and behind them is one value.
+        assert_eq!(body["head_prev_chain"], serde_json::json!("abc123"));
+        assert_eq!(body["anchor_digest"], serde_json::json!("abc123"));
+        assert_eq!(body["anchor_length"], serde_json::json!(9));
+        assert_eq!(is_segment_done(&body), Some(done));
+
+        // A frame from a sender that predates the anchor names: the M5-3c-2 spelling, read as one.
+        let older = serde_json::json!({
+            "segment_done": 1,
+            "segment_id": "seg-dev-a-2",
+            "centre": "centre",
+            "total": 0,
+            "head_prev_chain": "def456",
+        });
+        assert_eq!(
+            is_segment_done(&older),
+            Some(SegmentDone {
+                segment_id: "seg-dev-a-2".to_string(),
+                centre: "centre".to_string(),
+                total: 0,
+                head_prev_chain: Some("def456".to_string()),
+                anchor_length: None,
+            }),
+            "a sender that predates M6-5-1 still reads"
+        );
+
+        // A `null` anchor is "no anchor", and a length that is not a number is not a length.
+        let empty = serde_json::json!({
+            "segment_done": 1,
+            "segment_id": "seg-dev-a-3",
+            "centre": "centre",
+            "total": 2,
+            "head_prev_chain": null,
+            "anchor_digest": null,
+            "anchor_length": "seven",
+        });
+        let read = is_segment_done(&empty).expect("a done frame");
+        assert_eq!(read.head_prev_chain, None);
+        assert_eq!(read.anchor_length, None);
     }
 
     #[test]

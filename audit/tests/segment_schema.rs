@@ -149,6 +149,81 @@ fn reopening_migrates_nothing_and_keeps_the_chain() {
     );
 }
 
+/// A `segments` table written before M6-5-1 gains the anchor length, and its own rows keep working
+/// (v1.0 M6-5-1). The column is added **beside** the chain, so the version does not move and an old
+/// row reads as the honest `NULL`.
+#[test]
+fn an_older_segments_table_gains_the_anchor_length_and_keeps_its_rows() {
+    let path = temp_db("segment_length_migration");
+
+    // A database whose `segments` table is the M5-1a shape: no `head_prev_length` column, and one row
+    // written under that shape.
+    {
+        let conn = rusqlite::Connection::open(&path).expect("raw connection");
+        conn.execute_batch(
+            "CREATE TABLE segments (\n                 segment_id      TEXT PRIMARY KEY,\n                 kind            TEXT NOT NULL,\n                 head_hash       TEXT,\n                 head_prev_chain TEXT,\n                 opened_at_ms    INTEGER,\n                 closed_at_ms    INTEGER,\n                 state           TEXT NOT NULL,\n                 note            TEXT\n             );",
+        )
+        .expect("old segments table");
+        conn.execute(
+            "INSERT INTO segments (segment_id, kind, head_hash, head_prev_chain, opened_at_ms, \
+             closed_at_ms, state, note) VALUES (?1, ?2, NULL, ?3, ?4, NULL, ?5, NULL)",
+            rusqlite::params!["seg-old-1", "temporary", "oldhead", 1_i64, "open"],
+        )
+        .expect("old row");
+    }
+
+    // Opening it through the store runs the migration: the column joins the table and the old row is
+    // readable exactly as it was written.
+    let store = AuditStore::open(&path).expect("open store");
+    let row = store.segment("seg-old-1").expect("row").expect("present");
+    assert_eq!(row.head_prev_chain.as_deref(), Some("oldhead"));
+    assert_eq!(
+        row.head_prev_length, None,
+        "a row opened before the column existed has no length: the honest state"
+    );
+    assert!(matches!(
+        verify_chain(&store).expect("verify"),
+        ChainStatus::Intact { length: 0 }
+    ));
+    assert_eq!(
+        store.schema_version().expect("version"),
+        AUDIT_SCHEMA_VERSION,
+        "a column beside the chain is not a format change"
+    );
+    drop(store);
+
+    let conn = rusqlite::Connection::open(&path).expect("conn");
+    assert_eq!(
+        count(
+            &conn,
+            "SELECT COUNT(*) FROM pragma_table_info('segments') WHERE name='head_prev_length'"
+        ),
+        1,
+        "the column was added"
+    );
+    assert_eq!(
+        count(
+            &conn,
+            "SELECT COUNT(*) FROM segments WHERE head_prev_length IS NULL"
+        ),
+        1,
+        "the old row is kept and reads as NULL"
+    );
+
+    // A second open migrates nothing and adds no second column.
+    let reopened = AuditStore::open(&path).expect("second open");
+    assert_eq!(reopened.segments().expect("segments").len(), 1);
+    drop(reopened);
+    let conn = rusqlite::Connection::open(&path).expect("conn");
+    assert_eq!(
+        count(
+            &conn,
+            "SELECT COUNT(*) FROM pragma_table_info('segments') WHERE name='head_prev_length'"
+        ),
+        1
+    );
+}
+
 #[test]
 fn the_segment_words_round_trip() {
     use audit::{SegmentKind, SegmentState};

@@ -109,14 +109,15 @@ CREATE TABLE IF NOT EXISTS runs (
 -- created here so an existing database picks it up on the next open. M5-1a creates the
 -- shape and writes no row; M5-1b is what opens and closes one.
 CREATE TABLE IF NOT EXISTS segments (
-    segment_id      TEXT PRIMARY KEY,
-    kind            TEXT NOT NULL,
-    head_hash       TEXT,
-    head_prev_chain TEXT,
-    opened_at_ms    INTEGER,
-    closed_at_ms    INTEGER,
-    state           TEXT NOT NULL,
-    note            TEXT
+    segment_id       TEXT PRIMARY KEY,
+    kind             TEXT NOT NULL,
+    head_hash        TEXT,
+    head_prev_chain  TEXT,
+    head_prev_length INTEGER,
+    opened_at_ms     INTEGER,
+    closed_at_ms     INTEGER,
+    state            TEXT NOT NULL,
+    note             TEXT
 );
 "#;
 
@@ -285,6 +286,7 @@ impl AuditStore {
         self.conn.execute_batch(SCHEMA)?;
         self.migrate_events_table()?;
         self.migrate_runs_table()?;
+        self.migrate_segments_table()?;
         // Stamp last, so a failure above leaves the version where it was and the
         // next open retries the same migration. Both migrations are idempotent
         // (`column_exists` asks `PRAGMA table_info` first), so a stamped file and a
@@ -426,6 +428,26 @@ impl AuditStore {
             Err(error) if error.to_string().contains("duplicate column name") => Ok(()),
             Err(error) => Err(error.into()),
         }
+    }
+
+    /// Add the segment record's **anchor length** column to a database written before M6-5-1.
+    ///
+    /// `CREATE TABLE IF NOT EXISTS` cannot alter a table that already exists, so a database whose
+    /// `segments` table was created by M5-1a keeps the M5-1a shape until this runs. The column is left
+    /// **`NULL`** for every row written earlier — the honest state, since those rows were opened before
+    /// the length was recorded — which is the same "a column beside the chain" move `agent_id` and the
+    /// index's `resumed_from_snapshot` made.
+    ///
+    /// The `segments` table is **not** part of the hash chain (it is the record *beside* it), so this
+    /// touches no hash, no historical row of the chain and no version number: `AUDIT_SCHEMA_VERSION`
+    /// stays 1.
+    fn migrate_segments_table(&self) -> Result<(), AuditError> {
+        self.add_column_if_missing(
+            "segments",
+            "head_prev_length",
+            "ALTER TABLE segments ADD COLUMN head_prev_length INTEGER",
+        )?;
+        Ok(())
     }
 
     /// Does `table` already have `column`?
@@ -590,8 +612,10 @@ impl AuditStore {
     /// Open a segment and record it on the chain (v1.0 M5-1b).
     ///
     /// Two writes, in this order, because the cross-segment reference has to be the head **before** the
-    /// event: the `segments` row — with `head_prev_chain` = the main chain's head *right now*, fetched
-    /// before anything is appended — then a [`ACTION_SEGMENT_OPENED`] event on the **main chain**
+    /// event: the `segments` row — with `head_prev_chain` = the main chain's head *right now* and
+    /// `head_prev_length` = the id of the newest event at that same moment (v1.0 M6-5-1: the anchor's
+    /// hash **and** the length that says which point it is), both fetched before anything is appended —
+    /// then a [`ACTION_SEGMENT_OPENED`] event on the **main chain**
     /// (`segment_id IS NULL`; the event describes the segment's life, and is not one of the segment's own
     /// events). A failed append removes the row just written, so a segment row always has its opening
     /// event.
@@ -629,6 +653,10 @@ impl AuditStore {
             kind,
             head_hash: None,
             head_prev_chain: self.last_hash()?,
+            // The anchor's second half (v1.0 M6-5-1), read at the same moment as the head: the last
+            // event id *before* this segment's opening event is appended. On an append-only chain that
+            // is the chain's length, so this pairs with `net::ChainDigest.length`.
+            head_prev_length: self.last_id()?,
             opened_at_ms: Some(now),
             closed_at_ms: None,
             state: SegmentState::Open,
@@ -677,7 +705,8 @@ impl AuditStore {
     /// One segment by name, or `None`.
     pub fn segment(&self, segment_id: &str) -> Result<Option<Segment>, AuditError> {
         let mut stmt = self.conn.prepare(
-            "SELECT segment_id, kind, head_hash, head_prev_chain, opened_at_ms, closed_at_ms, state, note \
+            "SELECT segment_id, kind, head_hash, head_prev_chain, head_prev_length, opened_at_ms, \
+             closed_at_ms, state, note \
              FROM segments WHERE segment_id = ?1",
         )?;
         let mut rows = stmt.query([segment_id])?;
@@ -690,7 +719,8 @@ impl AuditStore {
     /// Every segment, by name.
     pub fn segments(&self) -> Result<Vec<Segment>, AuditError> {
         let mut stmt = self.conn.prepare(
-            "SELECT segment_id, kind, head_hash, head_prev_chain, opened_at_ms, closed_at_ms, state, note \
+            "SELECT segment_id, kind, head_hash, head_prev_chain, head_prev_length, opened_at_ms, \
+             closed_at_ms, state, note \
              FROM segments ORDER BY segment_id ASC",
         )?;
         let rows = stmt.query_map([], Segment::from_row)?;
@@ -704,13 +734,15 @@ impl AuditStore {
     fn insert_segment(&self, segment: &Segment) -> Result<(), AuditError> {
         self.conn.execute(
             "INSERT INTO segments \
-             (segment_id, kind, head_hash, head_prev_chain, opened_at_ms, closed_at_ms, state, note) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             (segment_id, kind, head_hash, head_prev_chain, head_prev_length, opened_at_ms, closed_at_ms, \
+              state, note) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 segment.segment_id,
                 segment.kind.as_str(),
                 segment.head_hash,
                 segment.head_prev_chain,
+                segment.head_prev_length,
                 segment.opened_at_ms,
                 segment.closed_at_ms,
                 segment.state.as_str(),
@@ -763,11 +795,15 @@ impl AuditStore {
     /// appended here**, and the row is written **`closed`**: all the centre needs is the record
     /// [`Self::merge_segment`] looks up. The id is the one the segment travelled under, and an id already
     /// present is left exactly as it is: adopting twice is not an error. `head_prev_chain` is the
-    /// cross-segment reference the owner reported — the point on *its* chain the segment continues from.
+    /// cross-segment reference the owner reported — the point on *its* chain the segment continues
+    /// from — and `head_prev_length` is that point's length (v1.0 M6-5-1), recorded beside it so the
+    /// centre holds both halves of the anchor. **Adopting does not verify them** (M6-5-2 compares); it
+    /// records what the owner said, exactly as it records the segment's name.
     pub fn adopt_segment(
         &mut self,
         segment_id: &str,
         head_prev_chain: Option<&str>,
+        head_prev_length: Option<i64>,
     ) -> Result<(), AuditError> {
         if self.segment(segment_id)?.is_some() {
             return Ok(());
@@ -777,6 +813,7 @@ impl AuditStore {
             kind: SegmentKind::Temporary,
             head_hash: None,
             head_prev_chain: head_prev_chain.map(str::to_string),
+            head_prev_length,
             opened_at_ms: None,
             closed_at_ms: None,
             state: SegmentState::Closed,

@@ -149,6 +149,12 @@ pub struct Segment {
     /// The **cross-segment reference**: the main chain's head when the segment opened. A plain field,
     /// never an input to the hash.
     pub head_prev_chain: Option<String>,
+    /// The **length** of the chain that head was read from — the last event id at that moment (v1.0
+    /// M6-5-1). The anchor's second half: a hash names a point, and this says *which* point, so a
+    /// verifier can compare a digest it has rather than only a head it can never hold (M6-5-2 does the
+    /// comparing; this batch only records the evidence). `None` for a row written before the column
+    /// existed — the honest state, exactly as `agent_id` is `None` on a pre-v0.8 row.
+    pub head_prev_length: Option<i64>,
     /// When it opened.
     pub opened_at_ms: Option<i64>,
     /// When it closed. `None` while it is open.
@@ -176,18 +182,19 @@ impl Segment {
             )
         }
         let kind_word: String = row.get(1)?;
-        let state_word: String = row.get(6)?;
+        let state_word: String = row.get(7)?;
         let kind = SegmentKind::parse(&kind_word).ok_or_else(|| bad(1, kind_word))?;
-        let state = SegmentState::parse(&state_word).ok_or_else(|| bad(6, state_word))?;
+        let state = SegmentState::parse(&state_word).ok_or_else(|| bad(7, state_word))?;
         Ok(Self {
             segment_id: row.get(0)?,
             kind,
             head_hash: row.get(2)?,
             head_prev_chain: row.get(3)?,
-            opened_at_ms: row.get(4)?,
-            closed_at_ms: row.get(5)?,
+            head_prev_length: row.get(4)?,
+            opened_at_ms: row.get(5)?,
+            closed_at_ms: row.get(6)?,
             state,
-            note: row.get(7)?,
+            note: row.get(8)?,
         })
     }
 }
