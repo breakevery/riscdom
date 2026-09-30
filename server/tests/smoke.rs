@@ -795,6 +795,7 @@ fn a_speaking_executor(dir: &Path) -> PathBuf {
 ///
 /// The cut matters: a dispatch's **payload** has carried a `task_id` since v1.0 gap 2/N, so a test
 /// that only searched the whole line could pass without the envelope naming the task at all.
+#[cfg(windows)]
 fn envelope_of(text: &str, event: &str) -> String {
     let line = text
         .lines()
