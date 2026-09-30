@@ -565,7 +565,36 @@ probe's transport timeouts and retransmission details; whether probes are stagge
 not probe in lockstep; the freshness number (45 s is v1.0's, §6.6's); whether a **room** may narrow the peer
 scope later (it is a policy grouping, not a transport one); how a deployment acts after a judgement and the
 shape of any kick API (V-3 or later); whether reports are batched; and how a **partition** is resolved at the
-deployment level — that is [decisions §33](decisions.md)'s suppression machinery (M5/M6), not this section's.
+deployment level — that is [decisions §33](decisions.md)'s suppression machinery, and it is **§6.8** below.
+
+### 6.8 Suppression: the three layers before a stand-in
+
+**[settled]** **Nothing fires on one node's suspicion** ([decisions §33](decisions.md), authorised by [decisions
+§127](decisions.md) point 4). Before a node may stand in for its centre it must pass **three layers, all
+required**:
+
+1. **A waiting period** — this node cannot reach the centre and silently retries for **60 s** (§33's 30 s –
+   2 min, at the default). It is **longer than §6.6's 45 s online window on purpose**: a node waiting while the
+   centre would still call it online is waiting on a fact the other side has not reached.
+2. **Global confirmation** — the wait elapsed, and the group agrees the centre is gone. This is **§6.7's rule
+   applied to the centre**: unanimity among the witnesses that remain, with a witness of life vetoing. §6.7 is
+   where the reason is argued — *a majority would be wrong exactly where it matters*.
+3. **Backoff plus precedence** — the first in line waits a **random backoff inside 0–30 s** and **stands down
+   the moment it sees a takeover broadcast**. "First in line" is **`node_id` order** for v1.0 (no
+   registration-frame field), and the backoff is derived from `(node_id, now)`, so two nodes that confirm in
+   the same millisecond still draw different delays.
+
+**[settled]** **The centre, for these layers**, is the **in-network server** this node knows — the peer that
+declares the server claim (§6.6/§6.7) and is not the cross-region server above it. It is a `node_id` like any
+other, which is what lets §6.7's table decide about it.
+
+**[settled]** **The machine is local, and it is not in the chain.** Its phase (`candidate` / `waiting` /
+`confirming` / `backing-off` / `standing-in`) lives in memory, like §6.6's table and §6.7's records: a
+suspicion is not an event.
+
+**Not here yet.** What a node *does* past the backoff — standing in, and the takeover broadcast the third
+layer reacts to — is **M5-3b**, and the exchange that carries the group's reports about the centre is M5-3b's
+too: this section is the rule and the machine.
 
 ## 7. Audit digests — M4e-1
 

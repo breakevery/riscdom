@@ -357,6 +357,14 @@ current request authorising it (§2).
   (`note` starting `merge failed after …`) is **refused as its own thing**, not re-labelled. `audit-v2.md` +
   zh gain §11. **`compute_hash`, `verify_chain` and both append-only triggers are untouched**; host-core is
   not touched. **Adjudication stays open (M6).** **Decision §133.**
+- **And the three suppression layers are built** (v1.0 batch BU / M5-3a, 2026-09-30): `net` gains the
+  suppression machine — `SUPPRESSION_WAIT = 60 s`, `SUPPRESSION_BACKOFF_MAX = 30 s`, `SuppressionPhase`
+  (`candidate` / `waiting` / `confirming` / `backing-off` / `standing-in`), precedence by **`node_id` order**,
+  and a deterministic `(node_id, now)` backoff — with **§6.7's witness rule reused** for the group's
+  confirmation (no second liveness rule). `host-core` drives it with a ticker fed by the centre's
+  reachability published by the probe thread. **Local state only**: no chain, no segment, nothing in `audit`
+  touched. The takeover and the broadcast are M5-3b, the return and merge M5-3c. `connection.md` + zh gain
+  §6.8. **Decision §134.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

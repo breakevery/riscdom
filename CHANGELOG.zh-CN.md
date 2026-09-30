@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **三层挡在怀疑与代行之间**（v1.0 批 BU / M5-3a）：`net` 多出**抑制状态机** —— `SUPPRESSION_WAIT = 60 秒`、`SUPPRESSION_BACKOFF_MAX = 30 秒`、`SuppressionPhase`（`candidate` / `waiting` / `confirming` / `backing-off` / `standing-in`）、按 **`node_id` 序**的顺位、以及由 `(node_id, now)` 导出的确定性退避 —— 并以 **§6.7 的见证规则复用为群体确认**（不写第二条活性规则）。`host-core` 用定时器驱动它，输入是探测线程发布的中心可达性。**只是本地状态：无链、无段、`audit` 一行未动。** 接管与广播属 M5-3b。`connection.md` + zh 新增 §6.8。**决策 §134。**
+
 - **冲突记在两边，而并入说明它做了哪件**（v1.0 批 BS / M5-2b）：`merge_segment` 现答 `MergeOutcome::{Folded { merged } | Forked { reason }}` —— fork 是结果、不是错误。遇冲突（`actor`、`action` 与**清标后** detail 相同 —— 完全相等，未改）时**什么都不转录**：该行变为 **`forked`**、原因写进 `note`，并向主链写一条 **`host.audit.segment_forked`** 事件（`{ segment_id, kind, forked_at_ms, reason, conflicting_event_id }`）。段保留它整个文件，**不加新 `SegmentState`**，而**部分并入**（`note` 以 `merge failed after …` 开头）被**当作自己的错误拒绝**、不被改贴。**`compute_hash`、`verify_chain` 与 append-only 触发器未动**；裁定仍开着（M6）。**决策 §133。**
 
 - **一个段靠转录并入主链**（v1.0 批 BQ / M5-2a）：`audit` 多出 `AuditStore::merge_segment(audit_dir, segment_id)`。它读临时段自己的储存，把**每个事件作为新事件追加到主链** —— **去掉** `provisional` 成员，所以标是*靠写入清掉*、绝不靠更新（链是 append-only）—— 然后追加 **`host.audit.segment_merged`** 并把该行标为 **`folded`**。**段文件不被触碰**（它保留自己的行与标），看得见冲突的并入会**拒绝**（完全相等；不选择任何冲突规则 —— 那是 M5-2b），部分并入记在段行的 `note` 上。**`compute_hash`、`verify_chain` 与 append-only 触发器未动。** **决策 §132。**

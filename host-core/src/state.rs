@@ -911,6 +911,12 @@ pub struct AppState {
     /// The chain-digest reporter (§7, v1.0 M4e-1), when one is running. A third thread beside the
     /// beat and the two probers, sharing the same client.
     connection_digests: Mutex<Option<DigestReporter>>,
+    /// The **suppression** machine (§33's three layers, v1.0 M5-3a), when one is running.
+    connection_suppression: Mutex<Option<SuppressionTicker>>,
+    /// Whether this node's probes currently reach its **centre** (§33's in-network server). Written by the
+    /// probe thread, read by the suppression machine — one slot, so the two never disagree about what the
+    /// node last saw (v1.0 M5-3a).
+    centre_reachable: Arc<Mutex<Option<bool>>>,
     /// This node's **server role**, when its settings configure one (v1.0 AC-4).
     ///
     /// The same `RelayServer` the standalone `riscdom-relay` deployment runs, embedded in this
@@ -1082,6 +1088,8 @@ impl Probe {
         keys: net::PeerKeys,
         node_id: String,
         interval: Duration,
+        centre: Option<String>,
+        centre_reachable: Arc<Mutex<Option<bool>>>,
     ) -> Self {
         let (stop, signal) = std::sync::mpsc::channel::<()>();
         let join = std::thread::spawn(move || {
@@ -1140,6 +1148,15 @@ impl Probe {
                 // §6.7's pulse: the view for every peer, re-sent every cycle while it stands.
                 for report in prober.pulse() {
                     let _ = client.report(&report);
+                }
+                // Publish the centre's reachability for the suppression machine (v1.0 M5-3a). This thread is
+                // the one holding the probe view, so this thread is the one that says.
+                if let Some(centre) = centre.as_deref() {
+                    if let Some(view) = prober.view(centre) {
+                        if let Ok(mut slot) = centre_reachable.lock() {
+                            *slot = Some(view.reachable);
+                        }
+                    }
                 }
             }
         });
@@ -1220,6 +1237,74 @@ impl DigestReporter {
 }
 
 impl Drop for DigestReporter {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// The suppression machine's ticker (§33's three layers; v1.0 M5-3a).
+///
+/// **What it can and cannot do yet.** It advances the machine from **what this node's probes see**
+/// ([`net::Suppression::observe`]) — the wait, and the move to *confirming*. The **group's confirmation**
+/// ([`net::Suppression::confirm`]) needs the peers' reports, and that exchange is **M5-3b**'s; until it lands
+/// the machine stops at *confirming*, which is the honest state of this batch.
+///
+/// Like [`Heartbeat`], [`Probe`] and [`DigestReporter`], the thread holds no `Arc<AppState>` — and it holds
+/// the *machine* behind an `Arc` so a caller can read the phase while it runs.
+struct SuppressionTicker {
+    machine: Arc<Mutex<net::Suppression>>,
+    stop: Sender<()>,
+    join: Option<std::thread::JoinHandle<()>>,
+}
+
+impl SuppressionTicker {
+    fn start(
+        node_id: String,
+        centre_reachable: Arc<Mutex<Option<bool>>>,
+        interval: Duration,
+        now: i64,
+    ) -> Self {
+        let machine = Arc::new(Mutex::new(net::Suppression::new(&node_id, now)));
+        let shared = Arc::clone(&machine);
+        let (stop, signal) = std::sync::mpsc::channel::<()>();
+        let join = std::thread::spawn(move || loop {
+            // One observer, one reading: the probe thread is what knows, and an unread slot means the
+            // probe has not run yet.
+            if let Some(reachable) = centre_reachable.lock().ok().and_then(|slot| *slot) {
+                if let Ok(mut machine) = shared.lock() {
+                    machine.observe(reachable, net::now_ms());
+                }
+            }
+            match signal.recv_timeout(interval) {
+                Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+        });
+        Self {
+            machine,
+            stop,
+            join: Some(join),
+        }
+    }
+
+    /// The phase the machine is in right now.
+    fn phase(&self) -> net::SuppressionPhase {
+        self.machine
+            .lock()
+            .map(|machine| machine.phase())
+            .unwrap_or(net::SuppressionPhase::Candidate)
+    }
+
+    /// Ask it to stop, and wait for it to.
+    fn stop(&mut self) {
+        let _ = self.stop.send(());
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
+impl Drop for SuppressionTicker {
     fn drop(&mut self) {
         self.stop();
     }
@@ -1645,6 +1730,8 @@ impl AppState {
             connection_probe: Mutex::new(None),
             connection_sibling_probe: Mutex::new(None),
             connection_digests: Mutex::new(None),
+            connection_suppression: Mutex::new(None),
+            centre_reachable: Arc::new(Mutex::new(None)),
             connection_server: Mutex::new(None),
             connection_server_addr: Mutex::new(None),
             executors: Mutex::new(Vec::new()),
@@ -4155,10 +4242,26 @@ impl AppState {
         if workgroup.is_empty() {
             return false;
         }
+        // §33's **centre** is the in-network server this node knows: the peer that declares the server claim
+        // and is neither this node nor the cross-region server above it (v1.0 M5-3a). It is already in the
+        // workgroup, so the probe view for it is what the suppression machine watches.
+        let centre = peers
+            .servers()
+            .iter()
+            .map(|entry| entry.node_id.clone())
+            .find(|id| id != &server_node_id && id != &node_id);
         let Ok(keys) = peers.peer_keys() else {
             return false;
         };
-        let probe = Probe::start(client, net::Prober::new(workgroup), keys, node_id, interval);
+        let probe = Probe::start(
+            client,
+            net::Prober::new(workgroup),
+            keys,
+            node_id,
+            interval,
+            centre,
+            Arc::clone(&self.centre_reachable),
+        );
         let previous = self
             .connection_probe
             .lock()
@@ -4221,6 +4324,68 @@ impl AppState {
         drop(previous);
     }
 
+    // ---- the suppression machine (§33's three layers; v1.0 M5-3a) -----------------
+
+    /// Start (or restart) the **suppression** machine with this tick interval (§33's three layers, v1.0
+    /// M5-3a). Answers whether there was a **centre** to watch — the in-network server this node knows.
+    ///
+    /// The machine is local state and nothing else: it **watches** what this node's own probes see (the
+    /// probe thread publishes the centre's reachability) and advances through the wait to *confirming*.
+    /// The group's confirmation and the takeover are **M5-3b**'s; until that lands the machine stops where
+    /// this batch's mechanism stops.
+    pub fn start_connection_suppression(&self, interval: Duration) -> bool {
+        let Some(centre) = self.centre_node() else {
+            return false;
+        };
+        let ticker = SuppressionTicker::start(
+            centre,
+            Arc::clone(&self.centre_reachable),
+            interval,
+            net::now_ms(),
+        );
+        let previous = self
+            .connection_suppression
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.replace(ticker));
+        drop(previous);
+        true
+    }
+
+    /// Stop the suppression machine, if one is running. Also happens when the state is dropped.
+    pub fn stop_connection_suppression(&self) {
+        let ticker = self
+            .connection_suppression
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take());
+        drop(ticker);
+    }
+
+    /// Where the suppression machine is, if one is running (v1.0 M5-3a) — for tests, and for whoever
+    /// reports the node's state.
+    pub fn suppression_phase(&self) -> Option<net::SuppressionPhase> {
+        self.connection_suppression
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(|ticker| ticker.phase()))
+    }
+
+    /// The **centre** this node watches (§33, v1.0 M5-3a): the peer that declares the server claim
+    /// ([`net::SERVER_CLAIM`]) and is neither this node nor the cross-region server above it.
+    fn centre_node(&self) -> Option<String> {
+        let server_node_id = self
+            .connection_client()
+            .map(|client| client.server_node_id().to_string());
+        let node_id = agent::device();
+        let peers = self.peers()?;
+        peers
+            .servers()
+            .iter()
+            .map(|entry| entry.node_id.clone())
+            .find(|id| Some(id) != server_node_id.as_ref() && id != &node_id)
+    }
+
     /// §6.7's **second level**: a node that runs the server role is an in-network server, and it
     /// probes its **siblings** — the other servers its own `peers.json` declares with the
     /// [`net::SERVER_CLAIM`] — reporting upward through the same client as the workgroup probe.
@@ -4259,7 +4424,15 @@ impl AppState {
         let Ok(keys) = peers.server_keys() else {
             return false;
         };
-        let probe = Probe::start(client, net::Prober::new(siblings), keys, node_id, interval);
+        let probe = Probe::start(
+            client,
+            net::Prober::new(siblings),
+            keys,
+            node_id,
+            interval,
+            None,
+            Arc::new(Mutex::new(None)),
+        );
         let previous = self
             .connection_sibling_probe
             .lock()

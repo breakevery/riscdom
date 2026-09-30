@@ -3870,3 +3870,33 @@ which had no consumer outside the crate's tests); `audit/src/store.rs`'s `merge_
 `append_once` and both append-only triggers are untouched**, no route, capability name, audit event constant,
 hash formula or persisted format changes, and **host-core is not touched** (M5-3 is what calls this).
 **Adjudication** (roadmap §7 question 3) stays open and is **M6**'s.
+
+## 134. Three layers stand between a suspicion and a stand-in
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch BU / M5-3a)
+
+**Decision**: `net` gains the **suppression machine** and its numbers, and `host-core` a ticker that drives it
+from what this node's probes see. `SUPPRESSION_WAIT = 60 s` (default) and `SUPPRESSION_BACKOFF_MAX = 30 s`;
+`SuppressionPhase = candidate | waiting | confirming | backing-off | standing-in`; precedence is **`node_id`
+order** (the owner's point 2 — no registration-frame field), and the backoff is **derived from `(node_id,
+now)`**, so it is deterministic and testable without an RNG. **The second layer is §6.7's rule, not a new
+one**: `Suppression::confirm` calls the same `WitnessTable::judge`, because §6.7 already argues that *a
+majority would be wrong exactly where it matters*. The machine is **local state and writes no chain**;
+`standing-in` is M5-3b's, and nothing in M5-3a enters it. `docs/connection.md` + zh gain **§6.8**.
+
+**Why**: Three points. **§33 says all three, and none is optional.** A takeover that fired on one node's
+silence would be the worst error this mechanism can make, so the layers are the point, not a courtesy. **The
+numbers had to be picked, and 60 s / 30 s are the picks.** 60 s is inside §33's 30 s – 2 min range and
+**longer than §6.6's 45 s online window**, so a node is never waiting on a fact its centre has not reached;
+30 s sits inside the backoff's envelope and **shorter than the wait**, so a node that lost the race hears the
+winner inside its own window. **The confirmation is borrowed on purpose.** Writing a second liveness rule — a
+majority threshold — would contradict §6.7's own reasoning and put two rules on one deployment's behaviour.
+
+**Impact**: `net/src/suppression.rs` is new (the constants, `SuppressionPhase`, `Suppression`, `first_in_line`,
+`is_first_in_line`, `backoff_delay_ms`) and exported from `net`; `host-core` gains
+`start_connection_suppression` / `stop_connection_suppression` / `suppression_phase`, a `SuppressionTicker`,
+and a `centre_reachable` slot the probe thread publishes into (`Probe::start` takes the centre and the slot).
+`docs/connection.md` + zh gain §6.8. **`compute_hash`, `verify_chain`, the append-only triggers, the routes,
+the capability vocabulary and `audit` are untouched** — this batch opens no segment and merges none — and no
+registration-frame field is added. The takeover, the broadcast and the segment wiring are **M5-3b**; the
+return and the merge are **M5-3c**.

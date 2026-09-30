@@ -552,6 +552,41 @@ fn a_pointer_at_a_known_peer_wires_a_client_that_reports_the_chains_digest() {
 }
 
 #[test]
+fn the_suppression_machine_runs_only_when_there_is_a_centre() {
+    // v1.0 M5-3a: §33's suppression is local state, and it exists only when this node knows a **centre**.
+    let data_dir = configured("suppression-none");
+    let workspace = unique_dir("suppression-none-ws");
+    let state = state_in(&workspace, &data_dir);
+    assert!(
+        !state.start_connection_suppression(Duration::from_millis(50)),
+        "no centre among this node's peers, so there is nothing to watch"
+    );
+    assert_eq!(state.suppression_phase(), None);
+
+    // A peer that declares the server claim **is** the centre: the machine starts, and it begins as a
+    // candidate — nothing has been observed yet, and the thread does not invent an observation.
+    let data_dir = configured("suppression-centre");
+    let workspace = unique_dir("suppression-centre-ws");
+    let key = net::NodeKey::generate().expect("key");
+    let mut centre = net::PeerEntry::new("centre", "127.0.0.1:1", key.public_jwk());
+    centre.capabilities = vec![net::SERVER_CLAIM.to_string()];
+    let mut peers = net::PeersFile::empty();
+    peers.peers.push(centre);
+    net::PeersFile::save_in(&data_dir, &peers).expect("peers.json");
+
+    let state = state_in(&workspace, &data_dir);
+    assert!(
+        state.start_connection_suppression(Duration::from_millis(50)),
+        "a declared centre is something to watch"
+    );
+    assert_eq!(
+        state.suppression_phase(),
+        Some(net::SuppressionPhase::Candidate)
+    );
+    state.stop_connection_suppression();
+}
+
+#[test]
 fn a_judgement_writes_its_two_events_through_the_servers_sink() {
     // The judging server is the one that records a judgement, and a deployment that runs a server
     // beside a chain installs this state's sink on it (v1.0 V-3a). The pointer names a peer this

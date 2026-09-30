@@ -59,6 +59,7 @@ mod relay;
 mod replay;
 mod rooms;
 mod sign;
+mod suppression;
 mod transport;
 mod versioned;
 
@@ -97,6 +98,10 @@ pub use rooms::{
     RoomMergeReport, RoomRules, RoomsError, RoomsFile, ROOMS_FILE,
 };
 pub use sign::{verify, verify_at, PeerKeys, VerifiedMessage, VerifyError};
+pub use suppression::{
+    backoff_delay_ms, first_in_line, is_first_in_line, Suppression, SuppressionPhase,
+    SUPPRESSION_BACKOFF_MAX, SUPPRESSION_WAIT,
+};
 pub use transport::{
     deliver, frame_bytes, send_direct, Connection, Listener, NoRelay, Op, Path, Relay,
     TransportConfig, TransportError, DEFAULT_CONNECT_TIMEOUT, DEFAULT_MAX_FRAME_BYTES,

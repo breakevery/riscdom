@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Three layers stand between a suspicion and a stand-in** (v1.0 batch BU / M5-3a): `net` gains the
+  **suppression machine** — `SUPPRESSION_WAIT = 60 s`, `SUPPRESSION_BACKOFF_MAX = 30 s`, `SuppressionPhase`
+  (`candidate` / `waiting` / `confirming` / `backing-off` / `standing-in`), precedence by **`node_id` order**,
+  and a deterministic `(node_id, now)` backoff — with **§6.7's witness rule reused for the group's
+  confirmation** (no second liveness rule). `host-core` drives it with a ticker, fed by the centre's
+  reachability published by the probe thread. **Local state only: no chain, no segment, nothing in `audit`
+  touched.** The takeover and the broadcast are M5-3b. `connection.md` + zh gain §6.8. **Decision §134.**
+
 - **A conflict is recorded on both sides, and the merge says which it did** (v1.0 batch BS / M5-2b):
   `merge_segment` now answers `MergeOutcome::{Folded { merged } | Forked { reason }}` — a fork is an outcome,
   not an error. On a conflict (the same `actor`, `action` and **cleared** detail — exact equality, unchanged)

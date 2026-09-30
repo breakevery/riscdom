@@ -1418,3 +1418,13 @@ trait 属 v1.x 工作。
 **缘由**：三点。**记录不是裁定。** 精确判据的意义正是让并入能标下一处分歧、而不对它持意见；把两边都转录会把两个互相矛盾的动作放进受信链、并称之为一次并入——那正是 §127 禁止的「静默合并」。**fork 是结果，所以签名必须说得出来。** 当冲突以 `Err` 返回时，「我拒绝了」与「这两者不一致」是同一个形状，调用者分不出缺陷与 fork。**失败的并入不得借用那个字。** M5-2a 的部分并入把已转录的事件留在链上，于是重试会撞上自己的副本、看起来与冲突一模一样；没有 `note` 检查，半途而废的并入会被打上 `forked`—— 那个属于真分歧的字。
 
 **影响**：`audit/src/segment.rs` 多出 `MergeOutcome`、`ACTION_SEGMENT_FORKED`、`segment_forked_detail`、`PARTIAL_MERGE_PREFIX` 与 `partial_merge_recorded`，并**去掉 `MergeReport`**（由 `MergeOutcome` 取代，且它在 crate 的测试之外没有消费者）；`audit/src/store.rs` 的 `merge_segment` 改返回 `MergeOutcome`，多出 fork 分支与 `mark_segment_forked` / `main_chain_row_with`；`docs/audit-v2.md` + zh 新增 §11（冲突与 fork）并修订 §5/§6。**`compute_hash`、`verify_chain`、`append_once` 与两个 append-only 触发器未动**，路由、capability 名、审计事件常量、哈希公式或持久化格式均未变，且**未碰 host-core**（调用它的是 M5-3）。**裁定**（roadmap §7 第 3 问）仍开着，属 **M6**。
+
+## 134. 三层挡在怀疑与代行之间
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 BU / M5-3a）
+
+**决策**：`net` 多出**抑制状态机**及其数字，`host-core` 多出一个定时器、按本节点探测之所见驱动它。`SUPPRESSION_WAIT = 60 秒`（默认）与 `SUPPRESSION_BACKOFF_MAX = 30 秒`；`SuppressionPhase = candidate | waiting | confirming | backing-off | standing-in`；顺位是 **`node_id` 序**（owner 点 2 —— 不加注册帧字段），而退避**由 `(node_id, now)` 导出**，所以确定、可测、无需 RNG。**第二层是 §6.7 的规则，不是新规则**：`Suppression::confirm` 调用同一个 `WitnessTable::judge`，因为 §6.7 已经论证过*多数决恰恰在最重要的地方会出错*。状态机是**本地状态、不写任何链**；`standing-in` 属 M5-3b，M5-3a 里没有任何东西会进入它。`docs/connection.md` + zh 新增 **§6.8**。
+
+**缘由**：三点。**§33 说三层全要，没有一层可选。** 一个在单节点沉默上就开火的接管，是这个机制能犯的最严重的错，所以三层是要害、不是礼貌。**数字总得选，选的是 60 秒 / 30 秒。** 60 秒在 §33 的 30 秒 – 2 分钟区间内、且**长于 §6.6 的 45 秒 online 窗口**，所以一个节点绝不会在等一个它的中心尚未到达的事实；30 秒落在退避的包络内、且**短于等待期**，所以输掉竞赛的节点会在自己的窗口里听到赢家。**确认是故意借来的。** 另写一条活性规则 —— 一个多数阈值 —— 会与 §6.7 自己的论证相抵，并在同一个部署的行为上放两条规则。
+
+**影响**：`net/src/suppression.rs` 是新文件（常量、`SuppressionPhase`、`Suppression`、`first_in_line`、`is_first_in_line`、`backoff_delay_ms`）并由 `net` 导出；`host-core` 多出 `start_connection_suppression` / `stop_connection_suppression` / `suppression_phase`、一个 `SuppressionTicker`、以及一个由探测线程写入的 `centre_reachable` 槽（`Probe::start` 接收中心与槽）。`docs/connection.md` + zh 新增 §6.8。**`compute_hash`、`verify_chain`、append-only 触发器、路由、能力词汇表与 `audit` 均未动** —— 本批不开段、不合并 —— 也不加任何注册帧字段。接管、广播与段接线是 **M5-3b**；回归与合并是 **M5-3c**。
