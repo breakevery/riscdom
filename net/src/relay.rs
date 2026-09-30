@@ -1655,6 +1655,20 @@ impl RelaySession {
         self.send_body_to(peer, crate::suppression::segment_done_body(done))
     }
 
+    /// Hand a **peer** one task (v1.0 M6-1a). §14.6: the cross-device protocol, no protocol of M's own.
+    pub fn task_to(&self, peer: &str, task: &crate::task::TaskFrame) -> Result<(), TransportError> {
+        self.send_body_to(peer, crate::task::task_body(task))
+    }
+
+    /// Answer a peer's task (v1.0 M6-1a).
+    pub fn task_reply_to(
+        &self,
+        peer: &str,
+        reply: &crate::task::TaskReply,
+    ) -> Result<(), TransportError> {
+        self.send_body_to(peer, crate::task::task_reply_body(reply))
+    }
+
     /// Answer a probe (§6.7): the smallest evidence that the node behind this session works.
     pub fn answer_alive(&self, to: &str) -> Result<(), TransportError> {
         self.send_body_to(to, crate::liveness::alive_body())
@@ -1841,6 +1855,20 @@ impl RelayClient {
         done: &crate::suppression::SegmentDone,
     ) -> Result<(), TransportError> {
         self.with_session(|session| session.segment_done_to(peer, done))
+    }
+
+    /// Hand a **peer** one task (v1.0 M6-1a), opening the session if needed.
+    pub fn task_to(&self, peer: &str, task: &crate::task::TaskFrame) -> Result<(), TransportError> {
+        self.with_session(|session| session.task_to(peer, task))
+    }
+
+    /// Answer a peer's task (v1.0 M6-1a), opening the session if needed.
+    pub fn task_reply_to(
+        &self,
+        peer: &str,
+        reply: &crate::task::TaskReply,
+    ) -> Result<(), TransportError> {
+        self.with_session(|session| session.task_reply_to(peer, reply))
     }
 
     /// Answer a probe (§6.7).

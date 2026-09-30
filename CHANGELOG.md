@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A task can cross a machine** (v1.0 batch CI / M6-1a, the first half of M6-1): `TaskId` becomes
+  `task-<device>-<pid>-<seq>` (isomorphic with every other identity, so two nodes' tasks cannot collide),
+  `net` gains the two bodies a crossing task travels as (`{"task": 1, …}` out, `{"task_reply": 1, …}`
+  back) with typed send methods — ordinary §3 frames between peers, which is what §14.6 means by "no protocol
+  of M's own" — and `host-core` gains **`RemoteAgentHandle`**, the "remote one" the `AgentHandle` seam was
+  left for. `run` sends one frame, waits for the reply through a shared slot, and reports the outcome or one
+  of four distinguishable refusals (unreachable / unauthorised / failed / timed out). **No new capability,
+  no route, no dependency, no scheduling; `audit` untouched.** The receiving side, the `/v0/tasks` parameter
+  and the two-node end-to-end test are **M6-1b**. **Decision §142.**
+
 - **A key event is pushed the moment it happens** (v1.0 batch CE / M4e-2): roadmap §4's other half — audit
   travels on a schedule **and** a key event goes at once. A node pushes one as an ordinary §3 frame addressed
   to the server (body `{ "key_event": 1, "at_ms": …, "action": …, "detail": … }`), one per event; the server

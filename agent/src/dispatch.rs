@@ -42,12 +42,12 @@ impl std::fmt::Display for AgentId {
     }
 }
 
-/// A task's identity: `task-<pid>-<seq>`.
+/// A task's identity: `task-<device>-<pid>-<seq>`.
 ///
-/// A process-wide counter with the pid in it, like [`crate::identity`]: unique
-/// inside a process and across processes, monotonic, and cheap. The type is a
-/// newtype so the day a task crosses a machine the wire format is one decision in
-/// one place (a `Uuid` would do as well; nothing else would change).
+/// The same three parts [`crate::identity`] mints its identities from (v1.0 M6-1a): a process-wide
+/// counter with the device and the pid in it, so an id is unique inside a process, across processes, and
+/// **across machines** — which is what a task needs the moment it crosses one (roadmap §5's cross-node
+/// correlation). The type is a newtype so the wire format stays one decision in one place.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct TaskId(String);
 
@@ -59,9 +59,17 @@ impl TaskId {
     }
 
     /// The next id in this process.
+    ///
+    /// `task-<device>-<pid>-<seq>`, isomorphic with [`crate::identity`]'s identities (v1.0 M6-1a):
+    /// two nodes' tasks cannot collide once they meet in one node's records, and the id still names
+    /// the machine it was born on.
     pub fn next() -> Self {
         let seq = TASK_SEQ.fetch_add(1, Ordering::Relaxed) + 1;
-        Self(format!("task-{}-{seq}", std::process::id()))
+        Self(format!(
+            "task-{}-{}-{seq}",
+            crate::identity::device(),
+            std::process::id()
+        ))
     }
 
     pub fn as_str(&self) -> &str {
@@ -376,6 +384,29 @@ mod tests {
         assert_ne!(first, TaskId::new("task-0-1"));
         assert!(first.as_str().starts_with("task-"));
         assert!(first < second, "the counter is monotonic");
+    }
+
+    /// A task id names its device and its process, like every other identity here (v1.0 M6-1a).
+    #[test]
+    fn a_task_id_names_its_device_and_its_process() {
+        let before = crate::identity::device();
+        let id = TaskId::next();
+        let parts: Vec<&str> = id.as_str().split('-').collect();
+        // `task-<device>-<pid>-<seq>`; a device name may itself contain `-`, so the tail is what is pinned.
+        assert_eq!(parts.first(), Some(&"task"), "{id}");
+        assert!(parts.len() >= 4, "four parts at least: {id}");
+        let seq = parts.last().expect("a sequence");
+        let pid = parts[parts.len() - 2];
+        assert!(seq.parse::<u64>().is_ok(), "the sequence is a number: {id}");
+        assert_eq!(
+            pid,
+            std::process::id().to_string(),
+            "the pid is this process: {id}"
+        );
+        assert!(
+            id.as_str().starts_with(&format!("task-{before}-")),
+            "the device leads: {id}"
+        );
     }
 
     #[test]

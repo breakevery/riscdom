@@ -60,6 +60,7 @@ mod replay;
 mod rooms;
 mod sign;
 mod suppression;
+mod task;
 mod transport;
 mod versioned;
 
@@ -104,6 +105,10 @@ pub use suppression::{
     is_segment_event, is_takeover, segment_done_body, segment_event_body, takeover_body,
     SegmentDone, SegmentEvent, Suppression, SuppressionPhase, Takeover, SUPPRESSION_BACKOFF_MAX,
     SUPPRESSION_WAIT,
+};
+pub use task::{
+    is_task, is_task_reply, task_body, task_from_body, task_reply_body, task_reply_from_body,
+    TaskFrame, TaskReply,
 };
 pub use transport::{
     deliver, frame_bytes, send_direct, Connection, Listener, NoRelay, Op, Path, Relay,

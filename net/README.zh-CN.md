@@ -46,6 +46,7 @@
 | `src/relay.rs` | 跨区域服务器的 relay：`RelayServer`（解析、认证、只按 `to` 路由、把那帧沿目的地的会话交下去）、`SessionTable`（谁正拨着 —— 正是服务器「从不拨出」所绕开的那张表）、`RelayClient` / `RelaySession`（节点那一半，以及开一条会话的 `hello`），与 `Forwarder` —— 一个单方法缝，使路由规则身边没有 socket 也能被测试。`src/bin/riscdom-relay.rs` 是**部署者**运行的程序。 |
 | `src/registry.rs` | **management** 面：`Registry` —— §4.1 的下发表加上旁边的房间定义，作为一个签名帧承载 —— 与 `merge`，它把 §4.1 应用到**两半**上，于是本地的 `peers.json` 与 `rooms.json` 赢，而每一处分歧都被**报告**。发布的房间集合被按 `rooms.json` 自己的检查来要求，所以来源无法携带一个文件会拒的房间。 |
 | `src/liveness.rs` | §6.7 的活性，节点层：探测（`{"probe": 1}` / `{"alive": 1}`）、探测者自己的**视图**（`Prober` —— 每同侪的最后应答、连失拍数与是否持有可达；只在内存、不写链），服务器的**见证者表**（`WitnessTable` —— 在剩下的见证者中全体一致、「活着」的见证者一票否决），以及一次判定产生的两个转换（`Transition`）—— 交给部署接上的 `TransitionSink`。 |
+| `src/task.rs` | **两个节点互相递交的任务帧**（v1.0 M6-1a）：出去的 `TaskFrame` 与回来的 `TaskReply`，连同它们的 body 与解析器 —— 只有标量与不透明 JSON，因为本 crate 不依赖 `agent`。§14.6 的「M 没有自己的协议」：同侪之间的一帧普通 §3 帧。 |图**（`Prober` —— 每同侪的最后应答、连失拍数与是否持有可达；只在内存、不写链），服务器的**见证者表**（`WitnessTable` —— 在剩下的见证者中全体一致、「活着」的见证者一票否决），以及一次判定产生的两个转换（`Transition`）—— 交给部署接上的 `TransitionSink`。 |
 
 ## 怎么跑
 

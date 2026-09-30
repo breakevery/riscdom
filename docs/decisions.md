@@ -4108,3 +4108,44 @@ untouched, no route or capability name is added, and no dependency is added.**
 **The honest boundary**: the third trigger roadmap §4 names — an **ejection** — has **no producer**: no action,
 no API, no event. The mechanism is in place and the event waits for the definition that would make one, which
 is a later batch's, not this one's.
+
+## 142. A task can cross a machine: the frame, and the handle that waits
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch CI / M6-1a)
+
+**Decision**: The first half of M6-1. `TaskId` becomes **`task-<device>-<pid>-<seq>`**, isomorphic with every
+other identity in the tree, so two nodes' tasks cannot collide once they meet. `net` gains the two bodies a
+crossing task travels as — `{ "task": 1, "task_id", "target", "input", "sandbox", "instance" }` out,
+`{ "task_reply": 1, "task_id", "agent_id", "outcome" | "error" }` back — with `RelaySession::task_to` /
+`task_reply_to` (and the same two on `RelayClient`): **ordinary §3 frames between peers**, which is what §14.6
+means by "no protocol of M's own". `host-core` gains **`RemoteAgentHandle`** — the "remote one" the seam was
+left for — implementing `AgentHandle` so it drops into a `LocalDispatcher` unchanged. `run` sends one frame,
+waits for the reply through a **shared slot** (§33's `takeover_heard` shape: the node's reader writes, the
+handle reads), and reports the outcome or one of **four distinguishable refusals**: unreachable,
+unauthorised, failed, timed out.
+
+**Why**: Three points. **The seam was already there.** `AgentHandle`'s own documentation says "a remote
+implementation … implements exactly this trait. **None is written yet** — that is the seam", and
+`local_dispatcher`'s says the handle vector "is where a second local agent — **or a remote one** — goes". This
+batch fills it rather than inventing a second dispatch path. **A task is a statement between nodes, so it is
+an ordinary frame.** §5 lists "hand a task to a node by name" among the five things the kernel provides and
+§14.6 says M talks to M over the cross-device protocol: no new frame type, no new auth, no new capability —
+the sender is authenticated by §3 like every other peer frame, and the peer's own `peers.json` is what decides
+whether it may dispatch (M6-1b). **The four refusals are messages, not variants.** Where a task was refused
+is known by whoever refused it, so the peer composes *unauthorised* and *failed* and the handle composes
+*unreachable* and *timed out*; `DispatchError::Failed(text)` carries all four, which is what makes them
+distinguishable without growing the error enum.
+
+**What this batch does not do** (M6-1b): the receiving side (the drain branch, the `"dispatch"` claim check,
+the execution and the reply), the `/v0/tasks` parameter, the caller-side reader that fills the slot, and the
+two-node end-to-end test. **The capability boundary is real and recorded**: a node with no workgroup has no
+peer to dispatch to and no reader to receive a reply, so cross-device dispatch presumes the node is in one.
+
+**Impact**: `agent/src/dispatch.rs` (the one format string in `TaskId::next`); `net/src/task.rs` (new:
+`TaskFrame`, `TaskReply`, their bodies and parsers — scalars and opaque JSON only, because `net` does not
+depend on `agent`) plus four typed send methods in `net/src/relay.rs` and a row in `net/README`;
+`host-core/src/dispatch.rs` (`RemoteAgentHandle`, `TaskReplies`, `TaskSender`,
+`REMOTE_DISPATCH_TIMEOUT = 30 s`, `REPLY_POLL = 100 ms`). **`audit` is untouched, `compute_hash` /
+`verify_chain` / the append-only triggers are untouched, no route or capability name is added, no dependency
+is added, and no scheduling is written** — one frame out, one answer or none, and the caller judges (§5's red
+line).

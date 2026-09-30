@@ -1492,3 +1492,15 @@ trait 属 v1.x 工作。
 **影响**：`net` 多出 `KeyEvent` / `key_event_body` / `is_key_event`、`KEY_EVENT_LOG`、一个 `Local::KeyEvent` 变体（连同 `Local::of` 与 `LocalReply::KeyEventTaken`）、服务器的 `key_events` 表与 `key_events_of`，以及 `RelaySession::key_event` / `RelayClient::key_event`。`host-core` 从 `declare_takeover` 与 `receive_segment` 的 fork 分支（它多接一个客户端）推送。`docs/connection.md` §7 + zh 现已写明这一切。**`audit` 未动，`compute_hash` / `verify_chain` / append-only 触发器未动，未加路由或能力名，未加依赖。**
 
 **诚实的边界**：roadmap §4 点名的第三个触发器 —— **逐出** —— **没有生产者**：无动作、无 API、无事件。机制已就位，事件在等那个能造出它的定义，那是后续批次的事，不是本批的。
+
+## 142. 一个任务能跨机器：帧，与等待的那个句柄
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 CI / M6-1a）
+
+**决策**：M6-1 的前一半。`TaskId` 变为 **`task-<device>-<pid>-<seq>`**，与树中每一个其它身份同构，于是两个节点的任务在相遇之后不会撞号。`net` 多出一个跨机器任务旅行所需的两个 body —— 出去的 `{ "task": 1, "task_id", "target", "input", "sandbox", "instance" }`、回来的 `{ "task_reply": 1, "task_id", "agent_id", "outcome" | "error" }` —— 连同 `RelaySession::task_to` / `task_reply_to`（`RelayClient` 上同样两个）：**同侪之间的一帧普通 §3 帧**，这正是 §14.6 所说的「M 没有自己的协议」。`host-core` 多出 **`RemoteAgentHandle`** —— 那道预留缝里的「远程那一个」—— 实现 `AgentHandle`，因此原封不动地放进 `LocalDispatcher`。`run` 发一帧、通过一个**共享槽**等回复（§33 的 `takeover_heard` 形状：节点的读方写、句柄读），并报告结果，或**四类可辨拒绝**之一：不可达、未授权、执行失败、超时。
+
+**缘由**：三点。**缝本来就在。** `AgentHandle` 自己的文档写着「a remote implementation … implements exactly this trait. **None is written yet** — that is the seam」，`local_dispatcher` 的写着句柄向量「is where a second local agent — **or a remote one** — goes」。本批把它填上，而不是另造一条派发路径。**任务在节点之间是一份陈述，所以它是一帧普通帧。** §5 把「按名字把一个任务交给一个节点」列为内核提供的五项之一，§14.6 说 M 与 M 走跨设备协议：不新增帧类型、不新增鉴权、不新增 capability —— 发送方像每一帧同侪帧一样由 §3 认证，而**对端自己的 `peers.json`** 决定它是否可派发（M6-1b）。**四类拒绝是消息，不是变体。** 任务在哪里被拒是拒它的那一方知道的，所以对端组成 *unauthorised* 与 *failed*、句柄组成 *unreachable* 与 *timed out*；`DispatchError::Failed(text)` 承载四者，这就是它们可区分而错误枚举不必长大的原因。
+
+**本批不做**（M6-1b）：接收侧（drain 分支、`"dispatch"` 声明检查、执行与回帧）、`/v0/tasks` 的参数、填槽的调用方读线程，以及两节点端到端测试。**能力边界是真实的、已记下**：没有 workgroup 的节点没有可派发的对端、也没有可收回复的读方，所以跨设备派发以「节点在某个 workgroup 里」为前提。
+
+**影响**：`agent/src/dispatch.rs`（`TaskId::next` 里唯一那处格式串）；`net/src/task.rs`（新增：`TaskFrame`、`TaskReply` 及其 body 与解析器 —— 只有标量与不透明 JSON，因为 `net` 不依赖 `agent`）加上 `net/src/relay.rs` 的四个 typed 发送方法与 `net/README` 一行；`host-core/src/dispatch.rs`（`RemoteAgentHandle`、`TaskReplies`、`TaskSender`、`REMOTE_DISPATCH_TIMEOUT = 30 秒`、`REPLY_POLL = 100 毫秒`）。**`audit` 未动，`compute_hash` / `verify_chain` / append-only 触发器未动，未加路由或能力名，未加依赖，也未写任何调度** —— 一帧出，一个答复或没有，由调用方判断（§5 的红线）。

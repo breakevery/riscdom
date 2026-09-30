@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **一个任务可以跨机器**（v1.0 批 CI / M6-1a，M6-1 的前一半）：`TaskId` 变为 `task-<device>-<pid>-<seq>`（与其它每一个身份同构，于是两个节点的任务不会撞号），`net` 多出一个跨机器任务旅行所需的两个 body（出去 `{"task": 1, …}`、回来 `{"task_reply": 1, …}`）与 typed 发送方法 —— 同侪之间的普通 §3 帧，这正是 §14.6 所说「M 没有自己的协议」—— 而 `host-core` 多出 **`RemoteAgentHandle`**，即 `AgentHandle` 那道缝预留的「远程那一个」。`run` 发一帧、通过一个共享槽等回复，并报告结果或四类可辨拒绝之一（不可达 / 未授权 / 执行失败 / 超时）。**无新 capability、无新路由、无新依赖、不写调度；`audit` 未动。** 接收侧、`/v0/tasks` 的参数与两节点端到端测试是 **M6-1b**。**决策 §142。**
+
 - **关键事件在发生的当下被推送**（v1.0 批 CE / M4e-2）：roadmap §4 的另一半 —— 审计按计划旅行，**且**关键事件当场就走。节点把一条作为寻址到服务器本身的普通 §3 帧推送（body `{ "key_event": 1, "at_ms": …, "action": …, "detail": … }`），每事件一帧；服务器在内存里每节点保留最新 **256 条**，按 `(action, at_ms)` 去重，且什么也不答。接在两个事实被写下的地方：**fork** 与**接管**。30 秒批次未变。**`audit` 未动、无新依赖、无新路由或能力。** 第三个触发器 —— **逐出** —— 没有生产者，所以机制立着，事件在等它的定义。**决策 §140。**
 
 - **一个关闭的段走到中心，中心重建并合并它**（v1.0 批 CC / M5-3c-2，M5 的终点）：代行者把刚关掉的段以一条流交给中心 —— 每事件一帧 §3 帧，外加一帧结束它 —— 载着每个事件自己的 `ts`/`actor`/`action`/`agent_id`/`detail`，区间是开启行与关闭行**之间**的那些行。中心以段到达时的名字（带命名空间的 `seg-<owner>-<ms>`）**收养** `segments` 行，写下 `audit-segments/<id>.db`，并**原样**调用 `merge_segment`；两台节点分别记下 `host.connection.segment_delivered` / `segment_rebuilt`。**`merge_segment`、`compute_hash`、`verify_chain` 与 append-only 触发器均未动**，而 `audit-v2` §2/§8 现在说明形状 (b) 如何跨两台机器。`audit` 多出 `open_segment_for` / `adopt_segment` / `events_in_range` / `last_id` / `safe_owner`。**决策 §139。**

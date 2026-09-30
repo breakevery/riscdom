@@ -407,6 +407,12 @@ current request authorising it (§2).
   written — a **fork** and a **takeover** — and the 30-second batch is unchanged. **`audit` untouched, no new
   dependency, no new route or capability.** The third trigger, an **ejection**, has no producer, so the
   mechanism stands and the event waits for its definition. **Decision §140.**
+- **And a task can cross a machine** (v1.0 batch CI / M6-1a, 2026-09-30): the first half of M6-1. `TaskId` is
+  now `task-<device>-<pid>-<seq>`; `net` carries a task as one §3 frame out (`{"task": 1, …}`) and one back
+  (`{"task_reply": 1, …}`), with typed send methods; `host-core` gains **`RemoteAgentHandle`** — the
+  `AgentHandle` seam's "remote one" — which sends one frame, waits on a shared reply slot, and reports the
+  outcome or one of four distinguishable refusals. **No new capability, route, dependency or scheduling.**
+  The receiving side, the `/v0/tasks` parameter and the two-node test are **M6-1b**. **Decision §142.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new
