@@ -4277,3 +4277,48 @@ frame is read) and the drain stops discarding a `segment_done` whose stream carr
 are not touched** — `verify_chain` is *called*, never changed — the append-only triggers, the route table,
 the 33-name capability vocabulary and the wire frames are untouched, no dependency is added, and
 **anchor continuity is M6-5-2b**: it needs the events' `hash`/`prev_hash` on the wire first.
+
+## 147. A stream's own hashes travel, and the anchor link is recorded as owed
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch CP / M6-5-2b)
+
+**Decision**: The third piece of M6-5, and it closes the **M6-5-2 line**. A `segment_event` body now carries
+the event's own `hash` and `prev_hash` — the source row's values, **moved across, never re-derived by the
+sender** — so the centre can check that the stream it was handed holds together of its own accord:
+
+- **`net::verify_linkage(events)`** (a pure function beside `verify_delivery`, reading **only** the events)
+  recomputes every event with **`audit::compute_hash` — called, never changed** — and the detail rendered
+exactly as the sender's `append` rendered it, and checks that each event continues from the one before it.
+  The last event needs nothing extra: recomputing it *is* the self-consistency check.
+- The verdict travels in two words, added to both events' detail. **`checked`** is the furthest check that
+  was **attempted** (`"skipped"`, `"delivery"`, `"delivery+chained"`) and **`linkage`** is the chaining
+  verdict (`"ok"`, `"broken"`, `"skipped"`).
+- **A sender that carries no hashes sits in a cross-version window**: the delivery is still checked, the
+  chaining is recorded as **skipped**, and the segment **merges**. Nothing is claimed — `checked` says
+  `"delivery"` and `linkage` says `"skipped"` — rather than refusing a peer that predates the field.
+- **A broken chain is refused like any other failure**: `chain_rejected`, no merge, no `forked`, the
+  segment's file kept, the row left `Closed`.
+
+**Why**: Three points. **Hashes are what makes the delivery self-proving.** M5-3c-2 deliberately left them
+behind (they belong to the sender's chain); adding them turns "these five fields arrived" into "this run of
+events recomputes and links", which is the difference between a transcription and a checked one. **The
+anchor link is impossible with what travels, and saying so is part of the work.** The anchor is the chain
+position *before* the `segment_opened` marker; a segment's delivered events are the span *after* it. So the
+first delivered event's `prev_hash` is the **marker's** hash — one link away from the anchor, and the marker
+is never delivered (it is the record of the segment's *life*, not one of its events). The plan that assumed
+`events[0].prev_hash == anchor_digest` was **false by construction**; batch CO found it at reconnaissance
+and the owner chose the **candid downgrade** over inventing a check: the linkage check proves the stream is a
+chain, never that it is a piece of the sender's chain, and the document says so (
+[cross-chain-verification.md §4](cross-chain-verification.md)) with the anchor link marked **owed**. **A
+missing field must not silently weaken a check.** Adding the hashes changes what can be demanded, so the
+first test is the delivery *and the rebuild* (unchanged from M6-5-2a) and only then the chaining — recording
+`"skipped"` before the delivery checks would undo M6-5-2a's empty-stream refusal.
+
+**Impact**: `net/src/suppression.rs` gains `LinkageProblem`, `verify_linkage`, the two members on
+`SegmentEvent` and their lenient reading, and `net/src/lib.rs` exports them; `audit/src/segment.rs`'s two
+chain detail builders take `checked` and `linkage`; `host-core/src/state.rs` moves the source row's hashes
+into the frame (`segment_frames`) and runs the third check in `receive_segment`. `docs/cross-chain-verification.md`
++ zh gain §4 and a §6 that lists the anchor link as owed. **`compute_hash` and `verify_chain` are not
+touched** — `compute_hash` is *called* — the append-only triggers, the route table, the capability
+vocabulary and the frame set are untouched, no dependency is added. **M6-5-3 (the conflict exit) and M6-5-4
+(summary chain / range proof / peer-to-peer) are untouched.**

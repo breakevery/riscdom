@@ -441,6 +441,17 @@ current request authorising it (§2).
   function), and **the events' hashes still do not travel**, so a pass is *checked*, never *proven*.
   **`compute_hash` / `verify_chain` / the triggers / the frames are untouched; anchor continuity is M6-5-2b.**
   **Decision §145.**
+- **And the stream proves its own chain — while the link it cannot prove is said out loud** (v1.0 batch CP /
+  M6-5-2b, 2026-09-30, **the end of the M6-5-2 line**): each `segment_event` now carries the `hash` and
+  `prev_hash` it was written with, and `net::verify_linkage` **recomputes** every event with `audit::compute_hash`
+  and checks it **continues from** the one before it. The verdict travels in two words — **`checked`**
+  (`"skipped"` / `"delivery"` / `"delivery+chained"`) and **`linkage`** (`"ok"` / `"broken"` / `"skipped"`) —
+  a broken chain is refused like any other failure, and a sender carrying **no** hashes is recorded as skipped
+  (the cross-version window) rather than refused. **The anchor link is impossible with what travels**: the
+  anchor sits *before* the `segment_opened` marker, so the first event's `prev_hash` is the **marker's** hash
+  — batch CO found that the planned equality was false by construction, and the owner chose the candid
+  downgrade, recorded as **owed by M6-5** in `docs/cross-chain-verification.md` §4. **`compute_hash` /
+  `verify_chain` untouched, no new frame, no dependency.** **Decision §147.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

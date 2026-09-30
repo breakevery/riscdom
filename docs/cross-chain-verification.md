@@ -2,7 +2,7 @@
 
 # Cross-chain verification
 
-> **Status** v1.0 specification (M6-5-1) ｜ **Date** 2026-09-30 ｜ **Audience** kernel developers, and whoever
+> **Status** v1.0 specification (M6-5-1, M6-5-2a, M6-5-2b) ｜ **Date** 2026-09-30 ｜ **Audience** kernel developers, and whoever
 > deploys more than one node.
 
 [roadmap §7](roadmap-v1.0.md) left **three questions open** and said so on purpose. [audit-v2 §5](audit-v2.md)
@@ -91,11 +91,41 @@ the ids and hashes belong to the sender's chain). A commitment to a head cannot 
 (§1), and there is no digest history to compare a past point against. So a passing check is recorded as
 **checked**, never as **proven**.
 
-**M6-5-2b is where the anchor continuity would be checked**, and it needs one more piece of evidence first:
-the events' own `hash` (and `prev_hash`) on the wire, which would let the centre recompute the sender's
-linkage from `anchor_digest` and refuse a stream that does not continue from it.
+## 4. The stream's own chain — and the link that is missing (M6-5-2b)
 
-## 4. The other two questions
+**[settled]** **Each event now carries the two hashes it was written with, and the centre recomputes them.**
+Since v1.0 M6-5-2b a `segment_event` body carries `hash` and `prev_hash` (the source row's own values, moved
+across, never re-derived by the sender), so the receiver can ask two more questions:
+
+- **does every event recompute** to the hash it claims — with `audit::compute_hash` **called, never
+  changed**, and the detail rendered exactly as the sender's `append` rendered it?
+- **does every event continue** from the one before it (`prev_hash` of *n* is the `hash` of *n-1*)?
+
+The last event needs nothing extra: recomputing it *is* the "its own hash is self-consistent" check. The
+verdict travels in the same two words as before, with one new value each:
+
+| what happened | `checked` | `linkage` |
+|---|---|---|
+| the stream recomputed and linked | `delivery+chained` | `ok` |
+| it did not (the merge is refused) | `delivery` | `broken` |
+| the sender carried no hashes (the **cross-version window**; it merges) | `delivery` | `skipped` |
+| the anchor had no length (it merges) | `skipped` | `skipped` |
+
+**[settled] The anchor itself is still not checked, and with what travels it cannot be — this is a remaining
+goal, not an oversight.** The anchor (`head_prev_chain`) is the chain position **before** the
+`segment_opened` marker, and a segment's delivered events are the span **after** that marker. So the first
+delivered event's `prev_hash` is the **marker's** hash, one link away from the anchor, and the centre never
+holds the marker: it is the record of the segment's *life*, not one of its events. An earlier plan assumed
+`events[0].prev_hash == anchor_digest`; it is **false by construction** — the two differ by exactly the
+`segment_opened` row. What would make it real is one more piece of evidence (the marker's own hash, or a
+redefinition of the anchor to *be* that hash), and that is recorded as **work still owed by M6-5**, not as
+something this batch delivers.
+
+**So the linkage check proves the stream is a chain, not that it is a piece of the sender's chain.** It
+catches an edited detail, a reordered or dropped event, and a stream stitched together from other streams —
+and it does not claim the anchor.
+
+## 5. The other two questions
 
 **Answer to (1): the summary chain is not needed for the anchor.** §2's choice answers (2) without one. A
 summary chain of its own `prev_hash` would answer a different question — what the *centre* was told, in order
@@ -109,11 +139,11 @@ rule), not "which of two acts is right". A **rule** would be policy — the call
 (roadmap §1). So M6-5-3 is **observability plus a manual tool**: a fork is visible and can be exported for a
 person to judge. No automatic adjudication, **M6**.
 
-## 5. What is not here yet
+## 6. What is not here yet
 
-- **No anchor-continuity check.** The events' hashes do not travel, so the centre cannot prove a segment
-  really continues from `anchor_digest`; §3's checks are what the delivery itself can be asked (M6-5-2b).
-- **No new wire field, and no new frame.** M6-5-2a reads the frames M5-3c-2 already sends.
+- **The anchor link** (see §4): tying the first event back to `anchor_digest` needs the `segment_opened`
+  marker's hash, which is not delivered. Recorded as **work still owed by M6-5**.
+- **No new frame.** M6-5-2a and M6-5-2b add members to frames M5-3c-2 already sends; nothing new is dialled.
 - **No summary chain, no `prev_hash` of its own, no range proof** (M6-5-4).
 - **No conflict rule** (M6-5-3), and no change to M5-2's exact test.
 - **No change to `ChainDigest`.** It stays a commitment to a head.
@@ -123,8 +153,9 @@ person to judge. No automatic adjudication, **M6**.
 
 **Frozen**: the anchor is a `(chain, length)` pair; `segments.head_prev_length` exists and is `NULL` for older
 rows; `anchor_digest` ≡ `head_prev_chain` (one value, two names, the old one never dropped); a delivered
-segment is checked **against its own end frame**, a segment whose anchor has no length is recorded as
-**skipped**, and a delivery that fails is **recorded and not merged** while its file stays; a conflict is
-forked, never adjudicated automatically. **Not frozen**: whether the events' hashes ever travel (M6-5-2b),
-whether the centre ever caches past digests (today it keeps only the newest), whether a range proof is ever
-wanted, and the shape of M6-5-3's tool.
+segment is checked **against its own end frame**, its events' own hashes are **recomputed and linked**, a
+segment whose anchor has no length — or whose sender carried no hashes — is recorded as **skipped**, and a
+delivery that fails is **recorded and not merged** while its file stays; a conflict is
+forked, never adjudicated automatically. **Not frozen**: whether the `segment_opened` marker's hash ever
+travels so the **anchor link** can be checked, whether the centre ever caches past digests (today it keeps
+only the newest), whether a range proof is ever wanted, and the shape of M6-5-3's tool.

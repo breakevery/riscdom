@@ -119,6 +119,8 @@ fn a_segment_stream_reaches_the_centre_through_the_relay() {
     let client = RelayClient::new("dev-a", a, &server_entry, config(Duration::from_secs(5)))
         .expect("client");
     let event = SegmentEvent {
+        hash: None,
+        prev_hash: None,
         segment_id: "seg-dev-a-1".to_string(),
         centre: "centre".to_string(),
         index: 0,

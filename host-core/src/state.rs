@@ -1609,6 +1609,10 @@ fn segment_frames(
             action: stored.event.action.clone(),
             agent_id: stored.event.agent_id.clone(),
             detail: stored.event.detail.clone(),
+            // The source row's own hashes (v1.0 M6-5-2b), **carried, not recomputed**: the centre needs
+            // them to see that the stream the sender cut out of its chain still holds together.
+            hash: Some(stored.hash.clone()),
+            prev_hash: Some(stored.prev_hash.clone()),
         })
         .collect();
     let done = net::SegmentDone {
@@ -1713,12 +1717,33 @@ fn receive_segment(
     // pretending (owner's point d). Whether these events were ever on the sender's chain is **not**
     // checked: it needs their hashes, and that is M6-5-2b.
     let skipped = done.anchor_length.is_none();
+    // Two words travel with the verdict (v1.0 M6-5-2b): `checked` is the furthest check that was
+    // **attempted**, and `linkage` is the chaining verdict. A segment whose anchor carries no length
+    // predates that column, so nothing is attempted at all (owner's point d).
+    let mut checked = "skipped";
+    let mut linkage = "skipped";
     let verdict: Result<(), String> = if skipped {
         Ok(())
     } else {
+        checked = "delivery";
         net::verify_delivery(this_node, done, events)
             .map_err(|problem| problem.reason())
             .and(rebuild)
+            .and_then(|()| match net::verify_linkage(events) {
+                Ok(()) => {
+                    checked = "delivery+chained";
+                    linkage = "ok";
+                    Ok(())
+                }
+                // No hashes: a sender that predates M6-5-2b sits in a **cross-version window**, and the
+                // honest answer is to record that rather than to refuse its segments. Nothing is claimed
+                // — the delivery was checked and the chaining was not.
+                Err(net::LinkageProblem::NoHash) => Ok(()),
+                Err(problem) => {
+                    linkage = "broken";
+                    Err(problem.reason())
+                }
+            })
     };
     let anchor_digest = done.head_prev_chain.as_deref();
     let anchor_length = done
@@ -1741,6 +1766,8 @@ fn receive_segment(
                 anchor_length,
                 events.len(),
                 reason,
+                checked,
+                linkage,
             ),
         );
         return Ok(());
@@ -1755,7 +1782,8 @@ fn receive_segment(
             anchor_digest,
             anchor_length,
             events.len(),
-            skipped,
+            checked,
+            linkage,
         ),
     );
     let outcome = {
@@ -8332,6 +8360,16 @@ mod tests {
             "the segment's events are on the centre's chain"
         );
         assert!(rows.len() > before, "the centre's chain only grew");
+        // The stream's own hashes recompute and link (v1.0 M6-5-2b): the furthest check ran and passed.
+        let verified = rows
+            .iter()
+            .find(|stored| stored.event.action == audit::ACTION_CHAIN_VERIFIED)
+            .expect("the delivery is checked");
+        assert_eq!(
+            verified.event.detail["checked"],
+            serde_json::json!("delivery+chained")
+        );
+        assert_eq!(verified.event.detail["linkage"], serde_json::json!("ok"));
         let row = centre
             .audit
             .lock()
@@ -8374,7 +8412,8 @@ mod tests {
         }
     }
 
-    /// One delivered event, at position `index` of `total`.
+    /// One delivered event, at position `index` of `total`, **without hashes** — what a sender that
+    /// predates M6-5-2b sends.
     fn delivered(index: usize, total: usize, n: i64) -> net::SegmentEvent {
         net::SegmentEvent {
             segment_id: "seg-dev-a-9".to_string(),
@@ -8386,6 +8425,30 @@ mod tests {
             action: "host.test.stood-in".to_string(),
             agent_id: None,
             detail: serde_json::json!({ "n": n }),
+            hash: None,
+            prev_hash: None,
+        }
+    }
+
+    /// Chain `frame` onto `prev` the way its sender did: the detail rendered as `append` renders it, and
+    /// the hash recomputed with the repository's own formula (v1.0 M6-5-2b).
+    fn chained(frame: net::SegmentEvent, prev: &str) -> net::SegmentEvent {
+        let detail_json = serde_json::to_string(&frame.detail).expect("json");
+        let hash = audit::compute_hash(
+            prev,
+            &audit::AuditEvent {
+                timestamp_ms: frame.ts,
+                actor: frame.actor.clone(),
+                action: frame.action.clone(),
+                detail: serde_json::Value::Null,
+                agent_id: None,
+            },
+            &detail_json,
+        );
+        net::SegmentEvent {
+            hash: Some(hash),
+            prev_hash: Some(prev.to_string()),
+            ..frame
         }
     }
 
@@ -8572,6 +8635,101 @@ mod tests {
         assert_eq!(row.state, audit::SegmentState::Folded);
     }
 
+    /// A delivery whose own chain does not hold together is **recorded and not merged** (v1.0 M6-5-2b):
+    /// the events carry their hashes, one of them no longer recomputes, and nothing of it reaches the
+    /// main chain while the segment's own file stays behind.
+    #[test]
+    fn a_delivery_whose_chain_does_not_hold_is_recorded_and_not_merged() {
+        let centre = state_with("delivery-unlinked", serde_json::json!({}));
+        let side = centre_side_for(&centre);
+        let done = delivery_done(2, Some(5));
+        let first = chained(delivered(0, 2, 1), "anchor-hash");
+        let second = chained(delivered(1, 2, 2), first.hash.as_deref().expect("hash"));
+        // A detail edited after its hash was taken: it no longer recomputes to what it claims.
+        let mut tampered = second.clone();
+        tampered.detail = serde_json::json!({ "n": 999 });
+
+        receive_segment(
+            &side,
+            "dev-me",
+            "dev-a",
+            &done,
+            &[first, tampered],
+            1_700_000_000_000,
+            None,
+        )
+        .expect("a refusal is an outcome, not an error");
+
+        let rows = centre.audit.lock().expect("audit").all().expect("events");
+        assert!(
+            !rows
+                .iter()
+                .any(|stored| stored.event.action == "host.test.stood-in"),
+            "nothing of an unlinked delivery reaches the main chain"
+        );
+        let rejected = rows
+            .iter()
+            .find(|stored| stored.event.action == audit::ACTION_CHAIN_REJECTED)
+            .expect("the refusal is recorded");
+        assert_eq!(
+            rejected.event.detail["checked"],
+            serde_json::json!("delivery")
+        );
+        assert_eq!(
+            rejected.event.detail["linkage"],
+            serde_json::json!("broken")
+        );
+        assert!(
+            rejected.event.detail["reason"]
+                .as_str()
+                .expect("a reason")
+                .contains("does not recompute"),
+            "{rejected:?}"
+        );
+        assert!(
+            audit::segment_db_path_in(&centre.workspace_root.join(".riscdom"), "seg-dev-a-9")
+                .exists()
+        );
+    }
+
+    /// A sender that predates the hashes sits in a **cross-version window**: the delivery is checked, the
+    /// chaining is recorded as skipped, and the segment still merges (v1.0 M6-5-2b).
+    #[test]
+    fn a_sender_that_predates_the_hashes_is_recorded_as_skipped() {
+        let centre = state_with("delivery-old-sender", serde_json::json!({}));
+        let side = centre_side_for(&centre);
+        let done = delivery_done(1, Some(5));
+        let frames = vec![delivered(0, 1, 1)];
+
+        receive_segment(
+            &side,
+            "dev-me",
+            "dev-a",
+            &done,
+            &frames,
+            1_700_000_000_000,
+            None,
+        )
+        .expect("a stream without hashes is still merged");
+
+        let rows = centre.audit.lock().expect("audit").all().expect("events");
+        let verified = rows
+            .iter()
+            .find(|stored| stored.event.action == audit::ACTION_CHAIN_VERIFIED)
+            .expect("the delivery is recorded");
+        assert_eq!(
+            verified.event.detail["checked"],
+            serde_json::json!("delivery")
+        );
+        assert_eq!(
+            verified.event.detail["linkage"],
+            serde_json::json!("skipped")
+        );
+        assert!(rows
+            .iter()
+            .any(|stored| stored.event.action == "host.test.stood-in"));
+    }
+
     /// The two key events that exist reach the server the moment they happen (v1.0 M4e-2): a fork, from
     /// the delivery path, and a takeover, from the suppression path. A real server and a real client, so
     /// the push is a real §3 frame.
@@ -8667,6 +8825,10 @@ mod tests {
             action: "host.test.clash".to_string(),
             agent_id: None,
             detail: clash,
+            // No hashes: a sender from before M6-5-2b, so the chaining is recorded as skipped and the
+            // delivery still merges (and so still forks).
+            hash: None,
+            prev_hash: None,
         }];
         receive_segment(
             &centre_sink,

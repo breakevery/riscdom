@@ -1547,3 +1547,18 @@ trait 属 v1.x 工作。
 **缘由**：三点。**没有记录的检查不是检查。** M5-3c-2 的交付以一次合并或一行 `eprintln!` 结束；两条链上都没有任何东西说清「到的东西站不站得住」，所以一个部署根本看不见一次坏交付。**诚实的边界也是答案的一部分。** 事件的哈希不上线（M5-3c-2 有意如此：id 与哈希属于发送方的链），所以中心无法声称那些事件曾在那个链上 —— 通过的检查记为**已检查**、绝不是**已证明**，而文档也要明说，而不是让事件名暗示更多。**一个空流是一个事实，不是空操作。** `total: 0` 说的是「这个段里什么都没发生」，合法、且过去被丢掉；`total: n` 说的是「事件正在来的路上」，它们的缺席是缺口。**依赖方向决定检查住哪**：`SegmentEvent` 与 `SegmentDone` 是 `net` 的形状，而 `audit` 是连接层依赖的叶子，所以信封检查是 `net::verify_delivery` 而非某个 `audit` 函数 —— `audit` 只多出两个事件名与它们的 detail 构造器，**完全没多出函数**。
 
 **影响**：`net/src/suppression.rs` 多出 `DeliveryProblem` 与 `verify_delivery`（纯函数，跑在它本已拥有的形状上），`net/src/lib.rs` 导出它们；`audit/src/segment.rs` 多出 `ACTION_CHAIN_VERIFIED` / `ACTION_CHAIN_REJECTED` 与 `chain_verified_detail` / `chain_rejected_detail`；`host-core/src/state.rs` 在 `receive_segment` 里检查交付（它多收一个 `this_node`，好让信封在读帧的地方就能验），而 drain 不再丢弃「流里什么也没带」的 `segment_done`（`unwrap_or_default`）。`docs/cross-chain-verification.md` + zh 多出 §3。**`compute_hash` 与 `verify_chain` 未被触碰** —— `verify_chain` 是被**调用**、从未被修改 —— append-only 触发器、路由表、33 名能力词汇表与线上帧都未动，未加依赖，而**锚点连续性是 M6-5-2b**：它需要先把事件的 `hash`/`prev_hash` 放上线。
+
+## 147. 流自己的哈希上线了，而锚点那一环记为「尚欠」
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 CP / M6-5-2b）
+
+**决策**：M6-5 的第三片，也是**M6-5-2 整条线的收尾**。`segment_event` body 现在带事件自己的 `hash` 与 `prev_hash` —— 源行的值，**被搬过来、发送方不重导** —— 于是中心可以检查「送到手里的这个流自身是否站得住」：
+
+- **`net::verify_linkage(events)`**（`verify_delivery` 旁边的纯函数，**只**读事件）用 **`audit::compute_hash` —— 调用、从不修改** —— 与「与发送方 `append` 完全相同的 detail 渲染」重算每个事件，并检查每个事件承接前一个。末条不需要额外的东西：重算它*就是*自洽性检查。
+- 裁决以两个词随事件 detail 走。**`checked`** 是**尝试过的**最远的检查（`"skipped"`、`"delivery"`、`"delivery+chained"`），而 **`linkage`** 是链接裁决（`"ok"`、`"broken"`、`"skipped"`）。
+- **不带哈希的发送方处于跨版本窗**：交付照常被验、链接记为 **skipped**、段**照常并入**。什么都没被声称 —— `checked` 是 `"delivery"`、`linkage` 是 `"skipped"` —— 而不是去拒一个早于该字段的同佯。
+- **断链与其他失败一样被拒**：`chain_rejected`、不 merge、不 forked、段文件保留、行停在 `Closed`。
+
+**缘由**：三点。**哈希是让交付自证的东西。** M5-3c-2 有意把它们留在身后（它们属于发送方的链）；把它们加上，就把「这五个字段到了」变成「这一串事件重算得出且链接得上」—— 转录与被检过的转录之差。**以现有交付物，锚点那一环不可能验，而说出来是这项工作的一部分。** 锚点是 `segment_opened` 标记**之前**的链位置；一个段被交付的事件是该标记**之后**的那一段。所以第一条被交付事件的 `prev_hash` 是**标记**的哈希 —— 离锚点差一环，而标记从不被交付（它是该段*生命*的记录、不是它的事件之一）。那个假定 `events[0].prev_hash == anchor_digest` 的计划**按构造就是假的**；批 CO 在侦察时发现，owner 选了**诚实的降级**而不是造一个检查：这份链接检查证明流是一条链，绝不证明它是发送方链上的一段，文档也这么写（[cross-chain-verification.md §4](cross-chain-verification.zh-CN.md)），并把锚点那一环标为**尚欠**。**一个缺失字段不得静默削弱一个检查。** 加上哈希改变了能被要求的范围，所以第一道仍是交付**与重建**（与 M6-5-2a 一样），之后才是链接 —— 把哈希测试放到前面、记 `"skipped"`，会把 M6-5-2a 的空流拒绝撤销掉。
+
+**影响**：`net/src/suppression.rs` 多出 `LinkageProblem`、`verify_linkage`、`SegmentEvent` 的两个成员与其宽松读取，`net/src/lib.rs` 导出它们；`audit/src/segment.rs` 的两个 chain detail 构造器收 `checked` 与 `linkage`；`host-core/src/state.rs` 把源行的哈希搬进帧（`segment_frames`）并在 `receive_segment` 里跑第三道检查。`docs/cross-chain-verification.md` + zh 多出 §4 与一个列出「锚点那一环尚欠」的 §6。**`compute_hash` 与 `verify_chain` 未被触碰** —— `compute_hash` 是被*调用* —— append-only 触发器、路由表、能力词汇表与帧集合都未动，未加依赖。**M6-5-3（冲突出口）与 M6-5-4（汇总链 / 区间证明 / 点对点）未动。**

@@ -302,17 +302,28 @@ pub fn segment_forked_detail(
     })
 }
 
-/// The detail of a [`ACTION_CHAIN_VERIFIED`] event (v1.0 M6-5-2a): the delivery, and what was checked.
+/// The detail of a [`ACTION_CHAIN_VERIFIED`] event (v1.0 M6-5-2a; the chaining word added in M6-5-2b): the
+/// delivery, and what was checked.
 ///
-/// `checked` is `"delivery"` when both the envelope and the rebuild held, and `"skipped"` when the
-/// segment's anchor carried no length — the honest word for "nothing was checked here".
+/// Two words, because two different things can be true at once:
+///
+/// - **`checked`** — the furthest check that was *attempted*: `"skipped"` (nothing), `"delivery"` (the
+///   envelope and the rebuild), or `"delivery+chained"` (those **and** the stream's own hashes recomputed
+///   and linked).
+/// - **`linkage`** — the chaining verdict: `"ok"`, `"broken"`, or `"skipped"` (not attempted, or nothing
+///   to chain).
+///
+/// Neither word ever claims the anchor: tying the first event back to it is a **remaining goal**
+/// ([cross-chain-verification.md](../../docs/cross-chain-verification.md)), because the link between them is
+/// the `segment_opened` marker, which is not delivered.
 pub fn chain_verified_detail(
     segment_id: &str,
     from: &str,
     anchor_digest: Option<&str>,
     anchor_length: Option<i64>,
     events: usize,
-    skipped: bool,
+    checked: &str,
+    linkage: &str,
 ) -> serde_json::Value {
     serde_json::json!({
         "segment_id": segment_id,
@@ -320,11 +331,17 @@ pub fn chain_verified_detail(
         "anchor_digest": anchor_digest,
         "anchor_length": anchor_length,
         "events": events,
-        "checked": if skipped { "skipped" } else { "delivery" },
+        "checked": checked,
+        "linkage": linkage,
     })
 }
 
-/// The detail of a [`ACTION_CHAIN_REJECTED`] event (v1.0 M6-5-2a): the delivery, and why it was refused.
+/// The detail of a [`ACTION_CHAIN_REJECTED`] event (v1.0 M6-5-2a; the two words added in M6-5-2b): the
+/// delivery, and why it was refused.
+///
+/// The arguments are the delivery's own facts, one per field of the detail: grouping them would be a second
+/// description of something that already has one (the same reason `dispatch_task` keeps its flat list).
+#[allow(clippy::too_many_arguments)]
 pub fn chain_rejected_detail(
     segment_id: &str,
     from: &str,
@@ -332,6 +349,8 @@ pub fn chain_rejected_detail(
     anchor_length: Option<i64>,
     events: usize,
     reason: &str,
+    checked: &str,
+    linkage: &str,
 ) -> serde_json::Value {
     serde_json::json!({
         "segment_id": segment_id,
@@ -340,6 +359,8 @@ pub fn chain_rejected_detail(
         "anchor_length": anchor_length,
         "events": events,
         "reason": reason,
+        "checked": checked,
+        "linkage": linkage,
     })
 }
 

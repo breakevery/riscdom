@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A segment's events carry their own hashes, and the centre recomputes them** (v1.0 batch CP / M6-5-2b, the
+  end of the M6-5-2 line): each `segment_event` now travels with the `hash` and `prev_hash` it was written
+  with, so `net::verify_linkage` can **recompute** every event with `audit::compute_hash` (called, never
+  changed) and check that it **continues from** the one before it. The verdict travels in two words on
+  `host.audit.chain_verified` / `chain_rejected`: **`checked`** (`"skipped"` / `"delivery"` /
+  `"delivery+chained"`) and **`linkage`** (`"ok"` / `"broken"` / `"skipped"`). A broken chain is refused
+  exactly like any other failure (no merge, no `forked`, the file kept); a sender that carries **no** hashes
+  sits in a **cross-version window** — the delivery is checked, the chaining is recorded as skipped, and the
+  segment still merges. **The anchor link is not checked and cannot be with what travels** — the anchor is
+  the position *before* the `segment_opened` marker, so the first event's `prev_hash` is the marker's hash;
+  that is recorded as **owed by M6-5**, in `docs/cross-chain-verification.md` §4, rather than pretended.
+  **`compute_hash` and `verify_chain` are untouched, no new frame, no dependency.** **Decision §147.**
+
 - **A delivered segment is checked, and a refusal is recorded** (v1.0 batch CN / M6-5-2a, the second piece of
   cross-chain verification): a segment arriving at its centre is now checked between being rebuilt and being
   merged — **the envelope** (every position `0..total` exactly once, addressed to this node) and **the

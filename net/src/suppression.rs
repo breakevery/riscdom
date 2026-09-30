@@ -280,11 +280,14 @@ pub fn is_takeover(body: &Value) -> Option<Takeover> {
     })
 }
 
-/// One event of a closed segment, on its way to the centre (v1.0 M5-3c-2).
+/// One event of a closed segment, on its way to the centre (v1.0 M5-3c-2; its hashes travel as of
+/// M6-5-2b).
 ///
 /// A stand-in's events were written to its own main chain, and the centre merges them by transcription.
-/// What travels is not the source row (its `id` and hashes belong to the sender's chain) but the five
-/// fields that decide what the transcription writes: when, who, what, the detail, and the agent.
+/// What travels is not the source *row* — its `id` belongs to the sender's chain and stays behind — but
+/// the five fields that decide what the transcription writes (when, who, what, the detail, the agent)
+/// **plus its two hashes**, which are what lets the centre recompute the sender's own chain and see that
+/// the stream holds together (M6-5-2b).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SegmentEvent {
     /// The segment it belongs to — the name it was opened under.
@@ -305,6 +308,12 @@ pub struct SegmentEvent {
     pub agent_id: Option<String>,
     /// The event's detail, verbatim.
     pub detail: Value,
+    /// The event's own hash on the sender's chain (v1.0 M6-5-2b). `None` from a sender that predates the
+    /// field — which is the "cross-version window" the receiver records rather than pretending to check.
+    pub hash: Option<String>,
+    /// The hash the event was chained onto (v1.0 M6-5-2b): the hash of the event before it, or — for the
+    /// first event — the marker the segment was opened with.
+    pub prev_hash: Option<String>,
 }
 
 /// The end of a segment's stream (v1.0 M5-3c-2).
@@ -346,6 +355,8 @@ pub fn segment_event_body(event: &SegmentEvent) -> Value {
         "action": event.action,
         "agent_id": event.agent_id,
         "detail": event.detail,
+        "hash": event.hash,
+        "prev_hash": event.prev_hash,
     })
 }
 
@@ -370,6 +381,13 @@ pub fn is_segment_event(body: &Value) -> Option<SegmentEvent> {
             .and_then(Value::as_str)
             .map(str::to_string),
         detail: body.get("detail")?.clone(),
+        // The two hashes are **lenient** (absent or `null` means "the sender did not say"), so a stream
+        // from a sender that predates M6-5-2b still reads (v1.0 M6-5-2b).
+        hash: body.get("hash").and_then(Value::as_str).map(str::to_string),
+        prev_hash: body
+            .get("prev_hash")
+            .and_then(Value::as_str)
+            .map(str::to_string),
     })
 }
 
@@ -447,6 +465,110 @@ pub fn verify_delivery(
             expected: done.total,
             found,
         });
+    }
+    Ok(())
+}
+
+/// Why a delivered segment's own chain did not hold together (v1.0 M6-5-2b).
+///
+/// The check is **internal to the stream**: the events carry the hashes they were written with, so the
+/// receiver can recompute them and see that each one follows the last. What it cannot do is tie the first
+/// one back to the segment's anchor — the anchor is the chain position *before* the `segment_opened`
+/// marker, which is not delivered, so there is a link the centre never holds. That is recorded as a
+/// **remaining goal**, not pretended away.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkageProblem {
+    /// The events carry no hashes, so nothing can be chained: a sender that predates M6-5-2b, or a stream
+    /// that carried nothing at all.
+    NoHash,
+    /// Event `at` does not continue from the event before it.
+    Chain {
+        at: usize,
+        expected: String,
+        found: String,
+    },
+    /// Event `at` does not recompute to the hash it claims.
+    Hash { at: usize },
+    /// Event `at`'s detail could not be rendered the way it was written.
+    Detail { at: usize, reason: String },
+}
+
+impl LinkageProblem {
+    /// One sentence, for an event's detail and for a log line.
+    pub fn reason(&self) -> String {
+        match self {
+            LinkageProblem::NoHash => "the events carried no hashes".to_string(),
+            LinkageProblem::Chain {
+                at,
+                expected,
+                found,
+            } => format!(
+                "event {at} continues from {found}, and the event before it ends at {expected}"
+            ),
+            LinkageProblem::Hash { at } => {
+                format!("event {at} does not recompute to the hash it claims")
+            }
+            LinkageProblem::Detail { at, reason } => {
+                format!("event {at} could not be rendered as it was written: {reason}")
+            }
+        }
+    }
+}
+
+/// Check that a stream's events are a **chain of their own** (v1.0 M6-5-2b).
+///
+/// Pure, and it reads only the events — no anchor, because the anchor is a link the receiver does not
+/// hold. Two things, and they are what the sender's own chain can be asked:
+///
+/// - every event **recomputes** to the hash it claims, with the formula the repository already has
+///   ([`audit::compute_hash`] is **called, never changed**) and the detail rendered exactly as the
+///   sender's `append` rendered it ([`serde_json::to_string`]);
+/// - every event **continues from** the one before it (`prev_hash` of `n` is the `hash` of `n - 1`).
+///
+/// The last event needs nothing extra: recomputing it *is* the "its own hash is self-consistent" check.
+/// A stream with no hashes answers [`LinkageProblem::NoHash`], which the caller turns into a recorded
+/// **skip** rather than a refusal — that is the cross-version window a sender predating this field sits in.
+pub fn verify_linkage(events: &[SegmentEvent]) -> Result<(), LinkageProblem> {
+    if events.is_empty()
+        || events
+            .iter()
+            .any(|event| event.hash.is_none() || event.prev_hash.is_none())
+    {
+        return Err(LinkageProblem::NoHash);
+    }
+    for (at, event) in events.iter().enumerate() {
+        let hash = event.hash.as_deref().unwrap_or_default();
+        let prev_hash = event.prev_hash.as_deref().unwrap_or_default();
+        if at > 0 {
+            let before = events[at - 1].hash.as_deref().unwrap_or_default();
+            if prev_hash != before {
+                return Err(LinkageProblem::Chain {
+                    at,
+                    expected: before.to_string(),
+                    found: prev_hash.to_string(),
+                });
+            }
+        }
+        let detail_json =
+            serde_json::to_string(&event.detail).map_err(|error| LinkageProblem::Detail {
+                at,
+                reason: error.to_string(),
+            })?;
+        let recomputed = audit::compute_hash(
+            prev_hash,
+            &audit::AuditEvent {
+                timestamp_ms: event.ts,
+                actor: event.actor.clone(),
+                action: event.action.clone(),
+                // Neither of these is an input to the formula — `verify_chain` feeds it the same way.
+                detail: Value::Null,
+                agent_id: None,
+            },
+            &detail_json,
+        );
+        if recomputed != hash {
+            return Err(LinkageProblem::Hash { at });
+        }
     }
     Ok(())
 }
@@ -744,6 +866,8 @@ mod tests {
             action: "host.test.x".to_string(),
             agent_id: None,
             detail: serde_json::json!({ "n": index }),
+            hash: None,
+            prev_hash: None,
         };
 
         // Both positions, once each: it passes, in either arrival order.
@@ -799,6 +923,74 @@ mod tests {
             Err(elsewhere.clone())
         );
         assert!(elsewhere.reason().contains("dev-me"), "{elsewhere:?}");
+    }
+
+    /// A stream's own hashes are recomputed and linked, with nothing but the events (v1.0 M6-5-2b).
+    #[test]
+    fn a_stream_of_events_is_a_chain_of_its_own() {
+        let build = |index: usize, prev: &str, n: i64| {
+            let detail = serde_json::json!({ "n": n });
+            let detail_json = serde_json::to_string(&detail).expect("json");
+            let hash = audit::compute_hash(
+                prev,
+                &audit::AuditEvent {
+                    timestamp_ms: T0 + index as i64,
+                    actor: "host".to_string(),
+                    action: "host.test.x".to_string(),
+                    detail: serde_json::Value::Null,
+                    agent_id: None,
+                },
+                &detail_json,
+            );
+            SegmentEvent {
+                segment_id: "seg-dev-a-1".to_string(),
+                centre: "centre".to_string(),
+                index,
+                total: 2,
+                ts: T0 + index as i64,
+                actor: "host".to_string(),
+                action: "host.test.x".to_string(),
+                agent_id: None,
+                detail,
+                hash: Some(hash),
+                prev_hash: Some(prev.to_string()),
+            }
+        };
+        let first = build(0, "anchor", 1);
+        let second = build(1, first.hash.as_deref().expect("hash"), 2);
+        assert_eq!(verify_linkage(&[first.clone(), second.clone()]), Ok(()));
+
+        // No hashes at all: nothing can be chained, and the caller records a skip.
+        let bare = |mut event: SegmentEvent| {
+            event.hash = None;
+            event.prev_hash = None;
+            event
+        };
+        assert_eq!(verify_linkage(&[]), Err(LinkageProblem::NoHash));
+        assert_eq!(
+            verify_linkage(&[bare(first.clone())]),
+            Err(LinkageProblem::NoHash)
+        );
+
+        // A tampered detail no longer recomputes to the hash it claims.
+        let mut tampered = second.clone();
+        tampered.detail = serde_json::json!({ "n": 999 });
+        assert_eq!(
+            verify_linkage(&[first.clone(), tampered]),
+            Err(LinkageProblem::Hash { at: 1 })
+        );
+
+        // An event that recomputes but does not continue from the one before it breaks the chain.
+        let detached = build(1, "somewhere-else", 2);
+        assert_eq!(
+            verify_linkage(&[first.clone(), detached]),
+            Err(LinkageProblem::Chain {
+                at: 1,
+                expected: first.hash.clone().expect("hash"),
+                found: "somewhere-else".to_string(),
+            })
+        );
+        assert!(LinkageProblem::NoHash.reason().contains("no hashes"));
     }
 
     #[test]
