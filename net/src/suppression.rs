@@ -23,7 +23,9 @@
 //! line* is §33's precedence — pinned by the owner to **`node_id` order** for v1.0 (no registration-frame
 //! field), so [`first_in_line`] is a sort and not a protocol.
 
-use crate::liveness::{Judgement, WitnessTable};
+use crate::liveness::{Judgement, Report, WitnessTable};
+use crate::message::PROTOCOL_VERSION;
+use serde_json::Value;
 use std::time::Duration;
 
 /// The first layer's window: how long a node silently retries before it will even ask the group
@@ -215,6 +217,55 @@ pub fn backoff_delay_ms(node_id: &str, now: i64) -> i64 {
     (hash % (window + 1)) as i64
 }
 
+/// A **centre report** out of a body, when the body is a §6.7 report **about `centre`** (v1.0 M5-3b-1).
+///
+/// Nodes send each other the same `{"unreachable": …}` / `{"reachable": …}` bodies §6.7 sends upward, so
+/// the only new thing on the receiving side is the filter: a report about some other peer is that peer's
+/// business, and a report about the centre is the suppression's.
+pub fn centre_report_from(body: &Value, centre: &str) -> Option<Report> {
+    crate::liveness::report_of(body).filter(|report| report.node_id() == centre)
+}
+
+/// A **takeover broadcast**: a node announcing that it is standing in for the centre (v1.0 M5-3b-1).
+///
+/// §33's third layer is "the first in line waits a random backoff and **stands down the moment it sees a
+/// takeover broadcast**", so the broadcast is what the third layer reacts to. It travels **between peers**
+/// (the same workgroup, point to point) and never to the cross-region server: the nodes that must stand down
+/// are the ones in the workgroup, and the server is not in one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Takeover {
+    /// The centre being stood in for.
+    pub centre: String,
+    /// The node doing it.
+    pub by: String,
+    /// When it said so (the sender's clock).
+    pub at_ms: i64,
+}
+
+/// The body a takeover broadcast travels as (v1.0 M5-3b-1).
+///
+/// An ordinary §3 frame's body, like §6.6's registration and §6.7's reports — the shape is this batch's.
+pub fn takeover_body(centre: &str, by: &str, at_ms: i64) -> Value {
+    serde_json::json!({
+        "takeover": PROTOCOL_VERSION,
+        "centre": centre,
+        "by": by,
+        "at_ms": at_ms,
+    })
+}
+
+/// Read a takeover broadcast out of a body, when the body is one.
+pub fn is_takeover(body: &Value) -> Option<Takeover> {
+    if body.get("takeover").and_then(Value::as_u64) != Some(u64::from(PROTOCOL_VERSION)) {
+        return None;
+    }
+    Some(Takeover {
+        centre: body.get("centre").and_then(Value::as_str)?.to_string(),
+        by: body.get("by").and_then(Value::as_str)?.to_string(),
+        at_ms: body.get("at_ms").and_then(Value::as_i64)?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,5 +411,65 @@ mod tests {
         assert_eq!(machine.phase(), SuppressionPhase::BackingOff);
         assert_ne!(machine.phase(), SuppressionPhase::StandingIn);
         assert_eq!(SuppressionPhase::StandingIn.as_str(), "standing-in");
+    }
+
+    #[test]
+    fn the_takeover_body_round_trips_and_is_not_confused_with_anything_else() {
+        let body = takeover_body("centre", "dev-a", T0);
+        assert_eq!(
+            is_takeover(&body),
+            Some(Takeover {
+                centre: "centre".to_string(),
+                by: "dev-a".to_string(),
+                at_ms: T0
+            })
+        );
+        // §6.7's bodies are not broadcasts, and one member missing means the body is not one either.
+        assert_eq!(is_takeover(&crate::liveness::probe_body()), None);
+        assert_eq!(
+            is_takeover(&crate::liveness::unreachable_body("centre")),
+            None
+        );
+        assert_eq!(is_takeover(&serde_json::json!({ "takeover": 1 })), None);
+    }
+
+    #[test]
+    fn only_a_report_about_the_centre_is_the_suppressions() {
+        assert_eq!(
+            centre_report_from(&crate::liveness::unreachable_body("centre"), "centre"),
+            Some(Report::Unreachable("centre".to_string()))
+        );
+        assert_eq!(
+            centre_report_from(&crate::liveness::reachable_body("centre"), "centre"),
+            Some(Report::Reachable("centre".to_string()))
+        );
+        // A report about another peer is that peer's business...
+        assert_eq!(
+            centre_report_from(&crate::liveness::unreachable_body("dev-b"), "centre"),
+            None
+        );
+        // ...and nothing else reads as one.
+        assert_eq!(
+            centre_report_from(&crate::liveness::probe_body(), "centre"),
+            None
+        );
+        assert_eq!(
+            centre_report_from(&takeover_body("centre", "dev-a", T0), "centre"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_takeover_broadcast_stands_a_confirming_node_down() {
+        let mut machine = Suppression::new("dev-a", T0);
+        machine.observe(false, T0);
+        machine.observe(false, T0 + WAIT_MS);
+        assert_eq!(machine.phase(), SuppressionPhase::Confirming);
+        // The broadcast arrives (v1.0 M5-3b-1): §33's third layer — and the machine is a candidate again.
+        let heard =
+            is_takeover(&takeover_body("centre", "dev-b", T0 + WAIT_MS)).expect("a broadcast");
+        assert_eq!(heard.by, "dev-b");
+        machine.stand_down(T0 + WAIT_MS + 1);
+        assert_eq!(machine.phase(), SuppressionPhase::Candidate);
     }
 }

@@ -365,6 +365,13 @@ current request authorising it (§2).
   reachability published by the probe thread. **Local state only**: no chain, no segment, nothing in `audit`
   touched. The takeover and the broadcast are M5-3b, the return and merge M5-3c. `connection.md` + zh gain
   §6.8. **Decision §134.**
+- **And the centre's reports travel between peers** (v1.0 batch BW / M5-3b-1, 2026-09-30): the suppression
+  machine is no longer inert. A node sends its workgroup neighbours the same `{"unreachable": …}` /
+  `{"reachable": …}` reports §6.7 sends upward — addressed **sideways** (`report_to`) — and each node keeps
+  **its own witness table** with the **centre** as the subject, so §6.7's rule decides locally. The **takeover
+  broadcast** is a new body (`{ "takeover": 1, "centre": …, "by": …, "at_ms": … }`); hearing one **stands the
+  node down**. **The cross-region server is asked for nothing**; `audit` is untouched. Standing in and
+  *sending* the broadcast are M5-3b-2; the return and merge are M5-3c. **Decision §135.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

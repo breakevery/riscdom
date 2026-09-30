@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The centre's reports travel between peers** (v1.0 batch BW / M5-3b-1): the suppression machine is no longer
+  inert. A node sends its workgroup neighbours the same `{"unreachable": …}` / `{"reachable": …}` reports
+  §6.7 sends upward — addressed **sideways** (`report_to`) — and each node keeps **its own witness table** with
+  the **centre** as the subject, so §6.7's rule decides locally. The **takeover broadcast** is a new body
+  (`{ "takeover": 1, "centre": …, "by": …, "at_ms": … }`); hearing one **stands the node down**. **The
+  cross-region server is asked for nothing.** `audit` is untouched. Standing in and *sending* the broadcast are
+  M5-3b-2. `connection.md` + zh §6.8 updated. **Decision §135.**
+
 - **Three layers stand between a suspicion and a stand-in** (v1.0 batch BU / M5-3a): `net` gains the
   **suppression machine** — `SUPPRESSION_WAIT = 60 s`, `SUPPRESSION_BACKOFF_MAX = 30 s`, `SuppressionPhase`
   (`candidate` / `waiting` / `confirming` / `backing-off` / `standing-in`), precedence by **`node_id` order**,

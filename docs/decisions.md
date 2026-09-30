@@ -3900,3 +3900,35 @@ and a `centre_reachable` slot the probe thread publishes into (`Probe::start` ta
 the capability vocabulary and `audit` are untouched** — this batch opens no segment and merges none — and no
 registration-frame field is added. The takeover, the broadcast and the segment wiring are **M5-3b**; the
 return and the merge are **M5-3c**.
+
+## 135. The centre's reports travel between peers, and the broadcast is one frame
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch BW / M5-3b-1)
+
+**Decision**: §33's suppression is no longer inert. The reports that feed the second layer travel
+**between peers**: a node sends its workgroup neighbours the same `{"unreachable": …}` / `{"reachable": …}`
+bodies §6.7 sends upward — addressed **sideways** (`RelayClient::report_to`) — and each node keeps **its own
+`WitnessTable`** with the **centre** as the subject, so §6.7's rule decides locally (one table, two subjects:
+a peer's reachability upward, the centre's here). The **takeover broadcast** is a new body,
+`{ "takeover": 1, "centre": …, "by": …, "at_ms": … }`, and it too travels only between peers; a node that
+hears one **stands down** ([`Suppression::stand_down`]). The third layer's sender side — a node *sending* the
+broadcast — is **M5-3b-2**. **The cross-region server is asked for nothing**: §6's four roles and every frame
+it knows are unchanged.
+
+**Why**: Three points. **The centre is the node that is not answering.** §6.7's reports go to a server, and
+the server whose reachability we are testing *is* the gone one, so the direction had to change — and the
+peer, which is up by definition (it just spoke), is the only receiver that works. **N² is not new here.**
+§6.7's probe is already every node probing every workgroup peer, so addressing the same reports sideways adds
+no new order of traffic to a LAN. **Nothing new on the server.** Summing the reports upward would have needed
+a verdict pushed back down — a behaviour §6's frozen four roles do not have — so the confirmation is done
+where the evidence already arrives: locally.
+
+**Impact**: `net/src/suppression.rs` gains `Takeover`, `takeover_body` / `is_takeover` and
+`centre_report_from`; `net/src/relay.rs` gains `RelaySession::report_to` / `RelayClient::report_to`;
+`host-core` reaches the delivery from its probe thread — a `CentreWatch` bundle (`centre`, `reachable`,
+`peers_reachable`, `witnesses`, `takeover_heard`), the receive loop feeding the local table and recording a
+heard broadcast, the cycle sending this node's own centre report to each peer, and the ticker consuming the
+broadcast (`stand_down`) and calling `confirm` with §6.7's rule once the phase is `confirming`.
+`docs/connection.md` + zh §6.8 are updated. **`audit` is untouched** (no segment is opened here), and so are
+`compute_hash`, `verify_chain`, the append-only triggers, the routes and the capability vocabulary. Standing
+in, sending the broadcast and the segment wiring are **M5-3b-2**; the return and the merge are **M5-3c**.

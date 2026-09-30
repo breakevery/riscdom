@@ -917,6 +917,15 @@ pub struct AppState {
     /// probe thread, read by the suppression machine — one slot, so the two never disagree about what the
     /// node last saw (v1.0 M5-3a).
     centre_reachable: Arc<Mutex<Option<bool>>>,
+    /// Which workgroup peers this node's probes currently hold reachable (v1.0 M5-3b-1). §6.7's rule counts
+    /// only witnesses that are **themselves reachable**, and this is the same probe view that says so.
+    peers_reachable: Arc<Mutex<std::collections::BTreeSet<String>>>,
+    /// The peers' reports about the **centre** (v1.0 M5-3b-1): §6.7's table, one per node, with the centre
+    /// as its subject. Handles to it share the same records.
+    centre_witnesses: net::WitnessTable,
+    /// The last takeover broadcast heard, and when (v1.0 M5-3b-1) — written by the probe thread, consumed by
+    /// the suppression machine, so the two threads share a fact without sharing a lock order.
+    takeover_heard: Arc<Mutex<Option<i64>>>,
     /// This node's **server role**, when its settings configure one (v1.0 AC-4).
     ///
     /// The same `RelayServer` the standalone `riscdom-relay` deployment runs, embedded in this
@@ -1059,6 +1068,27 @@ impl Drop for Heartbeat {
 }
 
 /// The probe thread (v1.0 V-3a): §6.7's prober, at the beat's cadence but a different job.
+/// What the probe thread and the suppression machine share about the centre (v1.0 M5-3b-1).
+///
+/// One bundle, so the two threads hold the same handles rather than a lock order: the probe thread **writes**
+/// what it sees (the centre's reachability, which peers are up, the peers' reports, a broadcast it heard),
+/// and the suppression machine **reads** it.
+#[derive(Clone)]
+struct CentreWatch {
+    /// This node's own name — the machine's identity, for precedence and the backoff.
+    me: String,
+    /// The centre this node watches.
+    centre: String,
+    /// What this node's own probes say about it.
+    reachable: Arc<Mutex<Option<bool>>>,
+    /// Which peers are reachable right now.
+    peers_reachable: Arc<Mutex<std::collections::BTreeSet<String>>>,
+    /// The peers' reports about the centre.
+    witnesses: net::WitnessTable,
+    /// When a takeover broadcast was heard, if one was.
+    takeover_heard: Arc<Mutex<Option<i64>>>,
+}
+
 ///
 /// **Separate from [`Heartbeat`], and sharing its client.** Both are 15 s, but the beat only
 /// *sends* while the prober has to *read* — to catch `{"alive": 1}` and to answer a `{"probe": 1}`
@@ -1088,8 +1118,7 @@ impl Probe {
         keys: net::PeerKeys,
         node_id: String,
         interval: Duration,
-        centre: Option<String>,
-        centre_reachable: Arc<Mutex<Option<bool>>>,
+        watch: Option<CentreWatch>,
     ) -> Self {
         let (stop, signal) = std::sync::mpsc::channel::<()>();
         let join = std::thread::spawn(move || {
@@ -1126,6 +1155,23 @@ impl Probe {
                                     let _ = client.answer_alive(&message.from);
                                 } else if net::is_alive(&message.body) {
                                     answered.insert(message.from.clone());
+                                } else if let Some(watch) = &watch {
+                                    // A peer's report about the centre, or a takeover broadcast (v1.0
+                                    // M5-3b-1). Both travel **between peers**, never to the server.
+                                    if let Some(report) =
+                                        net::centre_report_from(&message.body, &watch.centre)
+                                    {
+                                        watch.witnesses.record(
+                                            &message.from,
+                                            &watch.centre,
+                                            report.reachable(),
+                                            now,
+                                        );
+                                    } else if net::is_takeover(&message.body).is_some() {
+                                        if let Ok(mut slot) = watch.takeover_heard.lock() {
+                                            *slot = Some(now);
+                                        }
+                                    }
                                 }
                             }
                             Ok(None) => break,
@@ -1149,12 +1195,37 @@ impl Probe {
                 for report in prober.pulse() {
                     let _ = client.report(&report);
                 }
-                // Publish the centre's reachability for the suppression machine (v1.0 M5-3a). This thread is
-                // the one holding the probe view, so this thread is the one that says.
-                if let Some(centre) = centre.as_deref() {
-                    if let Some(view) = prober.view(centre) {
-                        if let Ok(mut slot) = centre_reachable.lock() {
-                            *slot = Some(view.reachable);
+                // Publish for the suppression machine (v1.0 M5-3a/b-1): this thread is the one holding the
+                // probe view, so this thread is the one that says. And send the same view **sideways** —
+                // §33's suppression reads its peers, and the centre is the node that is not answering.
+                if let Some(watch) = &watch {
+                    let centre_view = prober.view(&watch.centre).map(|view| view.reachable);
+                    if let Some(reachable) = centre_view {
+                        if let Ok(mut slot) = watch.reachable.lock() {
+                            *slot = Some(reachable);
+                        }
+                    }
+                    let up: std::collections::BTreeSet<String> = prober
+                        .peers()
+                        .into_iter()
+                        .filter(|peer| {
+                            prober
+                                .view(peer)
+                                .map(|view| view.reachable)
+                                .unwrap_or(false)
+                        })
+                        .collect();
+                    if let Ok(mut slot) = watch.peers_reachable.lock() {
+                        *slot = up;
+                    }
+                    if let Some(reachable) = centre_view {
+                        let report = if reachable {
+                            net::Report::Reachable(watch.centre.clone())
+                        } else {
+                            net::Report::Unreachable(watch.centre.clone())
+                        };
+                        for peer in prober.peers() {
+                            let _ = client.report_to(&peer, &report);
                         }
                     }
                 }
@@ -1258,21 +1329,38 @@ struct SuppressionTicker {
 }
 
 impl SuppressionTicker {
-    fn start(
-        node_id: String,
-        centre_reachable: Arc<Mutex<Option<bool>>>,
-        interval: Duration,
-        now: i64,
-    ) -> Self {
-        let machine = Arc::new(Mutex::new(net::Suppression::new(&node_id, now)));
+    fn start(watch: CentreWatch, interval: Duration, now: i64) -> Self {
+        let machine = Arc::new(Mutex::new(net::Suppression::new(&watch.me, now)));
         let shared = Arc::clone(&machine);
         let (stop, signal) = std::sync::mpsc::channel::<()>();
         let join = std::thread::spawn(move || loop {
-            // One observer, one reading: the probe thread is what knows, and an unread slot means the
-            // probe has not run yet.
-            if let Some(reachable) = centre_reachable.lock().ok().and_then(|slot| *slot) {
+            let now = net::now_ms();
+            // Layer three's stand-down is a fact the probe thread heard; consume it first (v1.0 M5-3b-1).
+            if let Some(heard) = watch
+                .takeover_heard
+                .lock()
+                .ok()
+                .and_then(|mut slot| slot.take())
+            {
                 if let Ok(mut machine) = shared.lock() {
-                    machine.observe(reachable, net::now_ms());
+                    machine.stand_down(heard);
+                }
+            }
+            if let Some(reachable) = watch.reachable.lock().ok().and_then(|slot| *slot) {
+                if let Ok(mut machine) = shared.lock() {
+                    machine.observe(reachable, now);
+                    if machine.phase() == net::SuppressionPhase::Confirming {
+                        // §6.7's rule, with the same table and the same veto: only witnesses that are
+                        // themselves reachable testify (v1.0 M5-3b-1).
+                        let online = watch
+                            .peers_reachable
+                            .lock()
+                            .map(|slot| slot.clone())
+                            .unwrap_or_default();
+                        machine.confirm(&watch.witnesses, &watch.centre, now, |witness| {
+                            online.contains(witness)
+                        });
+                    }
                 }
             }
             match signal.recv_timeout(interval) {
@@ -1732,6 +1820,9 @@ impl AppState {
             connection_digests: Mutex::new(None),
             connection_suppression: Mutex::new(None),
             centre_reachable: Arc::new(Mutex::new(None)),
+            peers_reachable: Arc::new(Mutex::new(std::collections::BTreeSet::new())),
+            centre_witnesses: net::WitnessTable::new(),
+            takeover_heard: Arc::new(Mutex::new(None)),
             connection_server: Mutex::new(None),
             connection_server_addr: Mutex::new(None),
             executors: Mutex::new(Vec::new()),
@@ -4253,14 +4344,21 @@ impl AppState {
         let Ok(keys) = peers.peer_keys() else {
             return false;
         };
+        let watch = centre.map(|centre| CentreWatch {
+            me: node_id.clone(),
+            centre,
+            reachable: Arc::clone(&self.centre_reachable),
+            peers_reachable: Arc::clone(&self.peers_reachable),
+            witnesses: self.centre_witnesses.clone(),
+            takeover_heard: Arc::clone(&self.takeover_heard),
+        });
         let probe = Probe::start(
             client,
             net::Prober::new(workgroup),
             keys,
             node_id,
             interval,
-            centre,
-            Arc::clone(&self.centre_reachable),
+            watch,
         );
         let previous = self
             .connection_probe
@@ -4337,12 +4435,15 @@ impl AppState {
         let Some(centre) = self.centre_node() else {
             return false;
         };
-        let ticker = SuppressionTicker::start(
+        let watch = CentreWatch {
+            me: agent::device(),
             centre,
-            Arc::clone(&self.centre_reachable),
-            interval,
-            net::now_ms(),
-        );
+            reachable: Arc::clone(&self.centre_reachable),
+            peers_reachable: Arc::clone(&self.peers_reachable),
+            witnesses: self.centre_witnesses.clone(),
+            takeover_heard: Arc::clone(&self.takeover_heard),
+        };
+        let ticker = SuppressionTicker::start(watch, interval, net::now_ms());
         let previous = self
             .connection_suppression
             .lock()
@@ -4431,7 +4532,6 @@ impl AppState {
             node_id,
             interval,
             None,
-            Arc::new(Mutex::new(None)),
         );
         let previous = self
             .connection_sibling_probe

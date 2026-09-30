@@ -1428,3 +1428,13 @@ trait 属 v1.x 工作。
 **缘由**：三点。**§33 说三层全要，没有一层可选。** 一个在单节点沉默上就开火的接管，是这个机制能犯的最严重的错，所以三层是要害、不是礼貌。**数字总得选，选的是 60 秒 / 30 秒。** 60 秒在 §33 的 30 秒 – 2 分钟区间内、且**长于 §6.6 的 45 秒 online 窗口**，所以一个节点绝不会在等一个它的中心尚未到达的事实；30 秒落在退避的包络内、且**短于等待期**，所以输掉竞赛的节点会在自己的窗口里听到赢家。**确认是故意借来的。** 另写一条活性规则 —— 一个多数阈值 —— 会与 §6.7 自己的论证相抵，并在同一个部署的行为上放两条规则。
 
 **影响**：`net/src/suppression.rs` 是新文件（常量、`SuppressionPhase`、`Suppression`、`first_in_line`、`is_first_in_line`、`backoff_delay_ms`）并由 `net` 导出；`host-core` 多出 `start_connection_suppression` / `stop_connection_suppression` / `suppression_phase`、一个 `SuppressionTicker`、以及一个由探测线程写入的 `centre_reachable` 槽（`Probe::start` 接收中心与槽）。`docs/connection.md` + zh 新增 §6.8。**`compute_hash`、`verify_chain`、append-only 触发器、路由、能力词汇表与 `audit` 均未动** —— 本批不开段、不合并 —— 也不加任何注册帧字段。接管、广播与段接线是 **M5-3b**；回归与合并是 **M5-3c**。
+
+## 135. 中心的报告在同侪之间走，而广播是一帧
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 BW / M5-3b-1）
+
+**决策**：§33 的抑制**不再空转**。喂给第二层的报告**在同侪之间走**：一个节点把 §6.7 向上发的那对 `{"unreachable": …}` / `{"reachable": …}` body 发给同 workgroup 的邻居 —— **横向**寻址（`RelayClient::report_to`）—— 而每个节点保留**自己的一份 `WitnessTable`**、**主语是中心**，于是 §6.7 的规则就地判（一张表、两个主语：向上是某同侪的可达性，这里是把中心）。**接管广播**是一个新 body：`{ "takeover": 1, "centre": …, "by": …, "at_ms": … }`，且同样只在同侪之间走；听到它的节点**退让**（`Suppression::stand_down`）。第三层的**发送侧** —— 一个节点*发出*广播 —— 是 **M5-3b-2**。**对跨区域服务器一无所求**：§6 的四个角色和它所识的每一帧都未变。
+
+**缘由**：三点。**中心正是那个不作答的节点。** §6.7 的报告发给服务器，而我们正在测其可达性的服务器*就是*不见了的那个，所以方向必须改 —— 而同侪（它刚说过话，按定义是活的）是唯一可行的收方。**N² 不是新东西。** §6.7 的探测本来就是「每节点探每个同 workgroup 同侪」，所以把同样的报告横向寻址，不会给一台 LAN 增加新量级的流量。**服务器上没有新东西。** 把报告向上汇总，就需要把判决再推下去 —— 那是 §6 已冻的四个角色所没有的行为 —— 所以确认在证据已经到达的地方做：本地。
+
+**影响**：`net/src/suppression.rs` 多出 `Takeover`、`takeover_body` / `is_takeover` 与 `centre_report_from`；`net/src/relay.rs` 多出 `RelaySession::report_to` / `RelayClient::report_to`；`host-core` 由它的探测线程接通送达 —— 一个 `CentreWatch` 束（`centre`、`reachable`、`peers_reachable`、`witnesses`、`takeover_heard`）、接收环喂本地表并记下听到的广播、每拍把本节点自己的中心报告发给每个同侪、以及定时器消费广播（`stand_down`）并在相位为 `confirming` 时以 §6.7 的规则调 `confirm`。`docs/connection.md` + zh §6.8 已更新。**`audit` 未动**（本批不开段），`compute_hash`、`verify_chain`、append-only 触发器、路由与能力词汇表同样未动。代行、发出广播与段接线是 **M5-3b-2**；回归与合并是 **M5-3c**。

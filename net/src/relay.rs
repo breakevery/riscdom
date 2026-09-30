@@ -1483,6 +1483,13 @@ impl RelaySession {
         self.send_body_to(peer, crate::liveness::probe_body())
     }
 
+    /// Tell a **peer** what this node's own probe sees (v1.0 M5-3b-1): the same [`Report`] body §6.7 sends
+    /// upward, addressed **sideways**. The centre is the node that is not answering, so its peers are the
+    /// only ones who can be told about it — and §33's suppression reads their reports locally.
+    pub fn report_to(&self, peer: &str, report: &Report) -> Result<(), TransportError> {
+        self.send_body_to(peer, report.to_body())
+    }
+
     /// Answer a probe (§6.7): the smallest evidence that the node behind this session works.
     pub fn answer_alive(&self, to: &str) -> Result<(), TransportError> {
         self.send_body_to(to, crate::liveness::alive_body())
@@ -1630,6 +1637,11 @@ impl RelayClient {
     /// Probe a peer (§6.7), opening the session if needed.
     pub fn probe(&self, peer: &str) -> Result<(), TransportError> {
         self.with_session(|session| session.probe(peer))
+    }
+
+    /// Tell a **peer** what this node's own probe sees (v1.0 M5-3b-1).
+    pub fn report_to(&self, peer: &str, report: &Report) -> Result<(), TransportError> {
+        self.with_session(|session| session.report_to(peer, report))
     }
 
     /// Answer a probe (§6.7).

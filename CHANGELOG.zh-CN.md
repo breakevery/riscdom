@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **中心的报告在同侪之间走**（v1.0 批 BW / M5-3b-1）：抑制状态机不再空转。一个节点把 §6.7 向上发的那对 `{"unreachable": …}` / `{"reachable": …}` 报告发给同 workgroup 的邻居 —— **横向**寻址（`report_to`）—— 而每个节点保留**自己的一份见证表**、**主语是中心**，于是 §6.7 的规则就地判。**接管广播**是一个新 body（`{ "takeover": 1, "centre": …, "by": …, "at_ms": … }`）；听到它就**退让**。**对跨区域服务器一无所求。** `audit` 未动。代行与*发出*广播是 M5-3b-2。`connection.md` + zh §6.8 已更新。**决策 §135。**
+
 - **三层挡在怀疑与代行之间**（v1.0 批 BU / M5-3a）：`net` 多出**抑制状态机** —— `SUPPRESSION_WAIT = 60 秒`、`SUPPRESSION_BACKOFF_MAX = 30 秒`、`SuppressionPhase`（`candidate` / `waiting` / `confirming` / `backing-off` / `standing-in`）、按 **`node_id` 序**的顺位、以及由 `(node_id, now)` 导出的确定性退避 —— 并以 **§6.7 的见证规则复用为群体确认**（不写第二条活性规则）。`host-core` 用定时器驱动它，输入是探测线程发布的中心可达性。**只是本地状态：无链、无段、`audit` 一行未动。** 接管与广播属 M5-3b。`connection.md` + zh 新增 §6.8。**决策 §134。**
 
 - **冲突记在两边，而并入说明它做了哪件**（v1.0 批 BS / M5-2b）：`merge_segment` 现答 `MergeOutcome::{Folded { merged } | Forked { reason }}` —— fork 是结果、不是错误。遇冲突（`actor`、`action` 与**清标后** detail 相同 —— 完全相等，未改）时**什么都不转录**：该行变为 **`forked`**、原因写进 `note`，并向主链写一条 **`host.audit.segment_forked`** 事件（`{ segment_id, kind, forked_at_ms, reason, conflicting_event_id }`）。段保留它整个文件，**不加新 `SegmentState`**，而**部分并入**（`note` 以 `merge failed after …` 开头）被**当作自己的错误拒绝**、不被改贴。**`compute_hash`、`verify_chain` 与 append-only 触发器未动**；裁定仍开着（M6）。**决策 §133。**

@@ -592,9 +592,18 @@ other, which is what lets §6.7's table decide about it.
 `confirming` / `backing-off` / `standing-in`) lives in memory, like §6.6's table and §6.7's records: a
 suspicion is not an event.
 
-**Not here yet.** What a node *does* past the backoff — standing in, and the takeover broadcast the third
-layer reacts to — is **M5-3b**, and the exchange that carries the group's reports about the centre is M5-3b's
-too: this section is the rule and the machine.
+**[settled]** **The reports travel between peers** (M5-3b-1). A node sends its neighbours the same
+`{"unreachable": …}` / `{"reachable": …}` §6.7 sends upward — addressed **sideways**, because the centre is
+the node that is not answering — and each node keeps **its own** witness table with the **centre** as its
+subject, so §6.7's rule decides locally. It is one table with two subjects (a peer's reachability upward,
+the centre's here), and it asks the cross-region server for nothing: §6's four roles are unchanged.
+
+**[settled]** **The takeover broadcast is its own body**, and it too travels only between peers:
+`{ "takeover": 1, "centre": <node_id>, "by": <node_id>, "at_ms": <ms> }`. A node that hears one **stands
+down** — §33's third layer, in one frame.
+
+**Not here yet.** What a node *does* past the backoff — standing in, and **sending** the broadcast — is
+**M5-3b-2**; the return and the merge are **M5-3c**.
 
 ## 7. Audit digests — M4e-1
 
