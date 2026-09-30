@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A conflict is recorded on both sides, and the merge says which it did** (v1.0 batch BS / M5-2b):
+  `merge_segment` now answers `MergeOutcome::{Folded { merged } | Forked { reason }}` — a fork is an outcome,
+  not an error. On a conflict (the same `actor`, `action` and **cleared** detail — exact equality, unchanged)
+  **nothing is transcribed**: the row becomes **`forked`** with the reason in its `note`, and one
+  **`host.audit.segment_forked`** event goes on the main chain
+  (`{ segment_id, kind, forked_at_ms, reason, conflicting_event_id }`). The segment keeps its whole file,
+  **no `SegmentState` is added**, and a **partial merge** (a `note` beginning `merge failed after …`) is
+  **refused as its own thing** rather than re-labelled. **`compute_hash`, `verify_chain` and the append-only
+  triggers are untouched**; adjudication stays open (M6). **Decision §133.**
+
 - **A segment merges into the main chain by transcription** (v1.0 batch BQ / M5-2a): `audit` gains
   `AuditStore::merge_segment(audit_dir, segment_id)`. It reads the temporary segment's own store and
   **appends each event to the main chain** as a new event — with the `provisional` member **removed**, so the

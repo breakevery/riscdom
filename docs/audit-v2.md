@@ -106,8 +106,9 @@ records them so the implementation meets them deliberately:
 All three are marked `[open]` in roadmap §7, and (2) and (3) are inputs the merge stage (M5-2) needs; (1)
 bears on how a segment's head is shaped now that §2 fixes the physical shape as (b).
 
-**M5-2a refuses rather than decides.** When a merge would put an act on the main chain that is already there,
-it stops (§10); which side is right is question 3 above, and it is **M5-2b**'s.
+**M5-2a refuses rather than decides; M5-2b records the conflict and stops.** When a merge would put an act on
+the main chain that is already there, it is **forked** rather than merged (§11); which side is right is
+question 3 above, and it belongs to M6.
 
 ## 6. The segment events (reserved)
 
@@ -120,8 +121,9 @@ it stops (§10); which side is right is question 3 above, and it is **M5-2b**'s.
 - `host.audit.segment_merged` — a segment's events were written into the main chain. Detail:
   `{ "segment_id": …, "kind": …, "merged_at_ms": …, "event_count": … }`. **Written by the merge**
   ([§10](#10-merging)).
-- `host.audit.segment_forked` — a conflict was detected. **Reserved**: §5's question 3 is what decides how a
-conflict is handled, and **M5-2b** is the batch that does it.
+- `host.audit.segment_forked` — a conflict was found while merging a segment. Detail:
+  `{ "segment_id": …, "kind": …, "forked_at_ms": …, "reason": …, "conflicting_event_id": … }`. **Written by
+  the merge** ([§11](#11-conflicts-and-forking)).
 
 Both are written with `segment_id IS NULL` (the record of the segment's *life* is not one of the segment's
 own events), both are ordinary appends, and both carry the words §3 stores (`kind` is `SegmentKind::as_str`).
@@ -203,4 +205,38 @@ about which side is right is chosen here. **Deciding a conflict is M5-2b** (§5,
 Only a `temporary` segment in state `open` or `closed` is mergeable, and a second merge is refused. **A
 partial merge is recorded, not hidden**: if an append fails part way through, the events already written
 stay (the chain only grows) and the failure and its count are written on the segment row's `note`, for
-M5-2b to resolve.
+[§11](#11-conflicts-and-forking) to refuse; a retry is refused rather than re-labelled.
+
+## 11. Conflicts and forking
+
+**[settled]** **The test is the narrowest there is** (M5-2b): a merge calls a segment a **conflict** when the
+main chain already holds an event with the same `actor`, `action` and **cleared** detail — exact equality.
+Anything wider (a time window, an act id, "the same intent") would be a *rule*, and a rule is the owner's to
+set, not the merge's. Keeping the test exact is what lets M5-2b record a conflict **without deciding one**.
+
+**[settled]** **A conflict is recorded on both sides, and nothing is transcribed.** The segment's events do
+**not** go into the main chain: a chain holding two contradictory acts would be a chain claiming both, with
+no one having decided which is which. What is written is:
+
+- the segment's row: `state = forked`, with the reason in its `note`;
+- the main chain: one **`host.audit.segment_forked`** event —
+  `{ segment_id, kind, forked_at_ms, reason, conflicting_event_id }` — the **chain-side mark** naming the
+  segment and the act it clashed with.
+
+Both sides are therefore kept (decisions §33/§127: "never a silent merge"): the main chain keeps its own
+event, and the segment keeps its whole file, untouched.
+
+**[settled]** **A merge says which of the two things it did.** `merge_segment` answers
+`MergeOutcome::Folded { merged }` when it transcribed and `MergeOutcome::Forked { reason }` when it found a
+conflict — a fork is an **outcome**, not an error. Only a genuine refusal (an unknown segment, the wrong kind,
+a state that cannot be merged, a second merge, a recorded partial merge) is an `Err`.
+
+**[settled]** **A half-done merge is not a conflict.** If an append failed part way through, the events
+already written stay and the row's `note` records `merge failed after N of M events: …`; a retry is **refused**
+as a partial merge, and the segment is **not** re-labelled `forked` — a failure recorded in a note must not
+put on the word a real disagreement puts on.
+
+**Adjudication stays open.** §5's question 3 — how a conflict is adjudicated — is **not** answered by any of
+this: M5-2b records the disagreement and stops. That rule (and cross-chain verification, question 2) is
+**M6**'s; until then `segments.state = forked` and the `segment_forked` event are the whole of what the kernel
+says about it.

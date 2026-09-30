@@ -1408,3 +1408,13 @@ trait 属 v1.x 工作。
 **缘由**：三点。**转录正是形状 (b) 才使得出来的手段。** 段是另一个文件，所以什么都*搬*不动：并入只能是**读 + 追加**，而这也正是让段作为证据保持完整的原因。**「清标」不能是一次更新。** 链是 append-only 且触发器拒绝 `UPDATE`，所以标无法从某行上取下来 —— 它只是**不在并入写出的副本上**，这是链自己的保证所允许的、对 §127「标被清掉」的唯一读法。**拒绝不是裁定。** M5-2a 不能变成冲突规则被顺手选中的地方，所以它的判据是完全相等、答案是否；§5 的第 3 问留给 M5-2b 与 owner。
 
 **影响**：`audit/src/store.rs` 多出 `merge_segment` 及其助手（`merged_already`、`main_chain_has`、`mark_segment_folded`、`set_segment_note`）；`audit/src/segment.rs` 多出 `MergeReport`、`ACTION_SEGMENT_MERGED`、`PROVISIONAL`、`cleared_detail`、`is_provisional` 与 `segment_merged_detail`；`docs/audit-v2.md` + zh 新增 §10（并入）并修订 §5/§6。**`compute_hash`、`verify_chain`、`append_once` 与两个 append-only 触发器未动**，路由、capability 名、审计事件常量、哈希公式或持久化格式均未变，且**未碰 host-core**（调用它的是 M5-3）。冲突的**检测**、**`forked`** 标记与**裁定**是 M5-2b；`host.audit.segment_forked` 仍预留。
+
+## 133. 冲突记在两边，而并入说明它做了哪件
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 BS / M5-2b）
+
+**决策**：`merge_segment` 现答 `Result<MergeOutcome, AuditError>`，其中 `MergeOutcome` 是 **`Folded { merged }`**（它转录了）或 **`Forked { reason }`**（它发现了冲突）—— fork 是一个**结果**，不是错误；只有真正的拒绝才是 `Err`。判据未变（`actor`、`action` 与**清标后** detail **完全相等**，owner 决定），变的是**处理**：遇冲突时**什么都不转录**，该行变为 **`state = forked`**、原因写进 `note`，并向主链追加一条 **`host.audit.segment_forked`** 事件（`{ segment_id, kind, forked_at_ms, reason, conflicting_event_id }`）—— 链侧的标。两边都留：主链留它自己的事件，段留它整个文件。**不加新 `SegmentState`**：四词不变，部分并入是 `note`、不是状态。且**部分并入不再被误认为冲突**：若某行的 `note` 记录了 `merge failed after N of M events: …`，并入会**以自己的错误拒绝**，而该段**不会**被改贴 `forked`。
+
+**缘由**：三点。**记录不是裁定。** 精确判据的意义正是让并入能标下一处分歧、而不对它持意见；把两边都转录会把两个互相矛盾的动作放进受信链、并称之为一次并入——那正是 §127 禁止的「静默合并」。**fork 是结果，所以签名必须说得出来。** 当冲突以 `Err` 返回时，「我拒绝了」与「这两者不一致」是同一个形状，调用者分不出缺陷与 fork。**失败的并入不得借用那个字。** M5-2a 的部分并入把已转录的事件留在链上，于是重试会撞上自己的副本、看起来与冲突一模一样；没有 `note` 检查，半途而废的并入会被打上 `forked`—— 那个属于真分歧的字。
+
+**影响**：`audit/src/segment.rs` 多出 `MergeOutcome`、`ACTION_SEGMENT_FORKED`、`segment_forked_detail`、`PARTIAL_MERGE_PREFIX` 与 `partial_merge_recorded`，并**去掉 `MergeReport`**（由 `MergeOutcome` 取代，且它在 crate 的测试之外没有消费者）；`audit/src/store.rs` 的 `merge_segment` 改返回 `MergeOutcome`，多出 fork 分支与 `mark_segment_forked` / `main_chain_row_with`；`docs/audit-v2.md` + zh 新增 §11（冲突与 fork）并修订 §5/§6。**`compute_hash`、`verify_chain`、`append_once` 与两个 append-only 触发器未动**，路由、capability 名、审计事件常量、哈希公式或持久化格式均未变，且**未碰 host-core**（调用它的是 M5-3）。**裁定**（roadmap §7 第 3 问）仍开着，属 **M6**。

@@ -348,6 +348,15 @@ current request authorising it (§2).
   is chosen; that is M5-2b), and a partial merge is recorded on the row's `note`. `audit-v2.md` + zh gain §10.
   **`compute_hash`, `verify_chain` and both append-only triggers are untouched**; host-core is not touched
   (M5-3 calls it). **Decision §132.**
+- **And a conflict is recorded on both sides** (v1.0 batch BS / M5-2b, 2026-09-30): `merge_segment` answers
+  `MergeOutcome::{Folded { merged } | Forked { reason }}` — a fork is an outcome, not an error. On a conflict
+  (same `actor` + `action` + **cleared** detail, exact equality, unchanged) **nothing is transcribed**: the
+  row becomes `forked` with the reason in its `note`, and one `host.audit.segment_forked`
+  (`{ segment_id, kind, forked_at_ms, reason, conflicting_event_id }`) goes on the main chain — the
+  chain-side mark; the segment keeps its whole file. **No new `SegmentState`**, and a **partial merge**
+  (`note` starting `merge failed after …`) is **refused as its own thing**, not re-labelled. `audit-v2.md` +
+  zh gain §11. **`compute_hash`, `verify_chain` and both append-only triggers are untouched**; host-core is
+  not touched. **Adjudication stays open (M6).** **Decision §133.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

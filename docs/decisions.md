@@ -3836,3 +3836,37 @@ and both append-only triggers are untouched**, no route, capability name, audit 
 or persisted format changes, and **host-core is not touched** (M5-3 is what calls this). Conflict
 **detection**, the **`forked`** marking and **adjudication** are M5-2b; `host.audit.segment_forked` stays
 reserved.
+
+## 133. A conflict is recorded on both sides, and the merge says which it did
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch BS / M5-2b)
+
+**Decision**: `merge_segment` now answers `Result<MergeOutcome, AuditError>`, where `MergeOutcome` is
+**`Folded { merged }`** (it transcribed) or **`Forked { reason }`** (it found a conflict) — a fork is an
+**outcome**, not an error; only a genuine refusal is an `Err`. The test is unchanged (**exact equality** of
+`actor`, `action` and the **cleared** detail — the owner's decision), and what changed is the **handling**: on
+a conflict **nothing is transcribed**, the row becomes **`state = forked`** with the reason in its `note`, and
+one **`host.audit.segment_forked`** event is appended to the main chain
+(`{ segment_id, kind, forked_at_ms, reason, conflicting_event_id }`) — the chain-side mark. Both sides are
+kept: the main chain keeps its own event and the segment keeps its whole file. **No new `SegmentState`**: the
+four words stand, and a partial merge is a `note`, not a state. And **a partial merge is no longer mistaken
+for a conflict**: a row whose `note` records `merge failed after N of M events: …` makes the merge **refuse**
+with its own error, and the segment is **not** re-labelled `forked`.
+
+**Why**: Three points. **Recording is not adjudicating.** The point of the exact test is that the merge can
+mark a disagreement without holding an opinion about it; transcribing both sides would put two contradictory
+acts into the trusted chain and call it a merge, which is the "silent merge" §127 forbids. **A fork is a
+result, so the signature has to say so.** While a conflict came back as `Err`, "I refused" and "these two
+disagree" were the same shape, and a caller could not tell a bug from a fork. **A failed merge must not borrow
+the word.** M5-2a's partial merge leaves already-transcribed events on the chain, so a retry meets its own
+copies and looks exactly like a conflict; without the `note` check, a half-done merge would be branded
+`forked` — the word for a real disagreement.
+
+**Impact**: `audit/src/segment.rs` gains `MergeOutcome`, `ACTION_SEGMENT_FORKED`, `segment_forked_detail`,
+`PARTIAL_MERGE_PREFIX` and `partial_merge_recorded`, and **loses `MergeReport`** (replaced by `MergeOutcome`,
+which had no consumer outside the crate's tests); `audit/src/store.rs`'s `merge_segment` returns
+`MergeOutcome` and gains the fork branch plus `mark_segment_forked` / `main_chain_row_with`;
+`docs/audit-v2.md` + zh gain §11 (conflicts and forking) and revise §5/§6. **`compute_hash`, `verify_chain`,
+`append_once` and both append-only triggers are untouched**, no route, capability name, audit event constant,
+hash formula or persisted format changes, and **host-core is not touched** (M5-3 is what calls this).
+**Adjudication** (roadmap §7 question 3) stays open and is **M6**'s.

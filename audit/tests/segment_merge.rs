@@ -6,8 +6,8 @@
 //! touched, and neither chain's `verify_chain` changes.
 
 use audit::{
-    verify_chain, AuditEvent, AuditStore, ChainStatus, SegmentKind, SegmentState,
-    ACTION_SEGMENT_MERGED,
+    verify_chain, AuditEvent, AuditStore, ChainStatus, MergeOutcome, SegmentKind, SegmentState,
+    ACTION_SEGMENT_FORKED, ACTION_SEGMENT_MERGED,
 };
 use std::path::PathBuf;
 
@@ -58,11 +58,14 @@ fn a_conflict_free_segment_merges_by_transcription() {
     seg.append(provisional_event(2_000, "vm.stop", 2))
         .expect("append");
 
-    let report = main
+    let outcome = main
         .merge_segment(&dir, &segment.segment_id)
         .expect("merge");
-    assert_eq!(report.segment_id, segment.segment_id);
-    assert_eq!(report.merged, 2, "both segment events were transcribed");
+    assert_eq!(
+        outcome,
+        MergeOutcome::Folded { merged: 2 },
+        "both segment events were transcribed"
+    );
 
     // The main chain: host.start + segment_opened + segment_closed + 2 transcribed + segment_merged.
     assert_eq!(main.count().expect("count"), 6);
@@ -134,7 +137,7 @@ fn a_conflict_free_segment_merges_by_transcription() {
 }
 
 #[test]
-fn a_segment_that_conflicts_with_the_main_chain_is_refused() {
+fn a_segment_that_conflicts_with_the_main_chain_is_forked_not_merged() {
     let dir = temp_dir("conflict");
     let mut main = AuditStore::open(&dir.join("audit.db")).expect("main");
     // The main chain already holds this act (without the mark).
@@ -154,22 +157,101 @@ fn a_segment_that_conflicts_with_the_main_chain_is_refused() {
         .expect("append");
 
     let before = main.count().expect("count");
+    let outcome = main
+        .merge_segment(&dir, &segment.segment_id)
+        .expect("a fork is an outcome, not an error");
+    let MergeOutcome::Forked { reason } = outcome else {
+        panic!("expected a fork, got {outcome:?}");
+    };
+    assert!(reason.contains("vm.start"), "{reason}");
+
+    // Nothing was transcribed: the only `vm.start` on the chain is the one that was already there, and the
+    // only new event is the fork itself.
+    assert_eq!(main.count().expect("count"), before + 1);
+    let events = main.all().expect("all");
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.event.action == "vm.start")
+            .count(),
+        1,
+        "the segment's event was not transcribed"
+    );
+    let forked = events
+        .iter()
+        .find(|event| event.event.action == ACTION_SEGMENT_FORKED)
+        .expect("a segment_forked event");
+    assert_eq!(
+        forked.event.detail["segment_id"],
+        serde_json::json!(segment.segment_id)
+    );
+    assert_eq!(forked.event.detail["kind"], serde_json::json!("temporary"));
+    assert!(forked.event.detail.get("forked_at_ms").is_some());
+    assert_eq!(forked.event.detail["reason"], serde_json::json!(reason));
+    assert!(forked.event.detail.get("conflicting_event_id").is_some());
+    assert_eq!(
+        seg.count().expect("count"),
+        1,
+        "the segment file is untouched"
+    );
+
+    // The row is forked, and says why.
+    let row = main
+        .segment(&segment.segment_id)
+        .expect("row")
+        .expect("present");
+    assert_eq!(row.state, SegmentState::Forked);
+    assert_eq!(row.note.as_deref(), Some(reason.as_str()));
+
+    // Both chains still verify.
+    assert!(matches!(
+        verify_chain(&main).expect("verify"),
+        ChainStatus::Intact { .. }
+    ));
+    assert!(matches!(
+        verify_chain(&seg).expect("verify"),
+        ChainStatus::Intact { length: 1 }
+    ));
+}
+
+#[test]
+fn a_partial_merge_is_refused_rather_than_called_a_conflict() {
+    let dir = temp_dir("partial");
+    let mut main = AuditStore::open(&dir.join("audit.db")).expect("main");
+    let segment = main
+        .open_segment(SegmentKind::Temporary)
+        .expect("open segment");
+    let mut seg = AuditStore::open_segment_store(&dir, &segment.segment_id).expect("segment store");
+    seg.append(provisional_event(1_000, "vm.start", 1))
+        .expect("append");
+
+    // What M5-2a leaves behind when an append fails part way through.
+    let conn = rusqlite::Connection::open(dir.join("audit.db")).expect("conn");
+    conn.execute(
+        "UPDATE segments SET note = ?2 WHERE segment_id = ?1",
+        rusqlite::params![
+            segment.segment_id,
+            format!(
+                "{}1 of 2 events: database is locked",
+                audit::PARTIAL_MERGE_PREFIX
+            )
+        ],
+    )
+    .expect("note");
+
+    let count = main.count().expect("count");
     let error = main
         .merge_segment(&dir, &segment.segment_id)
         .expect_err("refused");
-    assert!(error.to_string().contains("M5-2b"), "{error}");
-    assert_eq!(
-        main.count().expect("count"),
-        before,
-        "a refused merge writes nothing"
-    );
+    assert!(error.to_string().contains("partial merge"), "{error}");
+    assert_eq!(main.count().expect("count"), count, "nothing was written");
     assert_eq!(
         main.segment(&segment.segment_id)
             .expect("row")
             .expect("present")
             .state,
         SegmentState::Open,
-        "the row keeps its state: nothing was merged"
+        "a half-done merge is not re-labelled forked"
     );
 }
 

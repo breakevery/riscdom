@@ -25,6 +25,25 @@ pub const ACTION_SEGMENT_CLOSED: &str = "host.audit.segment_closed";
 /// Reserved by [docs/audit-v2.md](../../docs/audit-v2.md) §6 in M5-1a and written by the merge in M5-2a.
 pub const ACTION_SEGMENT_MERGED: &str = "host.audit.segment_merged";
 
+/// The audit event that records a **conflict** found while merging a segment (v1.0 M5-2b).
+///
+/// Reserved in [docs/audit-v2.md](../../docs/audit-v2.md) §6 and written by the merge when it meets an act the
+/// main chain already holds. It is the **mark** on the chain side: the segment keeps its own file, and the
+/// main chain records that the two disagree.
+pub const ACTION_SEGMENT_FORKED: &str = "host.audit.segment_forked";
+
+/// The prefix a **partial merge** leaves in a segment's `note` (v1.0 M5-2a).
+///
+/// A merge that failed part way through cannot be undone (the chain only grows), so it records what happened
+/// here. [`partial_merge_recorded`] is what later reads it: a retry must not mistake its own half-written
+/// events for a conflict.
+pub const PARTIAL_MERGE_PREFIX: &str = "merge failed after ";
+
+/// Whether a segment's `note` records a partial merge.
+pub fn partial_merge_recorded(note: &str) -> bool {
+    note.starts_with(PARTIAL_MERGE_PREFIX)
+}
+
 /// The name of the detail member that marks an event as written during a temporary centre (decisions
 /// §33/§127): `detail.provisional = true`.
 pub const PROVISIONAL: &str = "provisional";
@@ -183,13 +202,19 @@ pub fn segment_opened_detail(segment: &Segment) -> serde_json::Value {
     })
 }
 
-/// What a merge did (v1.0 M5-2a).
+/// What a merge did (v1.0 M5-2a; M5-2b added the fork).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MergeReport {
-    /// The segment that was merged.
-    pub segment_id: String,
-    /// How many events were transcribed onto the main chain.
-    pub merged: usize,
+pub enum MergeOutcome {
+    /// The segment's events were transcribed onto the main chain and its row is `folded`.
+    Folded {
+        /// How many events were transcribed.
+        merged: usize,
+    },
+    /// A conflict was found: nothing was transcribed, the row is `forked`, and the chain records it.
+    Forked {
+        /// Why, in words a person can read.
+        reason: String,
+    },
 }
 
 /// The detail of a [`ACTION_SEGMENT_CLOSED`] event (v1.0 M5-1b): what closed, and when.
@@ -197,6 +222,23 @@ pub fn segment_closed_detail(segment_id: &str, closed_at_ms: i64) -> serde_json:
     serde_json::json!({
         "segment_id": segment_id,
         "closed_at_ms": closed_at_ms,
+    })
+}
+
+/// The detail of a [`ACTION_SEGMENT_FORKED`] event (v1.0 M5-2b): which segment, why, and what it clashed with.
+pub fn segment_forked_detail(
+    segment_id: &str,
+    kind: SegmentKind,
+    forked_at_ms: i64,
+    reason: &str,
+    conflicting_event_id: Option<i64>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "segment_id": segment_id,
+        "kind": kind.as_str(),
+        "forked_at_ms": forked_at_ms,
+        "reason": reason,
+        "conflicting_event_id": conflicting_event_id,
     })
 }
 

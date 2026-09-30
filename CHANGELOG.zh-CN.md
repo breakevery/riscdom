@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **冲突记在两边，而并入说明它做了哪件**（v1.0 批 BS / M5-2b）：`merge_segment` 现答 `MergeOutcome::{Folded { merged } | Forked { reason }}` —— fork 是结果、不是错误。遇冲突（`actor`、`action` 与**清标后** detail 相同 —— 完全相等，未改）时**什么都不转录**：该行变为 **`forked`**、原因写进 `note`，并向主链写一条 **`host.audit.segment_forked`** 事件（`{ segment_id, kind, forked_at_ms, reason, conflicting_event_id }`）。段保留它整个文件，**不加新 `SegmentState`**，而**部分并入**（`note` 以 `merge failed after …` 开头）被**当作自己的错误拒绝**、不被改贴。**`compute_hash`、`verify_chain` 与 append-only 触发器未动**；裁定仍开着（M6）。**决策 §133。**
+
 - **一个段靠转录并入主链**（v1.0 批 BQ / M5-2a）：`audit` 多出 `AuditStore::merge_segment(audit_dir, segment_id)`。它读临时段自己的储存，把**每个事件作为新事件追加到主链** —— **去掉** `provisional` 成员，所以标是*靠写入清掉*、绝不靠更新（链是 append-only）—— 然后追加 **`host.audit.segment_merged`** 并把该行标为 **`folded`**。**段文件不被触碰**（它保留自己的行与标），看得见冲突的并入会**拒绝**（完全相等；不选择任何冲突规则 —— 那是 M5-2b），部分并入记在段行的 `note` 上。**`compute_hash`、`verify_chain` 与 append-only 触发器未动。** **决策 §132。**
 
 - **一个段开启与关闭，而链把它记下**（v1.0 批 BN / M5-1b）：`audit` 多出 `AuditStore::open_segment(kind)` / `close_segment(&segment_id)`。开启写下 `segments` 行 —— **`head_prev_chain` = 事件之前读出的链头** —— 并向**主链**（`segment_id IS NULL`）追加 **`host.audit.segment_opened`**；关闭更新该行并追加 **`host.audit.segment_closed`**。追加失败时行被放回，所以段行总与它的生命周期事件一致。**`compute_hash`、`verify_chain` 与 append-only 触发器未动**，且尚无宿主接线（临时中心是 M5-3）。**决策 §130。**

@@ -5,9 +5,10 @@ use crate::event::{AuditEvent, StoredEvent};
 use crate::hash::{compute_hash, GENESIS_PREV_HASH};
 use crate::run::{RebuildReport, RunRecord, RunStatus};
 use crate::segment::{
-    cleared_detail, segment_closed_detail, segment_merged_detail, segment_opened_detail,
-    MergeReport, Segment, SegmentKind, SegmentState, ACTION_SEGMENT_CLOSED, ACTION_SEGMENT_MERGED,
-    ACTION_SEGMENT_OPENED,
+    cleared_detail, partial_merge_recorded, segment_closed_detail, segment_forked_detail,
+    segment_merged_detail, segment_opened_detail, MergeOutcome, Segment, SegmentKind, SegmentState,
+    ACTION_SEGMENT_CLOSED, ACTION_SEGMENT_FORKED, ACTION_SEGMENT_MERGED, ACTION_SEGMENT_OPENED,
+    PARTIAL_MERGE_PREFIX,
 };
 use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -724,7 +725,8 @@ impl AuditStore {
         Err(AuditError::Other("could not mint a segment id".to_string()))
     }
 
-    /// Merge a temporary segment's events into the main chain by **transcription** (v1.0 M5-2a).
+    /// Merge a temporary segment's events into the main chain by **transcription** (v1.0 M5-2a), or record
+    /// the **conflict** that stops it (v1.0 M5-2b).
     ///
     /// The physical shape is (b): a segment is its own file ([docs/audit-v2.md](../../docs/audit-v2.md) §8),
     /// so "merging" cannot move rows — it **reads** the segment's events and **appends** each to the main
@@ -737,15 +739,17 @@ impl AuditStore {
     /// rows in the segment's file keep it. The chain stays append-only — this never updates or deletes an
     /// `audit_events` row.
     ///
-    /// **Conflict handling is not this batch's (M5-2b).** What M5-2a does is the **narrowest** refusal it can:
-    /// before anything is written it checks whether the main chain already holds an event with the same
-    /// `actor`, `action` and *cleared* detail, and refuses the merge if one is there. It decides no policy —
-    /// it does not say which side is right, only that this merge is not this batch's to make.
+    /// **A conflict is recorded, not merged and not adjudicated (M5-2b).** The test is the narrowest there is
+    /// — the same `actor`, `action` and *cleared* detail (exact equality), so no *rule* about which side is
+    /// right is chosen here. When one is found: **nothing is transcribed**, the row is marked `forked`, and a
+    /// [`ACTION_SEGMENT_FORKED`] event is appended to the main chain — the chain-side mark. Both sides are
+    /// kept: the main chain keeps its new event, and the segment keeps its whole file. Deciding which is right
+    /// is a later batch's, not this one's.
     pub fn merge_segment(
         &mut self,
         audit_dir: &Path,
         segment_id: &str,
-    ) -> Result<MergeReport, AuditError> {
+    ) -> Result<MergeOutcome, AuditError> {
         let segment = self
             .segment(segment_id)?
             .ok_or_else(|| AuditError::Other(format!("no segment {segment_id}")))?;
@@ -763,24 +767,54 @@ impl AuditStore {
         if self.merged_already(segment_id)? {
             return Err(AuditError::Other(format!("{segment_id} is already merged")));
         }
+        // A **partial** merge is not a conflict (v1.0 M5-2b). M5-2a records one in the row's `note`; its
+        // already-transcribed events are on the main chain, so a retry would look exactly like a conflict.
+        // Refuse it as its own thing, and mark nothing: a half-done merge must not be re-labelled `forked`.
+        if let Some(note) = segment.note.as_deref() {
+            if partial_merge_recorded(note) {
+                return Err(AuditError::Other(format!(
+                    "{segment_id} has a partial merge recorded ({note}); refusing to merge again"
+                )));
+            }
+        }
 
         // Read the segment **before writing anything**: a store that cannot be opened or read leaves the main
         // chain untouched.
         let segment_store = AuditStore::open_segment_store(audit_dir, segment_id)?;
         let events = segment_store.all()?;
 
-        // The narrowest refusal there is: an event whose `actor`, `action` and cleared detail already appear
-        // on the main chain is a conflict, and M5-2a does not decide those. Exact equality, so no conflict
-        // *rule* is chosen here.
+        // The narrowest test there is: an event whose `actor`, `action` and cleared detail already appear on
+        // the main chain is a conflict. The first one found is enough to stop the merge.
+        let mut conflict: Option<(String, String, i64)> = None;
         for event in &events {
             let cleared = cleared_detail(event.event.detail.clone());
-            if self.main_chain_has(&event.event.actor, &event.event.action, &cleared)? {
-                return Err(AuditError::Other(format!(
-                    "{segment_id} conflicts with the main chain ({} {} is already there); \
-                     conflict handling is M5-2b",
-                    event.event.actor, event.event.action
-                )));
+            if let Some(id) =
+                self.main_chain_row_with(&event.event.actor, &event.event.action, &cleared)?
+            {
+                conflict = Some((event.event.actor.clone(), event.event.action.clone(), id));
+                break;
             }
+        }
+
+        if let Some((actor, action, id)) = conflict {
+            let reason = format!(
+                "conflicts with the main chain at event {id}: {actor} {action}; not merged"
+            );
+            // The chain is the record and the row is the index, so the record is written first: a failed row
+            // update is reported rather than pretending the fork did not happen.
+            self.append(AuditEvent::new(
+                "host",
+                ACTION_SEGMENT_FORKED,
+                segment_forked_detail(
+                    segment_id,
+                    segment.kind,
+                    crate::event::now_ms(),
+                    &reason,
+                    Some(id),
+                ),
+            ))?;
+            self.mark_segment_forked(segment_id, &reason)?;
+            return Ok(MergeOutcome::Forked { reason });
         }
 
         let mut merged = 0usize;
@@ -796,12 +830,11 @@ impl AuditStore {
                 Ok(_) => merged += 1,
                 Err(error) => {
                     // The chain only ever grows, so a failure part way through cannot be undone here. Record
-                    // what happened on the segment's row (which is not append-only) and report — M5-2b owns
-                    // the resolution of a partial merge.
+                    // what happened on the segment's row (which is not append-only) and report.
                     let _ = self.set_segment_note(
                         segment_id,
                         &format!(
-                            "merge failed after {merged} of {} events: {error}",
+                            "{PARTIAL_MERGE_PREFIX}{merged} of {} events: {error}",
                             events.len()
                         ),
                     );
@@ -818,10 +851,7 @@ impl AuditStore {
         ))?;
         self.mark_segment_folded(segment_id, self.last_hash()?.as_deref())?;
 
-        Ok(MergeReport {
-            segment_id: segment_id.to_string(),
-            merged,
-        })
+        Ok(MergeOutcome::Folded { merged })
     }
 
     /// Whether this segment already has a `segment_merged` event on the main chain.
@@ -838,22 +868,32 @@ impl AuditStore {
         Ok(false)
     }
 
-    /// Whether an `(actor, action, detail)` triple already appears on the main chain.
-    fn main_chain_has(
+    /// Whether an `(actor, action, detail)` triple already appears on the main chain, and at which id.
+    fn main_chain_row_with(
         &self,
         actor: &str,
         action: &str,
         detail: &serde_json::Value,
-    ) -> Result<bool, AuditError> {
+    ) -> Result<Option<i64>, AuditError> {
         for row in self.scan()? {
             if row.actor == actor && row.action == action {
                 let existing: serde_json::Value = serde_json::from_str(&row.detail_json)?;
                 if existing == *detail {
-                    return Ok(true);
+                    return Ok(Some(row.id));
                 }
             }
         }
-        Ok(false)
+        Ok(None)
+    }
+
+    /// Mark `segment_id` forked, recording why (v1.0 M5-2b). The `segments` table has no append-only trigger;
+    /// the chain is where the fork is *recorded*, and the row is where it is *indexed*.
+    fn mark_segment_forked(&self, segment_id: &str, reason: &str) -> Result<(), AuditError> {
+        self.conn.execute(
+            "UPDATE segments SET state = ?2, note = ?3 WHERE segment_id = ?1",
+            params![segment_id, SegmentState::Forked.as_str(), reason],
+        )?;
+        Ok(())
     }
 
     /// Mark `segment_id` folded, recording where on the main chain its events landed.
