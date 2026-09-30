@@ -139,10 +139,14 @@ theirs. Nothing here schedules anything.
 
 **For the other end, today, there is only a claim.** A peer's `peers.json` entry carries a `capabilities`
 list, and the kernel reads exactly two words out of it (`server`, `dispatch`) — so it says what a node was
-*configured to declare*, not what it can run now. Asking a peer what it can run, over the wire, is **M6-2b**,
-and it is not here yet; [connection.md §11](connection.md) records the two carried-but-unread channels that
-touch the same question.
+*configured to declare*, not what it can run now. As of **v1.0 M6-2b-1** that declaration is not only
+readable but **shown**: `GET /v0/peers` answers with this node's own entries, `capabilities` and all, and
+`riscdom node capabilities` prints them as a final **peer declarations** section — headed with what they are,
+what each peer says about itself, a **claim rather than a fact** — so a caller can see who has declared what
+without asking anyone. It is the local file's content (so it may include this node's own entry). Asking a
+peer what it can run, over the wire, is still later; [connection.md §11](connection.md) records the two
+carried-but-unread channels that touch the same question.
 
-**Frozen**: the command's shape (`{node_id, executors, sandboxes, qemu, toolchain}`), that it is the CLI's own
-composition, and that it reports only. **Not frozen**: whether a peer's capability surface is ever asked over
-the wire (M6-2b), and whether `/v0/peers` ever carries more than the declared claims.
+**Frozen**: the command's shape (`{node_id, executors, sandboxes, qemu, toolchain, peers}`), that it is the
+CLI's own composition, and that it reports only. **Not frozen**: whether a peer's capability surface is ever
+asked over the wire, and whether `/v0/peers` ever carries more than the declared claims.

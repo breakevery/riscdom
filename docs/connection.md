@@ -756,21 +756,25 @@ memory and no reader reads it ([cross-chain-verification.md §7](cross-chain-ver
 produced, carried across the layer, and then consulted by nobody. They are recorded here so the next batch
 does not mistake either for a working path.
 
-### 11.1 A registration's claims are stored, and nothing consumes them
+### 11.1 A registration now carries claims, and nothing consumes them yet
 
-**[settled, and a gap]** A §6.6 registration carries the claims a node makes about itself — `capabilities`
-and `rooms` — and the server keeps them on the node's row (`OnlineEntry`, "what it last said it can do").
-**Neither `server/` nor `host-core/` reads that field.** The two `capabilities` words the kernel actually
-acts on — `server`, for §6.7's siblings, and `dispatch`, for M6-1b's default deny — are read from a node's
-**own** `peers.json`, not from the server's table. So the row's `capabilities` is *carried* and *visible over
-`--json`*, and nothing in the kernel consumes it as an answer to "what can that node do?". Whether that
-changes — whether a node can learn a peer's claims from the server instead of a hand-edited file — is the
-open item [cross-device-dispatch.md §6](cross-device-dispatch.md) already names.
+**[settled]** A §6.6 registration carries the claims a node makes about itself — `capabilities` and
+`rooms` — and since **v1.0 M6-2b-1** the first of those is no longer empty: the node derives it from its own
+configuration (`server` when it runs the in-network server role, `dispatch` when it knows at least one
+peer; [decisions §151](decisions.md)), and no new setting is involved. The server keeps both on the node's
+row (`OnlineEntry`, "what it last said it can do") the way it always did.
+
+**[settled, and still a gap]** **Neither `server/` nor `host-core/` reads that field.** The two
+`capabilities` words the kernel actually acts on — `server`, for §6.7's siblings, and `dispatch`, for
+M6-1b's default deny — are read from a node's **own** `peers.json`, not from the server's table. So the
+row's `capabilities` now travels *with content* and is *visible over `--json`*, and nothing in the kernel
+consumes it as an answer to "what can that node do?". Giving it a reader is **M6-2b-2** (`/v0/online`); the
+open item [cross-device-dispatch.md §6](cross-device-dispatch.md) already names is that same question.
 
 ### 11.2 The registry can be asked for, and no production caller asks
 
 **[settled, and a gap]** §4.1's hand-down has both halves on disk: `RelayServer` answers a registry request
-with a generation and its table, and `RelayClient::ask_registry` asks. **No production code calls it** — not
+with a generation and its table, and `RelayClient::request_registry` asks. **No production code calls it** — not
 `host-core`, not `server`, not the CLI; the only callers are the network crate's own tests. A node
 therefore holds the `NodeTable` it was handed **at startup and on every reconnect** (the push §4.1
 describes) and never asks for a fresh one itself. Whether a command or an M ever needs to poll it is open.

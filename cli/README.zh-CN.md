@@ -31,7 +31,7 @@ riscdom [options] <command> [args]
 | `peers` | `GET /v0/peers` | 每行一个同侪及其地址，或者 `this node knows nobody` / `no peer table: this node has no peers.json` |
 | `rooms` | `GET /v0/rooms` | 每行一个房间及其成员数，或者 `this node defines no rooms` / `no rooms: this node has no rooms.json` |
 | `connection` | `GET /v0/connection` | `configured` / `connected` / `problem` |
-| `node capabilities` | `GET /v0/identity` + `/v0/executors` + `/v0/sandboxes` + `/v0/qemu` + `/v0/toolchain` | 这个节点能跑什么，五个回答合并：`node_id`、执行者、沙箱定义，以及 QEMU 和工具链是否就绪（v1.0 M6-2a；由 CLI 自己拼，没有聚合路由） |
+| `node capabilities` | `GET /v0/identity` + `/v0/executors` + `/v0/sandboxes` + `/v0/qemu` + `/v0/toolchain` + `/v0/peers` | 这个节点能跑什么，六个回答合并：`node_id`、执行者、沙箱定义、QEMU 与工具链是否就绪，以及一节**对端声明**（每个同侪对自己说的 —— 一个声明，不是事实）（v1.0 M6-2a，由 M6-2b-1 扩展；由 CLI 自己拼，没有聚合路由） |
 
 控制类子命令——全部是 HTTP `POST`，全部需要 token：
 

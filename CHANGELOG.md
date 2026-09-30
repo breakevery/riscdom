@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A node now says what it is configured to do, and a peer's declaration is shown** (v1.0 batch CX /
+  M6-2b-1, the first half of M6-2b): a §6.6 registration now carries **derived claims** — `server` when
+  `settings.network.server_role` is set, `dispatch` when `peers.json` knows at least one peer, both from
+  `host-core`'s `connection_claims()` and **no new settings field** — where before the only production
+  registration (`Registration::in_rooms`) sent an **empty** list, so a row's `capabilities` was empty by
+  construction (batch CW's finding). A node that is neither still declares nothing, so the wire stays
+  byte-compatible and **`net` is untouched**. On the near side, `riscdom node capabilities` gains a sixth
+  section — **`PEER DECLARATIONS`**, headed *a claim, not a fact* — reading `GET /v0/peers`, with `peers`
+  in `--json`; **no new route, no new capability, no SDK change** (the §5.1/§5.2 counts do not move). Also
+  fixed: **the 8 `ask_registry` mentions became `request_registry`** (batch CV named a symbol that does not
+  exist; the real one is `RelayClient::request_registry`). **`compute_hash` / `verify_chain` / the triggers
+  are untouched, and the relay still has no HTTP face.** **Decision §151.**
+
 - **What a node can run is one command, and it adds no route** (v1.0 batch CV / M6-2a, the first half of
   M6-2): `riscdom node capabilities` reads **five** endpoints — `GET /v0/identity` (for `node_id`),
   `/v0/executors`, `/v0/sandboxes`, `/v0/qemu`, `/v0/toolchain` — and merges them into
@@ -21,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   HTTP client never calls `AppState`), so there is **no new route, no new capability and no SDK change**;
   the §5.1/§5.2 counts do not move and the tool-schema checker is untouched. **Two carried-but-unread
   channels** are recorded as tech debt alongside §148's key-event push: a §6.6 registration's `capabilities`
-  are stored on the server's row and read by nothing, and `RelayClient::ask_registry` has **no production
+  are stored on the server's row and read by nothing, and `RelayClient::request_registry` has **no production
   caller** (`docs/connection.md` §11). **`compute_hash` / `verify_chain` / the triggers are untouched.**
   **Decision §150.**
 

@@ -5001,7 +5001,14 @@ impl AppState {
             .rooms()
             .map(|rooms| rooms.room_names_for(&node_id).into_iter().collect())
             .unwrap_or_default();
-        let beat = Heartbeat::start(client, net::Registration::in_rooms(rooms), interval);
+        let claims = net::Registration {
+            // No peer port has landed at start-up, so no address is claimed — the same
+            // empty list `in_rooms` produced, with the claims filled in (v1.0 M6-2b-1).
+            addresses: Vec::new(),
+            capabilities: self.connection_claims(),
+            rooms,
+        };
+        let beat = Heartbeat::start(client, claims, interval);
         let previous = self
             .connection_beat
             .lock()
@@ -5010,6 +5017,21 @@ impl AppState {
         // Dropping the old handle stops the loop it was the handle of; done outside the lock so the
         // join cannot run while it is held.
         drop(previous);
+    }
+
+    /// What this node says it can do, read from what it is **configured** to do (v1.0 M6-2b-1).
+    ///
+    /// Two ordinary claim words, and no new setting: `server` when this node runs the in-network
+    /// server role (the same `network.server_role` §6.5's bind comes from), and `dispatch` when it
+    /// knows at least one peer — a node alone in the world takes part in no dispatch. A node that
+    /// is neither declares nothing, which is exactly what every node declared before this batch.
+    ///
+    /// The words are the ones `net` already defines ([`net::SERVER_CLAIM`],
+    /// [`net::DISPATCH_CLAIM`]), and they travel in §6.6's registration where a row keeps them. What
+    /// a reader makes of them is the reader's (M6-2b-2's `/v0/online`); deciding where a task goes
+    /// stays the caller's (§6 of [cross-device-dispatch.md](../../docs/cross-device-dispatch.md)).
+    fn connection_claims(&self) -> Vec<String> {
+        connection_claims_from(self.network(), self.peers())
     }
 
     /// Start (or restart) the probe thread with this interval (v1.0 V-3a). Answers whether there
@@ -8034,6 +8056,29 @@ fn task_instance_conflict(
     })
 }
 
+/// The claim list a §6.6 registration carries, derived from what the node is configured to do
+/// (v1.0 M6-2b-1).
+///
+/// `server` when the in-network server role is configured, `dispatch` when the node knows at least
+/// one peer; a node that is neither declares nothing, which is what every node declared before this
+/// batch. Kept free of `AppState` so a unit test can hold the two inputs still.
+fn connection_claims_from(
+    network: Option<NetworkSettings>,
+    peers: Option<net::PeersFile>,
+) -> Vec<String> {
+    let mut claims = Vec::new();
+    if network
+        .map(|network| network.server_role.is_some())
+        .unwrap_or(false)
+    {
+        claims.push(net::SERVER_CLAIM.to_string());
+    }
+    if peers.map(|peers| !peers.peers.is_empty()).unwrap_or(false) {
+        claims.push(net::DISPATCH_CLAIM.to_string());
+    }
+    claims
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -9454,5 +9499,48 @@ mod tests {
             result.err()
         );
         assert!(attempts > 1, "the first attempt must have been refused");
+    }
+
+    #[test]
+    fn the_claims_a_registration_carries_come_from_the_configuration() {
+        // (d0) of v1.0 M6-2b-1. Neither configured: nothing is declared, which is the
+        // shape every node had before this batch.
+        assert!(connection_claims_from(None, None).is_empty());
+        let quiet = NetworkSettings::default();
+        assert!(
+            connection_claims_from(Some(quiet.clone()), Some(net::PeersFile::empty())).is_empty()
+        );
+
+        // A node alone in the world (no peers) that serves its workgroup declares `server`.
+        let serving = NetworkSettings {
+            server_role: Some(crate::settings::ServerRoleSettings {
+                bind: "127.0.0.1:0".to_string(),
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            connection_claims_from(Some(serving.clone()), Some(net::PeersFile::empty())),
+            vec![net::SERVER_CLAIM.to_string()]
+        );
+
+        // A node that knows a peer takes part in dispatch; both together declare both, in a
+        // fixed order (server first), so the wire value is stable.
+        let mut peers = net::PeersFile::empty();
+        peers.peers.push(net::PeerEntry::new(
+            "other",
+            "127.0.0.1:1",
+            "{\"kty\":\"OKP\"}".parse().unwrap(),
+        ));
+        assert_eq!(
+            connection_claims_from(Some(quiet), Some(peers.clone())),
+            vec![net::DISPATCH_CLAIM.to_string()]
+        );
+        assert_eq!(
+            connection_claims_from(Some(serving), Some(peers)),
+            vec![
+                net::SERVER_CLAIM.to_string(),
+                net::DISPATCH_CLAIM.to_string()
+            ]
+        );
     }
 }

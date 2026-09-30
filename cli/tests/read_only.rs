@@ -339,13 +339,20 @@ fn a_missing_token_file_is_an_authentication_failure() {
 }
 
 #[test]
-fn the_capability_aggregate_merges_five_reads_into_one_answer() {
+fn the_capability_aggregate_merges_six_reads_into_one_answer() {
     // JSON mode: the five keys of the shape, each an endpoint's own answer (only
     // `node_id` is lifted out of `/v0/identity`; nothing else is touched).
     let output = run("caps-json", &["--json", "node", "capabilities"]);
     assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
     let value = json(&output);
-    for key in ["node_id", "executors", "sandboxes", "qemu", "toolchain"] {
+    for key in [
+        "node_id",
+        "executors",
+        "sandboxes",
+        "qemu",
+        "toolchain",
+        "peers",
+    ] {
         assert!(value.get(key).is_some(), "{key} missing from {value}");
     }
     assert!(value["executors"]["executors"].is_array(), "{value}");
@@ -360,7 +367,14 @@ fn the_capability_aggregate_merges_five_reads_into_one_answer() {
     assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
     let text = stdout(&output);
     assert!(!text.trim_start().starts_with('{'), "{text}");
-    for section in ["NODE_ID", "EXECUTORS", "SANDBOXES", "QEMU", "TOOLCHAIN"] {
+    for section in [
+        "NODE_ID",
+        "EXECUTORS",
+        "SANDBOXES",
+        "QEMU",
+        "TOOLCHAIN",
+        "PEER DECLARATIONS",
+    ] {
         assert!(text.contains(section), "{section} missing from {text}");
     }
 }

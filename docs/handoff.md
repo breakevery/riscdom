@@ -476,8 +476,18 @@ current request authorising it (§2).
   composition** — a pure HTTP client never calls `AppState` — so **no new route, no new capability, no SDK
   change, no §5.1/§5.2 count**. **Tech debt, same shape as §148's key-event push: two carried-but-unread
   channels** — a §6.6 registration's `capabilities` are stored on the server's row and read by nothing, and
-  `RelayClient::ask_registry` has no production caller — recorded in `docs/connection.md` §11.
+  `RelayClient::request_registry` has no production caller — recorded in `docs/connection.md` §11.
   **`compute_hash` / `verify_chain` / the triggers untouched.** **Decision §150.**
+- **And a node now declares what it is configured to do** (v1.0 batch CX / M6-2b-1, 2026-09-30, the first
+  half of M6-2b): the §6.6 registration carries **derived claims** — `server` when the in-network server
+  role is configured, `dispatch` when at least one peer is known — where before the only production
+  registration sent an **empty** list (so a row's `capabilities` was empty by construction; batch CW's
+  finding). **No new settings field, no route, no capability, no SDK, and `net` untouched** (a node that is
+  neither declares nothing, so the wire is byte-compatible). Also `riscdom node capabilities` gains a sixth
+  section, **`PEER DECLARATIONS`** (from `GET /v0/peers`, headed *a claim, not a fact*; `peers` in
+  `--json`). **And the 8 `ask_registry` mentions became `request_registry`** — batch CV had named a symbol
+  that does not exist. **`compute_hash` / `verify_chain` / the triggers untouched**; the relay still has no
+  HTTP face. **Decision §151.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

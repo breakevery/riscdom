@@ -124,6 +124,10 @@ pub fn capabilities(sections: &Map<String, Value>) -> String {
         "TOOLCHAIN\n{}",
         or_failure(sections.get("toolchain"), readiness)
     ));
+    blocks.push(format!(
+        "PEER DECLARATIONS (each line is what that peer declares about itself — a claim, not a fact)\n{}",
+        or_failure(sections.get("peers"), peer_declarations)
+    ));
     blocks.join("\n\n")
 }
 
@@ -156,6 +160,38 @@ fn node_id(value: Option<&Value>) -> String {
         Some(value) if value.get("error").is_some() => failure(value),
         _ => "- (the connection layer is not configured)".to_string(),
     }
+}
+
+/// What each peer **declares about itself**, one line per entry (v1.0 M6-2b-1, the (c') half).
+///
+/// This is the `capabilities` list of a `peers.json` entry — the same field the kernel reads two
+/// words out of — and the header says the standing plainly: a declaration is a **claim**, not a
+/// fact about what the peer can run. A node with no `peers.json` says so; a node that knows nobody
+/// says that.
+fn peer_declarations(value: &Value) -> String {
+    let Some(rows) = value.as_array() else {
+        return "no peer table: this node has no peers.json".to_string();
+    };
+    if rows.is_empty() {
+        return "this node knows nobody, so nothing is declared".to_string();
+    }
+    let mut lines = vec![format!("{:<28} {}", "NODE_ID", "CAPABILITIES")];
+    for row in rows {
+        let declared = row
+            .get("capabilities")
+            .and_then(Value::as_array)
+            .map(|list| {
+                let words: Vec<&str> = list.iter().filter_map(Value::as_str).collect();
+                if words.is_empty() {
+                    "- (declares nothing)".to_string()
+                } else {
+                    words.join(" ")
+                }
+            })
+            .unwrap_or_else(|| "- (declares nothing)".to_string());
+        lines.push(format!("{:<28} {}", text(row, "node_id"), declared));
+    }
+    lines.join("\n")
 }
 
 /// A `QemuView` / `ToolchainView`: whether it is here, and where (v1.0 M6-2a).
@@ -1237,6 +1273,13 @@ mod tests {
             "toolchain".to_string(),
             serde_json::json!({ "error": { "code": 4, "message": "no toolchain.read" } }),
         );
+        sections.insert(
+            "peers".to_string(),
+            serde_json::json!([
+                { "node_id": "other", "addresses": [], "public_key": {},
+                  "capabilities": ["dispatch"], "rooms": [] }
+            ]),
+        );
         let text = capabilities(&sections);
         assert!(text.contains("NODE_ID     laptop-a"), "{text}");
         assert!(text.contains("exec-a"), "{text}");
@@ -1245,6 +1288,9 @@ mod tests {
             text.contains("unavailable (4: no toolchain.read)"),
             "{text}"
         );
+        assert!(text.contains("PEER DECLARATIONS"), "{text}");
+        assert!(text.contains("other"), "{text}");
+        assert!(text.contains("dispatch"), "{text}");
     }
 
     #[test]

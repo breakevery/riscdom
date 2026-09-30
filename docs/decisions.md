@@ -4449,7 +4449,7 @@ makes the aggregate five reads, not four, and that is reported rather than hidde
 **Two gaps, recorded as tech debt (same shape as §148's key-event push)**: (i) a §6.6 registration's
 `capabilities` are stored on the server's row (`OnlineEntry`) and **nothing in `server/` or `host-core/`
 reads them** — the two claim words the kernel acts on come from a node's own `peers.json`; and (ii)
-`RelayClient::ask_registry` exists and **no production caller asks** — a node only holds the table it was
+`RelayClient::request_registry` exists and **no production caller asks** — a node only holds the table it was
 handed at startup and on reconnect. Both are written into `docs/connection.md` §11 (plus a pointer from
 `cross-chain-verification.md` §7), because the three gaps are one pattern.
 
@@ -4461,3 +4461,44 @@ handed at startup and on reconnect. Both are written into `docs/connection.md` �
 `CHANGELOG.md` + zh; `docs/handoff.md` + zh. **No route table, no §5.1/§5.2 count, no capability name, no
 SDK, no dependency; `compute_hash` / `verify_chain` / the append-only triggers are untouched; nothing writes
 the chain.** **M6-2b (asking a peer over the wire) is untouched.**
+
+## 151. A registration says what the node is configured to do, and a peer's declaration is shown
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch CX / M6-2b-1)
+
+**Decision**: The first piece of **M6-2b**, and the fix for what batch CW found:
+
+- **(d0) A §6.6 registration carries derived claims.** `host-core`'s registration-and-heartbeat loop no
+  longer sends `Registration::in_rooms(rooms)`; it builds the full `Registration` with
+  `capabilities: connection_claims()` — `server` when `settings.network.server_role` is set, `dispatch` when
+  `peers.json` has at least one entry — and the same empty `addresses`. **No new settings field.** A node
+  that is neither declares nothing, which is what every node declared before this batch, so the wire stays
+  byte-compatible and the `net` side is **untouched**.
+- **(c') A peer's declaration is shown.** `GET /v0/peers` already answers with this node's own
+  `Vec<PeerEntry>`, `capabilities` and all (batch AC). `riscdom node capabilities` now reads it as a sixth
+  section — **`PEER DECLARATIONS`**, headed *“each line is what that peer declares about itself — a claim,
+  not a fact”* — and `--json` gains a `peers` key holding the route's own answer, untouched.
+- **The 8 `ask_registry` mentions became `request_registry`.** Batch CV named a symbol that does not exist;
+  the real one is `RelayClient::request_registry` (`net/src/relay.rs`). Fixed in `connection.md`,
+  `decisions.md`, `handoff.md` and `CHANGELOG.md`, both languages.
+
+**Why**: Batch CW found the sharpest version of the gap — the row's `capabilities` was **empty by
+construction**, because the only production registration was `in_rooms`, which fills nothing but `rooms`. So
+the missing half was not a reader but a **writer**, and the writer is one construction in `host-core`: that
+is why this batch is (d0), and why it needs no route, no capability and no SDK. The claims are **derived
+from configuration**, not hand-written, because a deployer already says whether this node serves a workgroup
+and whether it knows peers; a second file to keep in sync, or a new setting, would be two more places to
+get wrong. **(c') is the cheap half of the same question on this side of the wire**: `/v0/peers` has carried
+the declarations since batch AC, so showing them costs a CLI section and the word “declared” in the heading.
+**Giving the row a consumer stays M6-2b-2** (`/v0/online`), and **the relay still has no HTTP face** — that
+is §6.5's red line, and this batch does not touch `net` at all.
+
+**Impact**: `host-core/src/state.rs` (`connection_claims`, the free `connection_claims_from`, the
+registration construction in `start_beat`) + its unit test; `host-core/tests/connection.rs` (the claims of a
+registering node); `cli/src/args.rs` (usage), `cli/src/lib.rs` (`CAPABILITY_READS` 4 → 5), `cli/src/render.rs`
+(`peer_declarations`), `cli/tests/read_only.rs`, `cli/README.md` + zh (one row); `docs/connection.md` §11.1 +
+zh; `docs/cross-device-dispatch.md` §7 + zh; `docs/decisions.md` (the two `ask_registry` mentions) + zh;
+`docs/handoff.md` + zh; `CHANGELOG.md` + zh. **No route table, no §5.1/§5.2 count, no capability name, no
+SDK, no dependency, no new settings field; `net` (including `riscdom-relay`'s missing HTTP face) is
+untouched; `compute_hash` / `verify_chain` / the append-only triggers are untouched.** **M6-2b-2 is
+untouched.**

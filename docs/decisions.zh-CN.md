@@ -1613,6 +1613,20 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 
 **缘由**：M6-2 的素材早就在这个节点上，分散在 UI 的 node 页已经在读的四个端点里，**只缺那一条把它们收齐的命令**（批 CU）。把合并放在 CLI 而不是一条新的聚合路由里，正是让本批保持小的原因：一条字面路由会把 §5.1/§5.2 计数、一个 capability 决定、两个 SDK 与 tool-schema 检查器一同带上（批 CT 的教训）。**它报告节点是什么；一个任务该去哪里仍是调用方的** —— 红线 1，也是 `cross-device-dispatch.md` §6。identity 读是 `node_id` 需要的，也是它唯一的来源；这让聚合是五个读、不是四个，而这一点被报告、不被隐藏。
 
-**两条缺口，记为技术债（与 §148 的关键事件推送同型）**：(i) §6.6 注册的 `capabilities` 被存在服务器的行上（`OnlineEntry`），**`server/` 与 `host-core/` 里无人读** —— 内核据以行动的那两个声明词来自节点自己的 `peers.json`；(ii) `RelayClient::ask_registry` 存在而**没有任何生产调用者去问** —— 节点只持有启动时与重连时被下发的那张表。两条都写进 `docs/connection.md` §11（并从 `cross-chain-verification.md` §7 指过去），因为这三条缺口是同一个模式。
+**两条缺口，记为技术债（与 §148 的关键事件推送同型）**：(i) §6.6 注册的 `capabilities` 被存在服务器的行上（`OnlineEntry`），**`server/` 与 `host-core/` 里无人读** —— 内核据以行动的那两个声明词来自节点自己的 `peers.json`；(ii) `RelayClient::request_registry` 存在而**没有任何生产调用者去问** —— 节点只持有启动时与重连时被下发的那张表。两条都写进 `docs/connection.md` §11（并从 `cross-chain-verification.md` §7 指过去），因为这三条缺口是同一个模式。
 
 **影响**：`cli/src/args.rs`（`node capabilities` 命令、它的路径与 usage 行）；`cli/src/lib.rs`（`node_capabilities`、`capability_section`、`error_section`）；`cli/src/render.rs`（`capabilities` 与几个小工具）；`cli/README.md` + zh（一行命令）；`docs/cross-device-dispatch.md` + zh（§7）；`docs/connection.md` + zh（§11）；`docs/cross-chain-verification.md` + zh（§7 的同型注）；`docs/control-plane-client-guide.md` + zh（§7）；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。**无路由表、无 §5.1/§5.2 计数、无 capability 名、无 SDK、无依赖；`compute_hash` / `verify_chain` / append-only 触发器未动；不写链。** **M6-2b（跨线去问同侪）未动。**
+
+## 151. 注册说明节点被配置成做什么，而同侪的声明被展示出来了
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 CX / M6-2b-1）
+
+**决策**：**M6-2b** 的第一块，也是批 CW 所发现的修正：
+
+- **(d0) §6.6 注册携带推导出的声明。** `host-core` 的注册与心跳循环不再发 `Registration::in_rooms(rooms)`，而是构造完整的 `Registration`：`capabilities: connection_claims()` —— `settings.network.server_role` 被设置时加 `server`，`peers.json` 至少有一条时加 `dispatch` —— `addresses` 仍为空。**无新设置字段。** 两者都没有的节点什么都不声明，也就是本批之前每个节点声明的东西，所以线上字节保持兼容、`net` 一侧**未动**。
+- **(c') 同侪的声明被展示出来。** `GET /v0/peers` 早已用本节点自己的 `Vec<PeerEntry>` 作答（`capabilities` 都在；批 AC）。`riscdom node capabilities` 现在把它作为第六节读 —— **`PEER DECLARATIONS`**，标题写着「每一行是那个同侪对自己的声明 —— 一个声明，不是事实」—— `--json` 多出 `peers` 键，装着该路由的原样回答。
+- **8 处 `ask_registry` 改为 `request_registry`。** 批 CV 写了一个并不存在的符号；真名是 `RelayClient::request_registry`（`net/src/relay.rs`）。在 `connection.md`、`decisions.md`、`handoff.md`、`CHANGELOG.md` 双语修正。
+
+**缘由**：批 CW 找到了这个缺口最锋利的版本 —— 行的 `capabilities` **在构造上就是空的**，因为生产里唯一的注册是 `in_rooms`，它只填 `rooms`。所以缺的那一半不是读者，而是**写者**，而写者只是 `host-core` 里的一处构造：这就是为什么本批是 (d0)，也是为什么它不需要路由、capability 与 SDK。声明是**从配置推导**的、不是手写的，因为部署者早已说过这个节点是否服务一个 workgroup、是否认识同侪；再让他们写一份声明列表，就是多一个要对齐的地方，而新造一个设置字段就是词汇。**(c') 是同一个问题在线这一侧的便宜那一半**：`/v0/peers` 自批 AC 起就带着那些声明，展示它们只需一节 CLI 输出和标题里那个「声明」二字。**给那行一个消费者仍是 M6-2b-2**（`/v0/online`），而 **relay 仍然没有 HTTP 面** —— 那是 §6.5 的红线，本批根本不碰 `net`。
+
+**影响**：`host-core/src/state.rs`（`connection_claims`、自由的 `connection_claims_from`、`start_beat` 里的注册构造）+ 它的单测；`host-core/tests/connection.rs`（一个注册中节点的声明）；`cli/src/args.rs`（usage）、`cli/src/lib.rs`（`CAPABILITY_READS` 4 → 5）、`cli/src/render.rs`（`peer_declarations`）、`cli/tests/read_only.rs`、`cli/README.md` + zh（一行）；`docs/connection.md` §11.1 + zh；`docs/cross-device-dispatch.md` §7 + zh；`docs/decisions.md`（那两处 `ask_registry`）+ zh；`docs/handoff.md` + zh；`CHANGELOG.md` + zh。**无路由表、无 §5.1/§5.2 计数、无 capability 名、无 SDK、无依赖、无新设置字段；`net`（包括 `riscdom-relay` 缺失的 HTTP 面）未动；`compute_hash` / `verify_chain` / append-only 触发器未动。** **M6-2b-2 未动。**

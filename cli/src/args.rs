@@ -43,11 +43,12 @@ read-only commands:
                                 connected, and any problem (`GET /v0/connection`)
   node capabilities             what this node can run, in one answer: the
                                 executors it can route to, its sandbox definitions,
-                                and whether QEMU and the RISC-V toolchain are ready
-                                here (a merge of `GET /v0/identity`,
+                                whether QEMU and the RISC-V toolchain are ready
+                                here, and what each peer declares about itself
+                                (a merge of `GET /v0/identity`,
                                 `/v0/executors`, `/v0/sandboxes`, `/v0/qemu`,
-                                `/v0/toolchain`; the CLI composes it, the control
-                                plane serves each on its own)
+                                `/v0/toolchain`, `/v0/peers`; the CLI composes it,
+                                the control plane serves each on its own)
   workspace export [--out <file>]
                                 the project as a tar.gz; without --out it goes to
                                 stdout, and the count goes to stderr

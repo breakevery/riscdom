@@ -436,6 +436,11 @@ fn a_pointer_at_a_known_peer_wires_a_client_that_registers_and_beats() {
         "no peer port has landed yet, so none is claimed"
     );
     assert_eq!(row.state, net::Online::Online);
+    assert_eq!(
+        row.capabilities,
+        vec![net::DISPATCH_CLAIM.to_string()],
+        "this node knows a peer (the server), so it declares `dispatch` (v1.0 M6-2b-1)"
+    );
 
     // Restart the loop with a short interval so the beat can be watched, then stop it and watch the row
     // freeze: nothing else advances it.
@@ -457,6 +462,76 @@ fn a_pointer_at_a_known_peer_wires_a_client_that_registers_and_beats() {
         server.online()[0].last_heartbeat_ms,
         stopped,
         "the loop is stopped, so nothing beats"
+    );
+}
+
+#[test]
+fn a_registration_declares_what_this_node_is_configured_to_do() {
+    // (d0) of v1.0 M6-2b-1: the claims a §6.6 registration carries are derived from the node's own
+    // configuration — `server` for the in-network server role, `dispatch` for a node that knows a
+    // peer — never hand-written in a file. Before this batch every registration carried an empty
+    // list, so a row's `capabilities` was empty by construction (batch CW's finding).
+    let data_dir = configured_server_role_pointing("claims", "127.0.0.1:0", "server");
+    let workspace = unique_dir("claims-ws");
+
+    let node_key = net::NodeKey::generate().expect("key");
+    net::NodeKey::save_new_in(&data_dir, &node_key).expect("node.key");
+
+    let server_key = net::NodeKey::generate().expect("key");
+    let mut server_peers = net::PeersFile::empty();
+    server_peers.peers.push(net::PeerEntry::new(
+        &agent::device(),
+        "127.0.0.1:1",
+        node_key.public_jwk(),
+    ));
+    let listener = net::Listener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr").to_string();
+    let server = net::RelayServer::new(
+        "server",
+        server_key.clone(),
+        server_peers,
+        net::RoomsFile::empty(),
+        net::TransportConfig::default(),
+    )
+    .expect("server");
+    let serving = server.clone();
+    std::thread::spawn(move || {
+        let _ = serving.serve(listener);
+    });
+
+    // The node's own tables: the server as its one peer, and no room.
+    let mut local_peers = net::PeersFile::empty();
+    local_peers.peers.push(net::PeerEntry::new(
+        "server",
+        &addr,
+        server_key.public_jwk(),
+    ));
+    net::PeersFile::save_in(&data_dir, &local_peers).expect("peers.json");
+    net::RoomsFile::save_in(&data_dir, &net::RoomsFile::empty()).expect("rooms.json");
+
+    let state = state_in(&workspace, &data_dir);
+    assert!(
+        state.connection_client().is_some(),
+        "the pointer wired a client"
+    );
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while server.online().is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the node never registered"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let row = server.online().into_iter().next().expect("a row");
+    assert_eq!(row.node_id, agent::device());
+    assert_eq!(
+        row.capabilities,
+        vec![
+            net::SERVER_CLAIM.to_string(),
+            net::DISPATCH_CLAIM.to_string()
+        ],
+        "a server role configured and one peer known: both claims, in a fixed order"
     );
 }
 

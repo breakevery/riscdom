@@ -541,21 +541,23 @@ fn report(args: &Args, error: &Error, err: &mut dyn Write) -> u8 {
     error.code
 }
 
-/// The four endpoints `node capabilities` merges, in the order they are printed: the
-/// reads a person needs to answer "can this node run X?" (v1.0 M6-2a).
-const CAPABILITY_READS: [(&str, &str); 4] = [
+/// The five endpoints `node capabilities` merges, in the order they are printed: the reads a person
+/// needs to answer "can this node run X?", plus the peer declarations (v1.0 M6-2a, extended by
+/// M6-2b-1's (c') half).
+const CAPABILITY_READS: [(&str, &str); 5] = [
     ("executors", "/v0/executors"),
     ("sandboxes", "/v0/sandboxes"),
     ("qemu", "/v0/qemu"),
     ("toolchain", "/v0/toolchain"),
+    ("peers", "/v0/peers"),
 ];
 
 /// What this node can run, in one answer (v1.0 M6-2a).
 ///
 /// The CLI is a **pure HTTP client** (it never calls `AppState`), so this is a
-/// composition of reads, not a route: `node_id` from `/v0/identity` plus the four
+/// composition of reads, not a route: `node_id` from `/v0/identity` plus the five
 /// [`CAPABILITY_READS`], merged into `{node_id, executors, sandboxes, qemu,
-/// toolchain}`. Every answer is passed through **untouched** — only a failed section
+/// toolchain, peers}`. Every answer is passed through **untouched** — only a failed section
 /// is wrapped, and only `node_id` is lifted out of the identity object.
 ///
 /// A section that fails does not take the answer down with it: the failure is stored
