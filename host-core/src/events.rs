@@ -23,7 +23,7 @@
 
 use serde::Serialize;
 use serde_json::Value;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// One LLM iteration started (maps to an audited `agent.llm.request`).
@@ -299,6 +299,19 @@ pub fn task_dispatch_payload(task_id: &str, target: &str, outcome: &str) -> Valu
 /// Anything that can deliver an event to the frontend.
 pub trait EventSink: Send + Sync {
     fn emit(&self, event: &str, payload: Value);
+
+    /// A copy of this sink that stamps every envelope it builds with `task_id` (v1.0 M6-3a).
+    ///
+    /// The transports are the only things that build an envelope, so they are the only things
+    /// that can carry a task identity into one. A sink that is already bound — or does not build
+    /// envelopes at all — answers `None`, and the caller keeps using `self`; that is why the
+    /// default is here rather than a required method.
+    ///
+    /// [`emit`](Self::emit)'s signature is unchanged on purpose: the id belongs to the **sink**
+    /// (whose construction knows which task it is for), not to every emit site.
+    fn with_task(&self, _task_id: Option<&str>) -> Option<Arc<dyn EventSink>> {
+        None
+    }
 }
 
 /// Collects events in memory (tests).

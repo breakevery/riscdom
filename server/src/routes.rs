@@ -1653,8 +1653,14 @@ pub(crate) fn dispatch(
             // The finer declaration (v1.0 M2a-3): which of this node's instances the
             // run should act on. `None` runs on the node's own, exactly as before.
             let instance = params.get("instance").map(InstanceId::new);
-            let sink: Arc<dyn host_core::EventSink> =
-                Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
+            // A run can name the task it belongs to (v1.0 M6-3a): the id is bound into the sink
+            // **before** the run starts, so every envelope the run publishes carries it — which is
+            // what a client following one node needs to attribute an event. Absent, the envelopes
+            // say `null`, exactly as they did before this batch.
+            let sink: Arc<dyn host_core::EventSink> = Arc::new(
+                HttpEventSink::new(Arc::clone(hub), app.agent_id())
+                    .for_task(params.get("task_id").map(str::to_string)),
+            );
             match app.run_agent_for(sink, user_input, sandbox, instance.as_ref()) {
                 Ok(view) => ok_json(&view),
                 Err(e) => run_error(e),
@@ -1679,20 +1685,29 @@ pub(crate) fn dispatch(
             // task wants. A stdio executor's instances belong to its own table, so
             // the id travels with the task and is checked where it arrives.
             let instance = params.get("instance");
-            let id = params.get("id");
+            // The id is minted **here** rather than inside `dispatch_task` (v1.0 M6-3a), so the sink
+            // that carries this dispatch's events can be bound to it before the call. `id` is this
+            // endpoint's older name for the same thing; both are accepted.
+            let id = params
+                .get("id")
+                .map(host_core::TaskId::new)
+                .unwrap_or_else(host_core::TaskId::next)
+                .as_str()
+                .to_string();
             // Where the task should run (v1.0 M6-1b): absent (or this node's own name) means the local fleet,
             // exactly as before; another node's name hands it over and waits for that node's answer. The
             // parameter is a **name**, not a new route: §5 calls the dispatch interface "hand a task to a
             // node by name", and the route table does not change.
             let node = params.get("node");
-            let emitter: Arc<dyn host_core::EventSink> =
-                Arc::new(HttpEventSink::new(Arc::clone(hub), app.agent_id()));
+            let emitter: Arc<dyn host_core::EventSink> = Arc::new(
+                HttpEventSink::new(Arc::clone(hub), app.agent_id()).for_task(Some(id.clone())),
+            );
             match app.dispatch_task(
                 target,
                 input,
                 sandbox,
                 instance,
-                id,
+                Some(id.as_str()),
                 node,
                 Some(&actor.agent_id),
                 emitter,

@@ -14,7 +14,7 @@
 //! `Last-Event-ID` gets everything after it — or a `gap` frame when the hole is
 //! older than the buffer.
 
-use host_core::events::{envelope, event_envelope, Envelope};
+use host_core::events::{envelope, kind, Envelope};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -264,6 +264,8 @@ fn parse_seq(id: &str) -> Result<u64, ()> {
 pub struct HttpEventSink {
     hub: Arc<SseHub>,
     agent_id: String,
+    /// The task whose events this sink carries, when it is a run's (v1.0 M6-3a).
+    task_id: Option<String>,
 }
 
 impl HttpEventSink {
@@ -280,21 +282,45 @@ impl HttpEventSink {
         Self {
             hub,
             agent_id: agent_id.into(),
+            task_id: None,
         }
+    }
+
+    /// The same sink, stamping every envelope with `task_id` (v1.0 M6-3a).
+    ///
+    /// The binding is at construction because that is when the caller knows which task it is
+    /// serving — a run the caller named, or the dispatch it just minted. A sink built without it
+    /// keeps publishing `task_id: null`, which is what every frame did before this batch.
+    pub fn for_task(mut self, task_id: Option<String>) -> Self {
+        self.task_id = task_id;
+        self
     }
 }
 
 impl host_core::EventSink for HttpEventSink {
     fn emit(&self, event: &str, payload: serde_json::Value) {
-        self.hub
-            .publish_event(event_envelope(event, &self.agent_id, payload));
+        self.hub.publish_event(envelope(
+            kind::EVENT,
+            Some(event),
+            &self.agent_id,
+            self.task_id.as_deref(),
+            payload,
+        ));
+    }
+
+    fn with_task(&self, task_id: Option<&str>) -> Option<Arc<dyn host_core::EventSink>> {
+        Some(Arc::new(Self {
+            hub: Arc::clone(&self.hub),
+            agent_id: self.agent_id.clone(),
+            task_id: task_id.map(str::to_string),
+        }))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use host_core::events::kind;
+    use host_core::events::{event_envelope, kind};
     use host_core::EventSink;
 
     fn event(name: &str) -> Envelope {
@@ -354,6 +380,37 @@ mod tests {
         assert!(wire.contains("\"agent_id\":\"dev-9-1\""), "{wire}");
         assert!(wire.contains("\"version\":1"), "{wire}");
         assert_eq!(kind::EVENT, "event");
+    }
+
+    #[test]
+    fn a_sink_bound_to_a_task_stamps_it_and_an_unbound_one_says_null() {
+        // v1.0 M6-3a: the transport is where the envelope is built, so the task identity has to
+        // reach it — bound at construction, which is when the caller knows which task it serves.
+        let hub = SseHub::new(8);
+        let mut rx = hub.subscribe();
+
+        HttpEventSink::new(Arc::clone(&hub), "dev-9-1")
+            .for_task(Some("task-dev-a-1-1".to_string()))
+            .emit("vm:state", serde_json::json!({ "running": true }));
+        let wire =
+            String::from_utf8(rx.try_recv().expect("one frame").bytes.clone()).expect("utf-8");
+        assert!(wire.contains("\"task_id\":\"task-dev-a-1-1\""), "{wire}");
+
+        // Without a task — every event a node emitted before this batch — the field is `null`,
+        // which is what a client already had to tolerate.
+        HttpEventSink::new(Arc::clone(&hub), "dev-9-1").emit("vm:state", serde_json::json!({}));
+        let wire =
+            String::from_utf8(rx.try_recv().expect("one frame").bytes.clone()).expect("utf-8");
+        assert!(wire.contains("\"task_id\":null"), "{wire}");
+
+        // `with_task` is how a holder of a long-lived sink asks for a bound copy.
+        let scoped = HttpEventSink::new(Arc::clone(&hub), "dev-9-1")
+            .with_task(Some("task-b-2-2"))
+            .expect("the HTTP sink can rebind");
+        scoped.emit("vm:state", serde_json::json!({}));
+        let wire =
+            String::from_utf8(rx.try_recv().expect("one frame").bytes.clone()).expect("utf-8");
+        assert!(wire.contains("\"task_id\":\"task-b-2-2\""), "{wire}");
     }
 
     #[test]

@@ -90,6 +90,9 @@ impl Args {
 /// tell which executor produced what after the fact.
 struct LineEventSink {
     agent_id: String,
+    /// The task this process is running (v1.0 M6-3a): the line it read on stdin named it, so
+    /// every event it writes can say which task caused it.
+    task_id: Option<String>,
 }
 
 impl EventSink for LineEventSink {
@@ -97,8 +100,21 @@ impl EventSink for LineEventSink {
         // The one envelope every transport uses (v0.9). `worker:ready` and
         // `worker:done` are this process's own protocol events and travel in it
         // too — as `kind: "event"`, so a supervisor parses all lines one way.
-        let line = host_core::events::event_envelope(event, &self.agent_id, payload);
+        let line = host_core::events::envelope(
+            host_core::events::kind::EVENT,
+            Some(event),
+            &self.agent_id,
+            self.task_id.as_deref(),
+            payload,
+        );
         eprintln!("{}", line.to_json());
+    }
+
+    fn with_task(&self, task_id: Option<&str>) -> Option<Arc<dyn EventSink>> {
+        Some(Arc::new(Self {
+            agent_id: self.agent_id.clone(),
+            task_id: task_id.map(str::to_string),
+        }))
     }
 }
 
@@ -187,6 +203,7 @@ fn run(args: &Args, task: Option<&Task>) -> TaskOutcome {
     let agent_id = AgentId::new(state.agent_id());
     let sink = Arc::new(LineEventSink {
         agent_id: agent_id.to_string(),
+        task_id: Some(task.id.to_string()),
     });
     sink.emit(
         "worker:ready",

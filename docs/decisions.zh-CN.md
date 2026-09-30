@@ -1649,3 +1649,22 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **本批携带的一处更正**：批 CV/CY 自己的措辞把 `/v0/online` 要收口的缺口指向了 §11.2（注册表获取）。它并不是 —— §11.2 的缺口是*发布的表*，一个不同的存储、至今仍无调用者 —— 所以收口写在它该在的地方（**§11.1**），而 §11.2 明说这条路由不是它的读者。
 
 **影响**：`net/src/relay.rs`（`OnlineEntry` + `Online` 的 `Serialize`）；`server/src/routes.rs`（`Action::Online`、`ROUTES` 行、handler）；`server/tests/smoke.rs`（+1 例、计数 38 → 39、`null` 循环，以及一个新端到端测试：真实注册落入表中）；`docs/control-plane-api.md` + zh；`docs/tool-schema-control-plane.md` + zh；`sdk/rust/src/lib.rs` + `sdk/rust/README.md`；`sdk/typescript/src/index.ts` + `sdk/typescript/test/endpoints.test.ts` + `sdk/typescript/README.md`；`docs/connection.md` §11.1/§11.2 + zh；`docs/cross-device-dispatch.md` §7 + zh；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。**不新增 capability 名（33 名词汇表未动）、不加 CLI 命令、不加 UI 面板、不动 `patterns`、不加依赖；`net/src/bin/riscdom-relay.rs`、`server/src/auth.rs`、`audit/`、`sandbox/` 未动；`compute_hash` / `verify_chain` / append-only 触发器未动。**
+
+## 153. 一次 run 的事件带着引起它的那个任务
+
+**日期**：2026-10-01 ｜ **状态**：已定且已实现（批 DB / M6-3a）
+
+**决策**：roadmap §12 自 v0.9 起记为 `[open]` 的 `task_id` 缺口，靠**接线**而不是发明来收口：身份本来就在每一跳上（run 开始时 `Task` 就在手里，执行派发任务的那份 `Task` 在 worker 里），只是无处安放 —— `EventSink::emit(&self, event, payload)` 没有它的位置，而生产里唯一的包装器 `event_envelope` 写死 `None`。
+
+- **由 sink 携带，并在构造时绑定**（owner 的选择）。`HttpEventSink`、`TauriEventSink` 与 worker 的 `LineEventSink` 各多一个 `task_id` 字段，经 `envelope(kind, event, agent_id, task_id, payload)` 发布，并提供 `for_task(...)`。**`emit` 的签名不变**，所以没有任何发射点或其它 sink 被改动。
+- **`EventSink` 多一个带默认实现的方法**：`with_task(&self, Option<&str>) -> Option<Arc<dyn EventSink>>`，默认 `None`。它是为那一个「持有**长期** emitter、每次调用才知道任务」的调用者准备的 —— `HostAgentHandle::run`，它在开始 run 之前要一份绑到 `Some(task.id)` 的副本，取不到就回退到原有的 sink。不能重绑的 sink 保持旧行为，而不是失败。
+- **`POST /v0/agent/run` 收 `task_id`**（可选；缺席即 `null`，与本批之前一字不差）。handler 在 run 开始**之前**把它绑进 sink。
+- **`POST /v0/tasks` 在 handler 里铸 id**，而不是在 `dispatch_task` 内部，于是 sink 能在调用前被绑定。`id` 保留原名 —— 两者都收，且指的是同一件事。
+- **worker 绑定它从 stdin 读到的那份任务**，所以一个被派发任务的“远端”事件也命名它。
+- **`host_core::TaskId` 被 re-export**（它本来就通过 `TaskOutcome` 可见），于是控制面不必新增依赖边就能铸 id。
+
+**缘由**：§12 的客户是「跟一个节点的客户端」：「当一个事件帧无法归属到产生它的那个任务时……」而已。只存在于*派发行*上的 id —— `m.task.dispatch` 自 v1.0 gap 2/N 起就有的那种 —— 归属的是*问*，不是*工作*。修在**构造信封的地方**，因为形状住在那里，而构造是传输知道自己服务哪个任务的唯一时刻。**这里没有策略**：id 让读者能关联跨设备的事件；它不选节点（红线 1），而不隶属任何任务的事件仍然说 `null`。
+
+**不在本批（M6-3b，仍开放）**：流文档里的 `task_id` **过滤器**。`hello` 广告着 `filters: {…, "task_id": null}`，两个 SDK 也能发它，但服务器完全没有过滤逻辑（`docs/control-plane-events.md` §4 把这个机制叫作「在实现批次建」）；owner 把它留在下一批，而它也只有到现在事件带了 id 之后才有意义。
+
+**影响**：`host-core/src/events.rs`（trait 的 `with_task`）、`host-core/src/dispatch.rs`（`HostAgentHandle::run`）、`host-core/src/lib.rs`（`TaskId` re-export）+ `host-core/tests/dispatch.rs`；`server/src/sse.rs`（`HttpEventSink` + 它的单测）、`server/src/routes.rs`（两个 handler）、`server/tests/smoke.rs`（一个端到端流测试）；`host-tauri/src/events.rs` + `commands.rs`；`worker/src/main.rs` + `worker/tests/stdio.rs`；`docs/control-plane-api.md` + zh、`docs/control-plane-events.md` + zh、`docs/roadmap-v1.0.md` + zh（§12 `[open]` → `[settled]`）、`docs/cross-device-dispatch.md` §8 + zh、`CHANGELOG.md` + zh、`docs/handoff.md` + zh。**无路由行、无 §5.1/§5.2 计数、无 capability 名、无 SDK 改动、无依赖；`audit/src/hash.rs` 未动 —— `compute_hash` 没有 `task_id` 列，而 detail 里的 `task_id` 只作为那份 detail 的一部分参与哈希，与 `m.task.dispatch` 一直以来的情形完全一致。**

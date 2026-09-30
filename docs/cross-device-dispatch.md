@@ -155,3 +155,28 @@ touch the same question.
 **Frozen**: the command's shape (`{node_id, executors, sandboxes, qemu, toolchain, peers}`), that it is the
 CLI's own composition, and that it reports only. **Not frozen**: whether a peer's capability surface is ever
 asked over the wire, and whether `/v0/peers` ever carries more than the declared claims.
+
+## 8. The identity a task keeps
+
+**[settled] A task has one identity, and it travels (v1.0 M6-1a).** The frame that crosses a device carries
+the near node's `task_id`, and the peer's answer names it back (`TaskReply`), so the two records — the
+sender's and the receiver's — name the same task. Nothing is re-minted on the far side: the id is the one
+the near node gave it, which is what makes "this dispatching" and "that answer" one thing.
+
+**[settled] And the events carry it (v1.0 M6-3a).** An event frame's `task_id` is no longer always `null`:
+`POST /v0/agent/run` takes a `task_id` (a client following one node attributes what it sees to the task it
+asked for), `POST /v0/tasks` binds the id it was given — or the one it minted — **before** it builds the
+sink that carries the dispatch's events, and a task that runs under a node's own executor or in a `worker`
+child publishes its events under the same id. So a task's story on **two** machines is readable as one:
+the receipt on the receiver (`host.dispatch.received`), its own chain rows, and every stream frame in
+between all name it.
+
+**[settled] This is a mechanism, not a policy.** The id lets a reader *relate* events across devices; it
+does not decide which node should run anything, and nothing here schedules ([§6](#6-what-this-is-not),
+red line 1). An event that names no task still says `null`, which is what every frame did before this
+batch.
+
+**Frozen**: the envelope's `task_id` and its meaning; the frame fields that carry it; that a run's sink is
+bound to the id at construction. **Not frozen**: whether the stream's documented `task_id` filter is ever
+implemented (M6-3b — it is advertised in `hello` and not yet honoured), and whether a reply's own events
+are correlated beyond their ids.

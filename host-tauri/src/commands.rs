@@ -713,9 +713,10 @@ pub async fn run_agent(
     user_input: String,
     sandbox: Option<String>,
     instance: Option<String>,
+    task_id: Option<String>,
 ) -> Result<AgentOutcomeView, String> {
     let emitter: Arc<dyn crate::events::EventSink> =
-        Arc::new(TauriEventSink::new(app, state.agent_id()));
+        Arc::new(TauriEventSink::new(app, state.agent_id()).for_task(task_id));
     let instance = instance.map(host_core::InstanceId::new);
     state
         .run_agent_for(emitter, &user_input, sandbox.as_deref(), instance.as_ref())

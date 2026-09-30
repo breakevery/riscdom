@@ -99,7 +99,7 @@ one meaning each.
 | `kind` | string | yes | Frame kind: `event` / `hello` / `gap` (see below). |
 | `event` | string \| null | yes | One of the twenty names, or `null` for `hello` / `gap`. |
 | `agent_id` | string | yes | The agent that caused the event, `<device>-<pid>-<seq>`. |
-| `task_id` | string \| null | yes | The dispatched task it belongs to; `null` when not tied to one. |
+| `task_id` | string \| null | yes | The task it belongs to: the id a run was given (`POST /v0/agent/run`'s `task_id`), the id a dispatch carries (`POST /v0/tasks`'s `id`), or `null` when the event is not tied to one (v1.0 M6-3a). |
 | `ts` | integer | yes | Epoch milliseconds. |
 | `payload` | object | yes | Event-specific body (§3). |
 

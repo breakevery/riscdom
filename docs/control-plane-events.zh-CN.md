@@ -59,7 +59,7 @@ data: {"version":1,"kind":"hello","event":null,"agent_id":"server","task_id":nul
 | `kind` | string | 是 | 帧种类：`event` / `hello` / `gap`（见下）。 |
 | `event` | string \| null | 是 | 二十个名字之一；`hello` / `gap` 时为 `null`。 |
 | `agent_id` | string | 是 | 引发该事件的 agent，`<device>-<pid>-<seq>`。 |
-| `task_id` | string \| null | 是 | 所属的派发任务；与任务无关时为 `null`。 |
+| `task_id` | string \| null | 是 | 它所属的任务：一次 run 被给的 id（`POST /v0/agent/run` 的 `task_id`）、一次派发携带的 id（`POST /v0/tasks` 的 `id`），或事件不隶属任何任务时的 `null`（v1.0 M6-3a）。 |
 | `ts` | integer | 是 | epoch 毫秒。 |
 | `payload` | object | 是 | 事件专属正文（§3）。 |
 

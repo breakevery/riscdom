@@ -498,6 +498,15 @@ current request authorising it (§2).
   chain: `ROUTES` + §5.1 (37 → 38) + tool-schema (37 → 38, table + definition) + both SDKs (37 → 38) +
   `smoke.rs` (38 → 39). **No CLI command, no UI panel, no capability name, no dependency; the relay still
   has no HTTP face.** **Decision §152.**
+- **And a run's events name the task that caused them** (v1.0 batch DB / M6-3a, 2026-10-01, and the end of
+  roadmap §12's `task_id` gap): the identity was on every hop and had nowhere to go. The **sink now carries
+  it**, bound at construction (`HttpEventSink` / `TauriEventSink` / the worker's `LineEventSink` publish
+  through `envelope(…, task_id, …)`), and `EventSink` gained one defaulted method (`with_task`) so a
+  long-lived emitter can hand one run a bound copy. `POST /v0/agent/run` takes an optional `task_id`;
+  `POST /v0/tasks` mints its `id` in the handler so the sink is bound before the call; the worker binds what
+  it read on stdin. **`emit`'s signature is unchanged**, and with no id the envelopes still say `null`. **No
+  route row, no capability name, no SDK change, no dependency; `audit/src/hash.rs` untouched.** The SSE
+  `task_id` filter stays open (M6-3b). **Decision §153.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

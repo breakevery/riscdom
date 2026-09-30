@@ -769,6 +769,90 @@ fn the_sandbox_registry_answers_and_the_fallback_is_always_in_it() {
     );
 }
 
+#[cfg(windows)]
+fn a_speaking_executor(dir: &Path) -> PathBuf {
+    // The same fixture `host-core/tests/task_dispatch.rs` uses: `cmd` reads the task line, answers
+    // one outcome on stdout (echoing back the id it was given) and announces an identity on stderr.
+    let path = dir.join("fake-executor.bat");
+    let outcome = serde_json::json!({
+        "task_id": "%_id%",
+        "agent_id": "the-label-is-not-the-answer",
+        "outcome": { "Final": { "content": "hello from the fake", "iterations": 1 } },
+    });
+    let ready = serde_json::json!({ "event": "worker:ready", "agent_id": "fake-child-1-1" });
+    let script = format!(
+        "@echo off\r\nset /p _task=\r\nset _task=%_task:\"=%\r\n\
+         for /f \"tokens=2 delims=:,\" %%a in (\"%_task%\") do set _id=%%a\r\n\
+         echo {outcome}\r\necho {ready} 1>&2\r\n",
+        outcome = outcome,
+        ready = ready,
+    );
+    std::fs::write(&path, script).expect("write the fake executor");
+    path
+}
+
+/// The `data` line a framed event travelled in, cut at its payload.
+///
+/// The cut matters: a dispatch's **payload** has carried a `task_id` since v1.0 gap 2/N, so a test
+/// that only searched the whole line could pass without the envelope naming the task at all.
+fn envelope_of(text: &str, event: &str) -> String {
+    let line = text
+        .lines()
+        .find(|line| line.starts_with("data: ") && line.contains(event))
+        .unwrap_or_else(|| panic!("no {event} frame in {text}"));
+    let (envelope, _payload) = line
+        .split_once("\"payload\"")
+        .expect("an envelope then a payload");
+    envelope.to_string()
+}
+
+#[cfg(windows)]
+#[test]
+fn a_dispatched_tasks_events_carry_the_id_the_caller_gave() {
+    // v1.0 M6-3a, end to end over HTTP: `POST /v0/tasks` mints (or takes) the task's identity
+    // **before** it builds the sink that carries this dispatch's events, so the frame a follower
+    // of the node's stream receives names the task. The executor is a script that speaks the
+    // worker protocol, so no model and no QEMU is involved.
+    let workspace = temp_workspace("taskid-ws");
+    let data_dir = temp_workspace("taskid-data");
+    let script = a_speaking_executor(&data_dir);
+    let settings = LocalSettings {
+        version: SETTINGS_VERSION,
+        executors: vec![host_core::settings::ExecutorSpecSettings {
+            label: "executor-0".to_string(),
+            program: "cmd.exe".to_string(),
+            args: vec!["/C".to_string(), script.display().to_string()],
+        }],
+        ..Default::default()
+    };
+    settings
+        .save(&data_dir.join("settings.json"))
+        .expect("settings.json");
+
+    let addr = serve_with_data_dir(workspace, data_dir, Arc::new(NoAuth));
+    let (mut stream, hello) = open_stream(addr, None, &["\"kind\":\"hello\""]);
+    // The stream's own frame names no task, exactly as every frame did before this batch.
+    assert!(
+        envelope_of(&hello, "\"kind\":\"hello\"").contains("\"task_id\":null"),
+        "{hello}"
+    );
+
+    let (status, body) = post(
+        addr,
+        "/v0/tasks",
+        r#"{"target":"executor-0","input":"say hi","id":"task-dev-a-1-1"}"#,
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["task_id"], "task-dev-a-1-1", "{body}");
+
+    let text = read_until(&mut stream, &["m:task:dispatch"]);
+    let envelope = envelope_of(&text, "m:task:dispatch");
+    assert!(
+        envelope.contains("\"task_id\":\"task-dev-a-1-1\""),
+        "the dispatch's envelope names the task: {envelope}"
+    );
+}
+
 #[test]
 fn a_sandbox_name_is_a_path_parameter_and_a_literal_sub_path_is_not() {
     let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));

@@ -116,6 +116,47 @@ fn a_task_that_declares_a_sandbox_carries_it_across_the_boundary() {
 }
 
 #[test]
+fn a_workers_event_lines_carry_the_task_it_was_sent() {
+    // v1.0 M6-3a: the worker reads one `Task` on stdin before it emits anything, so it is the one
+    // place in the cross-process path that knows the task's identity. Its `LineEventSink` binds it
+    // at construction, which is what makes `worker:ready` and every run event name the same task
+    // the supervisor sent — the identity that crosses a device and comes back.
+    let (handle, _workspace, _data_dir) = handle("task-id", Vec::new());
+    let handle = Arc::new(handle);
+    let dispatcher = LocalDispatcher::new(vec![Arc::clone(&handle) as Arc<dyn AgentHandle>]);
+
+    let task = Task::new(handle.agent_id().clone(), "say hi");
+    let outcome = dispatcher
+        .dispatch(task.clone())
+        .expect("the worker answers");
+    assert_eq!(outcome.task_id, task.id, "the same task came back");
+
+    // The child writes its events as JSON lines on stderr; the handle keeps them. Every line is
+    // an envelope, and every envelope names the task this process was asked to run.
+    let lines = handle.events();
+    assert!(
+        !lines.is_empty(),
+        "the worker emits worker:ready and worker:done"
+    );
+    for line in &lines {
+        let parsed: serde_json::Value = serde_json::from_str(line).expect("one JSON object a line");
+        assert_eq!(
+            parsed["task_id"].as_str(),
+            Some(task.id.as_str()),
+            "every envelope names the task: {line}"
+        );
+    }
+    let ready = lines
+        .iter()
+        .find(|line| line.contains("worker:ready"))
+        .expect("the worker announces itself");
+    assert!(
+        ready.contains(&format!("\"task_id\":\"{}\"", task.id)),
+        "the announcement's envelope carries the id: {ready}"
+    );
+}
+
+#[test]
 fn a_task_crosses_the_process_boundary_and_comes_back_as_an_outcome() {
     let (handle, _workspace, _data_dir) = handle("roundtrip", Vec::new());
     let handle = Arc::new(handle);

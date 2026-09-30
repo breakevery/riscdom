@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A run's events name the task that caused them** (v1.0 batch DB / M6-3a, and the end of roadmap §12's
+  `task_id` gap): the identity was on every hop and had nowhere to go, because `EventSink::emit` has no room
+  for it and `event_envelope` hardcodes `null`. Now the **sink carries it, bound at construction** —
+  `HttpEventSink` / `TauriEventSink` / the worker's `LineEventSink` publish through `envelope(…, task_id, …)`
+  — and `EventSink` gains one defaulted method, `with_task`, so a long-lived emitter (`HostAgentHandle::run`)
+  can hand a single run a bound copy. `POST /v0/agent/run` takes an optional **`task_id`**; `POST /v0/tasks`
+  now mints its `id` in the handler so the sink can be bound before the call; the worker binds the task it read
+  on stdin. Absent an id the envelopes still say `null`, exactly as before. **No route row, no §5.1/§5.2
+  count, no capability name, no SDK change, no dependency; `emit`'s signature is unchanged and `audit/src/hash.rs`
+  is untouched** (`compute_hash` has no `task_id` column). **The SSE `task_id` filter is still open (M6-3b).**
+  **Decision §153.**
+
 - **The runtime table gets a reader: `GET /v0/online`** (v1.0 batch CZ / M6-2b-2, the second half of M6-2b):
   a **literal** route (capability **`status.read`**, no new name) that answers with this node's **server
   role's** runtime table — `RelayServer::online()`, one `OnlineEntry` per node registered with it, the

@@ -233,7 +233,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 
 | Endpoint | Method | Capability | Request | Response | Tauri command |
 |---|---|---|---|---|---|
-| `/v0/agent/run` | POST | `agent.run` | `{ "user_input": string, "sandbox"?, "instance"? }` | `AgentOutcomeView` | `run_agent` |
+| `/v0/agent/run` | POST | `agent.run` | `{ "user_input": string, "sandbox"?, "instance"?, "task_id"? }` | `AgentOutcomeView` | `run_agent` |
 | `/v0/tasks` | POST | `agent.run` | `{ "target": string, "input": string, "sandbox"?, "instance"?, "id"?, "node"? }` | `TaskOutcome`, `404` on an unknown `target`; with `node`, the peer's answer, or one of the four legible refusals | `dispatch_task` |
 | `/v0/runs/export` | POST | `audit.export` | `{ "run_id", "path" }` | `{ "events_exported": number }` | `export_run_audit` |
 | `/v0/vm/stop` | POST | `vm.control` | — | `204 No Content` | `stop_current_vm` |

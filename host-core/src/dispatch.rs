@@ -59,10 +59,17 @@ impl AgentHandle for HostAgentHandle {
         if task.target != self.agent_id {
             return Err(DispatchError::NoSuchAgent(task.target.clone()));
         }
+        // The one place the run knows which task it is running, so the one place a sink for it can
+        // be asked for (v1.0 M6-3a). A sink that cannot rebind is used as it stands, which is the
+        // behaviour every event had before this batch.
+        let emitter = self
+            .emitter
+            .with_task(Some(task.id.as_str()))
+            .unwrap_or_else(|| Arc::clone(&self.emitter));
         let view = self
             .state
             .run_agent_for(
-                Arc::clone(&self.emitter),
+                emitter,
                 &task.input,
                 // A task that declares a sandbox runs under it (v0.9 sandbox F2d);
                 // one that does not gets the node's own, exactly as before.

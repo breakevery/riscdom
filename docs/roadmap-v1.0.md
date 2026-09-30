@@ -311,9 +311,11 @@ These are open items v1.0 inherits. They are listed here so that no discussion h
   controls arrive with D4"); D4 is the batch that lands them over HTTP.
 - **[settled]** **D5: one desktop application.** The desktop's own paths and the browser's converge on the
   same HTTP surface (§10).
-- **[open]** **The `task_id` gap.** `POST /v0/agent/run` does not take a `task_id`, so an event frame
-  cannot be attributed to the task that produced it when several clients follow one node. The v0.9.9 notes
-  name it as "to be resolved before v1.0".
+- **[settled]** **The `task_id` gap** (v1.0 M6-3a). A run can now name the task it belongs to
+  (`POST /v0/agent/run`'s `task_id`, and `POST /v0/tasks`'s `id`), the identity rides in every
+  envelope the run's events are wrapped in — on the node that runs it, in the worker that executes a
+  dispatched task, and in the desktop shell — and a dispatched task keeps the id the near node gave
+  it as it crosses to the peer. The `--follow` / `--wait` rough edge below is separate and still open.
 - **[open]** **The `--follow` / `--wait` rough edge**: the stream may still be open when the process exits.
 - **[open]** **Python as a guest language** (C, Zig and Rust exist).
 - **[open]** **The session database's WAL mode** — deliberately not set in v0.9 (decisions §54).

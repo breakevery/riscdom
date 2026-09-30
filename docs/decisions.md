@@ -4555,4 +4555,52 @@ is not its reader.
 `CHANGELOG.md` + zh; `docs/handoff.md` + zh. **No new capability name (the 33-word vocabulary is
 untouched), no CLI command, no UI panel, no `patterns` row, no dependency; `net/src/bin/riscdom-relay.rs`,
 `server/src/auth.rs`, `audit/`, `sandbox/` are untouched; `compute_hash` / `verify_chain` / the append-only
-triggers are untouched.**
+triggers are untouched.** **M6-3b is untouched** (the SSE `task_id` filter).
+
+## 153. A run's events carry the task that caused them
+
+**Date**: 2026-10-01 ｜ **Status**: Decided and implemented (batch DB / M6-3a)
+
+**Decision**: The `task_id` gap roadmap §12 carried as `[open]` since v0.9 is closed by **wiring**, not by
+inventing: the identity was already on every hop (the `Task` is in hand where a run starts, and in the worker
+that executes a dispatched one) and had nowhere to go, because `EventSink::emit(&self, event, payload)` has
+no room for it and the only wrapper in production (`event_envelope`) hardcodes `None`.
+
+- **The sink carries it, bound at construction** (the owner's choice). `HttpEventSink`, `TauriEventSink` and
+  the worker's `LineEventSink` gain a `task_id` field, publish through `envelope(kind, event, agent_id,
+  task_id, payload)`, and offer `for_task(...)`. **`emit`'s signature does not change**, so no emit site
+  moved and no other sink changed.
+- **`EventSink` gains one defaulted method**: `with_task(&self, Option<&str>) -> Option<Arc<dyn EventSink>>`,
+  defaulting to `None`. It exists for the one caller that holds a **long-lived** emitter and learns the task
+  per call — `HostAgentHandle::run`, which asks for `Some(task.id)` before it starts the run and falls back
+  to the sink it already has. A sink that cannot rebind keeps its old behaviour instead of failing.
+- **`POST /v0/agent/run` takes `task_id`** (optional; absent means `null`, exactly as before). The handler
+  binds it into the sink **before** the run starts.
+- **`POST /v0/tasks` mints its id in the handler**, not inside `dispatch_task`, so the sink can be bound to
+  it before the call. `id` keeps its name — both are accepted, and they mean the same thing.
+- **The worker binds the task it read on stdin**, so a dispatched task's events name it on the far side too.
+- **`host_core::TaskId` is re-exported** (it was already visible through `TaskOutcome`), so the control plane
+  can mint an id without a new dependency edge.
+
+**Why**: §12's customer is a client following one node: "an event frame cannot be attributed to the task that
+produced it when several clients follow one node". An id that exists only on the *dispatch* row — what
+`m.task.dispatch` has had since v1.0 gap 2/N — attributes the *asking*, not the *work*. The fix belongs where
+the envelope is built, because that is where the shape lives, and construction is the one moment a transport
+knows which task it is serving. **Nothing here is policy**: the id lets a reader relate events across
+devices; it does not choose a node (red line 1), and an event tied to no task still says `null`.
+
+**Not in this batch (M6-3b, still open)**: the stream's documented `task_id` **filter**. `hello` advertises
+`filters: {…, "task_id": null}` and both SDKs can send it, but the server has no filter logic at all
+(`docs/control-plane-events.md` §4 calls the mechanism "built in the implementation batch"); the owner left
+it out, and it is only meaningful now that events carry ids.
+
+**Impact**: `host-core/src/events.rs` (the trait's `with_task`), `host-core/src/dispatch.rs`
+(`HostAgentHandle::run`), `host-core/src/lib.rs` (`TaskId` re-export) + `host-core/tests/dispatch.rs`;
+`server/src/sse.rs` (`HttpEventSink` + its unit test), `server/src/routes.rs` (two handlers),
+`server/tests/smoke.rs` (an end-to-end stream test); `host-tauri/src/events.rs` + `commands.rs`;
+`worker/src/main.rs` + `worker/tests/stdio.rs`; `docs/control-plane-api.md` + zh,
+`docs/control-plane-events.md` + zh, `docs/roadmap-v1.0.md` + zh (§12 `[open]` → `[settled]`),
+`docs/cross-device-dispatch.md` §8 + zh, `CHANGELOG.md` + zh, `docs/handoff.md` + zh. **No route row, no
+§5.1/§5.2 count, no capability name, no SDK change, no dependency; `audit/src/hash.rs` is untouched —
+`compute_hash` has no `task_id` column, and a `task_id` inside a detail is hashed only as part of that
+detail, exactly as `m.task.dispatch` already was.**

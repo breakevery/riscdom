@@ -49,7 +49,9 @@ pub use run_diff::{diff_fingerprints, FingerprintFieldDiff, FINGERPRINT_FIELDS};
 pub use audit::EventFilter;
 // Re-exported for the surfaces above host-core (the Tauri commands), which name a
 // dispatch outcome without depending on `agent` themselves (v0.9 interface E0).
-pub use agent::{InstanceId, TaskOutcome};
+// `TaskId` rides along for the control plane, which mints a task's identity before the sink
+// carrying its events is built (v1.0 M6-3a).
+pub use agent::{InstanceId, TaskId, TaskOutcome};
 pub use sandbox_def::{
     CandidateView, CandidatesView, SandboxDef, SandboxSource, SandboxView, DEFAULT_SANDBOX_NAME,
     NO_VERSION,

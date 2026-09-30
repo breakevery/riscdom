@@ -12,7 +12,30 @@ use host_core::events::RecordingEventSink;
 use host_core::state::AppState;
 use host_core::EventSink;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+/// A sink that records which task it was asked to scope itself to (v1.0 M6-3a), and publishes
+/// nothing: the question under test is the ask, not the run.
+#[derive(Default)]
+struct ScopingSink {
+    asked: Mutex<Vec<Option<String>>>,
+}
+
+impl host_core::EventSink for ScopingSink {
+    fn emit(&self, _event: &str, _payload: serde_json::Value) {}
+
+    fn with_task(&self, task_id: Option<&str>) -> Option<Arc<dyn host_core::EventSink>> {
+        self.asked.lock().unwrap().push(task_id.map(str::to_string));
+        Some(Arc::new(SilentSink))
+    }
+}
+
+/// The copy a [`ScopingSink`] hands back: it has nothing left to say.
+struct SilentSink;
+
+impl host_core::EventSink for SilentSink {
+    fn emit(&self, _event: &str, _payload: serde_json::Value) {}
+}
 
 fn unique_dir(tag: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -106,6 +129,30 @@ fn a_task_for_an_agent_this_process_does_not_hold_is_refused_not_run() {
             .expect("runs")
             .is_empty(),
         "a refused task must not open a run"
+    );
+}
+
+#[test]
+fn the_handle_asks_for_a_sink_scoped_to_the_task() {
+    // v1.0 M6-3a. The run's events have to name the task that caused them, and a handle is where
+    // that identity is in hand — so it asks its emitter for a copy bound to it, before the run
+    // starts. The run itself is not what this asserts (a state with no model configured refuses
+    // it); the ask is, and it is what makes every event the run would write carry the id.
+    let state = Arc::new(AppState::in_memory(unique_dir("scope")).expect("state"));
+    let sink = Arc::new(ScopingSink::default());
+    let handle = host_core::HostAgentHandle::new(
+        Arc::clone(&state),
+        Arc::clone(&sink) as Arc<dyn EventSink>,
+    );
+
+    let task = Task::new(AgentId::new(state.agent_id()), "say hi");
+    // Whatever the run answers, the ask happened first.
+    let _ = handle.run(&task);
+
+    assert_eq!(
+        sink.asked.lock().unwrap().as_slice(),
+        &[Some(task.id.to_string())],
+        "the handle asked for a sink bound to the task it was given"
     );
 }
 

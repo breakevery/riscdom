@@ -7,6 +7,7 @@
 pub use host_core::events::*;
 
 use serde_json::Value;
+use std::sync::Arc;
 
 /// Delivers events to the Tauri webview, wrapped in the envelope.
 ///
@@ -15,6 +16,8 @@ use serde_json::Value;
 pub struct TauriEventSink {
     app: tauri::AppHandle,
     agent_id: String,
+    /// The task whose events this sink carries, when it is a run's (v1.0 M6-3a).
+    task_id: Option<String>,
 }
 
 impl TauriEventSink {
@@ -24,7 +27,17 @@ impl TauriEventSink {
         Self {
             app,
             agent_id: agent_id.into(),
+            task_id: None,
         }
+    }
+
+    /// The same sink, stamping every envelope with `task_id` (v1.0 M6-3a).
+    ///
+    /// Bound at construction, which is when the caller knows which task it is serving; a sink
+    /// built without it keeps publishing `task_id: null`.
+    pub fn for_task(mut self, task_id: Option<String>) -> Self {
+        self.task_id = task_id;
+        self
     }
 }
 
@@ -33,8 +46,23 @@ impl EventSink for TauriEventSink {
         use tauri::Emitter;
         // The struct, not a `Value`: Tauri serialises it field by field, so
         // `version` stays the first key of the object.
-        let _ = self
-            .app
-            .emit(event, event_envelope(event, &self.agent_id, payload));
+        let _ = self.app.emit(
+            event,
+            envelope(
+                kind::EVENT,
+                Some(event),
+                &self.agent_id,
+                self.task_id.as_deref(),
+                payload,
+            ),
+        );
+    }
+
+    fn with_task(&self, task_id: Option<&str>) -> Option<Arc<dyn EventSink>> {
+        Some(Arc::new(Self {
+            app: self.app.clone(),
+            agent_id: self.agent_id.clone(),
+            task_id: task_id.map(str::to_string),
+        }))
     }
 }
