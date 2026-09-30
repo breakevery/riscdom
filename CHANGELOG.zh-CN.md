@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **恢复的发送方等一等，QEMU 的话被听见，重置的 socket 重连一次**（v1.0 批 CB / CA-1）：本地 QEMU/QMP `10054` flake 的根因。快照发送线程现在在端口移交与 QEMU 启动**之后**才起 —— 以前它可能连上我们自己仍绑着的监听器、被移交重置、并无声死亡 —— 且**它的结果被读取**并并入 `start` 的错误；QEMU 的 stdout/stderr 被**捕获**并并入错误（以前是 `Stdio::null()`）；QEMU 仍存活而 QMP socket 被重置时**重连一次**并重试。**不改公开 API、无新依赖、不新增审计事件。** `sandbox/README` + zh 已更新。**决策 §138。**
+
 - **代行在退让之前先收尾**（v1.0 批 BZ / M5-3c-1）：回归是一个触发。一个看到中心重新可达的代行者会**关掉它开过的段**（`close_segment` —— 行变为 `closed` 并追加 `host.audit.segment_closed`），并记下 **`host.connection.centre_returned`**（`{segment_id, centre, at_ms}`），**然后**才回到 `candidate`。收窄在定时器里（`net::Suppression::observe` 保持纯净）；关段失败会被报出且不否决恢复。**`audit/src` 未动。** 送达、中心侧重建与 `merge_segment` 是 **M5-3c-2** —— §137 记下尚未解决的「标记 vs 储存」张力。`connection.md` + zh §6.8 已更新。**决策 §137。**
 
 - **一个节点代行，并在链上说明**（v1.0 批 BX / M5-3b-2）：§33 的第三层也不再空转。跨过退避、且**是第一顺位**时，一个节点：把接管广播发给**每一个**同侪（`RelayClient::takeover_to`）；在自己的链上开一个**临时段**（`open_segment(SegmentKind::Temporary)` —— `segments` 行与它的 `segment_opened` 事件，且**不开文件**）；并把这一动作记为 **`host.connection.takeover_declared`**（`{segment_id, centre, by, at_ms}`）。在代行中听到广播记下 **`host.connection.stood_down`**。**链照旧被写** —— §33 之后才把段折回（M5-3c）—— 且 **`audit/src` 未动**。`connection.md` + zh §6.8 已更新。**决策 §136。**

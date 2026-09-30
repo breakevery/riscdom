@@ -90,6 +90,24 @@ fresh `bind(0)` per caller. What it promises, exactly:
   quarantine of released numbers was considered and rejected (it would grow without bound
   and change the contract nothing needs).
 
+#### The restore path: the sender waits, QEMU is heard, one reconnect (v1.0 CA-1)
+
+Three things keep a failed restore from reading as "a dead QMP socket and no idea why":
+
+- **The snapshot sender starts *after* the port hand-off and the QEMU spawn.** It used to start
+  before both, so it could connect to *our own* still-bound listener; the hand-off then reset that
+  connection, the sender died, and QEMU's `-incoming` never saw a stream — the first sign was QMP
+  dying. The sender is also **read** now: its result is folded into `start`'s error rather than
+  joined and dropped.
+- **QEMU's own stdout/stderr are captured** to a per-VM file in the platform temp directory, and
+  the tail is folded into the error once QEMU has exited. It was `Stdio::null()` before, so QEMU's
+  own reason was thrown away.
+- **A reset QMP socket with QEMU still alive is reconnected once** and the operation retried. A
+  dead socket under a live process is a transport failure, not a verdict.
+
+QEMU's exit and a failing sender are both facts about *one* start, so `start` reports them together.
+No new dependency and no public signature changed for any of it.
+
 ## Tests
 
 ```text

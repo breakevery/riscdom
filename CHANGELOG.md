@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A restore's sender waits, QEMU is heard, and a reset socket is reconnected once** (v1.0 batch CB /
+  CA-1): the root cause of the local QEMU/QMP `10054` flake. The snapshot sender now starts **after** the
+  port hand-off and the QEMU spawn — it could previously connect to our own still-bound listener, be reset
+  by the hand-off, and die unnoticed — and **its result is read** into `start`'s error; QEMU's
+  stdout/stderr are **captured** and folded into the error (they were `Stdio::null()`); a QMP socket reset
+  while QEMU lives is **reconnected once** and retried. **No public API change, no new dependency, no new
+  audit event.** `sandbox/README` + zh updated. **Decision §138.**
+
 - **A stand-in finishes before it yields** (v1.0 batch BZ / M5-3c-1): the return is a trigger. A stand-in that
   sees the centre reachable again **closes the segment it opened** (`close_segment` — the row goes `closed` and
   `host.audit.segment_closed` is appended) and records **`host.connection.centre_returned`**

@@ -386,6 +386,13 @@ current request authorising it (§2).
   ticker (`net` stays pure); a failed close is reported and does not veto recovery. **`audit/src` is
   untouched.** Delivery, the centre-side rebuild and `merge_segment` are **M5-3c-2**; §137 records the open
   “mark vs store” tension. **Decision §137.**
+- **And a restore no longer fails silently** (v1.0 batch CB / CA-1, 2026-09-30): the local QEMU/QMP `10054`
+  flake's root cause was a **self-inflicted ordering race** — the snapshot sender was spawned while our own
+  `PortLease` listener was still bound, so it could connect to *our* socket and be reset by the hand-off. It
+  now starts **after** the hand-off and the QEMU spawn, and **its result is read**; QEMU's stdout/stderr are
+  **captured** (they were `Stdio::null()`) and folded into the error; a QMP socket reset while QEMU lives is
+  **reconnected once**. **No public API change, no new dependency, no new audit event.** CA-2/CA-3 (lifecycle
+  monitor / gate serialisation) and CA-4 (the full-loop test, BA-3) are later. **Decision §138.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

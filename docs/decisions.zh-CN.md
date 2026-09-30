@@ -1460,3 +1460,13 @@ trait 属 v1.x 工作。
 **本批不解决的事**（记录，不解决 —— 批 BY 的发现）。今天一个段是一个**标记** —— 一行 `segments` 加一条 `host.audit.segment_opened`，**没有文件** —— 而节点代行期间写下的每个事件都进该节点**自己的主链**（`segment_id IS NULL`；`append_once` 从不写这一列），因为 owner 第 4 点说代行不改道它的写入。但 `docs/audit-v2.md` §2/§8 描述的 shape **(b)** 是：段是它**自己的 SQLite 文件**（`audit-segments/<id>.db`），装它自己的事件，而 `merge_segment` 读的正是那个文件。所以今天的 `merge_segment` 会打开一个**空**储存、转写**零**个事件并折叠该行。把送达接到那个接口 —— 并选择段如何旅行（事件流、范围拉取，还是在中心重建储存）—— 是 **M5-3c-2**，且它等待 owner 的 (a)–(d) 决定。
 
 **影响**：`net` 未动。`host-core` 多出 `close_standing_segment` 与 `react_to_centre`，定时器持有 `standing_segment: Option<String>`，而 `declare_takeover` 现在**返回**它开出的段（以前不返回）。`docs/connection.md` + zh §6.8 已更新。**`audit/src` 未动**（`close_segment` 是 M5-1b 的，本批只调用它）：`store` 内部、`hash`、`verify` 均无改动。送达、中心侧重重建与 `merge_segment` 是 **M5-3c-2**；M4e-2 与 M6 未动。
+
+## 138. 恢复的发送方等一等，QEMU 的话被留住，重置的 socket 重连一次
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 CB / CA-1）
+
+**决策**：对 sandbox 的**恢复路径**做三处修复，全部在 `sandbox` 内。**快照发送线程现在在租约移交与 QEMU 启动*之后*才起**，且**它的结果被读取**：`start` 把发送方的错误并入自己的错误，而不是 join 完就丢掉。**QEMU 的 stdout/stderr 被捕获**到平台临时目录里的一台一文件，且一旦 QEMU 已退出，其尾部被并入错误（以前 `Stdio::null()` 把 QEMU 自己的原因丢掉了）。**QMP 操作中 socket 被重置、而 `try_wait` 显示 QEMU 仍存活时，重连一次并重试。** **不改任何公开签名、无新依赖、不新增审计事件名。**
+
+**缘由**：本地 QEMU flake 的根因（批 CA 的发现）是一个**自伤的时序竞态**：发送线程在我们自己的 `PortLease` 监听器仍绑着时就被启动，于是它可能连上**我们的**socket；`hand_off` 随即重置那条连接，发送线程死亡，QEMU 的 `-incoming` 永远收不到流，而 QEMU 的死亡以 QMP socket 上无法解释的 `os error 10054` 现形。窗口就是线程启动延迟——单跑时是微秒，满负载 gate 下很宽——恰好就是观察到的形状（单跑从不复现；满 gate 下连续两次）。另两处修复正是让它隐形的东西：发送方的裁定被丢掉，QEMU 的 stderr 是 `null`。**看不见的 flake 是无从修的 flake。**
+
+**影响**：仅 `sandbox/src/vm.rs`。`start` 被拆分，spawn 之后的半段成为 `finish_start`，它的失败与发送方的失败被一并报告；`take_snapshot_sender` 读取发送方，且**绝不**因为发送方还在它 60 秒的连接超时里而阻塞一次失败的启动；`finish_start`、`stop` 与 `Drop` 忘掉捕获文件。`qmp_op` / `run_qmp_with_one_reconnect` 把重试交给 `wait_for_running` 与 `save_snapshot_real`，`explain_qmp` 补上 QEMU 的最后输出。**`sandbox` 的公开 API 未变**，**`audit` 未动**（无事件、无常量），且**未加任何 crate** —— 工作区仍没有 `windows-sys`。`net`、`host-core`、`server`、`cli`、`backup`、`sdk` 均未动。生命周期监控（CA-2）、gate 串行化（CA-3）与满环回抑制测试（CA-4 / BA-3）属后续批次。CI 从不跑这些测试（runner 上 `gate.sh` 的 `have_guest_tools` 为假），故这个 flake 是**本地特有**的。

@@ -4004,3 +4004,35 @@ holds `standing_segment: Option<String>`, and `declare_takeover` now **returns**
 returned nothing before). `docs/connection.md` + zh §6.8 are updated. **`audit/src` is untouched**
 (`close_segment` is M5-1b's and this batch only calls it): no change to `store`'s internals, `hash` or
 `verify`. Delivery, the centre-side rebuild and `merge_segment` are **M5-3c-2**; M4e-2 and M6 are untouched.
+
+## 138. A restore's sender waits, QEMU's output is kept, a reset socket is reconnected once
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch CB / CA-1)
+
+**Decision**: Three fixes to the sandbox's **restore path**, all inside `sandbox`. **The snapshot sender
+now starts *after* the lease hand-off and the QEMU spawn**, and **its result is read**: `start` folds a
+sender error into its own error instead of joining the handle and dropping it. **QEMU's stdout/stderr are
+captured** to a per-VM file in the platform temp directory, and the tail is folded into the error once QEMU
+has exited (`Stdio::null()` used to throw QEMU's own reason away). **A QMP operation whose socket was reset
+while `try_wait` says QEMU is still alive is reconnected once and retried.** **No public signature changes,
+no new dependency, no new audit event name.**
+
+**Why**: The root cause of the local QEMU flake (batch CA's finding) was a **self-inflicted ordering
+race**: the sender was spawned while our own `PortLease` listener was still bound, so it could connect to
+*our* socket; `hand_off` then reset that connection, the sender died, QEMU's `-incoming` never received a
+stream, and QEMU's death surfaced as an unexplained `os error 10054` on the QMP socket. The window is the
+thread-start latency — microseconds in isolation, wide under a loaded gate — which is exactly the observed
+shape (never reproduced alone; twice in a row inside a full gate). The other two fixes are what made it
+invisible: the sender's verdict was thrown away, and QEMU's stderr was `null`. **A flake you cannot see is a
+flake you cannot fix.**
+
+**Impact**: `sandbox/src/vm.rs` only. `start` is split so the post-spawn half is `finish_start`, and its
+failure and the sender's are reported together; `take_snapshot_sender` reads the sender without ever
+blocking a failing start on a sender still inside its 60 s connect timeout; `finish_start`, `stop` and
+`Drop` forget the capture. `qmp_op` / `run_qmp_with_one_reconnect` give the retry to `wait_for_running` and
+`save_snapshot_real`, and `explain_qmp` adds QEMU's last output. **`sandbox`'s public API is unchanged**,
+**`audit` is untouched** (no event, no constant), and no crate was added — the workspace still has no
+`windows-sys`. `net`, `host-core`, `server`, `cli`, `backup` and `sdk` are untouched. Lifecycle monitoring
+(CA-2), gate serialisation (CA-3) and the full-loop suppression test (CA-4 / BA-3) are later batches. CI
+never ran these tests (`gate.sh`'s `have_guest_tools` is false on a runner), so this flake was
+**local-only**.
