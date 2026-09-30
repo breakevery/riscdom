@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **What a node can run is one command, and it adds no route** (v1.0 batch CV / M6-2a, the first half of
+  M6-2): `riscdom node capabilities` reads **five** endpoints — `GET /v0/identity` (for `node_id`),
+  `/v0/executors`, `/v0/sandboxes`, `/v0/qemu`, `/v0/toolchain` — and merges them into
+  **`{node_id, executors, sandboxes, qemu, toolchain}`**. Each section is the endpoint's own answer,
+  **untouched**; only `node_id` is lifted, and only a **failed** section is wrapped. A failed section is
+  reported **in place** (the rest still prints, the exit code is the worst seen), and `found: false` — no
+  QEMU, no toolchain — is an **answer**, not a failure. The merge is the **CLI's own composition** (a pure
+  HTTP client never calls `AppState`), so there is **no new route, no new capability and no SDK change**;
+  the §5.1/§5.2 counts do not move and the tool-schema checker is untouched. **Two carried-but-unread
+  channels** are recorded as tech debt alongside §148's key-event push: a §6.6 registration's `capabilities`
+  are stored on the server's row and read by nothing, and `RelayClient::ask_registry` has **no production
+  caller** (`docs/connection.md` §11). **`compute_hash` / `verify_chain` / the triggers are untouched.**
+  **Decision §150.**
+
 - **A conflict can be marked resolved — by recording who decided, and nothing else** (v1.0 batch CT /
   M6-5-3b, the end of the M6-5-3 line): `POST /v0/audit/conflicts/{segment_id}/resolve` (a **path-parameter**
   route, so it is not a `ROUTES` row) takes an optional `note` and appends **one**

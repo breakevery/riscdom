@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **一个节点能跑什么只靠一条命令，而且不加路由**（v1.0 批 CV / M6-2a，M6-2 的前半）：`riscdom node capabilities` 读**五个**端点 —— `GET /v0/identity`（取 `node_id`）、`/v0/executors`、`/v0/sandboxes`、`/v0/qemu`、`/v0/toolchain` —— 合并成 **`{node_id, executors, sandboxes, qemu, toolchain}`**。每一节都是那个端点的原样回答、**不加工**；只有 `node_id` 被取出，也只有**失败**的一节被包起来。失败的一节**在原地**报告（其余照常打印，退出码取最重那个），而 `found: false` —— 没有 QEMU、没有工具链 —— 是一个**回答**，不是失败。合并是 **CLI 自己的拼装**（纯 HTTP 客户端从不调 `AppState`），所以**无新路由、无新 capability、无 SDK 改动**；§5.1/§5.2 计数不动，tool-schema 检查器不受影响。**两条被携带而无人读的通道**与 §148 的关键事件推送同型，被记为技术债：§6.6 注册的 `capabilities` 被存在服务器行上、无人读；`RelayClient::ask_registry` **无任何生产调用者**（`docs/connection.md` §11）。**`compute_hash` / `verify_chain` / 触发器未动。** **决策 §150。**
+
 - **冲突可以被标为已解决 —— 靠记下谁做了决定，且仅此而已**（v1.0 批 CT / M6-5-3b，M6-5-3 整条线的终点）：`POST /v0/audit/conflicts/{segment_id}/resolve`（一条**带路径参数**的路由，故不是 `ROUTES` 的一行）收一个可选的 `note`，并**追加一条** `host.audit.conflict_resolved` 行 —— `{ segment_id, resolved_by, resolved_at_ms, note }` —— `resolved_by` 取自调用方。CLI 侧写作 `riscdom audit resolve <segment_id> [--note <text>]`。**不选边、不转录、不碰段行**（`state` 保持 `forked`：它意为*未解决*、是索引 —— 链才是记录）。路由声明 **`settings.write`**，故**不加 capability 名、不动 §5.2 计数、不改 SDK**；tool-schema 的 `patterns` 块加一行（10 → 11）。**`compute_hash` / `verify_chain` / 触发器未动。** **决策 §149。**
 
 - **冲突只差一个过滤器**（v1.0 批 CR / M6-5-3a，冲突出口的观测那一半）：`riscdom audit events` 多出 **`--action-prefix <prefix>`** —— 服务器本来就有的过滤，只是 CLI 一直没法问它 —— 于是 `--action-prefix host.audit.segment_forked` 列出本节点的冲突、`--action-prefix host.audit.chain_rejected` 列出它被拒的交付，行的 detail 用全局 `--json` 读。**无新路由、无新 capability、无新事件名、不改段行，`cli` 与文档之外一律未动。** 内核仍**不**选边（把冲突标为已解决是 M6-5-3b，而且会是一条追加事件）。**记下的技术债**：fork 发给服务器的关键事件推送**没有读者** —— 没有任何路由或命令读那份日志 —— 写进了 `docs/cross-chain-verification.md` §7 与 handoff。**决策 §148。**

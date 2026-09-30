@@ -4417,3 +4417,47 @@ was stopped and this was reported rather than guessed at (batch CT's first run).
 **`compute_hash`, `verify_chain` and the append-only triggers are untouched** (the act only *appends*), the
 route table, the §5.2 count and the 33-name capability vocabulary are untouched, **the SDK is untouched**,
 and no dependency is added. **M6-5-4 is untouched.**
+
+## 150. What a node can run is one question, and the CLI answers it without a new route
+
+**Date**: 2026-09-30 ｜ **Status**: Decided and implemented (batch CV / M6-2a)
+
+**Decision**: The first half of **M6-2**, and the first piece of the answer to "can that node run this?":
+
+- **`riscdom node capabilities`** — two words, like every other command here. It reads **five** endpoints
+  and merges them into one answer: `GET /v0/identity` (for `node_id`), `GET /v0/executors`,
+  `GET /v0/sandboxes`, `GET /v0/qemu`, `GET /v0/toolchain`.
+- **The shape is `{node_id, executors, sandboxes, qemu, toolchain}`.** Each section is the endpoint's own
+  answer, **untouched**; only `node_id` is lifted out of the identity object, and only a **failed** section
+  is wrapped (`{"error": {"code", "message"}}`). `--json` prints that merged object; the human view is a
+  titled section per read, reusing the existing `executors` / `sandboxes` renderers so the two views cannot
+  drift.
+- **A failed section never takes the answer down.** Each read is independent: the failure is stored where
+  its answer would have been, the rest is still printed, and the exit code is the **worst** one seen. A
+  section that answers `found: false` — no QEMU, no toolchain — is **not** a failure: absence is an answer.
+- **Zero new HTTP routes, zero new capabilities, zero SDK changes.** The merge is the **CLI's own
+  composition** (it is a pure HTTP client and never calls `AppState`), which is the whole point.
+
+**Why**: M6-2's material was already on this node, split across four endpoints the UI's node page reads, and
+**missing only the one command that gathers it** (batch CU). Putting the merge in the CLI rather than in a
+new aggregate route is what keeps the batch small: a literal route would have carried a §5.1/§5.2 count, a
+capability decision, both SDKs and the tool-schema checker with it (batch CT's lesson). **It reports what the
+node is; which node a task should go to stays the caller's** — red line 1, and §6 of
+`cross-device-dispatch.md`. The identity read is what `node_id` needs and the only place it is served; that
+makes the aggregate five reads, not four, and that is reported rather than hidden.
+
+**Two gaps, recorded as tech debt (same shape as §148's key-event push)**: (i) a §6.6 registration's
+`capabilities` are stored on the server's row (`OnlineEntry`) and **nothing in `server/` or `host-core/`
+reads them** — the two claim words the kernel acts on come from a node's own `peers.json`; and (ii)
+`RelayClient::ask_registry` exists and **no production caller asks** — a node only holds the table it was
+handed at startup and on reconnect. Both are written into `docs/connection.md` §11 (plus a pointer from
+`cross-chain-verification.md` §7), because the three gaps are one pattern.
+
+**Impact**: `cli/src/args.rs` (the `node capabilities` command, its path and its usage line);
+`cli/src/lib.rs` (`node_capabilities`, `capability_section`, `error_section`); `cli/src/render.rs`
+(`capabilities` and the small helpers); `cli/README.md` + zh (one command row);
+`docs/cross-device-dispatch.md` + zh (§7); `docs/connection.md` + zh (§11);
+`docs/cross-chain-verification.md` + zh (§7's twin note); `docs/control-plane-client-guide.md` + zh (§7);
+`CHANGELOG.md` + zh; `docs/handoff.md` + zh. **No route table, no §5.1/§5.2 count, no capability name, no
+SDK, no dependency; `compute_hash` / `verify_chain` / the append-only triggers are untouched; nothing writes
+the chain.** **M6-2b (asking a peer over the wire) is untouched.**

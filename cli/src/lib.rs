@@ -104,6 +104,11 @@ pub fn run(parsed: Parsed, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         Command::WorkspaceExport { out: file } => {
             return export_workspace(&args, &session, file.as_deref(), out, err);
         }
+        // The aggregate is five reads, not one, so it does not go through the single
+        // reply path below (v1.0 M6-2a).
+        Command::NodeCapabilities => {
+            return node_capabilities(&args, &session, out);
+        }
         _ => {}
     }
     let body = args.command.body();
@@ -536,6 +541,73 @@ fn report(args: &Args, error: &Error, err: &mut dyn Write) -> u8 {
     error.code
 }
 
+/// The four endpoints `node capabilities` merges, in the order they are printed: the
+/// reads a person needs to answer "can this node run X?" (v1.0 M6-2a).
+const CAPABILITY_READS: [(&str, &str); 4] = [
+    ("executors", "/v0/executors"),
+    ("sandboxes", "/v0/sandboxes"),
+    ("qemu", "/v0/qemu"),
+    ("toolchain", "/v0/toolchain"),
+];
+
+/// What this node can run, in one answer (v1.0 M6-2a).
+///
+/// The CLI is a **pure HTTP client** (it never calls `AppState`), so this is a
+/// composition of reads, not a route: `node_id` from `/v0/identity` plus the four
+/// [`CAPABILITY_READS`], merged into `{node_id, executors, sandboxes, qemu,
+/// toolchain}`. Every answer is passed through **untouched** — only a failed section
+/// is wrapped, and only `node_id` is lifted out of the identity object.
+///
+/// A section that fails does not take the answer down with it: the failure is stored
+/// where its answer would have been, the rest is still printed, and the exit code is
+/// the **worst** one seen. A section that answers `found: false` (no QEMU, no
+/// toolchain) is not a failure — absence is an answer.
+fn node_capabilities(args: &Args, session: &Session, out: &mut dyn Write) -> u8 {
+    let mut sections = serde_json::Map::new();
+    let mut code = 0u8;
+
+    let (identity, identity_code) = capability_section(session.get("/v0/identity"));
+    code = code.max(identity_code);
+    // `node_id` is the only field the aggregate takes from the identity read: the
+    // shape's first field, and the only place it is served. A `null` answer means the
+    // layer is unconfigured; a failure keeps its error object.
+    sections.insert(
+        "node_id".to_string(),
+        identity.get("node_id").cloned().unwrap_or(identity),
+    );
+
+    for (key, path) in CAPABILITY_READS {
+        let (value, section_code) = capability_section(session.get(path));
+        code = code.max(section_code);
+        sections.insert(key.to_string(), value);
+    }
+
+    if args.json {
+        let _ = writeln!(out, "{}", serde_json::Value::Object(sections));
+    } else {
+        let _ = writeln!(out, "{}", render::capabilities(&sections));
+    }
+    code
+}
+
+/// One read's contribution to the aggregate: the value to store, and the exit code it
+/// earned (`0` when it answered).
+fn capability_section(outcome: Result<Reply, Error>) -> (serde_json::Value, u8) {
+    match outcome {
+        Ok(reply) if reply.is_success() => (reply.json.unwrap_or(serde_json::Value::Null), 0),
+        Ok(reply) => {
+            let error = Error::from_reply(reply);
+            (error_section(&error), error.code)
+        }
+        Err(error) => (error_section(&error), error.code),
+    }
+}
+
+/// A failure, in the shape a section carries it.
+fn error_section(error: &Error) -> serde_json::Value {
+    serde_json::json!({ "error": { "code": error.code, "message": error.message } })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,5 +698,34 @@ mod tests {
         assert!(waiting_for(&Command::Health).is_none());
         assert!(waiting_for(&Command::PreflightAck).is_none());
         assert!(waiting_for(&Command::QemuCancel).is_none());
+    }
+
+    #[test]
+    fn a_failed_section_keeps_its_place_and_its_code() {
+        // An answer passes through untouched.
+        let answered = Reply {
+            status: 200,
+            body: r#"{"executors":[]}"#.to_string(),
+            json: Some(serde_json::json!({ "executors": [] })),
+        };
+        let (value, code) = capability_section(Ok(answered));
+        assert_eq!(code, 0);
+        assert_eq!(value["executors"], serde_json::json!([]));
+
+        // A refused read is stored where its answer would have been, with its code.
+        let refused = Reply {
+            status: 403,
+            body: r#"{"code":"forbidden","message":"no qemu.read"}"#.to_string(),
+            json: Some(serde_json::json!({ "code": "forbidden", "message": "no qemu.read" })),
+        };
+        let (value, code) = capability_section(Ok(refused));
+        assert_eq!(code, 4, "403 is an auth failure");
+        assert_eq!(value["error"]["code"], 4);
+        assert_eq!(value["error"]["message"], "forbidden: no qemu.read");
+
+        // A transport failure is a local one, and is reported the same way.
+        let (value, code) = capability_section(Err(Error::local("cannot reach")));
+        assert_eq!(code, 1);
+        assert_eq!(value["error"]["message"], "cannot reach");
     }
 }

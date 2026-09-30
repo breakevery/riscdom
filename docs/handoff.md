@@ -467,6 +467,17 @@ current request authorising it (§2).
   stays `forked`), and the segment is not even looked up. It declares `settings.write`, so **no capability
   name, no §5.2 count, no SDK change** — one resolver branch, one `patterns` row (10 → 11) and one CLI verb.
   **`compute_hash` / `verify_chain` / the triggers untouched.** **Decision §149.**
+- **And what a node can run is one command** (v1.0 batch CV / M6-2a, 2026-09-30, the first half of M6-2):
+  `riscdom node capabilities` reads **five** endpoints — `/v0/identity` (for `node_id`), `/v0/executors`,
+  `/v0/sandboxes`, `/v0/qemu`, `/v0/toolchain` — and merges them into
+  `{node_id, executors, sandboxes, qemu, toolchain}`. Each section is the endpoint's own answer untouched;
+  a **failed** section is reported in place (the rest still prints, the exit code is the worst seen), and
+  `found: false` (no QEMU, no toolchain) is an answer, not a failure. The merge is the **CLI's own
+  composition** — a pure HTTP client never calls `AppState` — so **no new route, no new capability, no SDK
+  change, no §5.1/§5.2 count**. **Tech debt, same shape as §148's key-event push: two carried-but-unread
+  channels** — a §6.6 registration's `capabilities` are stored on the server's row and read by nothing, and
+  `RelayClient::ask_registry` has no production caller — recorded in `docs/connection.md` §11.
+  **`compute_hash` / `verify_chain` / the triggers untouched.** **Decision §150.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

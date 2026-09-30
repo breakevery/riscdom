@@ -41,6 +41,13 @@ read-only commands:
                                 (`GET /v0/rooms`)
   connection                    this node's connection state: configured,
                                 connected, and any problem (`GET /v0/connection`)
+  node capabilities             what this node can run, in one answer: the
+                                executors it can route to, its sandbox definitions,
+                                and whether QEMU and the RISC-V toolchain are ready
+                                here (a merge of `GET /v0/identity`,
+                                `/v0/executors`, `/v0/sandboxes`, `/v0/qemu`,
+                                `/v0/toolchain`; the CLI composes it, the control
+                                plane serves each on its own)
   workspace export [--out <file>]
                                 the project as a tar.gz; without --out it goes to
                                 stdout, and the count goes to stderr
@@ -228,6 +235,17 @@ pub enum Command {
     Rooms,
     /// The node's connection state: configured, connected, and any problem (v1.0 AC-3).
     Connection,
+    /// What this node can run, in one answer (v1.0 M6-2a).
+    ///
+    /// The four reads a person needs to answer "can this node run X?" — the
+    /// executors it can route to (`GET /v0/executors`), the sandbox definitions it
+    /// knows (`GET /v0/sandboxes`), and whether QEMU and the RISC-V toolchain are
+    /// ready here (`GET /v0/qemu`, `GET /v0/toolchain`) — merged into one answer,
+    /// with `node_id` lifted from `GET /v0/identity`. The merge is the **CLI's own
+    /// composition**: the control plane serves each endpoint on its own and there
+    /// is no aggregate route to add. It reports what the node **is**; which node a
+    /// task **should** go to is the caller's (red line 1).
+    NodeCapabilities,
     // ---- control ----
     Run {
         task: String,
@@ -349,6 +367,7 @@ impl Command {
             | Command::Peers
             | Command::Rooms
             | Command::Connection
+            | Command::NodeCapabilities
             | Command::QemuStatus => "GET",
             _ => "POST",
         }
@@ -412,6 +431,10 @@ impl Command {
             Command::Peers => "/v0/peers".to_string(),
             Command::Rooms => "/v0/rooms".to_string(),
             Command::Connection => "/v0/connection".to_string(),
+            // The aggregate issues several reads of its own (`lib::node_capabilities`), so no single
+            // path is *its* path; this is the first capability read, and the CLI never sends it as one
+            // request (v1.0 M6-2a).
+            Command::NodeCapabilities => "/v0/executors".to_string(),
             Command::Run { .. } => "/v0/agent/run".to_string(),
             Command::TasksDispatch { .. } => "/v0/tasks".to_string(),
             Command::VmStop => "/v0/vm/stop".to_string(),
@@ -811,6 +834,9 @@ fn parse_command(words: &[String], flags: &Flags) -> Result<Command, String> {
         (Some("peers"), None, None, None) => Some(Command::Peers),
         (Some("rooms"), None, None, None) => Some(Command::Rooms),
         (Some("connection"), None, None, None) => Some(Command::Connection),
+        // What this node can run (v1.0 M6-2a): the CLI's own merge of five reads, so
+        // the command is two words and takes no argument.
+        (Some("node"), Some("capabilities"), None, None) => Some(Command::NodeCapabilities),
         (Some("run"), Some(task), None, None) => Some(Command::Run {
             task: task.to_string(),
             sandbox: flags.sandbox.clone(),
@@ -1066,6 +1092,14 @@ mod tests {
         assert_eq!(command(&["peers"]), Command::Peers);
         assert_eq!(command(&["rooms"]), Command::Rooms);
         assert_eq!(command(&["connection"]), Command::Connection);
+        // What this node can run (v1.0 M6-2a): two words, no argument.
+        assert_eq!(
+            command(&["node", "capabilities"]),
+            Command::NodeCapabilities
+        );
+        assert!(parse_words(&["node"]).is_err());
+        assert!(parse_words(&["node", "capabilities", "extra"]).is_err());
+        assert!(parse_words(&["node", "capability"]).is_err());
         // They take no words and no flags: a stray word is a usage error.
         assert!(parse_words(&["identity", "extra"]).is_err());
         assert_eq!(
@@ -1217,6 +1251,10 @@ mod tests {
         assert_eq!(Command::Peers.request_path(), "/v0/peers");
         assert_eq!(Command::Rooms.request_path(), "/v0/rooms");
         assert_eq!(Command::Connection.request_path(), "/v0/connection");
+        // The aggregate has no single path: it reads five endpoints itself, and this
+        // is the first (v1.0 M6-2a).
+        assert_eq!(Command::NodeCapabilities.request_path(), "/v0/executors");
+        assert_eq!(Command::NodeCapabilities.method(), "GET");
         assert_eq!(Command::Identity.method(), "GET");
         assert_eq!(Command::Peers.method(), "GET");
         assert_eq!(Command::Rooms.method(), "GET");

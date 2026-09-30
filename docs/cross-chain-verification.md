@@ -201,3 +201,9 @@ delivery that fails is **recorded and not merged** while its file stays; a confl
 forked, never adjudicated automatically. **Not frozen**: whether the `segment_opened` marker's hash ever
 travels so the **anchor link** can be checked, whether the centre ever caches past digests (today it keeps
 only the newest), whether a range proof is ever wanted, and the shape of M6-5-3's tool.
+
+**The same shape, twice more (v1.0 M6-2a).** This is not the only thing the kernel produces and no one
+reads. The connection layer carries two more: a §6.6 registration's `capabilities` are stored on the
+server's row and read by nothing, and the §4.1 registry hand-down can be asked for but no production caller
+asks. Both are recorded in full in [connection.md §11](connection.md) — the point of noting them here is that
+the three gaps are one pattern, and closing one should ask whether the others close with it.

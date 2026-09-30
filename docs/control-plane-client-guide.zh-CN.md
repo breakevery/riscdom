@@ -510,6 +510,7 @@ riscdom --json --remote 127.0.0.1:7821 runs list --limit 5   # 对着已经跑�
 | `riscdom peers` | `GET /v0/peers` |
 | `riscdom rooms` | `GET /v0/rooms` |
 | `riscdom connection` | `GET /v0/connection` |
+| `riscdom node capabilities` | `GET /v0/identity` + `/v0/executors` + `/v0/sandboxes` + `/v0/qemu` + `/v0/toolchain` |
 | `riscdom tasks dispatch --target <agent_id> --input <text>` | `POST /v0/tasks` |
 | `riscdom run <task> --sandbox <name>` | `POST /v0/agent/run`（带 `sandbox`） |
 | `riscdom vm stop` / `vm start` | `POST /v0/vm/stop` / `/v0/vm/start` |

@@ -1599,3 +1599,20 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **执行者在写代码前拦下的一处更正**：本批初稿预期这条路由会把 §5.2 从 36 改成 37、并给两个 SDK 各加一个控制。那对**字面**路由成立、对**带路径参数**的路由不成立：`documented_count` 读的是**标题里的数字**，`the_table_has_the_documented_endpoints` 拿它与 `ROUTES` 的**字面** `POST` 行比对，而带路径参数的路由另住一个 `patterns` 块，其长度由 `the_tool_schema_document_lists_exactly_the_routes_the_server_serves` 断言（本批由 10 变 11）。工作是**停下来报告**这件事，而不是猜。（批 CT 的第一次跑）
 
 **影响**：`audit/src/segment.rs`（`ACTION_CONFLICT_RESOLVED` + `conflict_resolved_detail`）；`host-core/src/state.rs`（`AppState::resolve_conflict`）；`server/src/routes.rs`（`Action::AuditResolve`、`conflict_resolve_from`、`resolve()` 分支、handler，以及 `patterns` 断言 10 → 11）；`cli/src/args.rs` + `cli/src/render.rs`（`audit resolve` 命令、`--note`、路径与 body）；`scripts/check-tool-schema.mjs`（§2 的例外表，它是文档自己那份表的副本）；`docs/tool-schema-control-plane.md` + zh（一行 `patterns` + 一份定义，以及正文里的 10 → 11）；`docs/control-plane-api.md` + zh（一行 §5.2 —— **标题的 36 不动**）；`docs/control-plane-client-guide.md` + zh、`cli/README.md` + zh，以及 `cross-chain-verification.md` §7。**`compute_hash`、`verify_chain` 与 append-only 触发器未动**（这个动作只*追加*），路由表、§5.2 计数与 33 名的能力词汇表未动，**SDK 未动**，未加依赖。**M6-5-4 未动。**
+
+## 150. 一个节点能跑什么是一个问题，而 CLI 不用新路由就能回答它
+
+**日期**：2026-09-30 ｜ **状态**：已定且已实现（批 CV / M6-2a）
+
+**决策**：**M6-2** 的前半，也是「那个节点能跑这个吗？」这个回答的第一块：
+
+- **`riscdom node capabilities`** —— 两词，与这里每条命令一样。它读**五个**端点并合并成一个回答：`GET /v0/identity`（取 `node_id`）、`GET /v0/executors`、`GET /v0/sandboxes`、`GET /v0/qemu`、`GET /v0/toolchain`。
+- **形状是 `{node_id, executors, sandboxes, qemu, toolchain}`。** 每一节都是那个端点的原样回答、**不加工**；只有 `node_id` 从 identity 对象里被取出来，也只有**失败**的一节被包成 `{"error": {"code", "message"}}`。`--json` 打印这个合并对象；人类视图是每读一节、带标题，并复用现有的 `executors` / `sandboxes` 渲染器，好让两个视图无法漂移。
+- **某一节失败从不拖垮整个回答。** 每个读是独立的：失败被存在它回答本应出现的位置，其余照常打印，退出码取见到的**最重**那个。某一节回答 `found: false` —— 没有 QEMU、没有工具链 —— **不是**失败：缺席是一个回答。
+- **零新 HTTP 路由、零新 capability、零 SDK 改动。** 合并是 **CLI 自己的拼装**（它是纯 HTTP 客户端，从不直接调 `AppState`），这正是要点。
+
+**缘由**：M6-2 的素材早就在这个节点上，分散在 UI 的 node 页已经在读的四个端点里，**只缺那一条把它们收齐的命令**（批 CU）。把合并放在 CLI 而不是一条新的聚合路由里，正是让本批保持小的原因：一条字面路由会把 §5.1/§5.2 计数、一个 capability 决定、两个 SDK 与 tool-schema 检查器一同带上（批 CT 的教训）。**它报告节点是什么；一个任务该去哪里仍是调用方的** —— 红线 1，也是 `cross-device-dispatch.md` §6。identity 读是 `node_id` 需要的，也是它唯一的来源；这让聚合是五个读、不是四个，而这一点被报告、不被隐藏。
+
+**两条缺口，记为技术债（与 §148 的关键事件推送同型）**：(i) §6.6 注册的 `capabilities` 被存在服务器的行上（`OnlineEntry`），**`server/` 与 `host-core/` 里无人读** —— 内核据以行动的那两个声明词来自节点自己的 `peers.json`；(ii) `RelayClient::ask_registry` 存在而**没有任何生产调用者去问** —— 节点只持有启动时与重连时被下发的那张表。两条都写进 `docs/connection.md` §11（并从 `cross-chain-verification.md` §7 指过去），因为这三条缺口是同一个模式。
+
+**影响**：`cli/src/args.rs`（`node capabilities` 命令、它的路径与 usage 行）；`cli/src/lib.rs`（`node_capabilities`、`capability_section`、`error_section`）；`cli/src/render.rs`（`capabilities` 与几个小工具）；`cli/README.md` + zh（一行命令）；`docs/cross-device-dispatch.md` + zh（§7）；`docs/connection.md` + zh（§11）；`docs/cross-chain-verification.md` + zh（§7 的同型注）；`docs/control-plane-client-guide.md` + zh（§7）；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。**无路由表、无 §5.1/§5.2 计数、无 capability 名、无 SDK、无依赖；`compute_hash` / `verify_chain` / append-only 触发器未动；不写链。** **M6-2b（跨线去问同侪）未动。**

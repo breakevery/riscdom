@@ -8,7 +8,7 @@
 use crate::args::Command;
 use crate::client::Reply;
 use crate::sse::Frame;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 /// Render one answer for a human.
 pub fn human(command: &Command, reply: &Reply) -> String {
@@ -49,6 +49,10 @@ pub fn human(command: &Command, reply: &Reply) -> String {
         Command::Peers => peers(value),
         Command::Rooms => rooms(value),
         Command::Connection => connection(value),
+        // The aggregate is five reads, not one, so it never arrives here: the CLI
+        // renders it with `capabilities` below, after merging the five answers
+        // (v1.0 M6-2a). This arm only keeps the match total.
+        Command::NodeCapabilities => value.to_string(),
         Command::Run { .. } => outcome(value),
         // A dispatched task answers with a `TaskOutcome`: who ran it, and the run's
         // own outcome inside (v0.9 interface E0).
@@ -85,6 +89,85 @@ pub fn human(command: &Command, reply: &Reply) -> String {
         | Command::AuditResolve { .. }
         | Command::ThemeSet { .. }
         | Command::LanguageSet { .. } => "ok".to_string(),
+    }
+}
+
+/// `node capabilities` (v1.0 M6-2a): what this node can run, five reads merged.
+///
+/// Each section is its name and its answer. The `executors` and `sandboxes`
+/// sections reuse the single-answer renderers above, so the aggregate and the
+/// individual commands cannot drift; `qemu` and `toolchain` share one readiness
+/// line. A section that **failed** shows why instead of its answer — a failure is
+/// reported in place, never by taking the whole answer down (the exit code carries
+/// the worst one). A section that says `found: false` is **not** a failure:
+/// absence is an answer, and the words for it are `not found`.
+pub fn capabilities(sections: &Map<String, Value>) -> String {
+    let mut blocks: Vec<String> = Vec::new();
+    blocks.push(format!(
+        "{:<11} {}",
+        "NODE_ID",
+        node_id(sections.get("node_id"))
+    ));
+    blocks.push(format!(
+        "EXECUTORS\n{}",
+        or_failure(sections.get("executors"), executors)
+    ));
+    blocks.push(format!(
+        "SANDBOXES\n{}",
+        or_failure(sections.get("sandboxes"), sandboxes)
+    ));
+    blocks.push(format!(
+        "QEMU\n{}",
+        or_failure(sections.get("qemu"), readiness)
+    ));
+    blocks.push(format!(
+        "TOOLCHAIN\n{}",
+        or_failure(sections.get("toolchain"), readiness)
+    ));
+    blocks.join("\n\n")
+}
+
+/// A section's answer, or the reason it has none.
+fn or_failure(value: Option<&Value>, render: fn(&Value) -> String) -> String {
+    match value {
+        Some(value) if value.get("error").is_some() => failure(value),
+        Some(value) => render(value),
+        None => "-".to_string(),
+    }
+}
+
+/// `{ "error": { "code": …, "message": … } }` — why a section has no answer.
+fn failure(value: &Value) -> String {
+    let error = value.get("error").unwrap_or(value);
+    format!(
+        "unavailable ({}: {})",
+        number(error, "code"),
+        text(error, "message")
+    )
+}
+
+/// The `node_id` the aggregate lifts out of `/v0/identity` (v1.0 M6-2a).
+///
+/// A `null` answer means the connection layer is not configured; a failed identity
+/// read says so. Either way the rest of the answer still stands.
+fn node_id(value: Option<&Value>) -> String {
+    match value {
+        Some(Value::String(id)) => id.clone(),
+        Some(value) if value.get("error").is_some() => failure(value),
+        _ => "- (the connection layer is not configured)".to_string(),
+    }
+}
+
+/// A `QemuView` / `ToolchainView`: whether it is here, and where (v1.0 M6-2a).
+fn readiness(value: &Value) -> String {
+    match value.get("found").and_then(Value::as_bool) {
+        Some(true) => format!(
+            "ready       {} ({})",
+            optional_text(value, "path"),
+            text(value, "source")
+        ),
+        Some(false) => format!("not found   ({})", text(value, "source")),
+        None => value.to_string(),
     }
 }
 
@@ -1130,5 +1213,52 @@ mod tests {
         assert!(text.contains("guest_boots    not_run"), "{text}");
         assert!(text.contains("failed_step gcc_compiles"), "{text}");
         assert!(text.contains("install the toolchain"), "{text}");
+    }
+
+    #[test]
+    fn the_aggregate_shows_each_section_or_why_it_has_none() {
+        let mut sections = serde_json::Map::new();
+        sections.insert("node_id".to_string(), serde_json::json!("laptop-a"));
+        sections.insert(
+            "executors".to_string(),
+            serde_json::json!({ "executors": [{ "agent_id": "exec-a" }] }),
+        );
+        sections.insert(
+            "sandboxes".to_string(),
+            serde_json::json!({ "sandboxes": [], "current": null, "default": "default" }),
+        );
+        // Absence is an answer: no QEMU is `not found`, not a failure.
+        sections.insert(
+            "qemu".to_string(),
+            serde_json::json!({ "found": false, "path": null, "source": "Path" }),
+        );
+        // A failed read keeps its place and says why.
+        sections.insert(
+            "toolchain".to_string(),
+            serde_json::json!({ "error": { "code": 4, "message": "no toolchain.read" } }),
+        );
+        let text = capabilities(&sections);
+        assert!(text.contains("NODE_ID     laptop-a"), "{text}");
+        assert!(text.contains("exec-a"), "{text}");
+        assert!(text.contains("not found"), "{text}");
+        assert!(
+            text.contains("unavailable (4: no toolchain.read)"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn an_unconfigured_identity_is_a_dash_not_a_failure() {
+        let mut sections = serde_json::Map::new();
+        sections.insert("node_id".to_string(), Value::Null);
+        sections.insert(
+            "executors".to_string(),
+            serde_json::json!({ "executors": [] }),
+        );
+        let text = capabilities(&sections);
+        assert!(
+            text.contains("NODE_ID     - (the connection layer is not configured)"),
+            "{text}"
+        );
     }
 }

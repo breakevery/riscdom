@@ -117,3 +117,32 @@ deny; one frame each way and no batching; the answer's either/or; four legible r
 boundary. **Not frozen**: whether a refusal earns its own HTTP status (today all four are `500` with a
 distinguishable message), how a node learns *which* peers may dispatch without a hand-edited file, and
 anything about M-to-M beyond "it is the cross-device protocol".
+
+## 7. What the node a name points at can run
+
+**[settled] A dispatch names a node; what that node can run is asked of the node itself (v1.0 M6-2a).**
+§1 hands a task to a node by name, and the question that follows is "can that node run this?". On **this**
+side the answer already exists, and one command now gathers it: `riscdom node capabilities` reads the five
+things a person needs — the node's own `node_id`, the executors it can route to, the sandbox definitions it
+knows, and whether QEMU and the RISC-V toolchain are ready here — and merges them into one answer.
+
+**[settled] The merge is the CLI's, not a route.** There is no aggregate endpoint and this batch adds none:
+`GET /v0/executors`, `/v0/sandboxes`, `/v0/qemu` and `/v0/toolchain` already answer, and the UI's node page
+reads the same three of them. The CLI is a **pure HTTP client** — it never calls `AppState` — so it composes
+them locally, and `node_id` is lifted out of `GET /v0/identity`. **No new route, no new capability, no SDK
+change.** A section that fails is reported in place rather than taking the whole answer down, and a section
+that answers `found: false` — no QEMU, no toolchain — is an **answer**, not a failure.
+
+**[settled] It says what the node *is*, never where a task *should* go.** Which node a task should be sent to
+stays the caller's (§6's first bullet, red line 1): the command hands the caller the facts, and the choice is
+theirs. Nothing here schedules anything.
+
+**For the other end, today, there is only a claim.** A peer's `peers.json` entry carries a `capabilities`
+list, and the kernel reads exactly two words out of it (`server`, `dispatch`) — so it says what a node was
+*configured to declare*, not what it can run now. Asking a peer what it can run, over the wire, is **M6-2b**,
+and it is not here yet; [connection.md §11](connection.md) records the two carried-but-unread channels that
+touch the same question.
+
+**Frozen**: the command's shape (`{node_id, executors, sandboxes, qemu, toolchain}`), that it is the CLI's own
+composition, and that it reports only. **Not frozen**: whether a peer's capability surface is ever asked over
+the wire (M6-2b), and whether `/v0/peers` ever carries more than the declared claims.

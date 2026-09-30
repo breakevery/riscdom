@@ -35,6 +35,7 @@ riscdom [options] <command> [args]
 | `peers` | `GET /v0/peers` | one peer per line with its addresses, or `this node knows nobody` / `no peer table: this node has no peers.json` |
 | `rooms` | `GET /v0/rooms` | one room per line and its member count, or `this node defines no rooms` / `no rooms: this node has no rooms.json` |
 | `connection` | `GET /v0/connection` | `configured` / `connected` / `problem` |
+| `node capabilities` | `GET /v0/identity` + `/v0/executors` + `/v0/sandboxes` + `/v0/qemu` + `/v0/toolchain` | what this node can run, five answers merged: `node_id`, the executors, the sandbox definitions, and whether QEMU and the toolchain are ready (v1.0 M6-2a; the CLI composes it — there is no aggregate route) |
 
 Control commands — every one an HTTP `POST`, and every one needs the token:
 
