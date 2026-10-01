@@ -4969,3 +4969,39 @@ has an owner and the server's front end has a source, and a repository that pins
 §7 the four batches and the front-end source), `docs/README.md` + zh (the index row), `docs/handoff.md` + zh,
 `CHANGELOG.md` + zh, and this entry. **No source file, no directory, no crate and no remote** — this is the
 preparation the split's first batch reads; **M8-4a itself is not authorised and has not run.**
+
+## 164. The control plane is its own repository, and the kernel keeps the relay (for now)
+
+**Date**: 2026-10-01 ｜ **Status**: Done (v1.0 batch DU/DV/DW / M8-4a)
+
+**Decision**: M8-4a is complete, and its scope was corrected in flight:
+
+- **The CLI is a client** (batch DT, `1a43c36`): the implicit local mode is gone — `--remote` is required, and
+  there is no `serve` subcommand to lose (§163). Removing it also removed `cli`'s dependency on `server`,
+  which is what made the split possible: a kernel that depended on `riscdom-server` while `riscdom-server`
+  depended on the kernel is a cycle Cargo cannot resolve.
+- **`riscdom-server` is a repository** (`a41c505`, forced over its empty initial commit `1ce4559`; tag
+  **`v1.0.0`**): the `server` crate, its history (`git subtree split --prefix=server`, 42 commits, flattened
+  to the root), a standalone `Cargo.toml` taking the kernel as `{ git = …, tag = "v1.0.0" }`, a committed
+  `Cargo.lock`, its own `gate` and `server-bundle` jobs, its own README (which says the server *is* the local
+  mode) and `docs/server-distribution.md`. Cloned and `cargo check`ed from the remote: it builds against
+  `?tag=v1.0.0#891c2375`. Its web UI is not bundled yet (that is `riscdom-adminapp`'s front end, M8-4b).
+- **The order was corrected**: **this repository keeps `server/` through M8-4a.** The first attempt to delete
+  it here failed the gate — `ui/src-tauri/Cargo.toml` depends on `server` by path (`../../server`), and `ui/`
+  does not leave until **M8-4b**. So the crate's removal, the `scripts/pack.*` trim to relay-only, the
+  `ci.yml` job rename to `relay-bundle`, the `gate.sh` crate-list edit and the `docs/server-distribution.md`
+  redirect all move to **M8-4c**, which runs after `ui/` is gone.
+- **`riscdom-adminapp` takes `server` from `riscdom-server`**: `multi-repo.md` §2's example (adminapp names
+  `server` at *the kernel's* tag) is no longer true, because `server` is not in the kernel any more. When
+  M8-4b runs, adminapp pins **`riscdom-server`'s own tag** — which is why this batch cut `v1.0.0` there.
+
+**Why**: a split is a sequence, not a subtraction: `ui` (a consumer of `server`) outlives the crate in this
+repository, so the crate can only leave after its last consumer does. The gate caught it, which is what the
+gate is for.
+
+**Impact**: `cli/` (batch DT); the new repository `riscdom-server` (`a41c505`, tag `v1.0.0`); and in this
+repository this entry, `docs/handoff.md` + zh and `CHANGELOG.md` + zh. **No crate, no directory, no route, no
+capability, no SDK and no `server/` changed here** — the working tree that lost `server/` was reverted before
+anything was committed. **No kernel semantics changed**: `compute_hash`, `verify_chain` and the append-only
+triggers are untouched. **M8-4b (adminapp), M8-4c (this repository's close-out — the deletion and the
+packaging/CI/docs trim) and M8-4d (reconciliation) remain, each with its own authorisation.**

@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The control plane is its own repository** (v1.0 batch DU/DV/DW / M8-4a): the `server` crate, its history
+  and its packaging are live in **`riscdom-server`** (`main` = `a41c505`, tagged `v1.0.0`, built against the
+  kernel's `v1.0.0` tag), and the CLI became a pure client first (batch DT): `--remote` is required. **This
+  repository is unchanged**: `server/` and its packaging stay here until **M8-4c**, because `ui/src-tauri`
+  depends on the crate by path and `ui/` leaves in **M8-4b**. **Decision §164.**
+
 - **The three repositories are written down consistently** (v1.0 batch DS / M8-4-prep): M8-4's five rulings
   land in `docs/multi-repo.md` — **`serve` belongs to `riscdom-server`** (this repository's `cli` becomes a
   pure client), a server package's **front end comes from `riscdom-adminapp`'s release**, **each repository

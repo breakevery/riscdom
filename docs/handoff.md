@@ -580,6 +580,14 @@ current request authorising it (§2).
   repository's close-out) → M8-4d (reconciliation)**. §1 also stops calling this repository "the kernel and the
   control plane". **Documentation only: no file moved, no remote written.** **Decision §163.** **M8-4a awaits
   its own authorisation.**
+- **And M8-4a is done: the control plane is its own repository** (v1.0 batch DU/DV/DW, 2026-10-01):
+  **`riscdom-server`** is live — `main` = `a41c505` (forced over its empty initial commit; `git subtree split`
+  kept 42 commits, flattened to the root), tagged **`v1.0.0`**, and `cargo check`ed from a fresh clone against
+  `?tag=v1.0.0#891c2375`. The CLI became a pure client first (batch DT, `1a43c36`). **`server/` stays in this
+  repository until M8-4c**: `ui/src-tauri` depends on it by path and `ui/` leaves in M8-4b — the first attempt
+  to delete it here failed the gate, and the whole close-out (deletion, `pack.*` relay-only, `ci.yml`'s
+  `relay-bundle`, the docs redirect) moved with it. **Decision §164.** **M8-4b (adminapp), M8-4c (close-out)
+  and M8-4d remain.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

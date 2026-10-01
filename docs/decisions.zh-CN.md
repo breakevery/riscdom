@@ -1853,3 +1853,18 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **缘由**：这五条是带期限的开放项 —— 在 `serve` 有了归属、server 的前端有了来源之前，拆仓的第一批写不出来；而一个钉内核 tag 的仓需要那个 tag（§2），v1.0 已提供。
 
 **影响**：`docs/multi-repo.md` + zh（§1 三仓、§5 CLA 裁决、§6 逐批授权、§7 四批与前端来源）、`docs/README.md` + zh（索引行）、`docs/handoff.md` + zh、`CHANGELOG.md` + zh，以及本条。**无源文件、无目录、无 crate、无远端** —— 这是拆仓第一批要读的准备；**M8-4a 本身未获授权、尚未运行。**
+
+## 164. 控制平面已经自成一座仓，而内核暂时留着 relay
+
+**日期**：2026-10-01 ｜ **状态**：已完成（v1.0 批 DU/DV/DW / M8-4a）
+
+**决策**：M8-4a 已完成，其范围在执行中被修正：
+
+- **CLI 是客户端**（批 DT，`1a43c36`）：隐式本地模式已去 —— `--remote` 变为必需；也没有哪个 `serve` 子命令可失（§163）。去掉它也去掉了 `cli` 对 `server` 的依赖 —— 正是这一步让拆仓成为可能：一个依赖 `riscdom-server` 的内核，同时又让 `riscdom-server` 依赖内核，是 Cargo 解不开的环。
+- **`riscdom-server` 是一个仓**（`a41c505`，force 覆盖其空仓初始 commit `1ce4559`；tag **`v1.0.0`**）：`server` crate、它的历史（`git subtree split --prefix=server`，42 个提交、平铺到根）、一份独立的 `Cargo.toml`（以 `{ git = …, tag = "v1.0.0" }` 取内核）、提交的 `Cargo.lock`、它自己的 `gate` 与 `server-bundle` 作业、它自己的 README（写明「服务器就是本地模式」）与 `docs/server-distribution.md`。已从远端 clone 并 `cargo check`：对 `?tag=v1.0.0#891c2375` 构建成功。它的 web UI 尚未打包（那是 `riscdom-adminapp` 的前端，M8-4b）。
+- **顺序被修正**：**本仓在 M8-4a 期间保留 `server/`**。第一次在这里删它时 gate 就红了 —— `ui/src-tauri/Cargo.toml` 以 path 依赖 `server`（`../../server`），而 `ui/` 要到 **M8-4b** 才离开。所以 crate 的删除、`scripts/pack.*` 裁成只打 relay、`ci.yml` 作业改名为 `relay-bundle`、`gate.sh` 的 crate 列表修改、以及 `docs/server-distribution.md` 的改指向，全部移入 **M8-4c**（在 `ui/` 离去之后）。
+- **`riscdom-adminapp` 从 `riscdom-server` 取 `server`**：`multi-repo.md` §2 的示例（adminapp 在*内核的* tag 上命名 `server`）已不成立，因为 `server` 不再在内核里。M8-4b 执行时，adminapp 钉的是 **`riscdom-server` 自己的 tag** —— 这正是本批在该仓打 `v1.0.0` 的原因。
+
+**缘由**：拆仓是一个序列，不是一次减法：`ui`（`server` 的消费者）在本仓比该 crate 活得更久，所以 crate 只能在它最后一个消费者离开之后才离开。gate 把它拦下了，而 gate 正是为此而存在。
+
+**影响**：`cli/`（批 DT）；新仓 `riscdom-server`（`a41c505`，tag `v1.0.0`）；本仓则只有本条、`docs/handoff.md` + zh 与 `CHANGELOG.md` + zh。**本仓未改动任何 crate、目录、路由、capability、SDK，也未动 `server/`** —— 那个丢了 `server/` 的工作树在提交之前已还原。**内核语义未变**：`compute_hash`、`verify_chain` 与 append-only 触发器未动。**M8-4b（adminapp）、M8-4c（本仓收尾 —— 删目录与打包/CI/文档的收敛）与 M8-4d（对账）仍在，各自需授权。**

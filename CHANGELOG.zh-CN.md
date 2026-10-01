@@ -11,6 +11,8 @@
 
 ### 变更
 
+- **控制平面已经是它自己的仓**（v1.0 批 DU/DV/DW / M8-4a）：`server` crate、它的历史与它的打包已在 **`riscdom-server`** 上线（`main` = `a41c505`，tag `v1.0.0`，对内核的 `v1.0.0` tag 构建），而 CLI 先一步变成纯客户端（批 DT）：`--remote` 变为必需。**本仓未变**：`server/` 与它的打包留到 **M8-4c**，因为 `ui/src-tauri` 以 path 依赖该 crate，而 `ui/` 在 **M8-4b** 才离开。**决策 §164。**
+
 - **三个仓库写成了一致的文档**（v1.0 批 DS / M8-4-prep）：M8-4 的五条裁决落在 `docs/multi-repo.md` —— **`serve` 归 `riscdom-server`**（本仓 `cli` 收缩为纯客户端）、server 包的前端**从 `riscdom-adminapp` 的 release 取**、**每个仓自带 CLA**、名字与顺序不变、**拆仓逐批授权** —— 而拆仓写成 **M8-4a → M8-4b → M8-4c → M8-4d**。**零代码、零目录、零远端。** **决策 §163。**
 
 ## [1.0.0] - 2026-10-01
