@@ -9,6 +9,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **给外部评审者的审计包**（v1.0 审计包 / 批 DX）：`docs/audit-package/` —— 八份双语文档（architecture、capabilities、known-issues、test-evidence、demo、dependencies、concerns 与索引）外加 `scripts/demo.ps1` / `scripts/demo.sh`，钉在 `v1.0.0`（tag `891c237`），**由项目方撰写，不是审计报告**。测试证据来自一次真实 gate 运行（26 步、`gate: OK`、**1018 passed / 0 failed**），双语计数从 **128 → 144**。**决策 §165。**
+
 ### 变更
 
 - **控制平面已经是它自己的仓**（v1.0 批 DU/DV/DW / M8-4a）：`server` crate、它的历史与它的打包已在 **`riscdom-server`** 上线（`main` = `a41c505`，tag `v1.0.0`，对内核的 `v1.0.0` tag 构建），而 CLI 先一步变成纯客户端（批 DT）：`--remote` 变为必需。**本仓未变**：`server/` 与它的打包留到 **M8-4c**，因为 `ui/src-tauri` 以 path 依赖该 crate，而 `ui/` 在 **M8-4b** 才离开。**决策 §164。**

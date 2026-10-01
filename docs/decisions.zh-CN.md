@@ -1868,3 +1868,24 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **缘由**：拆仓是一个序列，不是一次减法：`ui`（`server` 的消费者）在本仓比该 crate 活得更久，所以 crate 只能在它最后一个消费者离开之后才离开。gate 把它拦下了，而 gate 正是为此而存在。
 
 **影响**：`cli/`（批 DT）；新仓 `riscdom-server`（`a41c505`，tag `v1.0.0`）；本仓则只有本条、`docs/handoff.md` + zh 与 `CHANGELOG.md` + zh。**本仓未改动任何 crate、目录、路由、capability、SDK，也未动 `server/`** —— 那个丢了 `server/` 的工作树在提交之前已还原。**内核语义未变**：`compute_hash`、`verify_chain` 与 append-only 触发器未动。**M8-4b（adminapp）、M8-4c（本仓收尾 —— 删目录与打包/CI/文档的收敛）与 M8-4d（对账）仍在，各自需授权。**
+
+## 165. 审计包已落盘，且它引用而非重写
+
+**日期**：2026-10-01 ｜ **状态**：已完成（v1.0 审计包 / 批 DX）
+
+**决策**：`docs/audit-package/` 现在放着一份**审计包** —— 一个从未见过 RiscDom 的评审者约三十分钟读完的材料。它是**八份文档**，每份都有 `.zh-CN.md` 对应件，外加**两个 demo 脚本**：
+
+- `README.md` —— 索引，以及受审版本：**`v1.0.0`**，tag **`891c237`**。
+- `architecture.md` —— 十个 crate 与一条 task 的路径，控制在 200 行内，**指向** [architecture-evolution.md](architecture-evolution.md) 而不重写它。
+- `capabilities.md` —— 只列 `v1.0.0` 处**真能跑**的，每条都点明调用它的 CLI 命令或 HTTP 端点。roadmap 的 `[default]` / `[open]` 项刻意**不算**能力，M8-4b/c/d 也**不**列为已完成。
+- `known-issues.md` —— **从项目自有记录汇总**（handoff §1、roadmap §12 与 §15、cross-chain-verification §6–§7、README 的局限）：未完成、已知 flake、未验证之处、技术债。
+- `test-evidence.md` —— 来自一次**真实 `scripts/gate.sh` 运行**的数字（见下），含真 QEMU 与 mock、按 crate 的 `#[ignore]`，以及 CI 跑什么、不跑什么。
+- `demo.md` + `scripts/demo.{ps1,sh}` —— 七步演示。脚本**刻意为半自动**：模型 key、第二节点、以及人读串口面板，都无法脚本化，所以每个自动步骤都真跑，每个需人动的步骤都明说。
+- `dependencies.md` —— 汇总自各 manifest、ENVIRONMENT.md 与 README，并标注与论证**核心可信依赖**（QEMU、RISC-V GCC、`ed25519-dalek`、`rusqlite`、`ring`、OS 凭据库）。
+- `concerns.md` —— **留空**：由项目 owner 填写。
+
+**是证据，不是声称。** gate 在本机跑到绿（26 步、`gate: OK`、**1018 passed / 0 failed**，因本机有 QEMU 与 RISC-V GCC 故 `#[ignore]` 测试也跑了），双语计数从 **128 → 144**。两个 demo 脚本在此实测，均退出 `0`。
+
+**缘由**：项目把一切都决定在自己的长文档里，而评审者不该为了弄清什么是真的而把它们全读一遍。所以本包**引用**它们，只补上它们没有的两样东西：一页三十分钟读得完的，以及一份诚实的「哪里有问题」。
+
+**影响**：`docs/audit-package/`（8 对双语、16 个文件）、`scripts/demo.ps1`、`scripts/demo.sh`，以及本条、`docs/handoff.md` + zh、`CHANGELOG.md` + zh 与 `docs/README.md` + zh 中的一行。**未改动任何 crate、测试、CI 文件、gate 脚本、路由、capability 名或 SDK** —— demo 脚本只写 `target/demo/` 之下，而 `compute_hash`、`verify_chain` 与只追加触发器未动。**拆仓（M8-4b/c/d）不受影响。**

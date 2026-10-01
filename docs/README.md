@@ -135,7 +135,13 @@ Whoever just wants to run the thing.
 | [walkthroughs/README.md](../walkthroughs/README.md) | What the walkthrough records are, why they are not in `docs/`, and why the bilingual gate skips this directory. | living |
 | [walkthroughs/2026-09-19-preview1-local.md](../walkthroughs/2026-09-19-preview1-local.md) | One walk of the golden path on one machine, recorded as it happened. | snapshot (deliberately single-language) |
 
-## 7. Outside the map, and why
+## 7. Auditors
+
+| Document | What it is | State |
+|---|---|---|
+| [audit-package/README.md](audit-package/README.md) — [中文](audit-package/README.zh-CN.md) | The audit package: eight documents an outside reviewer reads in thirty minutes — architecture, capabilities, known issues, test evidence, a demo, dependencies and the owner's concerns — written by the project and pinned to `v1.0.0`. | living |
+
+## 8. Outside the map, and why
 
 - **`IDENTITY.md`, `SOUL.md`, `USER.md`** (repository root) are the agent-workspace identity
   files: they are read by the AI, not by a human reader, and they are deliberately

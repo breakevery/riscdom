@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **An audit package for an outside reviewer** (v1.0 audit package / batch DX): `docs/audit-package/` —
+  eight bilingual documents (architecture, capabilities, known-issues, test-evidence, demo, dependencies,
+  concerns and an index) plus `scripts/demo.ps1` / `scripts/demo.sh`, pinned to `v1.0.0` (tag `891c237`)
+  and written **by the project, not an audit report**. The test evidence is a real gate run (26 steps,
+  `gate: OK`, **1018 tests passed / 0 failed**) and the bilingual count moved **128 → 144**.
+  **Decision §165.**
+
 ### Changed
 
 - **The control plane is its own repository** (v1.0 batch DU/DV/DW / M8-4a): the `server` crate, its history

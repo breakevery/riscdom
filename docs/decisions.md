@@ -5005,3 +5005,44 @@ capability, no SDK and no `server/` changed here** — the working tree that los
 anything was committed. **No kernel semantics changed**: `compute_hash`, `verify_chain` and the append-only
 triggers are untouched. **M8-4b (adminapp), M8-4c (this repository's close-out — the deletion and the
 packaging/CI/docs trim) and M8-4d (reconciliation) remain, each with its own authorisation.**
+
+## 165. The audit package is on disk, and it cites rather than rewrites
+
+**Date**: 2026-10-01 ｜ **Status**: Done (v1.0 audit package / batch DX)
+
+**Decision**: an **audit package** now sits in `docs/audit-package/` — the material a reviewer who has
+never seen RiscDom reads in about thirty minutes. It is **eight documents**, each with a `.zh-CN.md`
+counterpart, plus **two demo scripts**:
+
+- `README.md` — the index, and the audited version: **`v1.0.0`**, tag **`891c237`**.
+- `architecture.md` — the ten crates and one task's path, under 200 lines, **pointing at**
+  [architecture-evolution.md](architecture-evolution.md) rather than rewriting it.
+- `capabilities.md` — only what **actually runs** at `v1.0.0`, each entry naming the CLI command or
+  HTTP endpoint that invokes it. Roadmap `[default]` / `[open]` items are deliberately **not**
+  capabilities, and M8-4b/c/d are **not** listed as done.
+- `known-issues.md` — summarised **from the project's own records** (handoff §1, roadmap §12 and §15,
+  cross-chain-verification §6–§7, README's limitations): unfinished work, known flakes, unverified
+  ground, technical debt.
+- `test-evidence.md` — the numbers from a **real `scripts/gate.sh` run** (see below), with real-QEMU vs
+  mock, the `#[ignore]` tests by crate, and what CI does and does not run.
+- `demo.md` + `scripts/demo.{ps1,sh}` — the seven-step demo. The scripts are **semi-automatic on
+  purpose**: the model key, a second node and a human reading the serial pane cannot be scripted, so
+  every automated step runs for real and every human step says so.
+- `dependencies.md` — gathered from the manifests, ENVIRONMENT.md and README, with the **core trusted
+  dependencies** (QEMU, RISC-V GCC, `ed25519-dalek`, `rusqlite`, `ring`, the OS keyring) marked and
+  justified.
+- `concerns.md` — **left blank**: the project owner writes it.
+
+**The evidence, not a claim.** The gate ran green on this machine (26 steps, `gate: OK`, **1018 tests
+passed / 0 failed**, the `#[ignore]` tests included because QEMU and a RISC-V GCC are present) and the
+bilingual count moved **128 → 144**. The two demo scripts were run here and both exit `0`.
+
+**Why**: the project has decided everything in its own long documents, and a reviewer should not have
+to read them all to find out what is true. So the package **cites** them and adds only the two things
+they do not have: one page that fits in thirty minutes, and an honest list of what is wrong.
+
+**Impact**: `docs/audit-package/` (8 bilingual pairs, 16 files), `scripts/demo.ps1`, `scripts/demo.sh`,
+and this entry, `docs/handoff.md` + zh, `CHANGELOG.md` + zh and one row in `docs/README.md` + zh. **No
+crate, no test, no CI file, no gate script, no route, no capability name and no SDK changed** — the
+demo scripts write only under `target/demo/`, and `compute_hash`, `verify_chain` and the append-only
+triggers are untouched. **The split (M8-4b/c/d) is unaffected.**

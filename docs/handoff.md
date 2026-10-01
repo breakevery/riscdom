@@ -588,6 +588,14 @@ current request authorising it (§2).
   to delete it here failed the gate, and the whole close-out (deletion, `pack.*` relay-only, `ci.yml`'s
   `relay-bundle`, the docs redirect) moved with it. **Decision §164.** **M8-4b (adminapp), M8-4c (close-out)
   and M8-4d remain.**
+- **And the audit package is on disk** (v1.0 audit package / batch DX, 2026-10-01): `docs/audit-package/`
+  holds the material a reviewer reads in thirty minutes — eight bilingual documents (`architecture`,
+  `capabilities`, `known-issues`, `test-evidence`, `demo`, `dependencies`, `concerns` and the index) plus
+  `scripts/demo.{ps1,sh}` — written **by the project, not an audit report**, pinned to `v1.0.0` (tag
+  `891c237`). Item 8 (`concerns.md`) is **left blank** for the owner. The numbers are a **real gate run**
+  (`gate: OK`, 26 steps, **1018 tests passed / 0 failed**, the `#[ignore]` tests included) and the
+  bilingual count moved **128 → 144**; the two demo scripts were run here and exit `0`. **No crate, test,
+  CI file, gate script, route, capability or SDK changed.** **Decision §165.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

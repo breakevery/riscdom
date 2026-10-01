@@ -122,7 +122,13 @@
 | [walkthroughs/README.md](../walkthroughs/README.md) | 走查记录是什么、为什么不在 `docs/`、以及双语门禁为什么跳过这个目录。 | 活跃 |
 | [walkthroughs/2026-09-19-preview1-local.md](../walkthroughs/2026-09-19-preview1-local.md) | 一个人在一台机器上走黄金路径的记录，照当时发生的事情记下。 | 快照（刻意单语） |
 
-## 7. 不在导航内，以及原因
+## 7. 评审者
+
+| 文档 | 是什么 | 状态 |
+|---|---|---|
+| [audit-package/README.md](audit-package/README.md) — [中文](audit-package/README.zh-CN.md) | 审计包：外部评审者三十分钟读完的八份文档 —— 架构、能力、已知问题、测试证据、演示、依赖与 owner 的担忧 —— 由项目方撰写，钉在 `v1.0.0`。 | living |
+
+## 8. 不在导航内，以及原因
 
 - **`IDENTITY.md`、`SOUL.md`、`USER.md`**（仓根）是 agent 工作区的身份文件：它们由 AI 读，不给人类读者，且刻意单语——`scripts/check-bilingual.sh` 按文件名把它们排除。它们不是文档，本页不导航它们。
 - **`LICENSE`** 是 Apache-2.0 正文，按设计保持英文，且被双语门禁排除。
