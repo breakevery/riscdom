@@ -138,6 +138,8 @@ pub struct Actor {
 | `/v0/sandboxes/{name}/instances/history` | GET | `sandbox.read` | path: `name` | `{ "instances": [ReconciledInstance] }`，或 `404` | — |
 | `/v0/sandboxes/{name}/capabilities` | GET | `sandbox.read` | path: `name` | `{ "name", "supports_multiplexing" }`，或 `404` | — |
 | `/v0/sandboxes/requests` | GET | `sandbox.read` | query: `status`? | `{ "requests": [SandboxRequestView] }`，`status` 未知时 `400` | `list_sandbox_requests` |
+
+队列是每节点自己的、从**它自己的链**种子化，所以当另一个节点的段到达本节点并被合并后，那里的 ask 也会出现在这里（v1.0 M6-4a）。
 | `/v0/executors` | GET | `agent.run` | 无 | `{ "executors": [{ "agent_id": string }] }` | `list_executors` |
 | `/v0/capabilities` | GET | `status.read` | 无 | `{ "capabilities": [string] }` | — |
 | `/v0/identity` | GET | `status.read` | 无 | `{ "node_id", "public_jwk", "fingerprint", "short_fingerprint" }`，或 `null`（无 `node.key`） | `get_node_key` |

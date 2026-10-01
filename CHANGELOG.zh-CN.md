@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **在另一个节点上做出的请求会到达本节点的队列**（v1.0 批 DG / M6-4a）：ask 是一条普通的 `m.request.ask` 链行，所以它本来就随站入节点的段到达 —— 缺的是**读者**。`receive_segment` 现在**只把折叠合并刚写下的那些行**经构造函数同样的 `restore` 折进活的待批队列，于是远端 ask 无需重启就出现在 `GET /v0/sandboxes/requests`；碰撞按 id 报告（绝不被裁定），而 **forked** 合并什么都不折进来。**无新帧、无新路由、无新事件名；`merge_segment`、`compute_hash`、`verify_chain` 与触发器未动。** **决策 §155。**
+
 - **流可以被收窄到某一个任务**（v1.0 批 DC / M6-3b）：`GET /v0/events?task_id=<id>` 现在**被强制执行** —— 服务器丢弃属于另一个任务的帧，实时流与 `Last-Event-ID` 重放都如此，而 `hello`、`gap` 与注释型心跳永不被隐藏。`WireFrame` 带一个 `FrameScope`（`Stream` / `Task(Option<String>)`），`SseHub::subscribe(task_id)` 交回一个 `Subscriber`，它的读取会跳过被排除的帧。**`event` 与 `agent_id` 未动** —— 仍被接受、仍被忽略，所以发它们的客户端毫无变化；`hello.filters` 现在回显请求里的 `task_id`，而它的词汇只在一处写出而不是两处。**无路由行、无 §5.1/§5.2 计数、无 capability 名、无 SDK 改动、无依赖；`emit` 签名不变。** **决策 §154。**
 
 - **一次 run 的事件命名引起它的那个任务**（v1.0 批 DB / M6-3a，也是 roadmap §12 `task_id` 缺口的终点）：身份本来就在每一跳上而无处安放，因为 `EventSink::emit` 没有它的位置、`event_envelope` 写死 `null`。现在**由 sink 携带、在构造时绑定** —— `HttpEventSink` / `TauriEventSink` / worker 的 `LineEventSink` 都经 `envelope(…, task_id, …)` 发布 —— 而 `EventSink` 多一个带默认实现的方法 `with_task`，好让长期存在的 emitter（`HostAgentHandle::run`）能给单次 run 一份绑好的副本。`POST /v0/agent/run` 收一个可选的 **`task_id`**；`POST /v0/tasks` 现在在 handler 里铸它的 `id`，好让 sink 在调用前就被绑定；worker 绑定它从 stdin 读到的那份任务。没有 id 时信封仍然说 `null`，与本批之前一字不差。**无路由行、无 §5.1/§5.2 计数、无 capability 名、无 SDK 改动、无依赖；`emit` 签名不变，`audit/src/hash.rs` 未动**（`compute_hash` 没有 `task_id` 列）。**（它自己的后续——SSE 的 `task_id` 过滤器——已在 DC 落地，见上一条。）** **决策 §153。**

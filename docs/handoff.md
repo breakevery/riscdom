@@ -515,6 +515,13 @@ current request authorising it (§2).
   `agent_id` are untouched** (accepted, ignored, exactly as before); `hello.filters` echoes `task_id` and
   is written in one place. **No route row, no capability name, no SDK change, no dependency.**
   **Decision §154.**
+- **And a request made on another node reaches this node's queue** (v1.0 batch DG / M6-4a, 2026-10-01, the
+  first half of M6-4): an ask is an ordinary `m.request.ask` chain row, so it already travels with a
+  stand-in's segment — the missing half was the **reader**. `receive_segment` now folds just the rows a
+  folded merge wrote into the live queue through the same `restore` the constructor uses (collisions
+  reported by id; a forked merge folds in nothing), so a remote ask shows up at `GET /v0/sandboxes/requests`
+  without a restart. **No new frame, no new route, no new event name; `merge_segment` is untouched.**
+  **Decision §155.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

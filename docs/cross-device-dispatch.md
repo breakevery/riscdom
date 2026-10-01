@@ -180,3 +180,32 @@ batch.
 bound to the id at construction. **Not frozen**: whether the stream's documented `task_id` filter is ever
 implemented (M6-3b — it is advertised in `hello` and not yet honoured), and whether a reply's own events
 are correlated beyond their ids.
+
+## 9. The pending-approval slot across devices (v1.0 M6-4a)
+
+**[settled] An ask is a chain row, so it already travels.** §8 gives an event the task that caused it; the
+pending-approval slot is the other half of a dispatch's story — a task that wants a sandbox switched
+**asks**, and a person decides. An ask is an ordinary `m.request.ask` row on the asker's chain, so when a
+stand-in's closed segment travels to the centre (M5-3c-2) and is merged, the ask is **transcribed with
+everything else**. Nothing new crosses the wire for it: the transport half was already there.
+
+**[settled] What was missing was the queue.** The live queue is seeded from the chain **once**, in the
+constructor (`derive_requests_from` + `restore`, [decisions §84](decisions.md)), so a row a merge
+transcribed stayed invisible until a restart. **M6-4a closes that**: a successful merge folds just the rows
+it wrote into the queue through the same `restore`, so an ask made on another node appears at
+`GET /v0/sandboxes/requests` on the centre — with its requester's identity and its sandbox name — without a
+restart. The same one-row record the constructor writes says so (`host.sandbox_request.restore`).
+
+**[settled] A collision is reported, never resolved.** Two nodes can mint the same `req-<pid>-<seq>`; the
+row already queued is this node's own and the new one is **reported by id**, exactly as the constructor's
+restore reports one. A **forked** merge transcribes nothing, so it folds in nothing: both sides stay where
+they are and the conflict is recorded beside them.
+
+**Not in this batch (M6-4b)**: the **decision** travelling back. An approval is an act on the decider's
+chain (`m.request.approve`), and the asker's chain has no such row — so the asker's queue cannot see it.
+Whether a decision reaches the asker as a row (a new reverse frame, or a segment in the other direction) is
+M6-4b, and it is **not** a prerequisite for the propagation above.
+
+**Frozen**: that an ask is a row and needs no new transport; that the refresh reuses `restore` and reports
+collisions. **Not frozen**: how a decision travels back (M6-4b), and whether a remote decision ever clears
+the asker's own queue.

@@ -1700,3 +1700,20 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 `docs/control-plane-api.md` + zh（`/v0/events` 行）；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。
 **无路由行、无 §5.1/§5.2 计数、无 capability 名、无 SDK 改动、无依赖；`emit` 签名不变；
 `audit/src/hash.rs`、`net/`、`cli/`、`ui/` 未动。**
+
+## 155. 在别的节点上做出的请求会到达本节点的队列
+
+**日期**：2026-10-01 ｜ **状态**：已定且已实现（批 DG / M6-4a）
+
+**决策**：M6-4 的前半，而它其实是**接线，不是传输**：ask 是一条普通的 `m.request.ask` 行，所以当站入节点的段被送达并合并（M5-3c-2）时它**已经在旅行**。缺的是**读者**：队列从链上种子化、只做一次（构造函数里），所以被转录的行**要重启才看得见**。
+
+- **`receive_segment` 把它刚转录的东西折进队列。** `merge_segment` 会答 `MergeOutcome::Folded { merged }`，于是中心**在仍持有 store 时**读最新 `merged` 行，交给 `derive_requests_from`。
+- **刷新就是构造函数自己的机制。** `SandboxRequests::restore` 只对那几行跑，所以**碰撞按 id 报告、绝不被裁定**（已在队列里的那一行是本节点自己的），而记录就是构造函数写下的同一行 `host.sandbox_request.restore`。
+- **fork 什么都不折进来。** `Forked` 的合并不转录任何行，所以没有东西可入队：两边各自留在原地，冲突记在旁边。
+- **无新帧、无新路由、无新事件名，且 `merge_segment` 未动** —— 钩子挂在已经知道「发生了一次合并」的那一侧。
+
+**缘由**：`SegmentSink` 早就被交予了链、sink 与 agent id；队列是同一类里的又一件东西，而一个请求正是当工作搬到站入节点后、**中心**上的人最需要看见的东西。另一条路——用新帧携带 ask——会重复一条已经存在的传输，并漏掉从任何其它途径到达的 ask。
+
+**不在本批（M6-4b）**：**裁决**的回传。`m.request.approve` 写在裁决方的链上，所以提问方的队列看不见它；裁决是否到达提问方（一条反向帧，或反方向的段）是 M6-4b，它不是这一半的前提。
+
+**影响**：`host-core/src/state.rs`（`SegmentSink.requests`、折叠合并后的尾部读取、刷新与它的记录、以及四处构造点）+ 一个单测；`docs/cross-device-dispatch.md` §9 + zh；`docs/control-plane-api.md` + zh（队列的 `GET` 行）；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。**无路由行、无 §5.1/§5.2 计数、无 capability 名、无 SDK 改动、无依赖；`merge_segment`、`compute_hash`、`verify_chain` 与 append-only 触发器未动。**

@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A request made on another node reaches this node's queue** (v1.0 batch DG / M6-4a): an ask is an
+  ordinary `m.request.ask` chain row, so it already arrives with a stand-in's segment — what was missing was
+  the reader. `receive_segment` now folds **just the rows a folded merge wrote** into the live
+  pending-approval queue through the same `restore` the constructor uses, so a remote ask appears at
+  `GET /v0/sandboxes/requests` without a restart; a collision is reported by id (never resolved) and a
+  **forked** merge folds in nothing. **No new frame, no new route, no new event name; `merge_segment`,
+  `compute_hash`, `verify_chain` and the triggers are untouched.** **Decision §155.**
+
 - **The stream can be narrowed to one task** (v1.0 batch DC / M6-3b): `GET /v0/events?task_id=<id>` is now
   **enforced** — the server drops frames belonging to another task, in the live stream and in
   `Last-Event-ID` replay, while `hello`, `gap` and comment heartbeats are never hidden. A `WireFrame`

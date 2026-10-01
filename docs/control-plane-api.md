@@ -220,8 +220,7 @@ Tauri command the endpoint wraps, so an integrator can line the two surfaces up.
 | `/v0/sandboxes/{name}/instances` | DELETE | `sandbox.instantiate` | path: `name`, `id` | `204`, or `404` | — |
 | `/v0/sandboxes/{name}/instances/history` | GET | `sandbox.read` | path: `name` | `{ "instances": [ReconciledInstance] }`, or `404` | — |
 | `/v0/sandboxes/{name}/capabilities` | GET | `sandbox.read` | path: `name` | `{ "name", "supports_multiplexing" }`, or `404` | — |
-| `/v0/sandboxes/requests` | GET | `sandbox.read` | query: `status`? | `{ "requests": [SandboxRequestView] }`, or `400` on an unknown `status` | `list_sandbox_requests` |
-| `/v0/executors` | GET | `agent.run` | — | `{ "executors": [{ "agent_id": string }] }` | `list_executors` |
+| `/v0/sandboxes/requests` | GET | `sandbox.read` | query: `status`? | `{ "requests": [SandboxRequestView] }`, or `400` on an unknown `status` | `list_sandbox_requests` || `/v0/executors` | GET | `agent.run` | — | `{ "executors": [{ "agent_id": string }] }` | `list_executors` |
 | `/v0/capabilities` | GET | `status.read` | — | `{ "capabilities": [string] }` | — |
 | `/v0/identity` | GET | `status.read` | — | `{ "node_id", "public_jwk", "fingerprint", "short_fingerprint" }`, or `null` (no `node.key`) | `get_node_key` |
 | `/v0/peers` | GET | `status.read` | — | `[PeerEntry]`, or `null` (no `peers.json`) | `list_peers` |

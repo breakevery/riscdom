@@ -4647,3 +4647,39 @@ halves filtered); `server/tests/smoke.rs` (`open_stream_path` + one end-to-end f
 `CHANGELOG.md` + zh; `docs/handoff.md` + zh. **No route row, no §5.1/§5.2 count, no capability name, no
 SDK change, no dependency; `emit`'s signature is unchanged; `audit/src/hash.rs`, `net/`, `cli/`, `ui/`
 are untouched.**
+
+## 155. A request made on another node reaches this node's queue
+
+**Date**: 2026-10-01 ｜ **Status**: Decided and implemented (batch DG / M6-4a)
+
+**Decision**: The first half of M6-4, and it turned out to be **wiring, not transport**: an ask is an
+ordinary `m.request.ask` row, so it already travels when a stand-in's segment is delivered and merged
+(M5-3c-2). What was missing was the **reader**: the queue is seeded from the chain once, in the
+constructor, so a transcribed row stayed invisible until a restart.
+
+- **`receive_segment` folds in what it just transcribed.** `merge_segment` answers
+  `MergeOutcome::Folded { merged }`, so the centre reads the newest `merged` rows **while the store is still
+  held** and passes them to `derive_requests_from`.
+- **The refresh is the constructor's own mechanism.** `SandboxRequests::restore` runs on just those rows, so
+  a **collision is reported by id, never resolved** (the row already queued is this node's own) and the
+  record is the same `host.sandbox_request.restore` row the constructor writes.
+- **A fork folds in nothing.** A `Forked` merge transcribes no rows, so there is nothing to queue: both
+  sides stay where they are and the conflict is recorded beside them.
+- **No new frame, no new route, no new event name, and `merge_segment` is untouched** — the hook is on the
+  side that already knows a merge happened.
+
+**Why**: `SegmentSink` was already handed the chain, the sink and the agent id; the queue is one more thing
+of the same kind, and a request is exactly what a person on the **centre** needs to see when the work has
+moved to a stand-in. The alternative — a new frame carrying asks — would have duplicated a transport that
+exists, and would have missed every ask that arrives by any other road.
+
+**Not in this batch (M6-4b)**: the **decision** travelling back. `m.request.approve` is written on the
+decider's chain, so the asker's queue cannot see it; whether a decision reaches the asker (a reverse frame,
+or a segment in the other direction) is M6-4b, and it is not a prerequisite for this half.
+
+**Impact**: `host-core/src/state.rs` (`SegmentSink.requests`, the tail read after a folded merge, the
+refresh and its record, and the four construction sites) + one unit test;
+`docs/cross-device-dispatch.md` §9 + zh; `docs/control-plane-api.md` + zh (the queue's `GET` row);
+`CHANGELOG.md` + zh; `docs/handoff.md` + zh. **No route row, no §5.1/§5.2 count, no capability name, no
+SDK change, no dependency; `merge_segment`, `compute_hash`, `verify_chain` and the append-only triggers are
+untouched.**

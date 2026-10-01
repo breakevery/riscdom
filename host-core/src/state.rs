@@ -1641,6 +1641,10 @@ struct SegmentSink {
     sink: Arc<Mutex<dyn AuditSink>>,
     /// This node's agent id.
     agent_id: String,
+    /// The live pending-approval queue (v1.0 M6-4a). A merged segment can carry `m.request.ask` rows —
+    /// an ask made on another node is an ordinary chain row — and folding them in is what makes such a
+    /// request visible here without a restart.
+    requests: SandboxRequests,
 }
 
 /// Rebuild a delivered segment on the centre's side, check it, and merge it (v1.0 M5-3c-2; checked as of
@@ -1786,14 +1790,33 @@ fn receive_segment(
             linkage,
         ),
     );
-    let outcome = {
+    // What the merge transcribed (v1.0 M6-4a): the rows it just appended are the newest `merged` ones,
+    // read while the store is still held so nothing can slip in between. A segment can carry an **ask**
+    // — `m.request.ask` is an ordinary chain row — and the live queue has to hear about it.
+    let (outcome, transcribed) = {
         let mut store = centre_side
             .store
             .lock()
             .map_err(|_| "the chain is poisoned".to_string())?;
-        store
+        let before = store.count().map_err(|error| error.to_string())?;
+        let outcome = store
             .merge_segment(&centre_side.audit_dir, &done.segment_id)
-            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
+        let transcribed = match &outcome {
+            audit::MergeOutcome::Folded { merged } if *merged > 0 => store
+                .list(
+                    audit::EventFilter {
+                        from_id: Some(before as i64 + 1),
+                        ..Default::default()
+                    },
+                    *merged,
+                )
+                .map_err(|error| error.to_string())?,
+            // A fork transcribed **nothing**, so there is nothing to fold in: both sides stay where they
+            // are, and the conflict is recorded beside them.
+            _ => Vec::new(),
+        };
+        (outcome, transcribed)
     };
     let said = match &outcome {
         audit::MergeOutcome::Folded { merged } => format!("folded {merged}"),
@@ -1814,6 +1837,24 @@ fn receive_segment(
             format!("forked: {reason}")
         }
     };
+    // A request made on another node is a chain row, so the merge above already transcribed it — but
+    // the live queue is seeded from the chain **once**, in the constructor, so a transcribed ask is in
+    // the chain and not in the queue. That is the gap M6-4a closes: the same `restore` the constructor
+    // uses runs here, on **just** the new rows, and a collision is reported rather than resolved (the row
+    // already queued is this node's own).
+    if !transcribed.is_empty() {
+        let (restored, conflicts) = centre_side
+            .requests
+            .restore(&derive_requests_from(&transcribed));
+        if restored > 0 || !conflicts.is_empty() {
+            record_host_event(
+                &centre_side.sink,
+                &centre_side.agent_id,
+                "host.sandbox_request.restore",
+                serde_json::json!({ "restored": restored, "conflicts": conflicts }),
+            );
+        }
+    }
     record_host_event(
         &centre_side.sink,
         &centre_side.agent_id,
@@ -5118,6 +5159,7 @@ impl AppState {
                 store: Arc::clone(&self.audit),
                 sink: Arc::clone(&self.sink),
                 agent_id: self.agent_id.clone(),
+                requests: self.sandbox_requests.clone(),
             }),
             // This node's side of a task's arrival, and where a peer's answer to one of ours lands (v1.0
             // M6-1b). Handed to every prober: a frame names the node it is for, and that name decides.
@@ -5332,6 +5374,7 @@ impl AppState {
                 store: Arc::clone(&self.audit),
                 sink: Arc::clone(&self.sink),
                 agent_id: self.agent_id.clone(),
+                requests: self.sandbox_requests.clone(),
             }),
             Some(TaskSink {
                 peers: Arc::clone(&self.peers),
@@ -8417,6 +8460,7 @@ mod tests {
             store: Arc::clone(&centre.audit),
             sink: Arc::clone(&centre.sink),
             agent_id: centre.agent_id.clone(),
+            requests: centre.sandbox_requests.clone(),
         };
         let before = centre.audit.lock().expect("audit").count().expect("count");
         receive_segment(
@@ -8481,6 +8525,85 @@ mod tests {
         ));
     }
 
+    /// A request made on another node reaches this node's live queue (v1.0 M6-4a).
+    ///
+    /// An ask is an ordinary chain row (`m.request.ask`), so a stand-in's segment already carries it and
+    /// the merge already transcribes it. What used to be missing is the **queue**: it is seeded from the
+    /// chain once, in the constructor, so a transcribed ask stayed invisible until a restart. Now the
+    /// merge that brought the row in folds it into the queue through the same `restore`.
+    #[test]
+    fn an_ask_that_arrives_in_a_segment_lands_in_the_live_queue() {
+        let centre = state_with("segment-ask", serde_json::json!({}));
+        assert!(
+            centre.sandbox_requests().pending().is_empty(),
+            "nothing is queued before the segment arrives"
+        );
+
+        let centre_sink = centre_side_for(&centre);
+        let done = net::SegmentDone {
+            segment_id: "seg-dev-a-9".to_string(),
+            centre: "dev-me".to_string(),
+            total: 1,
+            head_prev_chain: Some("anchor-hash".to_string()),
+            anchor_length: Some(7),
+        };
+        let frames = vec![net::SegmentEvent {
+            segment_id: "seg-dev-a-9".to_string(),
+            centre: "dev-me".to_string(),
+            index: 0,
+            total: 1,
+            ts: 1_700_000_000_000,
+            actor: "host".to_string(),
+            // Spelled the way a chain spells an ask: the action is `m.request.ask` and its detail is
+            // `{id, action, sandbox}` (the shape `derive_requests_from` folds).
+            action: "m.request.ask".to_string(),
+            agent_id: Some("dev-a-7-1".to_string()),
+            detail: serde_json::json!({
+                "id": "req-dev-a-7-1",
+                "action": "switch",
+                "sandbox": "blink",
+            }),
+            // No hashes: a sender from before M6-5-2b, which the delivery still accepts.
+            hash: None,
+            prev_hash: None,
+        }];
+        receive_segment(
+            &centre_sink,
+            "dev-me",
+            "dev-a",
+            &done,
+            &frames,
+            1_700_000_000_001,
+            None,
+        )
+        .expect("the centre received the segment");
+
+        let queued = centre.sandbox_requests().pending();
+        assert_eq!(
+            queued.len(),
+            1,
+            "the ask the segment carried is in the live queue: {queued:?}"
+        );
+        assert_eq!(queued[0].id, "req-dev-a-7-1");
+        assert_eq!(queued[0].action, "switch");
+        assert_eq!(queued[0].sandbox.as_deref(), Some("blink"));
+        assert_eq!(queued[0].requester_agent_id, "dev-a-7-1");
+        assert_eq!(queued[0].status, "pending");
+
+        // The fact is recorded the way the constructor's own restore records it — one
+        // `host.sandbox_request.restore` row, the same name and the same shape.
+        let restored = centre
+            .audit
+            .lock()
+            .expect("audit")
+            .all()
+            .expect("events")
+            .into_iter()
+            .filter(|stored| stored.event.action == "host.sandbox_request.restore")
+            .count();
+        assert_eq!(restored, 1, "the restore is recorded once");
+    }
+
     /// A segment-side sink for a centre, and the store it writes into.
     fn centre_side_for(centre: &AppState) -> SegmentSink {
         SegmentSink {
@@ -8488,6 +8611,7 @@ mod tests {
             store: Arc::clone(&centre.audit),
             sink: Arc::clone(&centre.sink),
             agent_id: centre.agent_id.clone(),
+            requests: centre.sandbox_requests.clone(),
         }
     }
 
@@ -8938,6 +9062,7 @@ mod tests {
             store: Arc::clone(&centre.audit),
             sink: Arc::clone(&centre.sink),
             agent_id: centre.agent_id.clone(),
+            requests: centre.sandbox_requests.clone(),
         };
         let done = net::SegmentDone {
             segment_id: "seg-dev-a-9".to_string(),
