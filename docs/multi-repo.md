@@ -13,17 +13,20 @@ stand next to this one, how they get the kernel, what they inherit and what they
 
 ## 1. Three repositories, one kernel
 
-- **This repository is the kernel and the control plane**: the sandbox, the audit chain, the agent loop, the
-  network layer, the host core and the HTTP control plane — the crates in the workspace's `members` except
-  `host-tauri`: `cli`, `host-core`, `sandbox`, `audit`, `agent`, `worker`, `server`, `net`, `backup` and
-  `sdk/rust`.
+- **This repository is the kernel**: the sandbox, the audit chain, the agent loop, the network layer and the
+  host core — `host-core`, `sandbox`, `audit`, `agent`, `worker`, `net`, `backup` and `sdk/rust`. It also
+  keeps **`cli`** (`riscdom`, a **pure client**: the `serve` local mode that used to start the control plane
+  in-process belongs to `riscdom-server`, §7) and the connection layer's relay binary
+  (`net/src/bin/riscdom-relay.rs`, §7). **The control plane is not here**: `server` is `riscdom-server`'s;
+  until the split lands it still sits in this workspace, and §7 records the timing.
 - **`riscdom-adminapp` is the management program**: the Tauri shell and its front end (`host-tauri` and
-  `ui`, which embeds `server` for the control plane a phone reaches). [RELEASE_NOTES.md](../RELEASE_NOTES.md)
+  `ui`, which takes `server` for the control plane a phone reaches). [RELEASE_NOTES.md](../RELEASE_NOTES.md)
   says it plainly — the program ships **inside this repository** in v0.9 and **becomes its own repository at
   v1.0** (that is, after the v1.0 release, §7); [decisions §9](decisions.md)'s impact says the same.
 - **`riscdom-server` is the control plane as a program**: the `server` crate (the HTTP + SSE control plane)
-  as its own repository, so a host can install and run it without the desktop program. It stays in this
-  repository for now (§7).
+  **and the `serve` local mode** the `riscdom` CLI used to run in-process, as its own repository, so a host
+  can install and run it without the desktop program. The front end that program serves is
+  `riscdom-adminapp`'s build (§7 says where it comes from). It stays in this repository for now (§7).
 - **The relationship is the kernel's, not a fork's.** [architecture-evolution §12](architecture-evolution.md)
   calls a split repository "a separate repository, **maintained from the same source** (like Linux's
   coreutils / iproute2)". Each program is a **kernel-level tool**: it is one consumer of a kernel it does not
@@ -111,26 +114,29 @@ kernel's.
    and pairing rules of §3 apply to it.
 6. **Its own secret-scanning job** (§3).
 
-## 5. The CLA across repositories — [open]
+## 5. The CLA across repositories
 
-**The CLA is written for one repository, and that is deliberate.** [CLA.md](../CLA.md) §1 defines "Project"
-as "**the RiscDom repository** and the work distributed from it" — singular — and the signature store
-([`signatures/version1/cla.json`](../signatures/version1/cla.json)) and the CLA Assistant workflow
+**The CLA is written for one repository, and that stays deliberate.** [CLA.md](../CLA.md) §1 defines
+"Project" as "**the RiscDom repository** and the work distributed from it" — singular — and the signature
+store ([`signatures/version1/cla.json`](../signatures/version1/cla.json)) and the CLA Assistant workflow
 ([`.github/workflows/cla.yml`](../.github/workflows/cla.yml)) both live here. [CONTRIBUTING.md](../CONTRIBUTING.md)
-already says so out loud: contributions "may be taken in somewhere other than this repository in the future,
-so this section speaks only for the flow that exists here today".
+says so out loud: contributions "may be taken in somewhere other than this repository in the future, so this
+section speaks only for the flow that exists here today".
 
-**What is undecided, and when it is decided.** Whether each new repository installs its own CLA Assistant
-and signature store, shares this one, or the CLA text is amended to name all three is **not decided here** —
-it is decided with the split, in [M7a](roadmap-v1.0.md), which runs after v1.0 (§7). Until then the rule for
-a contributor is unchanged: **a contribution to this repository is covered by this repository's CLA**, and
-nothing in this document extends it.
+**Each repository carries its own.** The settled answer (decisions §163) is that **every new repository
+installs its own CLA Assistant and its own signature store**; nothing is shared across the three, and each
+repository's `CLA.md` speaks only for itself. It is the same shape §3 gives the secret scan — a shared
+history is not covered by another repository's job — and a shared signature store would need a
+cross-repository grant this project has no reason to create. **A contribution to this repository remains
+covered by this repository's CLA**, and nothing here extends a signature to another repository.
 
 ## 6. What this document is not
 
 - **It is not the split runbook.** Creating the repositories, moving the crates, cutting the first tag
   and wiring the CI is [M7a](roadmap-v1.0.md) — which runs after v1.0 (§7) — and needs its own
-  authorisation (it writes to new remotes).
+  authorisation (it writes to new remotes). **That authorisation is granted per batch, not once** (decisions
+  §163): the split runs as M8-4a…M8-4d (§7), and each one that writes to a new remote or removes a directory
+  from this repository is authorised on its own.
 - **It is not the release mechanics.** How this repository's server and packages are released, and how the
   second repository's are, is [M7b](roadmap-v1.0.md) and the release notes, not this.
 - **It is not an SDK contract.** The types a third-party consumer sees are [M7c / M7d](roadmap-v1.0.md)'s
@@ -140,11 +146,30 @@ nothing in this document extends it.
 
 ## 7. The three repositories, and when they split
 
-**M7a — the split — is deferred to after v1.0.** [roadmap §11](roadmap-v1.0.md) settles that the management
+**M7a — the split — happens after v1.0.** [roadmap §11](roadmap-v1.0.md) settles that the management
 program moves to its own repository at v1.0, and [M8](roadmap-v1.0.md) is "the API freezes, and it ships":
-the freeze is declared and v1.0 is released. The order is **the v1.0 release first, then `riscdom-server`,
-then `riscdom-adminapp`** — each new repository pins a kernel tag (§2), so the kernel has to have one, and a
-program split out before the freeze would be pinned to a kernel still moving under it.
+the freeze is declared and v1.0 is released. **`v1.0.0` is cut** (2026-10-01), which was the one condition
+(§2: each new repository pins a kernel tag). The order is **the v1.0 release first, then `riscdom-server`,
+then `riscdom-adminapp`** — a program split out before the freeze would be pinned to a kernel still moving
+under it.
+
+**It runs as four batches** (decisions §163), each authorised on its own (§6):
+
+- **M8-4a — `riscdom-server` leaves.** The `server` crate, its own `Cargo.toml` (naming the kernel crates at
+  `tag = "v1.0.0"`), its `gate` and `server-bundle` jobs, and a README. It takes the **`serve` local mode**
+  with it: `riscdom` stops starting the control plane in-process and becomes a **pure client** (§1).
+- **M8-4b — `riscdom-adminapp` leaves.** `host-tauri` and `ui`, their own workspace, the `bundle` job and
+  the UI probes.
+- **M8-4c — this repository closes out.** `Cargo.toml`'s `members`, `gate`, `scripts`, `.gitignore` and the
+  documents stop naming what left.
+- **M8-4d — the three are reconciled.** Each new repository's lock is committed against `v1.0.0`, and the
+  kernel's own gate is green with the crates gone.
+
+**Where the front end a `riscdom-server` package serves comes from.** The package's `web/` is the built front
+end ([server-distribution.md](server-distribution.md), `scripts/pack.*`), and that build is
+`riscdom-adminapp`'s. The settled answer (decisions §163) is that `riscdom-server` takes it **from
+`riscdom-adminapp`'s release**: the packer downloads the published front-end artifact for the pinned version
+rather than building the UI from a second copy of its source.
 
 What each new repository is for (recorded here; neither is implemented in v1.0):
 

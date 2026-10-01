@@ -7,6 +7,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)。
 
+## [未发布]
+
+### 变更
+
+- **三个仓库写成了一致的文档**（v1.0 批 DS / M8-4-prep）：M8-4 的五条裁决落在 `docs/multi-repo.md` —— **`serve` 归 `riscdom-server`**（本仓 `cli` 收缩为纯客户端）、server 包的前端**从 `riscdom-adminapp` 的 release 取**、**每个仓自带 CLA**、名字与顺序不变、**拆仓逐批授权** —— 而拆仓写成 **M8-4a → M8-4b → M8-4c → M8-4d**。**零代码、零目录、零远端。** **决策 §163。**
+
 ## [1.0.0] - 2026-10-01
 
 ### 变更

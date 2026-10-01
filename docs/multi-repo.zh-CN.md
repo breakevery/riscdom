@@ -11,14 +11,17 @@
 
 ## 1. 三个仓库、一个内核
 
-- **本仓是内核与控制平面**：沙箱、审计链、agent 循环、网络层、宿主核心与 HTTP 控制平面 —— 即 workspace
-  `members` 里除 `host-tauri` 之外的那些 crate：`cli`、`host-core`、`sandbox`、`audit`、`agent`、`worker`、
-  `server`、`net`、`backup` 与 `sdk/rust`。
-- **`riscdom-adminapp` 是管理程序**：Tauri 外壳与它的前端（`host-tauri` 与 `ui`，后者内嵌 `server`，供手机
+- **本仓是内核**：沙箱、审计链、agent 循环、网络层与宿主核心 —— `host-core`、`sandbox`、`audit`、`agent`、
+  `worker`、`net`、`backup` 与 `sdk/rust`。它还留着 **`cli`**（`riscdom`，一个**纯客户端**：那条在进程内
+  起控制平面的 `serve` 本地模式归 `riscdom-server`，§7）与连接层的 relay bin
+  （`net/src/bin/riscdom-relay.rs`，§7）。**控制平面不在这里**：`server` 属 `riscdom-server`；在拆仓落地
+  之前它仍待在 workspace 里，时机由 §7 记录。
+- **`riscdom-adminapp` 是管理程序**：Tauri 外壳与它的前端（`host-tauri` 与 `ui`，后者取 `server`，供手机
   接入控制平面）。[RELEASE_NOTES.md](../RELEASE_NOTES.md) 说得明白 —— 该程序 v0.9 **在本仓内**交付、
   **v1.0 成为自己的仓**（即 v1.0 发布之后，§7）；[decisions §9](decisions.zh-CN.md) 的影响段同此。
-- **`riscdom-server` 是作为程序的控制平面**：`server` crate（HTTP + SSE 控制平面）成为自己的仓，好让一台
-  宿主无需桌面程序即可安装并运行它。它眼下仍留在本仓（§7）。
+- **`riscdom-server` 是作为程序的控制平面**：`server` crate（HTTP + SSE 控制平面）**以及那条 `serve` 本地
+  模式**（`riscdom` CLI 从前在进程内跑的），成为自己的仓，好让一台宿主无需桌面程序即可安装并运行它。该
+  程序所服务的前端是 `riscdom-adminapp` 的构建（来源见 §7）。它眼下仍留在本仓（§7）。
 - **这层关系是内核的，不是 fork 的。** [architecture-evolution §12](architecture-evolution.zh-CN.md) 称拆出的仓
   是「独立仓库，**由同一份源码维护**（像 Linux 的 coreutils / iproute2）」。每个程序都是**内核级工具**：它是
   内核的一个消费者，不拥有该内核，随内核特性同步推进 —— 这也是 §12 之所以说每条内核能力都必须有管理 API、
@@ -94,23 +97,25 @@ gate 的 crate 清单。内核是作为**依赖**被消费的，内核由**本**
    适用于它。
 6. **它自己的秘密扫描 job**（§3）。
 
-## 5. CLA 跨仓 —— [待定]
+## 5. CLA 跨仓
 
-**CLA 是为一个仓写的，这是刻意的。** [CLA.md](../CLA.md) §1 把「Project」定义为「**the RiscDom
+**CLA 是为一个仓写的，这一点保持不变。** [CLA.md](../CLA.md) §1 把「Project」定义为「**the RiscDom
 repository** and the work distributed from it」—— 单数 —— 而签名库
 （[`signatures/version1/cla.json`](../signatures/version1/cla.json)）与 CLA Assistant workflow
 （[`.github/workflows/cla.yml`](../.github/workflows/cla.yml)）都住在本仓。[CONTRIBUTING.md](../CONTRIBUTING.zh-CN.md)
 已经把这一点说出口：贡献「may be taken in somewhere other than this repository in the future, so this
 section speaks only for the flow that exists here today」。
 
-**什么未定、何时定。** 每个新仓是装它自己的 CLA Assistant 与签名库、还是共用本仓这一个、还是把 CLA 文本
-改成同时点名三个仓 —— **不在此决定** —— 它随拆仓在 [M7a](roadmap-v1.0.zh-CN.md) 一并定，而 M7a 在 v1.0 之后
-执行（§7）。在那之前，给贡献者的规则不变：**对本仓的贡献由本仓的 CLA 覆盖**，本文不把它扩张到任何别处。
+**每个仓自带自己那一套。** 已定的答案（决策 §163）：**每个新仓都装它自己的 CLA Assistant 与自己的签名
+库**；三个仓之间不共享任何东西，每个仓的 `CLA.md` 只为自己说话。这与 §3 给 secret scan 定下的形状相同 ——
+共享的历史不被另一个仓的作业覆盖 —— 而共享签名库需要一个本项目没有理由建立的跨仓授权。**对本仓的贡献
+仍由本仓的 CLA 覆盖**，本文不把一份签名延伸到任何别的仓。
 
 ## 6. 本文不是什么
 
 - **它不是拆仓操作手册。** 创建仓库、搬 crate、打第一个 tag、接上 CI 是 [M7a](roadmap-v1.0.zh-CN.md)，
-  它在 v1.0 之后执行（§7），并需要自己的授权（它要写新的远端）。
+  它在 v1.0 之后执行（§7），并需要自己的授权（它要写新的远端）。**该授权是逐批授予的，不是一次性的**
+  （决策 §163）：拆仓以 M8-4a…M8-4d 执行（§7），其中每一个写到新远端或从本仓移除目录的动作，都各自被授权。
 - **它不是发布机制。** 本仓的 server 与包如何发布、第二仓的又如何发布，是 [M7b](roadmap-v1.0.zh-CN.md)
   与发行说明的事，不是本文。
 - **它不是 SDK 契约。** 第三方消费者看到的类型是 [M7c / M7d](roadmap-v1.0.zh-CN.md) 的事；§2 的 git 依赖
@@ -120,10 +125,24 @@ section speaks only for the flow that exists here today」。
 
 ## 7. 三个仓库，以及它们何时拆
 
-**M7a —— 拆仓 —— 推迟到 v1.0 之后。** [roadmap §11](roadmap-v1.0.zh-CN.md) 已定：管理程序在 v1.0 迁往
-自己的仓库；而 [M8](roadmap-v1.0.zh-CN.md) 是「API 冻结，并发布」：宣布冻结、v1.0 发布。顺序是
-**先 v1.0 发布，再 `riscdom-server`，最后 `riscdom-adminapp`** —— 每个新仓都要钉一个内核 tag（§2），所以
-内核得先有一个；在冻结之前拆出的程序，会被钉在一个仍在它脚下移动的内核上。
+**M7a —— 拆仓 —— 在 v1.0 之后发生。** [roadmap §11](roadmap-v1.0.zh-CN.md) 已定：管理程序在 v1.0 迁往
+自己的仓库；而 [M8](roadmap-v1.0.zh-CN.md) 是「API 冻结，并发布」：宣布冻结、v1.0 发布。**`v1.0.0` 已打**
+（2026-10-01），而那正是唯一的条件（§2：每个新仓都要钉一个内核 tag）。顺序是**先 v1.0 发布，再
+`riscdom-server`，最后 `riscdom-adminapp`** —— 在冻结之前拆出的程序，会被钉在一个仍在它脚下移动的内核上。
+
+**它以四批执行**（决策 §163），每批各自被授权（§6）：
+
+- **M8-4a —— `riscdom-server` 拆出。** `server` crate、它自己的 `Cargo.toml`（以 `tag = "v1.0.0"` 命名内核
+  crate）、它的 `gate` 与 `server-bundle` 作业，以及一份 README。它带走 **`serve` 本地模式**：`riscdom`
+  不再在进程内起控制平面，收缩为**纯客户端**（§1）。
+- **M8-4b —— `riscdom-adminapp` 拆出。** `host-tauri` 与 `ui`、它们自己的 workspace、`bundle` 作业与 UI 探针。
+- **M8-4c —— 本仓收尾。** `Cargo.toml` 的 `members`、`gate`、`scripts`、`.gitignore` 与各文档不再点名已拆出的东西。
+- **M8-4d —— 三仓对账。** 每个新仓的 lock 对着 `v1.0.0` 提交，且内核自己的 gate 在那些 crate 离去后仍绿。
+
+**`riscdom-server` 的包所服务的前端从哪来。** 该包的 `web/` 是构建好的前端
+（[server-distribution.md](server-distribution.zh-CN.md)、`scripts/pack.*`），而那份构建属于
+`riscdom-adminapp`。已定的答案（决策 §163）是：`riscdom-server` **从 `riscdom-adminapp` 的 release 取它**
+—— 打包器下载那个钉定版本已发布的前端制品，而不是从第二份源码副本去构建 UI。
 
 每个新仓是干什么的（在本文记录；两者都**不在 v1.0 实现**）：
 

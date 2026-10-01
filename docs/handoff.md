@@ -572,6 +572,14 @@ current request authorising it (§2).
   the Windows installers and the Windows archives were **built on this machine** (no Windows runner). **No
   file changed in this batch.** **Decision §162.** **M8-4 (the split) is the last piece and is not
   authorised.**
+- **And the three repositories are written down consistently** (v1.0 batch DS / M8-4-prep, 2026-10-01): the
+  five rulings M8-4 needs land in `docs/multi-repo.md` — **`serve` belongs to `riscdom-server`** (this
+  repository's `cli` becomes a pure client), **a server package's front end comes from `riscdom-adminapp`'s
+  release**, **each repository carries its own CLA**, the names and the order are unchanged, and **the split is
+  authorised per batch** — and the split is written as **M8-4a (server) → M8-4b (adminapp) → M8-4c (this
+  repository's close-out) → M8-4d (reconciliation)**. §1 also stops calling this repository "the kernel and the
+  control plane". **Documentation only: no file moved, no remote written.** **Decision §163.** **M8-4a awaits
+  its own authorisation.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

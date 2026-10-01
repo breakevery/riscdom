@@ -1835,3 +1835,21 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **缘由**：M8-1 宣布了冻结，M8-2 把版本写下来；本批是把它们变成公开的那一动作。它**故意**是独立授权的一批（§161 的「不在本批」）：tag 不能重命名、Release 不能撤回。
 
 **影响**：**本批未改动任何源文件、文档与版本** —— 工作树恰好是 M8-2 提交的样子。tag 与 Release 是仓库状态，不是文件内容：`v1.0.0`（轻量）与「RiscDom v1.0.0」Release、Latest、十二个资产。**M8-4（拆仓）是余下的一块，需单独授权。**
+
+## 163. 三个仓库：M8-4 所需的五条裁决
+
+**日期**：2026-10-01 ｜ **状态**：已定（v1.0 批 DS / M8-4-prep）
+
+**决策**：M8-4（v1.0 之后的拆仓）在第一批动工前需要五件事定下来。它们在此定下，并由本批写进 [multi-repo.md](multi-repo.md)：
+
+- **`serve` 归 `riscdom-server`。** `cli` 今天依赖 `server`（`riscdom` 的本地模式在进程内起控制平面），而拆仓会让本仓依赖 `riscdom-server`、同时 `riscdom-server` 依赖本仓：一个 Cargo 解不了的环。所以 **`serve` 本地模式移入 `riscdom-server`**，**本仓 `cli` 收缩为纯客户端**（`--remote`）。
+- **`riscdom-server` 包的前端来自一次发布。** `scripts/pack.*` 把构建好的前端（`ui/dist/app`）拷进包的 `web/`，而那份构建属于 `riscdom-adminapp`。`riscdom-server` **从 `riscdom-adminapp` 的 release 制品**取钉定版本的那一份 —— 它不留 UI 源码的第二份拷贝。
+- **每个仓自带自己的 CLA。** 每个新仓都装自己的 CLA Assistant 与签名库；三个仓之间不共享。这就是 §3 给 secret scan 定的形状，而共享签名库需要一个跨仓授权。
+- **名字与顺序不变**：`riscdom-adminapp` 与 `riscdom-server`，如 [multi-repo.md](multi-repo.md) §1 与 §7 所写。
+- **拆仓逐批授权，不是一次性。** M8-4a…M8-4d，各自单独授权。
+
+**拆仓，分四批**：**M8-4a `riscdom-server` 拆出**（带走 `serve`）→ **M8-4b `riscdom-adminapp` 拆出** → **M8-4c 本仓收尾**（`members`、gate、scripts、`.gitignore` 与各文档不再点名已拆出的东西）→ **M8-4d 三仓对账**（每个新 lock 对着 `v1.0.0` 提交）。顺序按 `multi-repo.md` §7：先 v1.0 发布，再 server，最后 app —— 而 `v1.0.0` 已打，条件（§2 的 tag）已满足。
+
+**缘由**：这五条是带期限的开放项 —— 在 `serve` 有了归属、server 的前端有了来源之前，拆仓的第一批写不出来；而一个钉内核 tag 的仓需要那个 tag（§2），v1.0 已提供。
+
+**影响**：`docs/multi-repo.md` + zh（§1 三仓、§5 CLA 裁决、§6 逐批授权、§7 四批与前端来源）、`docs/README.md` + zh（索引行）、`docs/handoff.md` + zh、`CHANGELOG.md` + zh，以及本条。**无源文件、无目录、无 crate、无远端** —— 这是拆仓第一批要读的准备；**M8-4a 本身未获授权、尚未运行。**

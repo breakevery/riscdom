@@ -7,6 +7,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **The three repositories are written down consistently** (v1.0 batch DS / M8-4-prep): M8-4's five rulings
+  land in `docs/multi-repo.md` — **`serve` belongs to `riscdom-server`** (this repository's `cli` becomes a
+  pure client), a server package's **front end comes from `riscdom-adminapp`'s release**, **each repository
+  carries its own CLA**, the names and the order are unchanged, and **the split is authorised per batch** —
+  and the split is written as **M8-4a → M8-4b → M8-4c → M8-4d**. **No code, no directory, no remote.**
+  **Decision §163.**
+
 ## [1.0.0] - 2026-10-01
 
 ### Changed

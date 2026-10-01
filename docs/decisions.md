@@ -4932,3 +4932,40 @@ and a Release cannot be unpublished.
 M8-2 committed. The tag and the Release are repository state, not file content: `v1.0.0` (lightweight) and
 the "RiscDom v1.0.0" Release, Latest, twelve assets. **M8-4 (the repository split) is the remaining piece and
 needs its own authorisation.**
+
+## 163. The three repositories: the five rulings M8-4 needs
+
+**Date**: 2026-10-01 ｜ **Status**: Decided (v1.0 batch DS / M8-4-prep)
+
+**Decision**: M8-4 (the split, after v1.0) needs five things settled before its first batch can run. They are
+settled here, and this batch writes them into [multi-repo.md](multi-repo.md):
+
+- **`serve` belongs to `riscdom-server`.** `cli` depends on `server` today — `riscdom`'s local mode starts the
+  control plane in-process — and a split would make this repository depend on `riscdom-server` while
+  `riscdom-server` depends on this repository: a cycle Cargo cannot resolve. So the **`serve` local mode moves
+  to `riscdom-server`**, and **this repository's `cli` becomes a pure client** (`--remote`).
+- **A `riscdom-server` package's front end comes from a release.** `scripts/pack.*` copies the built front end
+  (`ui/dist/app`) into the package's `web/`, and that build is `riscdom-adminapp`'s. `riscdom-server` takes it
+  **from `riscdom-adminapp`'s release artifact** for the pinned version — it does not keep a second copy of the
+  UI's source.
+- **Each repository carries its own CLA.** Every new repository installs its own CLA Assistant and signature
+  store; nothing is shared across the three. It is §3's secret-scan shape, and a shared store would need a
+  cross-repository grant.
+- **The names and the order do not change**: `riscdom-adminapp` and `riscdom-server`, as §1 and §7 of
+  [multi-repo.md](multi-repo.md) have them.
+- **The split is authorised per batch, not once.** M8-4a…M8-4d, each authorised on its own.
+
+**The split, as four batches**: **M8-4a `riscdom-server` leaves** (taking `serve`) → **M8-4b
+`riscdom-adminapp` leaves** → **M8-4c this repository closes out** (`members`, gate, scripts, `.gitignore`,
+and the documents stop naming what left) → **M8-4d the three are reconciled** (each new lock committed against
+`v1.0.0`). The order is `multi-repo.md` §7's: the v1.0 release, then the server, then the app — and `v1.0.0`
+is cut, so the condition (§2's tag) is met.
+
+**Why**: the five were open questions with a deadline — the first split batch cannot be written until `serve`
+has an owner and the server's front end has a source, and a repository that pins a kernel tag needs the tag
+(§2), which v1.0 supplied.
+
+**Impact**: `docs/multi-repo.md` + zh (§1 three repositories, §5 the CLA ruling, §6 per-batch authorisation,
+§7 the four batches and the front-end source), `docs/README.md` + zh (the index row), `docs/handoff.md` + zh,
+`CHANGELOG.md` + zh, and this entry. **No source file, no directory, no crate and no remote** — this is the
+preparation the split's first batch reads; **M8-4a itself is not authorised and has not run.**
