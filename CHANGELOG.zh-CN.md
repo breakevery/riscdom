@@ -20,6 +20,7 @@
 ### 移除
 
 - **桌面程序**（v1.0 批 DZ-1/DZ-1b/DZ-2 / M8-4b）：`ui/`（82 文件）与 `host-tauri/`（6 文件）离开本仓、前往 **`riscdom-adminapp`**（`abbe731`，tag `v1.0.0`），现在归它所有。前端构建、17 个 UI 探针、wix 版本守卫与 ui 字符串注册表随之而去；本仓的 gate 只检查内核。**`server/` 留到 M8-4c。** **决策 §166。**
+- **控制平面**（v1.0 批 EA-2 / M8-4c）：`server/`（18 文件）离开本仓、前往 **`riscdom-server`**（`a41c505`，tag `v1.0.0`），在那里打包与发布。在本仓，`server-bundle` 变成 **`relay-bundle`**（tag 触发的作业保留 relay 的归档），而 `scripts/pack.{sh,ps1}` 只打 relay，所以未来打 `v1.x` 只产 relay 归档。**已发布的 `v1.0.0` Release 未受影响。** **决策 §167。**
 
 - **三个仓库写成了一致的文档**（v1.0 批 DS / M8-4-prep）：M8-4 的五条裁决落在 `docs/multi-repo.md` —— **`serve` 归 `riscdom-server`**（本仓 `cli` 收缩为纯客户端）、server 包的前端**从 `riscdom-adminapp` 的 release 取**、**每个仓自带 CLA**、名字与顺序不变、**拆仓逐批授权** —— 而拆仓写成 **M8-4a → M8-4b → M8-4c → M8-4d**。**零代码、零目录、零远端。** **决策 §163。**
 

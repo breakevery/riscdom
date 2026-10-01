@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (6 files) left for **`riscdom-adminapp`** (`abbe731`, tag `v1.0.0`), which now owns them. The front end
   build, the seventeen UI probes, the wix-version guard and the ui string registry left with them; this
   repository's gate checks the kernel alone. **`server/` stays until M8-4c.** **Decision §166.**
+- **The control plane** (v1.0 batch EA-2 / M8-4c): `server/` (18 files) left for **`riscdom-server`**
+  (`a41c505`, tag `v1.0.0`), where it is packaged and released. Here, `server-bundle` became
+  **`relay-bundle`** (the tag-gated job keeps the relay's archive) and `scripts/pack.{sh,ps1}` build the
+  relay alone, so a future `v1.x` tag produces relay archives only. **The published `v1.0.0` Release is
+  unaffected.** **Decision §167.**
 
 - **The three repositories are written down consistently** (v1.0 batch DS / M8-4-prep): M8-4's five rulings
   land in `docs/multi-repo.md` — **`serve` belongs to `riscdom-server`** (this repository's `cli` becomes a

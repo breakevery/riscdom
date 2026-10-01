@@ -319,9 +319,10 @@ These are open items v1.0 inherits. They are listed here so that no discussion h
 - **[open]** **The `--follow` / `--wait` rough edge**: the stream may still be open when the process exits.
 - **[open]** **Python as a guest language** (C, Zig and Rust exist).
 - **[open]** **The session database's WAL mode** — deliberately not set in v0.9 (decisions §54).
-- **[settled]** **A server zip for Linux and macOS** — v0.9.9 shipped the Windows one only. The unix
-  archives are produced by the `server-bundle` CI job when a `v*` tag is pushed: the packer landed as
-  batch BE and the job as batch BF (decisions §124–§125).
+- **[settled]** **A relay archive for Linux and macOS** — v0.9.9 shipped the Windows one only. The unix
+  archive is produced by the **`relay-bundle`** CI job when a `v*` tag is pushed: the packer landed as
+  batch BE and the job as batch BF (decisions §124–§125); it was `server-bundle` until v1.0 M8-4c, when
+  the control plane left for its own repository and the job kept the relay alone (decisions §167).
 - **[open]** **The QEMU and gate parallel flakes** — the QMP `10054` family and the port-race hang;
   reported every time, never papered over.
 - **[open]** **The GUI switch's click target.** A switch is a bare checkbox about 14 px wide; v1.0 replaces

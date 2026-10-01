@@ -111,7 +111,7 @@ riscdom/
 ├── CHANGELOG.md              # 版本记录
 ├── LICENSE                   # Apache-2.0
 ├── Cargo.toml                # Rust workspace（cli / host-core / sandbox / audit /
-│                             #   agent / worker / server / net / backup / sdk/rust）
+│                             #   agent / worker / net / backup / sdk/rust）
 ├── sandbox/                  # QEMU RISC-V 沙箱（进程/QMP/串口/快照）
 ├── audit/                    # append-only SQLite + hash chain（含 audit-verify）
 ├── agent/                    # LLM 循环、工具、能力策略、编译器封装
@@ -119,7 +119,6 @@ riscdom/
 ├── net/                      # 连接层：身份、签名、发现、房间、relay
 ├── backup/                   # 可移植工具（一个加密包）
 ├── sdk/rust/                 # 控制平面的类型化 Rust 客户端
-├── server/                   # HTTP + SSE 上的控制平面
 ├── cli/                      # `riscdom` 命令行客户端
 ├── worker/                   # 执行者进程，以及监工半边
 ├── docs/                     # 设计记录、API 表格、指南（导航：docs/README.zh-CN.md）
@@ -143,7 +142,6 @@ cargo test -p sandbox     # QEMU 生命周期 + 串口捕获 + 快照降级
 cargo test -p audit       # append-only + hash chain + 查询 + CLI
 cargo test -p agent       # LLM 客户端 + 工具 + 策略 + 编译器 + Agent 循环
 cargo test -p host-core   # 可移植宿主：状态、设置、派发、任务沙箱
-cargo test -p server      # 控制平面：路由、capability、事件流
 cargo test -p cli         # 命令行，对着一个控制平面
 cargo test -p worker      # 执行者进程，以及监工半边
 
@@ -215,4 +213,4 @@ gate（`scripts/gate.ps1` / `scripts/gate.sh`），并经由受门禁保护的�
 - [CHANGELOG.md](CHANGELOG.md) — 版本历史
 - 各 crate 的 README：[sandbox](sandbox/README.md) · [audit](audit/README.md) ·
   [agent](agent/README.md) · [host-core](host-core/README.md) · [net](net/README.md) ·
-  [server](server/README.md) · [cli](cli/README.md) · [worker](worker/README.md) · [backup](backup/README.md)
+  [cli](cli/README.md) · [worker](worker/README.md) · [backup](backup/README.md)

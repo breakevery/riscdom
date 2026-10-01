@@ -77,9 +77,9 @@ cargo check -p audit -p sandbox -p agent || fail "cargo check"
 # Every crate is linted and checked on **every** platform, so there is no OS branch here.
 # `host-core` needs `dbus-1` (through `keyring`) on Linux; CI installs it. `worker` was
 # missing from every clippy list before that batch, on both platforms.
-echo "==> cargo clippy (cli + server + host-core + worker + net + riscdom-backup + riscdom-sdk)"
+echo "==> cargo clippy (cli + host-core + worker + net + riscdom-backup + riscdom-sdk)"
 # `--no-deps`: the crates we own are linted, their dependencies are only built.
-cargo clippy -p cli -p server -p host-core -p worker -p net -p riscdom-backup -p riscdom-sdk --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + server + host-core + worker + net + riscdom-backup + riscdom-sdk"
+cargo clippy -p cli -p host-core -p worker -p net -p riscdom-backup -p riscdom-sdk --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + host-core + worker + net + riscdom-backup + riscdom-sdk"
 
 if have_guest_tools; then
   echo "==> cargo test (--include-ignored, minus the ones that need a key or the OS keyring)"
@@ -141,8 +141,8 @@ echo "==> relay example self-test (net)"
 cargo run -q -p net --example relay -- --self-test || fail "relay example"
 
 echo "==> packaging script syntax (scripts/pack.sh)"
-# The packer is run by the `server-bundle` CI job (batch BF); a syntax error would only
-# show up there, on a runner, so the gate parses it here on every commit instead.
+# The packer is run by the `relay-bundle` CI job (batch BF, renamed in v1.0 M8-4c); a syntax
+# error would only show up there, on a runner, so the gate parses it here on every commit.
 sh -n scripts/pack.sh || fail "pack.sh syntax"
 
 echo "==> bilingual doc links"

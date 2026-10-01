@@ -46,6 +46,7 @@ fail()   { echo "  FAIL    $1"; }
 show()   { echo "          \$ $1"; }
 
 find_bin() {
+  if command -v "$1" >/dev/null 2>&1; then command -v "$1"; return 0; fi
   for profile in debug release; do
     if [ -x "target/$profile/$1" ]; then echo "target/$profile/$1"; return 0; fi
   done
@@ -64,7 +65,15 @@ else
   ok "cargo build --workspace"
 fi
 
-SERVER_BIN="$(find_bin riscdom-server)" || { fail "no riscdom-server in target/ -- build first"; exit 1; }
+# The control plane is its own repository since v1.0 M8-4c, so this demo looks for its binary on
+# PATH or in this repository's `target/`, and says so plainly when it is not there rather than
+# failing: a walk of the audit package must not go red because a program that lives elsewhere is
+# not built here.
+SERVER_BIN="$(find_bin riscdom-server)" || {
+  skip "no riscdom-server binary on PATH or in target/"
+  echo "SKIP: riscdom-server binary not found; obtain from https://github.com/breakevery/riscdom-server"
+  exit 0
+}
 CLI_BIN="$(find_bin riscdom)" || { fail "no riscdom in target/ -- build first"; exit 1; }
 VERIFY_BIN="$(find_bin audit-verify)" || true
 

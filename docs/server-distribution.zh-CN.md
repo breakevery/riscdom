@@ -1,106 +1,90 @@
 [English](server-distribution.md) | 中文
 
-# 分发两个服务器程序
+# 分发 relay
 
-**状态** v1.0 规范（M7b-1）｜ **日期** 2026-09-29 ｜ **面向读者** 构建、交付或解包 RiscDom 服务器包的人。
+**状态** v1.0 规格（M7b-1；自 v1.0 M8-4c 起只讲 relay）｜ **日期** 2026-09-29 ｜ **受众** 构建、发布或
+解包 RiscDom relay 包的人。
 
-**本文是什么。** RiscDom 交付两个由**部署者**运行的程序：**单机控制平面**（`riscdom-server`）与
-**连接层的服务器**（`riscdom-relay`）。本文说清每个**包**装什么、怎么造一个、以及两者都不带什么。它是
-一份**规格**；打包脚本随它落地（M7b-1），而 CI 打包与发布动作是后续批次（M7b-2、M7b-3）。
+> **控制平面不在这里。** `riscdom-server`（单节点控制平面）已在 **v1.0 M8-4a** 离开本仓，并在它自己的
+> 仓里打包 —— <https://github.com/breakevery/riscdom-server>，其 `docs/server-distribution.md` 才是那个
+> 包的权威。本文件现在只讲本仓仍在发布的那个程序：**连接层的服务器**。
 
-## 1. 单机控制平面
+**本文件是什么。** RiscDom 发布一个**部署者**要运行的程序：**连接层的服务器**（`riscdom-relay`）。本
+文件说明它的**包**包含什么、如何构建、以及它不带什么。
 
-`riscdom-server-<version>-<platform>` 装着：
+## 1. 连接层的服务器
 
-| 条目 | 是什么 |
-|---|---|
-| `riscdom-server`（Windows 上 `.exe`） | 控制平面：HTTP + SSE，盖在宿主的 kernel facade 上（[server/README.md](../server/README.md)）。 |
-| `web/` | 已构建的 Web UI，由 `--web-root web` 在 `/` 提供（不认证；API 不是）。 |
-| `README.md` | [server/README.md](../server/README.md) —— 怎么构建、怎么跑、端点、认证。 |
-| `settings.example.json` | 一份最小、合法的设置文档（`{"version": 2}`），供首次启动。 |
-
-**跑它**：`riscdom-server --bind <addr> --workspace <dir> --data-dir <dir> --web-root web`。完整参数集就是
-这个程序自己的 `--help`（`--bind`、`--workspace`、`--data-dir`、`--web-root`、`--heartbeat-ms`、
-`--auth` / `--no-auth`、`--log-level`；退出码 `0`/`1`/`2`）。
-
-## 2. 连接层的服务器
-
-`riscdom-relay-<version>-<platform>` 装着：
+`riscdom-relay-<version>-<platform>` 包含：
 
 | 条目 | 是什么 |
 |---|---|
-| `riscdom-relay`（Windows 上 `.exe`） | 跨区域服务器（[net/README.md](../net/README.md)、[connection.md](connection.md) §6）。 |
+| `riscdom-relay`（Windows 上为 `.exe`） | 跨区域服务器（[net/README.md](../net/README.md)、[connection.md](connection.md) §6）。 |
 | `README.md` | [net/README.md](../net/README.md) —— 它所属的连接层。 |
-| `examples/peers.example.json` | 一张空的同侪表（`{"schema_version": 1, "peers": []}`）。 |
-| `examples/rooms.example.json` | 一个空的房间集（`{"schema_version": 1, "rooms": []}`）。 |
+| `examples/peers.example.json` | 空的对端表（`{"schema_version": 1, "peers": []}`）。 |
+| `examples/rooms.example.json` | 空的房间集（`{"schema_version": 1, "rooms": []}`）。 |
 
-**跑它**：`riscdom-relay --data-dir <dir> --bind <addr> --node-id <name>`。**没有默认 bind**，这是刻意的：
-命名一个默认地址就是项目在命名服务器在哪（[connection.md](connection.md) §6.1）。一个两文件都没有的数据
-目录，是一个谁都不认识、什么都不发布的服务器 —— 诚实，而不是方便。
+**运行它**：`riscdom-relay --data-dir <dir> --bind <addr> --node-id <name>`。**刻意没有默认 bind**：
+指定一个默认值就等于项目替部署者命名服务器在哪（[connection.md](connection.md) §6.1）。一个既无
+`peers.json` 也无 `rooms.json` 的 data 目录，是一个谁都不认识、也什么都不发布的服务器 —— 这是诚实，
+不是方便。
 
-## 3. 两个包都不带什么
+## 2. 这个包不带什么
 
-- **绝不带凭据。** 控制平面的 bearer token 首启生成到 `<data-dir>/token`，relay 的 Ed25519 密钥生成到
-  `<data-dir>/node.key`；两者都是**本地铸造**，包两个都不带。打包器**绝不**把数据目录拷进去。
-- **完全不带数据目录** —— 没有 `settings.json`、`peers.json`、`sessions.db` 或 `audit.db` 随软件同行。
-  `settings.example.json` 与两个 `examples/` 文件是**示例**、不是状态。
-- **不带 QEMU，也不带 RISC-V GCC。** 两个程序都是纯 Rust 二进制。（控制平面仍*需要* QEMU 与 RISC-V GCC 才
-  能启动客户机 —— 但那是操作者自己安装的工具链，与桌面应用同一套，不是包该捆的东西：见
-  [qemu-setup.md](qemu-setup.md)。）
-- **relay 包不带 web root。** 只有控制平面提供页面。
+- **绝无凭据。** relay 的 Ed25519 密钥在首次启动时铸入 `<data-dir>/node.key`；包从不携带它，打包器也
+  绝不能把 data 目录复制进去。
+- **完全不带 data 目录** —— 没有 `settings.json`、`peers.json`、`sessions.db` 或 `audit.db` 随软件
+  走。`examples/` 两个文件是示例，不是状态。
+- **不带 QEMU，也不带 RISC-V GCC。** relay 是一个普通 Rust 二进制；它不启动访客。
+- **不带 web 根。** relay 不提供任何页面。（控制平面会 —— 那个包属于 `riscdom-server`，见文首。）
 
-## 4. 造一个包
+## 3. 构建一个包
 
-`scripts/pack.sh`（unix）与 `scripts/pack.ps1`（Windows）是孪生 —— 与 `gate`、`commit` 保持同一种分工，
-于是项目已验证的那个平台有原生实现，而不必依赖外部 `zip`。
+`scripts/pack.sh`（unix）与 `scripts/pack.ps1`（Windows）是一对孪生 —— 与 `gate`、`commit` 保持的同
+一种拆分，让本项目验证的平台有原生实现，而不是依赖外部 `zip`。
 
 ```
-scripts/pack.sh  [--output-dir <dir>] [--skip-ui-build]
-scripts\pack.ps1 [-OutputDir <dir>]  [-SkipUiBuild]
+scripts/pack.sh  [--output-dir <dir>]
+scripts\pack.ps1 [-OutputDir <dir>]
 ```
 
 脚本会：
 
-1. 构建 release 二进制（`cargo build --release -p server --bin riscdom-server` 与
-   `-p net --bin riscdom-relay`）—— 包**一律以 release 构建**；
-2. 构建前端（在 `ui/` 跑 `npm run build`），除非 `--skip-ui-build` / `-SkipUiBuild` 复用已构建的
-   `ui/dist/app`。它跑的是 `npm run build`、**不是** `npm ci`：gate 假定前端依赖已安装，而一个会去够网络的
-   打包脚本会是另一个东西；
-3. 组装两棵树，往输出目录各写**一个归档**；
-4. 打印两条路径与它们的大小。
+1. 构建 release 二进制（`cargo build --release -p net --bin riscdom-relay`）—— 包永远以 **release**
+   构建；
+2. 组装目录树，往输出目录写出**一个归档**；
+3. 打印归档路径与大小。
 
-**版本**取自根 `Cargo.toml` 的 `[workspace.package] version` —— 发布时唯一 bump 的地方 —— 于是一个包不可能
-与它里面的二进制不一致。**平台**取宿主自己的（`win-x64`、`linux-x86_64`、`macos-aarch64`……）。
+**版本**来自根 `Cargo.toml` 的 `[workspace.package] version` —— 一处发布时 bump 的地方 —— 所以包不可能
+与里面的二进制不一致。**平台**是宿主自己的（`win-x64`、`linux-x86_64`、`macos-aarch64`、……）。
 
-默认输出目录是 **`target/dist/`**，它被忽略（`.gitignore` 里的 `**/target`），所以产物永不进仓。**没有任何
-东西被签名**，也没有任何东西被发布：除构建本身外，脚本是离线的。
+默认输出目录是 **`target/dist/`**，它被忽略（`.gitignore` 里的 `**/target`），因此制品永不进入仓库。
+**没有任何签名**，也不发布任何东西：除构建本身外，脚本离线。
 
-## 5. 平台
+## 4. 平台
 
-| 平台 | 格式 | 说明 |
+| 平台 | 格式 | 备注 |
 |---|---|---|
-| Windows | `.zip` | 已验证平台；v0.9.9 那次发布用的格式。 |
-| Linux | `.tar.gz` | 由脚本在 Linux 宿主上构建；CI 打包是后续批次。 |
+| Windows | `.zip` | 已验证的平台。 |
+| Linux | `.tar.gz` | 由脚本在 Linux 宿主上构建；tag 触发的 CI 作业也会构建它。 |
 | macOS | `.tar.gz` | 同上。 |
 
-**CI 尚未构建这些包**，且 **CI 没有 Windows runner**：v0.9.9 的 `riscdom-server-0.9.9-win-x64.zip` 是在
-某台机器上手工构建、再挂到 Release 的。把它变成 CI job —— 先 macOS 与 Linux，等有 runner 再做 Windows ——
-是 [M7b-2](roadmap-v1.0.zh-CN.md)，也是关掉 roadmap §12 那个 open 项（「Linux 与 macOS 的 server zip ——
-v0.9.9 只发了 Windows 那份」）的批次。
+**tag 触发的 CI 作业会构建这个归档** —— [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 里
+的 `relay-bundle`，在推送 `v*` tag 时跑打包器（批 BF；v1.0 M8-4c 中控制平面离开后由 `server-bundle`
+改名而来）。**CI 没有 Windows runner**，所以 Windows 的 `.zip` 由人工在机器上构建 —— 那是 M7b-4。
 
-## 6. 什么没有被签名
+## 5. 什么没有签名
 
-**这里什么都不签名。** Windows 二进制上没有 Authenticode 签名、macOS 上没有 notarization、任何地方都没有包
-签名 —— 与桌面安装包的现状相同（RELEASE_NOTES 记着 macOS 与 Linux 包未签名、未启动过）。需要签名的操作者
-从源码构建并自行签名。签名这件事会是它自己的决策、带自己的凭据，本文不作假设。
+**这里没有任何签名。** Windows 二进制没有 Authenticode 签名，macOS 没有公证，任何地方都没有包签名
+—— 与桌面安装包处于同一状态（RELEASE_NOTES 记着 macOS 与 Linux 包未签名、未走查）。需要签名的运维
+者可以自行从源码构建并签名。签名方案会是它自己的裁决、带它自己的凭据，这里不做假定。
 
-## 7. 不覆盖什么
+## 6. 什么不在覆盖范围
 
-- **CI 打包** —— [M7b-2](roadmap-v1.0.zh-CN.md)：一个 tag 门控的 job，在 macOS 与 Linux 上构建这些归档
-  （Windows 需要一个项目尚没有的 runner）。
-- **发布动作** —— [M7b-3](roadmap-v1.0.zh-CN.md)：打一个 `v*` tag 并把归档挂到 release。它需要自己的授权，
-  也是让一个包变公开的那一步。
-- **把 `riscdom-backup` 包塞进来** —— 可移植性工具有自己的规格（[backup.md](backup.zh-CN.md)）；它不与
-  服务器捆绑。
-- **桌面应用** —— 它以 CI `bundle` job 产出的 Tauri 包分发（`.dmg`、`.deb`、`.rpm`、`.AppImage`，以及手工
-  构建的 Windows 安装包）。
+- **控制平面的包**（`riscdom-server-<version>-<platform>`，含构建好的前端）—— 它属于
+  <https://github.com/breakevery/riscdom-server>，并在那里有文档。
+- **Windows CI 打包** —— [M7b-4](roadmap-v1.0.md)：还没有接上 Windows runner。
+- **发布动作** —— 打 `v*` tag 并把归档挂到 release 上，需要它自己的授权，也正是它让一个包公开。
+- **把 `riscdom-backup` 打进这个包** —— 可移植工具自有规格（[backup.md](backup.md)），不与 relay 一同
+  打包。
+- **桌面应用** —— 它以 [`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp) 产出的
+  Tauri 包（`.dmg`、`.deb`、`.rpm`、`.AppImage`，以及人工构建的 Windows 安装包）分发。

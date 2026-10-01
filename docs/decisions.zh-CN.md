@@ -1906,3 +1906,46 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **缘由**：程序是消费者，而消费者该待在它所呈现的界面旁，不是待在它所消费的东西里。内核是 *host* 跑的东西；管理程序是人跑的东西。
 
 **影响**：新仓 `riscdom-adminapp`（`abbe731`，tag `v1.0.0`，117 提交）；本仓失去 `ui/` 与 `host-tauri/`（88 个跟踪文件）及上述引用；`docs/README.md` + zh、`CONTRIBUTING.md` + zh、`README.md` + zh、`docs/multi-repo.md` + zh、`docs/audit-package/test-evidence.md` + zh、handoff §1、CHANGELOG 与本条。**`server/` 未动**（M8-4c），`v1.0.0` tag（`891c237`）未动，`riscdom-server` 也未动。**内核语义未变**：`compute_hash`、`verify_chain` 与只追加触发器未动。**M8-4c（本仓收尾：删 `server/`、打包器只打 relay、`server-bundle` → `relay-bundle`）与 M8-4d（对账）仍在，各自需授权。**
+
+## 167. 内核收口：relay 留下，控制平面走了
+
+**日期**：2026-10-01 ｜ **状态**：已完成（v1.0 批 EA-2 / M8-4c）
+
+**决策**：M8-4c 已完成 —— 最后一个不属于内核的程序也离开了：
+
+- **`server/` 没了**（18 个跟踪文件：crate、其 12 个源文件、3 个测试与两份 README）。它的内容住在
+  `riscdom-server`（`a41c505`，tag `v1.0.0`），在那里打包与发布；本仓删掉的那份与新仓的那份只差
+  `Cargo.toml`（path → git）与 `README.md`（服务器*就是*本地模式）—— 其余 16 个文件字节一致。
+- **`server-bundle` → `relay-bundle`。** tag 触发的作业保留，因为 relay 是内核程序、保留其归档；离开它的是
+  控制平面，以及桌面前端带进来的一切：`npm ci` / `npm run build` 两步、Node 工具链与 Tauri 的 Linux 库。
+  它现在装 `libdbus-1-dev` / `pkg-config` / `libssl-dev` / `build-essential`，用
+  `sh scripts/pack.sh --output-dir target/dist` 打包，上传名 `riscdom-relays-<os>`。
+- **`scripts/pack.{sh,ps1}` 只打 relay。** server 段（二进制、来自 `ui/dist/app` 的 `web/`、
+  `settings.example.json`）与 `--skip-ui-build` / `-SkipUiBuild` 开关都没了；版本/平台逻辑与 relay 段不变，
+  所以打包器现在只产出一个归档。**这正是第一次尝试（DV）做不成的那一批**：DV 跑时 `ui/src-tauri` 还以
+  path 依赖 `server`，删 `server/` 就让 `cargo clippy --manifest-path ui/src-tauri/Cargo.toml` 失败，工作树
+  在提交之前就被回退。`ui/` 已在 M8-4b 离开，现在没有这样的消费者了。
+- **`docs/server-distribution.md` + zh 现在只讲 relay**（六节而非七节：控制平面的包已移出），文首加了指向
+  `riscdom-server` 那份的说明。**新仓那份仍写着两个程序**、并链到那里并不存在的 `../net/README.md` —— 裁
+  *那份* 是 M8-4d 的事，跟跨仓 CLI 测试机制一起。
+- **`scripts/check-tool-schema.mjs` 保留**（本批决定）：它守的是两份 tool-schema **文档**，而那两份还在这里；
+  只有它的文档注释改了 —— 它称为「代码侧一半」的路由表测试现在住在 `riscdom-server`。
+- **`scripts/demo.{ps1,sh}`** 在 `PATH` 或 `target/` 中找控制平面二进制，找不到就打印
+  `SKIP: riscdom-server binary not found; obtain from https://github.com/breakevery/riscdom-server` 并
+  exit `0`——审计包的一次走查不该因为一个住在别处的程序没在这里构建而变红。
+- **构建残留与计数。** M8-4b 留在盘上的 `ui/` 目录（27,174 个未跟踪构建文件）已删除，本地
+  `.git/info/exclude` 里那四行 `ui/` 也随之去掉。`roadmap §12` 的「Linux 与 macOS 的 server zip」改写为
+  relay 归档。**UI 探针仍是 17 个**（它们现在住在 `riscdom-adminapp`）。
+
+**缘由**：§166 说程序是消费者、该待在它所呈现的界面旁。控制平面是 *host* 的程序，而 host 的程序是
+`riscdom-server`；留下来的是内核所拥有的东西 —— 包括 relay，它的二进制属于 `net`，别的仓建不出它。
+
+**影响**：`server/`（18 文件）删除；根 `Cargo.toml` 的 `members` 去掉 `server`，`Cargo.lock` 重生成；
+`ci.yml`、`scripts/pack.sh`、`scripts/pack.ps1`、`scripts/gate.sh`（clippy 列表去掉 `-p server`）、
+`scripts/check-tool-schema.mjs`（注释）、`scripts/demo.sh`、`scripts/demo.ps1`、
+`docs/server-distribution.md` + zh、`docs/roadmap-v1.0.md` + zh（一条）、`docs/README.md` + zh（两行去掉）、
+`CONTRIBUTING.md` + zh、`README.md` + zh、handoff §1、CHANGELOG 与本条。**已发布的 `v1.0.0` Release 未受影响**：
+它的 12 个资产是独立上传的副本，其中三个 `riscdom-server-*` 来自那个已离开的 crate —— 本仓未来打 `v1.x`
+只会产 relay 归档，这正是本批的本意。**内核语义未变**：`compute_hash`、`verify_chain` 与只追加触发器未动，
+`net/` 与 `host-core/` 也未动。**M8-4d（对账：每个新 lock 对着 `v1.0.0` 提交、跨仓 CLI 测试机制、以及把
+`riscdom-server` 自己的文档裁成只讲 server）仍在，各自需授权。**

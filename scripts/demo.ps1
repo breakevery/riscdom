@@ -41,6 +41,10 @@ function Show  { param([string]$Cmd)  Write-Host "          $ $Cmd" }
 
 function Find-Bin {
     param([string]$Name)
+    foreach ($candidate in @("$Name.exe", $Name)) {
+        $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
+        if ($cmd -and $cmd.Source) { return $cmd.Source }
+    }
     foreach ($profile in @("debug", "release")) {
         foreach ($ext in @(".exe", "")) {
             $candidate = Join-Path "target/$profile" "$Name$ext"
@@ -66,7 +70,11 @@ if ($SkipBuild) {
 $serverBin = Find-Bin "riscdom-server"
 $cliBin    = Find-Bin "riscdom"
 $verifyBin = Find-Bin "audit-verify"
-if (-not $serverBin) { Fail "no riscdom-server in target/ -- build the workspace first"; exit 1 }
+if (-not $serverBin) {
+    Skip "no riscdom-server binary on PATH or in target/"
+    Write-Host "SKIP: riscdom-server binary not found; obtain from https://github.com/breakevery/riscdom-server"
+    exit 0
+}
 if (-not $cliBin)    { Fail "no riscdom in target/ -- build the workspace first";    exit 1 }
 
 Write-Host "  starting $serverBin --bind $Remote"

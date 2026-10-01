@@ -22,8 +22,9 @@
  *
  * The code-side half lives in the tests that can see the code: `docs/tool-schema-executor.md`
  * against `agent::tools::tools_json()` (`agent/tests/tool_schema_doc.rs`), and the marked
- * route tables against the server's own `ROUTES` / `LOCAL_ROUTES` / `resolve`
- * (`server/src/routes.rs`'s tests). Neither half repeats the other's job.
+ * route tables against the control plane's own `ROUTES` / `LOCAL_ROUTES` / `resolve` tests
+ * — which live in the `riscdom-server` repository since v1.0 M8-4a, so this repository keeps
+ * only the document-side guard.
  *
  *   node scripts/check-tool-schema.mjs                    # self-test, then check the docs
  *   node scripts/check-tool-schema.mjs --self-test        # only the self-test

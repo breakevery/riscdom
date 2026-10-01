@@ -39,7 +39,7 @@ sh scripts/gate.sh    # Unix
 The gate is the **single list of what "green" means**: CI runs the same file
 (`sh scripts/gate.sh` in `.github/workflows/ci.yml`), so a check cannot drift between CI and a
 developer machine. In order: `cargo fmt --all -- --check` → `cargo clippy -D warnings` (the
-workspace crates `audit` / `sandbox` / `agent` / `cli` / `server` / `host-core` /
+workspace crates `audit` / `sandbox` / `agent` / `cli` / `host-core` /
 `worker` / `net` / `riscdom-backup` / `riscdom-sdk`) → `cargo check` →
 `cargo test` → the TypeScript SDK tests → the mirror guard
 (`node scripts/check-mirrored-constants.mjs`) → the encoding scan

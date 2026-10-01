@@ -5095,3 +5095,58 @@ loses `ui/` and `host-tauri/` (88 tracked files) and the references listed above
 `verify_chain` and the append-only triggers are untouched. **M8-4c (this repository's close-out: `server/`
 removed, the packers relay-only, `server-bundle` → `relay-bundle`) and M8-4d (reconciliation) remain, each
 with its own authorisation.**
+
+## 167. The kernel is closed out: the relay stays, the control plane is gone
+
+**Date**: 2026-10-01 ｜ **Status**: Done (v1.0 batch EA-2 / M8-4c)
+
+**Decision**: M8-4c is complete — the last program that did not belong to a kernel left it:
+
+- **`server/` is gone** (18 tracked files; the crate, its 12 sources, its 3 tests and its two READMEs).
+  Its content lives in `riscdom-server` (`a41c505`, tag `v1.0.0`), where it is packaged and released; the
+  removed copy and the new repository's differ only in `Cargo.toml` (path → git) and `README.md` (the
+  server *is* the local mode) — the other 16 files are byte-identical.
+- **`server-bundle` → `relay-bundle`.** The tag-gated job stays, because the relay is a kernel program
+  and keeps its archive; what left it is the control plane and everything the desktop front end brought
+  with it: the `npm ci` / `npm run build` steps, the Node toolchain and the Tauri Linux libraries. It
+  now installs `libdbus-1-dev` / `pkg-config` / `libssl-dev` / `build-essential`, packs with
+  `sh scripts/pack.sh --output-dir target/dist`, and uploads `riscdom-relays-<os>`.
+- **`scripts/pack.{sh,ps1}` are relay-only.** The server section (binary, `web/` from `ui/dist/app`,
+  `settings.example.json`) and the `--skip-ui-build` / `-SkipUiBuild` switch are gone; the version and
+  platform logic and the relay section are unchanged, so the packer produces exactly one archive now.
+  **This is the batch the first attempt (DV) could not be**: DV ran while `ui/src-tauri` still depended
+  on `server` by path, so deleting `server/` failed `cargo clippy --manifest-path
+  ui/src-tauri/Cargo.toml`, and the working tree was reverted before anything was committed. `ui/` left
+  in M8-4b, so there is no such consumer any more.
+- **`docs/server-distribution.md` + zh now cover the relay alone** (six sections instead of seven: the
+  control plane's package moved out), with a note at the top pointing at `riscdom-server`'s own copy.
+  The **new repository's copy still describes two programs** and links `../net/README.md`, which does
+  not exist there — trimming *that* one is M8-4d, as is the cross-repository CLI test mechanism.
+- **`scripts/check-tool-schema.mjs` stays** (this batch's decision): it guards the two tool-schema
+  *documents*, which are still here; only its doc comment changed, because the route-table tests it
+  names as the code-side half now live in `riscdom-server`.
+- **`scripts/demo.{ps1,sh}`** look for the control-plane binary on `PATH` or in `target/`, and print
+  `SKIP: riscdom-server binary not found; obtain from https://github.com/breakevery/riscdom-server` and
+  exit `0` when it is absent — a walk of the audit package must not go red because a program that lives
+  elsewhere is not built here.
+- **The build residue and the counts.** The `ui/` directory M8-4b left on disk (27,174 untracked build
+  files) was removed, and the four `ui/` lines the local `.git/info/exclude` carried went with it.
+  `roadmap §12`'s "a server zip for Linux and macOS" is restated as the relay archive. **The UI probes
+  remain 17** (they live in `riscdom-adminapp` now).
+
+**Why**: §166 said a program is a consumer and belongs beside its interface. The control plane is the
+*host's* program, and the host's program is `riscdom-server`; what stays here is what a kernel owns —
+including the relay, whose binary is `net`'s and which no other repository can build.
+
+**Impact**: `server/` (18 files) removed; the root `Cargo.toml`'s `members` loses `server` and
+`Cargo.lock` is regenerated; `ci.yml`, `scripts/pack.sh`, `scripts/pack.ps1`, `scripts/gate.sh` (the
+clippy list loses `-p server`), `scripts/check-tool-schema.mjs` (comment), `scripts/demo.sh`,
+`scripts/demo.ps1`, `docs/server-distribution.md` + zh, `docs/roadmap-v1.0.md` + zh (one entry),
+`docs/README.md` + zh (two rows gone), `CONTRIBUTING.md` + zh, `README.md` + zh, the handoff's §1, the
+CHANGELOG and this entry. **The published `v1.0.0` Release is untouched**: its 12 assets are uploaded
+copies, and the three `riscdom-server-*` ones came from the crate that has now left — a future `v1.x`
+tag of this repository will produce relay archives only, which is what this batch intends. **No kernel
+semantics changed**: `compute_hash`, `verify_chain` and the append-only triggers are untouched, and
+`net/` and `host-core/` are untouched. **M8-4d (reconciliation: each new lock committed against
+`v1.0.0`, the cross-repository CLI test mechanism, and `riscdom-server`'s own docs trimmed to the
+server) remains, with its own authorisation.**

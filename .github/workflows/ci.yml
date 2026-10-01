@@ -116,26 +116,26 @@ jobs:
       - name: gate
         run: sh scripts/gate.sh
 
-  # The two server programs (v1.0 batch BF / M7b-2).
+  # The relay, the connection layer's server (v1.0 batch BF / M7b-2; relay-only since M8-4c).
   #
-  # `bundle` above packs the desktop application; this job packs what a host runs
-  # headless -- `riscdom-server` and `riscdom-relay` -- through the repository's own
-  # packer, `scripts/pack.sh` (batch BE, decisions §124). It **builds only**: no
-  # `cargo test`, no clippy, no UI probe. The one list of what "green" means is still
-  # `scripts/gate.sh` (ONE SOURCE OF TRUTH at the top of this file).
+  # This job packs what a host runs headless -- `riscdom-relay` -- through the repository's own
+  # packer, `scripts/pack.sh` (batch BE, decisions §124). The **single-node control plane**
+  # (`riscdom-server`) is not built here: it left for its own repository in v1.0 M8-4a and is
+  # packaged there. The job **builds only**: no `cargo test`, no clippy. The one list of what
+  # "green" means is still `scripts/gate.sh` (ONE SOURCE OF TRUTH at the top of this file).
   #
-  # Same trigger as `bundle`, for the same reason: a manual dispatch or a `v*` tag,
-  # never an ordinary push or a pull request. A macOS runner bills at ten times a
-  # Linux one, and these archives are wanted when a release is being cut, not on every
-  # commit. The job does not tag and does not publish -- it only leaves the archives as
-  # run artifacts; cutting the release is a separate, authorised act (batch BG).
+  # Same trigger as before: a manual dispatch or a `v*` tag, never an ordinary push or a pull
+  # request. A macOS runner bills at ten times a Linux one, and the archive is wanted when a
+  # release is being cut, not on every commit. The job does not tag and does not publish -- it
+  # only leaves the archive as a run artifact; cutting the release is a separate, authorised act
+  # (batch BG).
   #
   # Windows is deliberately absent. The packer's Windows half is `scripts/pack.ps1`
   # (it writes `.zip` through PowerShell's own `Compress-Archive`, so it needs no
   # external `zip`), and no Windows runner is wired up yet -- that is M7b-4, its own
   # batch with its own runner.
-  server-bundle:
-    name: server-bundle (${{ matrix.os }})
+  relay-bundle:
+    name: relay-bundle (${{ matrix.os }})
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
@@ -145,35 +145,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # `server` reaches `host-core`, whose `keyring` backend on Linux builds
-      # `libdbus-sys` and probes for the system `dbus-1` with `pkg-config`; macOS needs
-      # nothing beyond the runner's Xcode command line tools. The list is the one the
-      # Linux half of `bundle` installs, kept identical so a missing library cannot be a
-      # silent difference between the two jobs.
+      # `net` reaches `host-core` (the connection layer depends on the chain), whose
+      # `keyring` backend on Linux builds `libdbus-sys` and probes for the system `dbus-1`
+      # with `pkg-config`; macOS needs nothing beyond the runner's Xcode command line tools.
       - name: install linux dependencies
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libssl-dev \
             libdbus-1-dev \
-            libxdo-dev \
-            build-essential \
-            pkg-config
+            pkg-config \
+            libssl-dev \
+            build-essential
 
       # Build-only, so no `components:` -- rustfmt and clippy are the gate's lint tools
-      # and this job runs no lint (the same reason `bundle` asks for neither).
+      # and this job runs no lint.
       - uses: dtolnay/rust-toolchain@stable
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
 
       - uses: actions/cache@v4
         with:
@@ -184,29 +172,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      # The packer copies the built front end (`ui/dist/app`) into the server package,
-      # so the dependencies come in here -- and the build is its own visible step, so a
-      # frontend failure is named rather than buried inside the packer.
-      - name: install frontend dependencies
-        working-directory: ui
-        run: npm ci
+      # The repository's own packer (batch BE; relay-only since M8-4c). The version comes from
+      # `[workspace.package] version` and the platform from the runner, exactly as it does on a
+      # developer machine.
+      - name: pack the relay
+        run: sh scripts/pack.sh --output-dir target/dist
 
-      - name: build frontend
-        working-directory: ui
-        run: npm run build
-
-      # The repository's own packer (batch BE). `--skip-ui-build` because the front end
-      # was just built above; the version comes from `[workspace.package] version` and
-      # the platform from the runner, exactly as it does on a developer machine.
-      - name: pack server programs
-        run: sh scripts/pack.sh --skip-ui-build --output-dir target/dist
-
-      # Both unix archives: `riscdom-server-<version>-<platform>.tar.gz` and
-      # `riscdom-relay-<version>-<platform>.tar.gz`.
-      - name: upload archives
+      # The unix archive: `riscdom-relay-<version>-<platform>.tar.gz`.
+      - name: upload archive
         uses: actions/upload-artifact@v4
         with:
-          name: riscdom-servers-${{ matrix.os }}
+          name: riscdom-relays-${{ matrix.os }}
           path: target/dist/*.tar.gz
           if-no-files-found: error
           retention-days: 14

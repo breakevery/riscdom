@@ -1,32 +1,21 @@
 [中文](server-distribution.zh-CN.md) | English
 
-# Distributing the two server programs
+# Distributing the relay
 
-**Status** v1.0 specification (M7b-1) ｜ **Date** 2026-09-29 ｜ **Audience** whoever builds, ships or
-unpacks a RiscDom server package.
+**Status** v1.0 specification (M7b-1; relay-only since v1.0 M8-4c) ｜ **Date** 2026-09-29 ｜ **Audience**
+whoever builds, ships or unpacks the RiscDom relay package.
 
-**What this document is.** RiscDom ships two programs that a **deployer** runs: the
-**single-node control plane** (`riscdom-server`) and the **connection layer's server**
-(`riscdom-relay`). This document says what each **package** holds, how one is built, and what neither
-package carries. It is a **specification**; the packaging script lands with it (M7b-1), while CI
-packaging and the release act are later batches (M7b-2, M7b-3).
+> **The control plane is not here.** `riscdom-server`, the single-node control plane, left this
+> repository in **v1.0 M8-4a** and is packaged in its own repository —
+> <https://github.com/breakevery/riscdom-server>, whose `docs/server-distribution.md` is the authority
+> for that package. This document now covers the one program this repository still ships: the
+> **connection layer's server**.
 
-## 1. The single-node control plane
+**What this document is.** RiscDom ships a program that a **deployer** runs: the **connection layer's
+server** (`riscdom-relay`). This document says what its **package** holds, how one is built, and what
+it does not carry.
 
-`riscdom-server-<version>-<platform>` holds:
-
-| Entry | What it is |
-|---|---|
-| `riscdom-server` (`.exe` on Windows) | The control plane: HTTP + SSE over the host's kernel facade ([server/README.md](../server/README.md)). |
-| `web/` | The built Web UI, served at `/` by `--web-root web` (unauthenticated; the API is not). |
-| `README.md` | [server/README.md](../server/README.md) — how to build, run, the endpoints, authentication. |
-| `settings.example.json` | A minimal, valid settings document (`{"version": 2}`), for a first run. |
-
-**Run it** with `riscdom-server --bind <addr> --workspace <dir> --data-dir <dir> --web-root web`. The
-full flag set is the program's own `--help` (`--bind`, `--workspace`, `--data-dir`, `--web-root`,
-`--heartbeat-ms`, `--auth` / `--no-auth`, `--log-level`; exit codes `0`/`1`/`2`).
-
-## 2. The connection layer's server
+## 1. The connection layer's server
 
 `riscdom-relay-<version>-<platform>` holds:
 
@@ -42,76 +31,72 @@ bind**, deliberately: naming one would be the project naming where a server is
 ([connection.md](connection.md) §6.1). A data directory with neither file is a server that knows nobody
 and publishes nothing — honestly, rather than conveniently.
 
-## 3. What neither package carries
+## 2. What the package does not carry
 
-- **No credential, ever.** The control plane's bearer token is generated into `<data-dir>/token` on its
-  first start, and the relay's Ed25519 key into `<data-dir>/node.key`; both are **minted locally**, and a
-  package carries neither. A packer must never copy a data directory in.
+- **No credential, ever.** The relay's Ed25519 key is minted into `<data-dir>/node.key` on its first
+  start; a package never carries it, and a packer must never copy a data directory in.
 - **No data directory at all** — no `settings.json`, `peers.json`, `sessions.db` or `audit.db` travels
-  with the software. `settings.example.json` and the two `examples/` files are examples, not state.
-- **No QEMU, and no RISC-V GCC.** Both programs are plain Rust binaries. (A control plane still *needs*
-  QEMU and a RISC-V GCC to boot guests — but that is the operator's installed toolchain, the same one the
-  desktop app uses, not something a package would bundle: see [qemu-setup.md](qemu-setup.md).)
-- **No web root in the relay package.** Only the control plane serves pages.
+  with the software. The two `examples/` files are examples, not state.
+- **No QEMU, and no RISC-V GCC.** The relay is a plain Rust binary; it boots no guest.
+- **No web root.** The relay serves no pages. (The control plane does — that package is
+  `riscdom-server`'s, see the note at the top.)
 
-## 4. Building a package
+## 3. Building a package
 
-`scripts/pack.sh` (unix) and `scripts/pack.ps1` (Windows) are twins — the same split `gate` and `commit`
-keep, so the platform the project verifies on has a native implementation rather than a dependency on an
-external `zip`.
+`scripts/pack.sh` (unix) and `scripts/pack.ps1` (Windows) are twins — the same split `gate` and
+`commit` keep, so the platform the project verifies on has a native implementation rather than a
+dependency on an external `zip`.
 
 ```
-scripts/pack.sh  [--output-dir <dir>] [--skip-ui-build]
-scripts\pack.ps1 [-OutputDir <dir>]  [-SkipUiBuild]
+scripts/pack.sh  [--output-dir <dir>]
+scripts\pack.ps1 [-OutputDir <dir>]
 ```
 
 The script:
 
-1. builds the release binaries (`cargo build --release -p server --bin riscdom-server` and
-   `-p net --bin riscdom-relay`) — a package is always built as **release**;
-2. builds the front end (`npm run build` in `ui/`), unless `--skip-ui-build` / `-SkipUiBuild` reuses an
-   already-built `ui/dist/app`. It runs `npm run build`, **not** `npm ci`: the gate assumes the frontend
-   dependencies are installed, and a packaging script that reached the network would be something else;
-3. assembles the two trees and writes **one archive per product** into the output directory;
-4. prints both paths and their sizes.
+1. builds the release binary (`cargo build --release -p net --bin riscdom-relay`) — a package is
+   always built as **release**;
+2. assembles the tree and writes **one archive** into the output directory;
+3. prints the archive's path and its size.
 
 The **version** comes from `[workspace.package] version` in the root `Cargo.toml` — the one place a
-release bumps — so a package cannot disagree with the binaries inside it. The **platform** is the host's
+release bumps — so a package cannot disagree with the binary inside it. The **platform** is the host's
 own (`win-x64`, `linux-x86_64`, `macos-aarch64`, …).
 
 The default output directory is **`target/dist/`**, which is ignored (`**/target` in `.gitignore`), so
 artifacts never enter the repository. **Nothing is signed**, and nothing is published: the script is
 offline apart from the build itself.
 
-## 5. Platforms
+## 4. Platforms
 
 | Platform | Format | Notes |
 |---|---|---|
-| Windows | `.zip` | The verified platform; the format the v0.9.9 release used. |
-| Linux | `.tar.gz` | Built by the script on a Linux host; CI packaging is a later batch. |
+| Windows | `.zip` | The verified platform. |
+| Linux | `.tar.gz` | Built by the script on a Linux host; the tag-gated CI job builds it too. |
 | macOS | `.tar.gz` | Same. |
 
-**CI does not build these packages yet**, and **CI has no Windows runner**: the v0.9.9
-`riscdom-server-0.9.9-win-x64.zip` was built on a machine by hand and attached to the release. Turning
-that into a CI job — macOS and Linux first, Windows when a runner exists — is
-[M7b-2](roadmap-v1.0.md), and it is the batch that closes roadmap §12's open item ("a server zip for
-Linux and macOS — v0.9.9 shipped the Windows one only").
+**The tag-gated CI job builds this archive** — `relay-bundle` in
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which runs the packer when a `v*` tag is
+pushed (batch BF; renamed from `server-bundle` in v1.0 M8-4c, when the control plane left). **CI has no
+Windows runner**, so the Windows `.zip` is built on a machine by hand — that is M7b-4.
 
-## 6. What is not signed
+## 5. What is not signed
 
-**Nothing here is signed.** There is no Authenticode signature on the Windows binaries, no
-notarization on macOS and no package signing anywhere — the same state the desktop installers are in
-(RELEASE_NOTES records that the macOS and Linux packages are unsigned and unlaunched). An operator who
-needs a signature gets one by building from source and signing it themselves. A signing story would be
-its own decision, with its own credentials, and is not assumed here.
+**Nothing here is signed.** There is no Authenticode signature on the Windows binary, no notarization
+on macOS and no package signing anywhere — the same state the desktop installers are in (RELEASE_NOTES
+records that the macOS and Linux packages are unsigned and unlaunched). An operator who needs a
+signature gets one by building from source and signing it themselves. A signing story would be its own
+decision, with its own credentials, and is not assumed here.
 
-## 7. What is not covered
+## 6. What is not covered
 
-- **CI packaging** — [M7b-2](roadmap-v1.0.md): a tag-gated job that builds these archives on macOS and
-  Linux (Windows needs a runner the project does not have yet).
-- **The release act** — [M7b-3](roadmap-v1.0.md): cutting a `v*` tag and attaching the archives to a
-  release. It needs its own authorisation, and it is what makes a package public.
-- **A `riscdom-backup` package inside these** — the portability tool has its own spec
-  ([backup.md](backup.md)); it is not bundled with the servers.
-- **The desktop application** — it is distributed as the Tauri bundles the CI `bundle` job produces
-  (`.dmg`, `.deb`, `.rpm`, `.AppImage`, and the Windows installers built by hand).
+- **The control plane's package** (`riscdom-server-<version>-<platform>`, with its built front end) — it
+  belongs to <https://github.com/breakevery/riscdom-server> and is documented there.
+- **Windows CI packaging** — [M7b-4](roadmap-v1.0.md): no Windows runner is wired up yet.
+- **The release act** — cutting a `v*` tag and attaching archives to a release needs its own
+  authorisation, and it is what makes a package public.
+- **A `riscdom-backup` package inside this one** — the portability tool has its own spec
+  ([backup.md](backup.md)); it is not bundled with the relay.
+- **The desktop application** — it is distributed as the Tauri bundles
+  [`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp) produces (`.dmg`, `.deb`, `.rpm`,
+  `.AppImage`, and the Windows installers built by hand).

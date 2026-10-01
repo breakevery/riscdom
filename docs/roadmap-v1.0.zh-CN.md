@@ -258,8 +258,9 @@
 - **[待定]** **`--follow` / `--wait` 的毛边**：进程退出时流可能还开着。
 - **[待定]** **Python 作为客机语言**（已有 C、Zig 与 Rust）。
 - **[待定]** **会话库的 WAL 模式** —— v0.9 有意不设（决策 §54）。
-- **[已定]** **Linux 与 macOS 的 server zip** —— v0.9.9 只发了 Windows 那份。unix 归档由 `server-bundle`
-  CI job 在推 `v*` tag 时产出：打包器是批 BE，job 是批 BF（决策 §124–§125）。
+- **[已定]** **Linux 与 macOS 的 relay 归档** —— v0.9.9 只发了 Windows 那份。unix 归档由 **`relay-bundle`**
+  CI job 在推 `v*` tag 时产出：打包器是批 BE，job 是批 BF（决策 §124–§125）；它到 v1.0 M8-4c 前是
+  `server-bundle`，控制平面离开去自己的仓之后，该 job 只留下 relay（决策 §167）。
 - **[待定]** **QEMU 与门禁的并行 flake** —— QMP `10054` 那一族，以及端口竞争的挂死；每次都如实报告，
   从不粉饰。
 - **[待定]** **GUI 开关的点击目标。** 一个开关就是一个宽约 14 px 的裸复选框；v1.0 全仓换成一个像样的

@@ -78,7 +78,6 @@
 | [tool-schema-executor.md](tool-schema-executor.md) — [中文](tool-schema-executor.zh-CN.md) | 执行者的模型可用的八个工具，就是内核发送的那个数组。 | 活跃（有核对） |
 | [config-schema.md](config-schema.md) — [中文](config-schema.zh-CN.md) | **配置 schema**（v1.0 M7f）：`settings.json`、`peers.json`、`rooms.json` 的每一个字段、类型、是否可缺，以及每种格式怎么版本化。 | 活跃（v1.0 规范） |
 | [examples/python/README.md](../examples/python/README.md) — [中文](../examples/python/README.zh-CN.md) | 可跑的参考监工：三个端点、仅标准库、自带离线 `--self-test`。 | 活跃（有自证） |
-| [server/README.md](../server/README.md) — [中文](../server/README.zh-CN.md) | 作为一个程序的控制平面：构建、运行、端点、事件流、鉴权——以及还没实现的东西。 | 活跃 |
 
 ## 4. 管理员
 
@@ -87,13 +86,12 @@
 | 文档 | 它是什么 | 状态 |
 |---|---|---|
 | [SECURITY.md](../SECURITY.md) — [中文](../SECURITY.zh-CN.md) | 怎么报告漏洞、什么在范围内、以及关于密钥的承诺。 | 活跃 |
-| [server/README.md](../server/README.md) — [中文](../server/README.zh-CN.md) | 怎么启动控制平面、它的绑定点、它的 token，以及 `--no-auth`。 | 活跃 |
 | [qemu-setup.md](qemu-setup.md) — [中文](qemu-setup.zh-CN.md) | 安装节点需要的 QEMU（本项目从不捆绑它）。 | 活跃 |
 | [observability.md](observability.md) — [中文](observability.zh-CN.md) | **可观测性契约**（v1.0 M7g）：结构化日志行、指标端点及其族、以及追踪 ID —— 外加 `task_id` 缺口与它怎么合上。 | 活跃（v1.0 规范） |
 | [performance-budget.md](performance-budget.md) — [中文](performance-budget.zh-CN.md) | **性能预算**（v1.0 M7h）：§18 的四个数字（VM 启动、派发往返、内存、日志增长）写成规格 —— 每个从哪里量到哪里、在什么条件下、以及预算怎么核对。 | 活跃（v1.0 规范） |
 | [multi-repo.md](multi-repo.md) — [中文](multi-repo.zh-CN.md) | **跨三个仓库工作**（v1.0 M7i）：`riscdom-adminapp` 与 `riscdom-server` 如何与本仓并立、如何取得内核（git 依赖钉 tag）、继承什么、自己拥有什么，以及每个仓自带的那份 CLA。 | 活跃（v1.0 规范） |
 | [backup.md](backup.md) — [中文](backup.zh-CN.md) | **备份与可移植性**（v1.0 M7e）：一个节点的持久状态是什么，以及 `riscdom-backup` 如何把它导出为一件加密、可搬走的包并恢复 —— 审计存储、快照与凭据，且不需要包外的任何东西。 | 活跃（v1.0 规范） |
-| [server-distribution.md](server-distribution.md) — [中文](server-distribution.zh-CN.md) | **分发两个服务器程序**（v1.0 M7b-1）：`riscdom-server` 包与 `riscdom-relay` 包各装什么、`scripts/pack.*` 怎么构建它们、以及什么没有被签名。 | 活跃（v1.0 规范） |
+| [server-distribution.md](server-distribution.md) — [中文](server-distribution.zh-CN.md) | **分发 relay**（v1.0 M7b-1；自 M8-4c 起只讲 relay）：`riscdom-relay` 包装什么、`scripts/pack.*` 怎么构建它、以及什么没有被签名。控制平面的包属于 `riscdom-server`。 | 活跃（v1.0 规范） |
 | [sdk.md](sdk.md) — [中文](sdk.zh-CN.md) | **SDK**（v1.0 M7c/M7d）：Rust 与 TypeScript 客户端，作为盖在已冻结控制平面表面（API、事件流、配置类型）上的一个薄而带类型的层 —— 它们携带什么、如何版本化，以及「不做第四份拷贝」的规则。 | 活跃（v1.0 规范） |
 | [toolchain-setup.md](toolchain-setup.md) — [中文](toolchain-setup.zh-CN.md) | 安装并指向 RISC-V 裸机编译器。 | 活跃 |
 | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) — [中文](../THIRD_PARTY_NOTICES.zh-CN.md) | QEMU、下载来的工具链及其余：它们各自是独立的程序、各自的许可证。 | 活跃 |
@@ -138,6 +136,6 @@
 
 - 某份文档（含本页）缺对偶时，`scripts/check-bilingual.sh` 失败。
 - 「相对链接全解析」的扫描——[行尾批次跑过的同一种]——是坏链接被抓住的方式；上面每条链接都有效。
-- 本页引用的端点与工具计数住在 [control-plane-api.zh-CN.md](control-plane-api.zh-CN.md) §5，而 `server/src/routes.rs` 的测试会拿它与路由表比对，所以这里的一个数字必须被有意地改。
+- 本页引用的端点与工具计数住在 [control-plane-api.zh-CN.md](control-plane-api.zh-CN.md) §5，而控制平面自己的路由表测试（自 v1.0 M8-4a 起在 `riscdom-server` 仓）会拿它与之一致，所以这里的一个数字必须被有意地改。
 
 **没有**被检查的：新增文档是否被加进本页。若你加了一份，就把它的行加上——本页就是那份清单，而一份不在清单里的文档，是没人找得到的文档。

@@ -118,7 +118,7 @@ riscdom/
 ├── CHANGELOG.md              # version history
 ├── LICENSE                   # Apache-2.0
 ├── Cargo.toml                # Rust workspace (cli / host-core / sandbox / audit /
-│                             #   agent / worker / server / net / backup / sdk/rust)
+│                             #   agent / worker / net / backup / sdk/rust)
 ├── sandbox/                  # QEMU RISC-V sandbox (process/QMP/serial/snapshot)
 ├── audit/                    # append-only SQLite + hash chain (includes audit-verify)
 ├── agent/                    # agent loop, tools, capability policy, compiler wrapper
@@ -126,7 +126,6 @@ riscdom/
 ├── net/                      # the connection layer: identity, signing, discovery, rooms, relay
 ├── backup/                   # the portability tool (one encrypted package)
 ├── sdk/rust/                 # a typed Rust client of the control plane
-├── server/                   # the control plane over HTTP + SSE
 ├── cli/                      # the `riscdom` command-line client
 ├── worker/                   # the executor process, plus the supervisor half
 ├── docs/                     # design records, the API tables, the guides (map: docs/README.md)
@@ -150,7 +149,6 @@ cargo test -p sandbox     # QEMU lifecycle + serial capture + snapshot fallback
 cargo test -p audit       # append-only + hash chain + queries + CLI
 cargo test -p agent       # LLM client + tools + policy + compiler + agent loop
 cargo test -p host-core   # the portable host: state, settings, dispatch, task sandbox
-cargo test -p server      # the control plane: routes, capabilities, the event stream
 cargo test -p cli         # the command line, against a control plane
 cargo test -p worker      # the executor process, and the supervisor half
 
@@ -230,4 +228,4 @@ behaviour through the contact listed there.
 - [CHANGELOG.md](CHANGELOG.md) — version history
 - Per-crate READMEs: [sandbox](sandbox/README.md) · [audit](audit/README.md) ·
   [agent](agent/README.md) · [host-core](host-core/README.md) · [net](net/README.md) ·
-  [server](server/README.md) · [cli](cli/README.md) · [worker](worker/README.md) · [backup](backup/README.md)
+  [cli](cli/README.md) · [worker](worker/README.md) · [backup](backup/README.md)

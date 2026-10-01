@@ -92,7 +92,6 @@ normative tables are the API and events documents; the guides are the working wa
 | [tool-schema-executor.md](tool-schema-executor.md) — [中文](tool-schema-executor.zh-CN.md) | The eight tools an executor's model is offered, as the exact array the kernel sends. | living (checked) |
 | [config-schema.md](config-schema.md) — [中文](config-schema.zh-CN.md) | **The configuration schema** (v1.0 M7f): every field of `settings.json`, `peers.json` and `rooms.json`, with its type, whether it may be absent, and how each format is versioned. | living (v1.0 spec) |
 | [examples/python/README.md](../examples/python/README.md) — [中文](../examples/python/README.zh-CN.md) | The runnable reference supervisor: three endpoints, stdlib only, with an offline `--self-test`. | living (self-tested) |
-| [server/README.md](../server/README.md) — [中文](../server/README.zh-CN.md) | The control plane as a program: build, run, endpoints, the stream, authentication — and what is not implemented. | living |
 
 ## 4. Administrators
 
@@ -102,13 +101,12 @@ written down.
 | Document | What it is | State |
 |---|---|---|
 | [SECURITY.md](../SECURITY.md) — [中文](../SECURITY.zh-CN.md) | How to report a vulnerability, what is in scope, and the promises about secrets. | living |
-| [server/README.md](../server/README.md) — [中文](../server/README.zh-CN.md) | How to start the control plane, its bind default, its token, and `--no-auth`. | living |
 | [qemu-setup.md](qemu-setup.md) — [中文](qemu-setup.zh-CN.md) | Installing the QEMU the node needs (the project never bundles it). | living |
 | [observability.md](observability.md) — [中文](observability.zh-CN.md) | **The observability contract** (v1.0 M7g): the structured-log lines, the metrics endpoint and its families, and the tracing id — plus the `task_id` gap and how it closes. | living (v1.0 spec) |
 | [performance-budget.md](performance-budget.md) — [中文](performance-budget.zh-CN.md) | **The performance budgets** (v1.0 M7h): §18's four numbers (VM start, dispatch round trip, memory, log growth) written down — where each is measured from and to, in what condition, and how a budget is checked. | living (v1.0 spec) |
 | [multi-repo.md](multi-repo.md) — [中文](multi-repo.zh-CN.md) | **Working across the three repositories** (v1.0 M7i): how `riscdom-adminapp` and `riscdom-server` stand next to this one, how they get the kernel (a git dependency pinned to a tag), what they inherit, what they own, and the CLA each repository carries. | living (v1.0 spec) |
 | [backup.md](backup.md) — [中文](backup.zh-CN.md) | **Backup and portability** (v1.0 M7e): what a node's persistent state is, and how `riscdom-backup` exports it as one encrypted, movable package and restores it — audit store, snapshots and credentials, with nothing outside the package required. | living (v1.0 spec) |
-| [server-distribution.md](server-distribution.md) — [中文](server-distribution.zh-CN.md) | **Distributing the two server programs** (v1.0 M7b-1): what a `riscdom-server` package and a `riscdom-relay` package each hold, how `scripts/pack.*` builds them, and what is not signed. | living (v1.0 spec) |
+| [server-distribution.md](server-distribution.md) — [中文](server-distribution.zh-CN.md) | **Distributing the relay** (v1.0 M7b-1; relay-only since M8-4c): what a `riscdom-relay` package holds, how `scripts/pack.*` builds it, and what is not signed. The control plane's package is `riscdom-server`'s. | living (v1.0 spec) |
 | [sdk.md](sdk.md) — [中文](sdk.zh-CN.md) | **The SDKs** (v1.0 M7c/M7d): Rust and TypeScript clients as one thin, typed layer over the frozen control-plane surface (API, event stream, config types) — what they carry, how they version, and the no-fourth-copy rule. | living (v1.0 spec) |
 | [toolchain-setup.md](toolchain-setup.md) — [中文](toolchain-setup.zh-CN.md) | Installing and pointing at the RISC-V bare-metal compiler. | living |
 | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) — [中文](../THIRD_PARTY_NOTICES.zh-CN.md) | QEMU, the downloaded toolchain and the rest: separate programs, their own licences. | living |
@@ -159,8 +157,9 @@ Two checks already cover most of it, so this page cannot rot quietly:
 - `scripts/check-links.py`-style link checks — [the same scan the line-ending batch ran] —
   are how a broken relative link is caught; every link above resolves.
 - The endpoint and tool counts this page cites live in
-  [control-plane-api.md](control-plane-api.md) §5, which `server/src/routes.rs`'s tests
-  compare with the route table, so a number here has to be changed deliberately.
+  [control-plane-api.md](control-plane-api.md) §5, which the control plane's own route-table tests
+  (in the `riscdom-server` repository since v1.0 M8-4a) compare with it, so a number here has to be
+  changed deliberately.
 
 What is **not** checked: whether a new document was added to this map. If you add one, add
 its row — the map is the list, and a document missing from it is a document nobody finds.

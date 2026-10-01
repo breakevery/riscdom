@@ -605,6 +605,16 @@ current request authorising it (§2).
   the UI probes are **17**, not 16. **This repository removed `ui/` (82 files) and `host-tauri/` (6 files)**
   and every reference to them; **`server/` and the `server-bundle` job stay for M8-4c** (whose "build the
   front end" step now points at a directory that has left). **Decision §166.** **M8-4c and M8-4d remain.**
+- **And this repository is a kernel** (v1.0 batch EA-2 / M8-4c, 2026-10-01): **`server/` (18 files) is
+  gone** — the control plane lives in `riscdom-server` (`a41c505`, tag `v1.0.0`) and is packaged there —
+  so **`server-bundle` became `relay-bundle`** (the tag-gated job keeps the relay's archive; the `npm ci`
+  / `npm run build` steps, the Node toolchain and the Tauri Linux libraries left with the front end),
+  and **`scripts/pack.{sh,ps1}` build the relay alone** (one archive, no `--skip-ui-build`).
+  `docs/server-distribution.md` + zh now cover the relay and point at `riscdom-server`'s own copy for the
+  control plane; `roadmap §12`'s "server zip" is restated as the relay archive. **The published `v1.0.0`
+  Release is unaffected** — its assets are uploaded copies — so a future `v1.x` tag here produces relay
+  archives only. The `ui/` build residue (27,174 untracked files) is gone, and so are the four `ui/`
+  lines of the local `.git/info/exclude`. **Decision §167.** **M8-4d remains.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new
