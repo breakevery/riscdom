@@ -1,131 +1,136 @@
 [English](RELEASE_NOTES.md) | 中文
 
-# RiscDom v0.9.9
+# RiscDom v1.0
 
-> **这是正式版，与 v0.9.0 同样的两条 caveat。** **macOS 与 Linux 的包由 CI 构建，从未在真实机器上
-> 启动过**，而且它们**未签名**（macOS 的 Gatekeeper 会拦下首次运行；Windows 的 SmartScreen 会对安装包
-> 告警）。并且 **Windows 仍是黄金路径被验证过的平台**：由别人在干净机器上走一遍这件事，仍未发生。
+> **这是 v1.0 —— API 已冻结。** **macOS 与 Linux 的包由 CI 构建，从未在真实机器上启动过**，而且它们
+> **未签名**（macOS 的 Gatekeeper 会拦下首次运行；Windows 的 SmartScreen 会对安装包告警）。并且
+> **Windows 仍是黄金路径被验证过的平台**：由别人在干净机器上走一遍这件事，仍未发生。
 
-**v0.9.9 一句话：** 桌面应用接入网络 —— 它既能**连出去**（连到内网一台 RiscDom 服务器上，看的是**那台**
-节点的看板），也能**服务进来**（把自己这块看板开放给局域网上的手机与其它设备）—— 而远端凭据住在 OS
-钥匙串里，不在设置文件里；第五个「本地绿、CI 红」机制也从根上修掉了。
+**v1.0 一句话：** RiscDom 在它承诺的地方停下不动 —— **内核 API 已冻结**，而[纲领](docs/roadmap-v1.0.zh-CN.md)
+定下的三层都已在盘：**一台机器上多个沙箱**、**一个句句签名、并经由部署者自建的服务器互相到达的
+workgroup**、以及**一个按名字把任务交给另一个节点的派发器** —— 其下是一条现在跨设备、却公式未变的审计链。
 
 ## 本版新增
 
-- **桌面应用可以「连出去」，连到另一个节点上。** *设置 → 网络* 收一个服务器地址和那台服务器要的令牌：
-  地址是 `settings.json` 里的一个偏好，令牌是 **OS 钥匙串**里的凭据，按 `remote-token:<host>` 归档
-  （`NetworkSettings` 里**根本没有** token 字段）。模式在**启动时定下一次** —— 这个窗口跟哪个 host
-  说话是配置事实，不是按键 —— 所以「连接」（或「离开」）由重启应用来生效，页面上也这么写。此后桌面端就是
-  那个远端节点的客户端：与浏览器同一道门、顶栏写明屏幕上是谁的节点、设置页按模式过滤（屏幕上放的是别人的
-  节点时，配置**本**机的界面就不提供）。门上带着回来的路 —— **「断开并改用本机」** —— 而它后面那四个命令
-  （钥匙串的三个 + 重启）**在任何模式下都作用于本机**：服务器不可达的窗口，仍必须能让自己不再做那个窗口。
-- **桌面应用可以「服务进来」，把自己的看板开放到网络。** *设置 → 网络* 的另一半：一个开关、一个绑定地址
-  （默认回环），以及一个「允许同网段的其它设备访问」开关 —— 勾上即给出警示。这块看板就是**这个窗口正在跑的
-  那个节点**：内嵌控制平面起在应用自己的 `Arc<AppState>` 之上，**绝不是副本**（副本会有自己的 VM 槽，
-  而一块能开出第二个 QEMU 的看板比没有看板更坏）。除非你另行允许，它**只绑回环**；首次启动时在
-  `<data-dir>/token` 铸出自己的 token；在 `/` 提供构建好的前端、在 `/assets/*` 提供其哈希资产；设置一变就
-  重绑；随窗口一起停（没有套接字会长过它）。构建好的前端作为 Tauri resource 随包分发，由同一个 helper
-  解析（`tauri dev` 也走它）。
-- **两个方向共用一个页面，而 token 可读、但不会被创建。** 网络 tab 显示看板的真实状态（是否在服务、绑到
-  哪里、手机需要输入的地址）；「显示 token」只**读** `<data-dir>/token`、**从不创建** —— 打开一个设置页
-  不该凭空造出一份凭据。浏览器一概拿不到这个页面：它能看一个节点，不能给节点重新接线。
-- **工程：第五个「本地绿、CI 红」机制，以及一个仍然非机密的设置文件。** 声明 `bundle.resources` 把
-  `ui/dist`（一个被 gitignore 的构建产物）变成了**编译期前置条件**，于是全新 checkout 再也跑不了
-  `cargo clippy ui/src-tauri`。现在前端构建进 `ui/dist/app/`，父目录是稳定且被跟踪的，`emptyOutDir`
-  保留默认 —— B-2 批记载的性质（构建产物不该是构建前置条件）恢复成立。这是五个机制里**第一个由我们自己
-  的变更**而不是环境造成的，所以它被写成一条规矩。同一轮还在「明文远端 token」来得及写出任何凭据之前，
-  把那个字段删掉了。
+- **冻结（M1、M8-1）。** [纲领 §6](docs/roadmap-v1.0.zh-CN.md) 要求「冻结前必须落盘」的六份文档都在盘 ——
+  稳定性策略（`docs/api-compatibility.md`）、数据迁移（`api-compatibility.md` §6）、错误模型
+  （`docs/error-model.md`）、凭据与密钥（`docs/security-model.md`）、升级路径（`docs/upgrade.md`）与披露
+  政策（`SECURITY.md`）—— 而稳定性策略已**对照纲领 §1 的四条红线通过测试**（`api-compatibility.md`
+  §9）。**`/v0/` 就是 v1.0 发布的路径**：冻结钉住的是路径的*含义*；前缀在下一个协议破坏性变更时才移到
+  `/v1/`，不在这里。
+- **第一层（M2）：一台机器上多个沙箱。** 一个定义可以派生出**实例**，连同实例表、它的五个端点，以及记录
+  它们的审计行；每个执行者有**自己的模型配置**（`settings.json` 在打开时从 v1 迁到 v2，并留下 `.bak`）；
+  参考 **M**（`examples/python`）经控制平面派发。
+- **插件接口（M3）。** `docs/plugin-interface.md`：**进程外、stdio、JSON lines** —— 必含的机制层（启动 /
+  停止 / 执行 / 输出）、可选的语义层（快照 / 指纹），以及一份 capability 声明。无进程内插件、无 ABI。
+- **第二层（M4）：一个 workgroup，一个跨区域服务器。** 节点身份与签名（`node.key`，一个 JWK，Ed25519，
+  六步验证，TCP 上一行 JSON）、发现（由内网服务器下发的同侪表，UDP 广播为补充）、**房间**
+  （`rooms.json`）、**跨区域服务器**（部署者自己跑的一个部署，四种角色，无新凭据），以及用于 30 秒审计
+  批次的**链 digest**。
+- **audit v2（M5）。** **每设备一条链，外加临时段。** 站入节点开一个段、宣告它，中心回归后该段被送达、
+  重建并**按转录合并**；冲突在**两侧**都记下，永不静默合并。**哈希公式未变。**
+- **第三层（M6）：跨设备派发。** `POST /v0/tasks` 的 **`node`** 参数、运行时表（`GET /v0/online`）、中心
+  写下的链 digest 行、端到端携带的 **`task_id`**、流上的 **`task_id` 过滤**、在另一个节点上留下的请求
+  到达中心的队列、中心的**裁决沿提问者自己的会话回传**，以及**跨链验证**（锚点的第二半）。
+- **生态（M7）。** **配置 schema**（`docs/config-schema.md`）、**可观测性**契约
+  （`docs/observability.md`）、**性能预算**（`docs/performance-budget.md`）、多仓计划
+  （`docs/multi-repo.md`）、**`riscdom-backup`**（整个节点 —— 两个根、审计库与凭据 —— 作为一个可搬移的
+  单元），以及覆盖整个控制平面的 **Rust 与 TypeScript SDK**。
 
-## 各平台安装
+## 按平台安装
 
-- **Windows 10/11** —— 从发行附件取 `RiscDom_0.9.9_x64_en-US.msi` 或 `RiscDom_0.9.9_x64-setup.exe`。
-  安装包**未签名**，SmartScreen 会首次告警（「更多信息 → 仍要运行」）。QEMU 与 RISC-V 裸机 GCC 不随包
-  分发：*设置 → 工具链* 会指给你 `winget install SoftwareFreedomConservancy.QEMU`（或官方页面），并且
-  可以自己下载 xPack GCC。
-- **macOS** —— CI 的 `bundle` job 产出 `RiscDom_0.9.9_aarch64.dmg`（Apple Silicon）和其中的 `.app`。
-  它们**未签名**，Gatekeeper 会拦下首次启动：右键应用 → *打开*，或执行一次
-  `xattr -dr com.apple.quarantine /Applications/RiscDom.app`。**QEMU 不随包分发**：`brew install qemu`。
+以下是 `v1.0.0` tag 的 CI 作业会构建并挂到 release 上的产物：
+
+- **Windows 10/11** —— `RiscDom_1.0.0_x64_en-US.msi` 或 `RiscDom_1.0.0_x64-setup.exe`。安装包**未签名**，
+  所以 SmartScreen 会首次告警（「更多信息 → 仍要运行」）。QEMU 与 RISC-V 裸机 GCC 不随包附送：
+  *设置 → 工具链*会引导你 `winget install SoftwareFreedomConservancy.QEMU`（或官方页面），并可自行下载
+  xPack GCC。
+- **macOS** —— `RiscDom_1.0.0_aarch64.dmg`（Apple Silicon）及其内的 `.app`。**未签名**：右键应用 → *打开*，
+  或运行一次 `xattr -dr com.apple.quarantine /Applications/RiscDom.app`。**不附送 QEMU**：`brew install qemu`。
   **还没有人在真实 Mac 上启动过这些包。**
-- **Linux** —— 同一个 job 产出：`RiscDom_0.9.9_amd64.deb`、`RiscDom-0.9.9-1.x86_64.rpm` 或
-  `RiscDom_0.9.9_amd64.AppImage`。**QEMU 不随包分发**：装你发行版的 `qemu-system-riscv64`（例如
-  `sudo apt install qemu-system-misc`、`sudo dnf install qemu-system-riscv`）。**还没有人在真实 Linux
-  机器上启动过这些包。**
+- **Linux** —— `RiscDom_1.0.0_amd64.deb`、`RiscDom-1.0.0-1.x86_64.rpm` 或 `RiscDom_1.0.0_amd64.AppImage`。
+  **不附送 QEMU**：装你发行版的 `qemu-system-riscv64`（例如 `sudo apt install qemu-system-misc`、
+  `sudo dnf install qemu-system-riscv`）。**还没有人在真实 Linux 机器上启动过这些包。**
+- **服务器** —— tag 的 **`server-bundle`** 作业产出的 `riscdom-server-1.0.0-linux-x64.tar.gz` 与
+  `riscdom-server-1.0.0-macos-*.tar.gz`，以及 Windows 的 `riscdom-server-1.0.0-win-x64.zip`。每份含二进制、
+  它的 `web/`、一个 README 与 `settings.example.json`；不带任何凭据、不带数据目录。专用转发器
+  （`riscdom-relay-*`）就在旁边，而且 —— 按设计 —— **它根本没有 HTTP 面**。
 
-## 验证了什么 —— 以及没验证什么
+## 验证过的 —— 与没验证过的
 
-**已验证**
+**验证过的**
 
-- 门禁共 **18 步**（其中 2 步可选）：`cargo fmt`、对每个 crate 在每个平台上跑
-  `cargo clippy -D warnings`、`cargo check`、完整 `cargo test`、`npm run build`、**16 个** UI 探针、
-  mirror guard、编码扫描、工具 schema 检查、两个示例自测、wix 版本护栏、UI 字符串注册表、双语文档检查。
-  本地全绿；CI 在 `ubuntu-latest` 上跑同一个脚本。
-- 测试：**688 个用例 / 118 个套件**。其中 3 个需要 API key 或会写 OS 钥匙串，被排除在门禁之外；其余在本机
-  （有 QEMU 与 RISC-V GCC）全部跑过。
-- **局域网看板**，在真机上：内嵌 server 起在应用自己的 state 之上、绑在设置说的地方（除非打开允许局域网，
-  只绑回环）、在 `<data-dir>/token` 铸 token、在 `/` 提供构建好的前端、在 `/assets/*` 提供哈希文件、
-  带 token 答 API 而不带则拒绝，并随应用一起停。
-- **「出」模式，在 Windows 上人工走过一遍**，用同机的第二个节点 —— 它有自己的数据目录、因而有自己的
-  token，所以这个检查是真的。把桌面端指向那个地址后，它停在**登录门**（桌面端跟自己的 host 说话时从不
-  出现登录门）；点**「断开并改用本机」**会清空地址、删除钥匙串条目，并重启回本机看板。
-- **兼容性**：字段删除之前写出的**真实** `settings.json` 仍能加载，并在下一次写入时丢掉那个字段。
-- 黄金路径 **第 3–7 步**对真实 QEMU 客机的端到端走查，自 v0.5.0 起未变。
+- gate，**二十六步**（v0.9.9 的十八步，加上 `net` 层的六个示例自测、远端执行者示例，以及打包脚本语法
+  检查）：`cargo fmt`、逐 crate 逐平台的 `cargo clippy -D warnings`、`cargo check`、完整 `cargo test`、
+  `npm run build`、**十六个** UI 探针、镜像守卫、编码扫描、工具 schema 检查、各示例自测、wix 版本守卫、
+  UI 字符串登记表、打包语法，以及双语文档检查。本地全绿；CI 在 `ubuntu-latest` 上跑同一脚本。
+- 测试套件：workspace 运行下 **958 个测试、146 个套件**（v0.9.9 报的是 688 / 118；增长来自三层各自的
+  套件）。有少数几个需要 API key 或写入 OS 钥匙串，被排除在 gate 的运行之外；其余都在这里跑 —— 本机有
+  QEMU 与 RISC-V GCC。
+- 针对真实 QEMU 客机的黄金路径端到端走查，自 v0.5.0 起未变。
+- **连接层，手工走过**：同一台机器上两个节点，各有自己的数据目录、因而各有自己的 key 与 token，在内网
+  服务器处注册、心跳，并读到彼此的注册；以及三层新增的流与派发面。
 
-**未验证**
+**没验证过的**
 
-- **macOS 与 Linux 的包本身。** 它们能编译、能打包；没有人真在 Mac 或 Linux 机器上装过、启动过。这是下一
-  次走查。
-- **干净机器走查。** 仍是那条待加强项：[docs/golden-path-checklist.md](docs/golden-path-checklist.md)
-  是表格，填好的放进 `walkthroughs/`。
-- **多 Agent 协作。** v0.9 交付的是**接口** —— 名册、派发端点、远端句柄、请求队列。由哪个 AI 拆解复合
-  任务、各部件如何分工，留给用户与更晚的版本。
-- **安装包未签名** —— Windows 上的 SmartScreen、macOS 上的 Gatekeeper。签名与公证仍是商业化层的事。
+- **macOS 与 Linux 的包本身。** 它们能编译、能打包；没人真在 Mac 或 Linux 机器上安装或启动过。那是下一个
+  走查。
+- **干净机器走查。** 仍是当年那个「待加强」项：[docs/golden-path-checklist.md](docs/golden-path-checklist.md)
+  是表格，`walkthroughs/` 是填好的表该放的地方。
+- **管理程序还没有拆出去。** v0.9.9 的说明说它「在 v1.0 成为自己的仓库」。那次拆分（**M7a**）
+  **推迟到 v1.0 之后** —— 每个新仓都要钉一个 v1.0 tag，而那个 tag 随本版发布 —— 所以桌面端与它的前端
+  仍住**在本仓内**。计划写在 [docs/multi-repo.zh-CN.md](docs/multi-repo.zh-CN.md)。
+- **多智能体协作仍是一个接口。** 花名册、派发端点、请求队列、以及回传的裁决都在位、都有测试；哪个 AI
+  拆分复合任务、各部分怎么分派，仍由使用者决定。
+- **安装包与包都未签名** —— Windows 上 SmartScreen、macOS 上 Gatekeeper。签名与公证仍属商业化层的事。
 
 ## 测试者需要什么
 
-- 你自己的**模型提供方**与 **API key**（或本地提供方，如 Ollama / LM Studio）、**QEMU**
-  （`qemu-system-riscv64`，由你安装 —— 见上面的平台说明）、以及一个 **RISC-V 裸机 GCC**（xPack
-  `riscv-none-elf-gcc` 或等价的 `riscv64-unknown-elf-gcc`；应用可以下载 xPack 那个）。Zig 与 Rust 可选：
-  *设置 → 工具链* 两个都能装。
-- 网络面还需要**第二个节点**：「连出去」用同机的第二个 `riscdom-server`（**它自己的数据目录**）就够，
-  「服务进来」用任何第二台带浏览器的设备就够；真有第二台机器更好。`riscdom-server --help` 列全部参数。
+- 一个**模型提供方**和**你自己的 API key**（或本地提供方，如 Ollama / LM Studio）、**QEMU**
+  （`qemu-system-riscv64`，由你安装 —— 见上面各平台说明），以及**一个 RISC-V 裸机 GCC**（xPack
+  `riscv-none-elf-gcc` 或等价的 `riscv64-unknown-elf-gcc`；应用可下载 xPack 那个）。Zig 与 Rust 可选：
+  *设置 → 工具链*两者都能装。
+- 网络那面：**第二个节点**。同一台机器上再起一个**有自己的数据目录**的 `riscdom-server`，就够走「连出去」；
+  任何第二个带浏览器的设备，就够走「服务进来」；真实的第二台机器更好。`riscdom-server --help` 列出所有
+  开关，[docs/control-plane-client-guide.zh-CN.md](docs/control-plane-client-guide.zh-CN.md) 走过 API。
 
-## 如何反馈
+## 怎么反馈
 
-1. 对着 **[docs/golden-path-checklist.zh-CN.md](docs/golden-path-checklist.zh-CN.md)** 逐步走查，边走边填。
-   macOS 或 Linux 上请写明你用的是哪个包、它到底能不能打开。
-2. 在 <https://github.com/breakevery/riscdom/issues> 开 issue 并**粘贴填好的表格**；更愿意的话把表格放进
-   `walkthroughs/`。
-3. 没人写下来的走查，就是没人能核对的走查 —— 填好的模板就是报告。
+1. 边走边填 **[docs/golden-path-checklist.zh-CN.md](docs/golden-path-checklist.zh-CN.md)**。在 macOS 或
+   Linux 上，请说明你用的是哪个包、它到底打不打得开。
+2. 在 <https://github.com/breakevery/riscdom/issues> 开 issue 并**贴上填好的表**；若你更愿意放进仓库，放
+   进 `walkthroughs/`。
+3. 没人写下的走查，就是没人能核对的走查 —— 填好的表就是报告。
 
 ## 已知限制
 
-- **`task_id` 没有带进 run。** `POST /v0/agent/run` 不收 `task_id`，而 `--follow` 假设只有一个客户端：
-  多个客户端跟同一个节点时，一个事件帧无法归属到产生它的任务。此事在 v1.0 之前解决。
-- **内嵌的 `--follow` / `--wait` 有一条毛边**：进程退出时流可能还开着。这是已知毛边，如实报告，没有偷偷
-  绕开。
-- **v0.9 交付的是多 Agent 的*接口*，不是策略。** 名册、派发端点、远端句柄与沙箱请求队列都已就位并有测试；
-  由谁拆解复合任务、各部件如何分配，这里没有决定。管理程序在 v0.9 也**随本仓**分发 —— v1.0 时它会独立成
-  自己的仓库。
-- **发布走查尚未发生**：由别人带真实 API key 在干净机器上走一遍，仍待办 —— 与 v0.8.0 同一条 caveat。
-- **Windows 是已验证的平台。** macOS 与 Linux 能构建，但黄金路径没在那里走过；它们的包未签名、未被启动。
-- **每个 agent 同时只有一个 VM**，且审计日志还没有保留策略：它随使用增长，从不清理。
-- **网络面有一部分没走**（新增）。在登录门上输入远端服务器的 token、看板随后显示**那台**节点的数据、以及
-  远端节点被停掉时窗口的行为，这里**没有**走：它们需要一份凭据，而为了让走查变成可能，没有任何凭据被放进
-  过命令行。它们连同局域网步骤一起写在
-  [docs/manual-acceptance.zh-CN.md](docs/manual-acceptance.zh-CN.md) 的**层次 9**。
-- **一条未解释的观察**（新增）。在上面那次走查里，第一次重启后应用停在**本机**看板，且设置文件里的地址
-  没了；清掉残留的开发进程后它不再复现，也没有任何代码路径能解释它。这一条被**记录**而不是被解释 ——
-  写在 [docs/handoff.zh-CN.md](docs/handoff.zh-CN.md) §1 与层次 9 里 —— 由层次 9 来结案。
+- **M 的跨区域级属 v1.x。** 参考 M（`examples/python`）读一个 **workgroup**（`--level lan`：`/v0/online`、
+  `/v0/peers`，以及每个以文件给出 token 的节点）。它上面那一级 —— 一列 LAN M，以及一个 `--config` 文件
+  —— **不在 v1.0 范围内**（决策 §157、纲领 §13）。
+- **`/v1/` 不是路径。** v1.0 发布的是 `/v0/`；前缀在下一个协议破坏性变更时才动，不在这里。有四个文档曾
+  说反了，已在冻结声明同一批里改正（决策 §160）。
+- **内嵌的 `--follow` / `--wait` 有粗糙边**：进程退出时流可能仍开着。这是已记录的粗糙边，被报告、没有
+  被悄悄绕过。
+- **Python 不是 guest 语言。** 有 C、Zig、Rust；Python 等 Linux 沙箱（v1.x）。
+- **session 数据库的 WAL 模式是有意不设的**（决策 §54）。
+- **每节点同时一台 VM**，且审计日志**还没有保留策略**：它随使用增长，从不清理。
+- **Windows 是被验证过的平台。** macOS 与 Linux 能构建，但黄金路径没在那里走过；它们的包未签名、未启动。
+- **发布走查还没发生**：由别人持真实 API key 做的干净机器走查，仍悬着。
+- **Windows 服务器归档是手工构建的。** CI 在 `v*` tag 上构建 Linux 与 macOS 归档；没有 Windows runner，
+  所以 Windows 的 `riscdom-server-*.zip` 是在一台机器上手工组装的（v0.9.9 时也一样）。
 
 ## 安全
 
-本项目**不分发**任何 API key：所有模型访问都是自带 key。key 从不离开你的机器，审计日志住在 AI 工作区
-之外且只可追加，任何东西都不会被上传。控制平面默认只绑回环，且除非以 `--no-auth` 启动，都要求 token；
-浏览器看板从数据目录读同一个 token。**内网服务器的 token 是凭据，不写进 `settings.json`**：它住在 OS
-钥匙串里、按 host 归档，落盘它的那条命令从不记录它。看板对外服务在你打开开关之前是关的，在你允许其它设备
-之前只绑回环，而那个开关上的警示写明了它的含义。QEMU 与 RISC-V 工具链是各自许可证下的独立程序；见
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。完整声明与上报流程在 [SECURITY.md](SECURITY.md)。
+本项目**不附带**任何 API key：所有模型访问都是自带密钥。密钥从不离开你的机器，审计日志住在 AI 工作区之外
+且只可追加，任何东西都不上传。控制平面默认绑定 loopback，除非以 `--no-auth` 启动，否则需要 token；浏览器
+看板从数据目录读同一个 token。节点身份是 `<data-dir>/node.key` 或 OS 钥匙串里的一把 Ed25519 密钥，节点
+之间的每一帧都签名。**内网服务器的 token 是凭据，不写进 `settings.json`**：它住在 OS 钥匙串里，按 host
+分条，写它的代理从不记录它。把看板开放给网络，在你自己打开之前是关着的；在允许其它设备之前它是 loopback；
+那个开关上的警告说明了它的含义。QEMU 与 RISC-V 工具链是各自许可下的独立程序；见
+[THIRD_PARTY_NOTICES.zh-CN.md](THIRD_PARTY_NOTICES.zh-CN.md)。完整声明与报告流程见
+[SECURITY.zh-CN.md](SECURITY.zh-CN.md)。
 
-## 许可证
+## 许可
 
-[Apache License 2.0](LICENSE)。贡献需要 [CLA](CLA.md) —— 见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+[Apache License 2.0](LICENSE)。贡献需要 [CLA](CLA.zh-CN.md) —— 见
+[CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)。

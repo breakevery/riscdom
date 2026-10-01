@@ -4866,3 +4866,41 @@ at v1.0 — is corrected here rather than left for a client to discover.
 `CHANGELOG.md` + zh, and this entry. **No source file, no route table, no capability vocabulary, no SDK code, no
 `Cargo.toml`; the version is not bumped and no tag is cut. `compute_hash`, `verify_chain` and the append-only
 triggers are untouched — there is no code in the batch at all.**
+
+## 161. v1.0's version is 1.0.0, and the release materials are written
+
+**Date**: 2026-10-01 ｜ **Status**: Decided (v1.0 batch DP / M8-2)
+
+**Decision**: M8's second batch turns M8-1's frozen declaration into a releasable version, and stops one step
+short of the release itself:
+
+- **The version is `1.0.0`** (from `0.9.9`), bumped in the **seven** places the release procedure has bumped
+  since v0.7: `Cargo.toml`'s `[workspace.package] version` (every member uses `version.workspace = true`), the
+  root `Cargo.lock`, `ui/package.json`, `ui/package-lock.json`, `ui/src-tauri/Cargo.toml`,
+  `ui/src-tauri/Cargo.lock` and `ui/src-tauri/tauri.conf.json`. `ui/` is `exclude`d from the workspace, which
+  is why the desktop's four are separate sites.
+- **The CHANGELOG is finalised**: `## [Unreleased]` becomes `## [1.0.0] - 2026-10-01`, and the whole v1.0 line
+  (M1–M8-1) sits under it. No fresh empty `[Unreleased]` is added — the next release opens one when it has
+  something to say.
+- **`RELEASE_NOTES.md` + zh are rewritten for v1.0**, replacing the v0.9.9 notes the way every release has
+  replaced the last one (v0.7, v0.8, v0.9 each did); the old text stays in git history and in its GitHub
+  Release.
+- **No `wix.version` override is needed**: `tauri.conf.json` carries none today, and `check-wix-version.mjs`'s
+  rule is that a numeric package version must not have one. `1.0.0` is numeric.
+- **A leftover from M8-1 is closed**: `docs/README.md`'s index row for `api-compatibility.md` said "v1.0
+  specification (M1)" while the document now reads *frozen as of v1.0*; the row follows the document.
+
+**Not in this batch**: **the tag and the GitHub Release** — M8-3, which needs its own authorisation. The version
+is prepared, not published.
+
+**Why**: the API was declared frozen (M8-1); a freeze with the old version number on the artifacts is a
+contradiction, and the release materials are what turns the declaration into something a deployer can hold.
+Splitting the version work (this batch) from the publish act (M8-3) keeps "we wrote 1.0.0 down" separable from
+"we told the world", so the tag can be authorised on its own.
+
+**Impact**: `Cargo.toml` / `Cargo.lock` / `ui/package.json` / `ui/package-lock.json` / `ui/src-tauri/Cargo.toml`
+/ `ui/src-tauri/Cargo.lock` / `ui/src-tauri/tauri.conf.json` (version fields only), `CHANGELOG.md` + zh,
+`RELEASE_NOTES.md` + zh, `docs/README.md` + zh, `docs/handoff.md` + zh, and this entry. **No Rust, Python, JS or
+shell logic changed — the diffs in the version files are the number and nothing else; no route, no capability,
+no SDK, no `audit`, no `net`, no `server`; no tag, no release. `compute_hash`, `verify_chain` and the
+append-only triggers are untouched.**

@@ -1,7 +1,7 @@
 {
   "name": "@riscdom/sdk",
   "private": true,
-  "version": "0.9.9",
+  "version": "1.0.0",
   "description": "A typed TypeScript client for the RiscDom control plane (v1.0 M7d)",
   "type": "module",
   "exports": {

@@ -557,6 +557,14 @@ current request authorising it (§2).
   `control-plane-api` §7, `error-model` §2/§6/§9, `sdk`) are corrected, and `error-model`'s `cause` chain is
   tied to the prefix's real move instead. **Documentation only: no code, no version bump, no tag.**
   **Decision §160.**
+- **And v1.0 is written down, and the version is `1.0.0`** (v1.0 batch DP / M8-2, 2026-10-01): the version is
+  bumped in the **seven** sites the release procedure has used since v0.7 (`Cargo.toml`, the root `Cargo.lock`,
+  `ui/package.json`, `ui/package-lock.json`, `ui/src-tauri/Cargo.toml`, `ui/src-tauri/Cargo.lock`,
+  `ui/src-tauri/tauri.conf.json`), `CHANGELOG`'s `[Unreleased]` is finalised as `## [1.0.0] - 2026-10-01`, and
+  `RELEASE_NOTES.md` + zh are rewritten for v1.0 (the v0.9.9 notes they replace stay in git history and in
+  their Release). No `wix.version` override is needed (`1.0.0` is numeric), and `docs/README.md`'s
+  `api-compatibility.md` row follows the document's *frozen as of v1.0* status. **The tag and the Release are
+  M8-3**, separately authorised. **Decision §161.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

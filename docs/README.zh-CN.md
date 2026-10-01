@@ -25,7 +25,7 @@
 | [decisions.md](decisions.md) — [中文](decisions.zh-CN.md) | 决策账本：每个已定问题连同日期、决策、理由与影响。§21 就是本页服务的那条规矩。 | 活跃（只追加） |
 | [architecture-evolution.md](architecture-evolution.md) — [中文](architecture-evolution.zh-CN.md) | **v0.7 快照**：架构怎么走到这里，以及随后的计划。 | 快照 —— **历史，不重写** |
 | [roadmap-v1.0.md](roadmap-v1.0.md) — [中文](roadmap-v1.0.zh-CN.md) | 纲领：v1.0 冻结内核 API 并兑现三层，每条决策标明已定、默认或待定。 | 活跃（纲领 —— 随里程碑推进重写） |
-| [api-compatibility.md](api-compatibility.md) — [中文](api-compatibility.zh-CN.md) | v1.0 规范（M1），**面向发行集成者**：冻结什么、什么可改而不需冻结、持久化数据怎么迁移、升级怎么跨大版本。 | 活跃（v1.0 规范） |
+| [api-compatibility.md](api-compatibility.md) — [中文](api-compatibility.zh-CN.md) | v1.0 起冻结（M1），**面向发行集成者**：冻结什么、什么可改而不需冻结、持久化数据怎么迁移、升级怎么跨大版本。 | 活跃（冻结的 v1.0 规范） |
 | [error-model.md](error-model.md) — [中文](error-model.zh-CN.md) | v1.0 规范（M1），面向内核开发者与集成者：错误分类、哪些可重试、cause 链，以及线上信封与 `DispatchError` 的映射。 | 活跃（v1.0 规范） |
 | [security-model.md](security-model.md) — [中文](security-model.zh-CN.md) | v1.0 规范（M1），**面向管理员**：每份机密住在哪、一个 capability 值多少、威胁模型边界，以及披露政策。 | 活跃（v1.0 规范） |
 | [upgrade.md](upgrade.md) — [中文](upgrade.zh-CN.md) | v1.0 规范（M1），**面向发行集成者**：成文的升级流程 —— 一次升级改了什么、每个版本标记住在哪、操作顺序，以及怎么跨大版本。 | 活跃（v1.0 规范） |

@@ -1802,3 +1802,21 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **缘由**：冻结是一次**声明**，所以它必须是**真的**：§6 的六份文档在盘，策略已通过 §1 的四条红线（§86），M1–M7 已完成。唯一不真的那句 —— 路径在 v1.0 变更 —— 在这里改正，而不是留给客户端去发现。
 
 **影响**：仅文档 —— `docs/api-compatibility.md` + zh、`docs/control-plane-api.md` + zh、`docs/error-model.md` + zh、`docs/sdk.md` + zh、`docs/roadmap-v1.0.md` + zh、`docs/handoff.md` + zh、`CHANGELOG.md` + zh，以及本条。**无源文件、无路由表、无能力词汇表、无 SDK 代码、无 `Cargo.toml`；版本号未 bump、tag 未打。`compute_hash`、`verify_chain` 与 append-only 触发器未动 —— 本批一行代码都没有。**
+
+## 161. v1.0 的版本号是 1.0.0，发布材料已写成
+
+**日期**：2026-10-01 ｜ **状态**：已定（v1.0 批 DP / M8-2）
+
+**决策**：M8 的第二批把 M8-1 的冻结声明变成一个可发布的版本，并在发布本身之前停一步：
+
+- **版本号是 `1.0.0`**（自 `0.9.9` 起），在发布流程自 v0.7 以来一直更新的**七处**更新：`Cargo.toml` 的 `[workspace.package] version`（每个成员都用 `version.workspace = true`）、根 `Cargo.lock`、`ui/package.json`、`ui/package-lock.json`、`ui/src-tauri/Cargo.toml`、`ui/src-tauri/Cargo.lock` 与 `ui/src-tauri/tauri.conf.json`。`ui/` 被排除在 workspace 之外，所以桌面那四处是独立的站点。
+- **CHANGELOG 定稿**：`## [Unreleased]` 变为 `## [1.0.0] - 2026-10-01`，整条 v1.0 线（M1–M8-1）落在它下面。不新增空的 `[Unreleased]` —— 下一个版本有话说时再开一个。
+- **`RELEASE_NOTES.md` + zh 为 v1.0 重写**，像每一次发布替换上一版那样替换掉 v0.9.9 的说明（v0.7、v0.8、v0.9 皆如此）；旧文本留在 git 历史与它自己的 GitHub Release 里。
+- **不需要 `wix.version` 覆盖**：`tauri.conf.json` 今天不带它，而 `check-wix-version.mjs` 的规矩是数字版本号不许有它。`1.0.0` 是数字。
+- **M8-1 的一个尾巴被收掉**：`docs/README.md` 索引里 `api-compatibility.md` 那行写着「v1.0 specification (M1)」，而文档现在写的是*自 v1.0 起冻结*；该行改为跟随文档。
+
+**不在本批**：**tag 与 GitHub Release** —— M8-3，需单独授权。版本是**备好了**，不是**发布了**。
+
+**缘由**：API 已宣布冻结（M8-1）；artifacts 上还挂着旧版本号的冻结是自相矛盾，而发布材料正是把声明变成部署者拿得住的东西。把版本工作（本批）与发布动作（M8-3）分开，使「我们写下了 1.0.0」与「我们告诉了世界」可分别进行，于是 tag 才能单独被授权。
+
+**影响**：`Cargo.toml` / `Cargo.lock` / `ui/package.json` / `ui/package-lock.json` / `ui/src-tauri/Cargo.toml` / `ui/src-tauri/Cargo.lock` / `ui/src-tauri/tauri.conf.json`（仅版本字段）、`CHANGELOG.md` + zh、`RELEASE_NOTES.md` + zh、`docs/README.md` + zh、`docs/handoff.md` + zh，以及本条。**无 Rust / Python / JS / shell 逻辑改动 —— 版本文件里的 diff 就是那个数字本身；无路由、无 capability、无 SDK、无 `audit`、无 `net`、无 `server`；不打 tag、不发布。`compute_hash`、`verify_chain` 与 append-only 触发器未动。**
