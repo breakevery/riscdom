@@ -1350,7 +1350,12 @@ impl RelayServer {
     /// against the server's public key and runs §3's six steps on it like anything else. The
     /// answer travels the session the question arrived on — which is why an answer is only ever
     /// sent to a node that is dialled in.
-    fn send_to(&self, node_id: &str, body: Value) -> Result<(), RelayError> {
+    ///
+    /// **Public since v1.0 M6-4b**: the centre's own answers (§6.6's registration, §6.2's address
+    /// and registry) are built here, and so is a **decision handed back to the node that asked** —
+    /// the one case where the body is the caller's, because only a caller with a chain can say what
+    /// was decided. A node that is not dialled in is left alone, like every other answer.
+    pub fn send_to(&self, node_id: &str, body: Value) -> Result<(), RelayError> {
         let message = SignedMessage::sign(
             &self.inner.key,
             &self.inner.node_id,

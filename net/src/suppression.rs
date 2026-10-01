@@ -280,6 +280,54 @@ pub fn is_takeover(body: &Value) -> Option<Takeover> {
     })
 }
 
+/// A decision the node that was asked made about a peer's ask, on its way back (v1.0 M6-4b).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestDecision {
+    /// The ask it answers.
+    pub request_id: String,
+    /// `"approved"` or `"rejected"` — the queue's own two words.
+    pub decision: String,
+    /// The node that decided. It travels because the asker's own chain has no other way to
+    /// learn it: the decision is recorded there, and it has to say who made it.
+    pub decided_by: String,
+    /// When it said so (the sender's clock).
+    pub at_ms: i64,
+}
+
+/// The body a decision travels back as (v1.0 M6-4b).
+///
+/// Sideways, node to node, like §6.7's reports and the takeover broadcast: the node that decided
+/// answers the asker **on the session the asker already holds**, so nothing new is dialled and no
+/// route is involved. It is the mirror of the ask — a row on the asker's chain (`m.request.ask`)
+/// and a row on the decider's — and the two records name each other by `request_id`.
+pub fn request_decision_body(
+    request_id: &str,
+    decision: &str,
+    decided_by: &str,
+    at_ms: i64,
+) -> Value {
+    serde_json::json!({
+        "request_decision": PROTOCOL_VERSION,
+        "request_id": request_id,
+        "decision": decision,
+        "decided_by": decided_by,
+        "at_ms": at_ms,
+    })
+}
+
+/// Read a decision out of a body, when the body is one.
+pub fn is_request_decision(body: &Value) -> Option<RequestDecision> {
+    if body.get("request_decision").and_then(Value::as_u64) != Some(u64::from(PROTOCOL_VERSION)) {
+        return None;
+    }
+    Some(RequestDecision {
+        request_id: body.get("request_id")?.as_str()?.to_string(),
+        decision: body.get("decision")?.as_str()?.to_string(),
+        decided_by: body.get("decided_by")?.as_str()?.to_string(),
+        at_ms: body.get("at_ms")?.as_i64()?,
+    })
+}
+
 /// One event of a closed segment, on its way to the centre (v1.0 M5-3c-2; its hashes travel as of
 /// M6-5-2b).
 ///
@@ -807,6 +855,36 @@ mod tests {
             None
         );
         assert_eq!(is_takeover(&serde_json::json!({ "takeover": 1 })), None);
+    }
+
+    /// A decision travels back in one body, and reads as the same thing (v1.0 M6-4b).
+    #[test]
+    fn a_request_decision_body_round_trips() {
+        let body = request_decision_body("req-dev-a-7-1", "approved", "centre", 1_700_000_000_000);
+        assert_eq!(
+            body["request_decision"],
+            serde_json::json!(PROTOCOL_VERSION)
+        );
+        assert_eq!(
+            is_request_decision(&body),
+            Some(RequestDecision {
+                request_id: "req-dev-a-7-1".to_string(),
+                decision: "approved".to_string(),
+                decided_by: "centre".to_string(),
+                at_ms: 1_700_000_000_000,
+            })
+        );
+        // A body of another kind is not one, and neither is a decision at another version.
+        assert_eq!(is_request_decision(&crate::liveness::probe_body()), None);
+        assert_eq!(
+            is_request_decision(&serde_json::json!({ "request_decision": 2, "request_id": "x" })),
+            None
+        );
+        assert_eq!(
+            is_request_decision(&serde_json::json!({ "request_decision": 1 })),
+            None,
+            "a body with no request_id is not a decision"
+        );
     }
 
     /// The end of a segment's stream carries the whole anchor, and an older sender still reads

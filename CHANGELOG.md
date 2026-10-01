@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A decision reaches the node that asked** (v1.0 batch DL / M6-4b, **the end of M6**): a request made on
+  another node and decided here answers the asker **down its own session** (`net::request_decision_body`; no
+  new dialling, no route), and the asker writes it on its chain as **`m.request.approve` /
+  `m.request.reject`** — **no new event name** — with `decided_by` naming the node that decided, so the
+  decision survives a restart (`derive_requests_from` folds exactly that family). Only the asker is told;
+  nothing is deleted; a decision about an ask this node does not hold is ignored. `RelayServer::send_to`
+  becomes public (the centre's own answer path). **No route, no capability, no SDK, no dependency;
+  `merge_segment`, `audit/src/hash.rs` and the triggers are untouched.** **Decision §158.**
+
 - **The reference M grows a level** (v1.0 batch DJ / M6-6, the first piece): `examples/python/supervisor.py`
   gains **`--level node|lan`** (default `node` — unchanged behaviour). At `lan`, the snapshot reads the
   **workgroup**: `/v0/online` (the server role's runtime table), `/v0/peers`, and each configured node's own

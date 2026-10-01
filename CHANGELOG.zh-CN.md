@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **裁决到达提问的那个节点**（v1.0 批 DL / M6-4b，**M6 的终点**）：在另一个节点上做出、在这里被裁决的请求，**沿提问者自己的会话**回答它（`net::request_decision_body`；不新拨号、不经路由），而提问者把它写在链上：**`m.request.approve` / `m.request.reject`** —— **不新增事件名** —— `decided_by` 点名做决定的节点，于是裁决跨重启存活（`derive_requests_from` 折叠的正是这一族）。只告诉提问者；不删任何东西；关于一个本节点没有的 ask 的裁决被忽略。`RelayServer::send_to` 变为 public（中心的应答路径）。**无路由、无 capability、无 SDK、无依赖；`merge_segment`、`audit/src/hash.rs` 与触发器未动。** **决策 §158。**
+
 - **参考 M 长出一个层级**（v1.0 批 DJ / M6-6，第一块）：`examples/python/supervisor.py` 多出 **`--level node|lan`**（默认 `node` —— 行为不变）。在 `lan` 下，快照读的是 **workgroup**：`/v0/online`（服务器角色的运行时表）、`/v0/peers`，以及每个被配置的节点**自己的**控制面 —— 节点用 `--node <node_id>=<host:port>` 指名，它的 token 放在文件里（`--node-token-file <node_id>=<path>`；**token 永不作参数**）。读不到的节点被**记下**（`{"unreachable": …}`），而不是致命。**`M_TOOLS` 不变（18 条）**，不加路由、不加 capability，且**不碰任何 Rust 文件** —— 本批只是 Python 与文档，也就是红线 1 的调用方那一侧。跨区域级与 `--config` 是 DI-2 / DI-3。**决策 §157。**
 
 - **中心被告知的东西记在它自己的链上，而锚点那一环收口了**（v1.0 批 DH / M6-5-4，M6-5 整条线的终点）：节点上报的 digest，由**跑服务器角色的那个节点**记为一条 `host.audit.digest_received` 行（`{node_id, chain, length}`），**按变化记** —— 重复自己的报告什么都不写 —— 经新增的 `net::DigestSink`（照 §6.7 的判断 sink；独立 `riscdom-relay` 无链、不装）。**不造自己的汇总链。** 而 `segment_done` 现在带 **`anchor_hash`**（发送方 `segment_opened` 行的哈希），中心用 `events[0].prev_hash` 查它；判定以 `anchor: "ok" | "broken" | "skipped"` 与 `checked`、`linkage` 并列旅行。**无路由行、无 capability 名、无 SDK 改动、无依赖；`merge_segment`、`audit/src/hash.rs` 与触发器未动，`verify_chain` 逻辑不变。** **决策 §156。**

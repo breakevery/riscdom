@@ -538,6 +538,12 @@ current request authorising it (§2).
   **recorded** (`{"unreachable": …}`) rather than fatal. **`M_TOOLS` is unchanged (18)** and **no Rust file is
   touched**: the batch is Python and docs, which is the caller's side of red line 1. The cross-region level and
   `--config` are DI-2 / DI-3. **Decision §157.**
+- **And a decision reaches the node that asked** (v1.0 batch DL / M6-4b, 2026-10-01, **the last piece of M6**):
+  a request made elsewhere and decided here answers the asker **down its own session** (`send_to`; no new
+  dialling, no route), and the asker writes it as **`m.request.approve` / `m.request.reject`** — no new event
+  name — with `decided_by` naming the node that decided, so it survives a restart. The probe thread's drain
+  loop is the reader, and `CentreWatch` now carries the queue. Only the asker is told; nothing is deleted.
+  **`merge_segment` and `audit/src/hash.rs` untouched.** **Decision §158.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

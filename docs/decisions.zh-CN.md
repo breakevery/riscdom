@@ -1751,3 +1751,19 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **不在本批**：**跨区域**级（一张 LAN M 清单；**DI-2**）与**配置文件**（`--config`；**DI-3**）—— 二者都按 owner 裁决不属 M6-6。
 
 **影响**：`examples/python/supervisor.py`（`--level`、`--node`、`--node-token-file`、`build_peers`、`Supervisor.level`/`peers`、`online`/`known_peers`、`lan_snapshot`、`FakeNode` 的 agent id 与它的两个新应答、以及 `--self-test` 里一项 LAN 检查）；`examples/python/README.md` + zh；`docs/multi-agent-foundation.md` + zh；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。**不碰任何 Rust 文件，不加路由或 capability 名，不加依赖（Python 仅标准库），不写链。**
+
+## 158. 裁决到达提问的那个节点
+
+**日期**：2026-10-01 ｜ **状态**：已定且已实现（批 DL / M6-4b，M6 的最后一块）
+
+**决策**：§155 的另外一半，也是 M6 的终点：
+
+- **裁决横着走。** `net` 多出 `request_decision_body` / `is_request_decision` —— 一个 body，`{request_decision, request_id, decision, decided_by, at_ms}` —— 与 §6.7 的报告、接管广播并列。它**沿提问者已经持有的那条会话**送下去（`RelayServer::send_to`，中心本来就用它给自己发应答），所以不拨号、不经路由。
+- **提问者把它写成一次本地裁决。** 提问者链上的行是 `m.request.approve` / `m.request.reject` —— **不新增事件名** —— 与本地裁决同一组 detail 键，`decided_by` 点名做决定的节点。`derive_requests_from` 折叠的正是这一族，所以裁决**跨重启存活**；换一种拼写就意味着要有第二个读者。
+- **只告诉提问者。** 一个节点**自己**的 ask 的裁决本来就在它自己的链上，所以什么都不发（`requester_agent_id == 本节点` → 跳过发送）。
+- **不删任何东西**，而关于一个本节点没有的 ask 的裁决被忽略，不是致命。
+- **读者就是 drain 循环**：`is_request_decision` 分支挂在探测线程跑的那个循环里，与报告、接管并列。该循环需要队列，所以 `CentreWatch` 携带它 —— 就是 state 持有的那个 `SandboxRequests` 的克隆（队列是 DG 放在 `SegmentSink` 上的）。
+
+**缘由**：§155 让别处做出的 ask **看得见**；这一批让答复**成真** —— 没有它，提问者的队列会一直 pending 在一个已经被做出的裁决上。复用 `m.request.*` 就是整个重启故事（决策 §84：链是记录，队列是它的一个视图），而横着走的 body 是 §6.7 与 M5-3b-1 早已为「节点之间、而不是链行」的事实定下的形状。
+
+**影响**：`net/src/suppression.rs`（`RequestDecision`、它的 body 与谓词）+ 一个往返单测；`net/src/lib.rs`（导出）；`net/src/relay.rs`（`RelayServer::send_to` 变为 **public** —— 中心的应答路径，只有持链的调用方才能为它构造 body）；`host-core/src/state.rs`（`CentreWatch.requests` + 它的五处构造点、两个裁决上的 `tell_asker`、drain 分支、`decide_request_from_peer`）+ 一个单测，断言队列、链行与随重启而来的重建；`docs/cross-device-dispatch.md` §10 + zh；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。**不新增事件名、不加路由、不加 capability、不动 SDK、不加依赖；`merge_segment`、`audit/src/hash.rs` 与 append-only 触发器未动，`verify_chain` 逻辑不变。**

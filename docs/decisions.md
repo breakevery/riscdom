@@ -4763,3 +4763,38 @@ mechanism, the caller owns policy" looks like from the caller's side (red line 1
 answers, and a LAN check in `--self-test`); `examples/python/README.md` + zh; `docs/multi-agent-foundation.md`
 + zh; `CHANGELOG.md` + zh; `docs/handoff.md` + zh. **No Rust file is touched, no route or capability name is
 added, no dependency is added (Python standard library only), and the audit chain is not written to.**
+
+## 158. A decision reaches the node that asked
+
+**Date**: 2026-10-01 ｜ **Status**: Decided and implemented (batch DL / M6-4b, the last piece of M6)
+
+**Decision**: The other half of §155, and the end of M6:
+
+- **The decision travels sideways.** `net` gains `request_decision_body` / `is_request_decision` — one body,
+  `{request_decision, request_id, decision, decided_by, at_ms}` — beside §6.7's reports and the takeover
+  broadcast. It goes **down the session the asker already holds** (`RelayServer::send_to`, which the centre
+  already uses for its own answers), so nothing is dialled and no route is involved.
+- **The asker writes it as a local decision.** The row on the asker's chain is `m.request.approve` /
+  `m.request.reject` — **no new event name** — with the same detail keys and `decided_by` naming the node that
+  decided. `derive_requests_from` folds exactly that family, so the decision **survives a restart**; a second
+  spelling would have needed a second reader.
+- **Only the asker is told.** A decision on a node's **own** ask is already on its chain, so nothing is sent
+  (`requester_agent_id == this node` → the send is skipped).
+- **Nothing is deleted**, and a decision about an ask this node does not hold is ignored, not fatal.
+- **The reader is the drain loop**: the `is_request_decision` branch sits beside the reports and the takeover
+  in the loop the probe thread runs. That loop needs the queue, so `CentreWatch` carries it — a clone of the
+  same `SandboxRequests` the state holds (the queue DG put on `SegmentSink`).
+
+**Why**: §155 made an ask made elsewhere **visible**; this makes the answer **real** — without it, the asker's
+queue would sit pending forever on a decision already taken. Reusing `m.request.*` is the whole of the restart
+story (decisions §84: the chain is the record, the queue is a view of it), and a sideways body is the shape
+§6.7 and M5-3b-1 already fixed for node-to-node facts that are not chain rows.
+
+**Impact**: `net/src/suppression.rs` (`RequestDecision`, its body and predicate) + a round-trip test;
+`net/src/lib.rs` (exports); `net/src/relay.rs` (`RelayServer::send_to` becomes **public** — the centre's own
+answer path, which only a caller with a chain can build a body for); `host-core/src/state.rs`
+(`CentreWatch.requests` + its five construction sites, `tell_asker` on both decisions, the drain branch,
+`decide_request_from_peer`) + a unit test asserting the queue, the chain row and the rebuild that follows a
+restart; `docs/cross-device-dispatch.md` §10 + zh; `CHANGELOG.md` + zh; `docs/handoff.md` + zh. **No new event
+name, no route, no capability, no SDK, no dependency; `merge_segment`, `audit/src/hash.rs` and the append-only
+triggers are untouched, and `verify_chain`'s logic is unchanged.**

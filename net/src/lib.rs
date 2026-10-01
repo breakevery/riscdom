@@ -102,10 +102,11 @@ pub use rooms::{
 };
 pub use sign::{verify, verify_at, PeerKeys, VerifiedMessage, VerifyError};
 pub use suppression::{
-    backoff_delay_ms, centre_report_from, first_in_line, is_first_in_line, is_segment_done,
-    is_segment_event, is_takeover, segment_done_body, segment_event_body, takeover_body,
-    verify_delivery, verify_linkage, DeliveryProblem, LinkageProblem, SegmentDone, SegmentEvent,
-    Suppression, SuppressionPhase, Takeover, SUPPRESSION_BACKOFF_MAX, SUPPRESSION_WAIT,
+    backoff_delay_ms, centre_report_from, first_in_line, is_first_in_line, is_request_decision,
+    is_segment_done, is_segment_event, is_takeover, request_decision_body, segment_done_body,
+    segment_event_body, takeover_body, verify_delivery, verify_linkage, DeliveryProblem,
+    LinkageProblem, RequestDecision, SegmentDone, SegmentEvent, Suppression, SuppressionPhase,
+    Takeover, SUPPRESSION_BACKOFF_MAX, SUPPRESSION_WAIT,
 };
 pub use task::{
     is_task, is_task_reply, task_body, task_from_body, task_reply_body, task_reply_from_body,

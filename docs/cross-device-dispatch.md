@@ -209,3 +209,29 @@ M6-4b, and it is **not** a prerequisite for the propagation above.
 **Frozen**: that an ask is a row and needs no new transport; that the refresh reuses `restore` and reports
 collisions. **Not frozen**: how a decision travels back (M6-4b), and whether a remote decision ever clears
 the asker's own queue.
+
+## 10. A decision comes back (v1.0 M6-4b)
+
+**[settled] The ask travels with the segment; the answer travels sideways.** §9 says a request made on a
+stand-in arrives on the centre because it is an ordinary chain row. The **decision** goes the other way and
+needs no segment: the centre answers **down the session the asker already holds** — the path §6.6's
+registration acknowledgement and §6.2's address answer already use — so nothing is dialled and no route is
+involved. One frame's body carries it:
+
+    { "request_decision": 1, "request_id": "…", "decision": "approved" | "rejected",
+      "decided_by": "<the node that decided>", "at_ms": … }
+
+**[settled] The asker writes it as a local decision.** On the asker's chain the row is spelled
+**`m.request.approve` / `m.request.reject`** — the same two actions a local decision uses, with the same
+detail keys — and `decided_by` names the node that decided. That is what makes a remote decision **survive a
+restart**: the queue is rebuilt from the chain (`derive_requests_from` folds exactly those actions), and a
+second spelling would have needed a second reader.
+
+**[settled] Nothing is deleted.** The decided row stays in the queue; the chain keeps the ask and the
+decision. A node that is not dialled in hears nothing, like every other answer, and a decision about an ask
+this node does not hold is **ignored** rather than fatal.
+
+**Not here**: a workgroup-wide announcement of a decision — the centre answers the asker only.
+
+**Frozen**: the body's shape and the `m.request.*` spelling of the row it becomes. **Not frozen**: whether a
+decision is ever announced to the whole workgroup.

@@ -1111,6 +1111,10 @@ struct CentreWatch {
     sink: Arc<Mutex<dyn AuditSink>>,
     /// This node's agent id, so the row a takeover writes is named the way every other `host.*` row is.
     agent_id: String,
+    /// The live pending-approval queue (v1.0 M6-4b). A decision made **elsewhere** arrives as a body on
+    /// this node's session, and folding it in means this node needs the queue here: the probe thread is
+    /// the only reader a node has, and the queue is where such a decision lands.
+    requests: SandboxRequests,
 }
 
 ///
@@ -1202,6 +1206,16 @@ impl Probe {
                                         if let Ok(mut slot) = watch.takeover_heard.lock() {
                                             *slot = Some(now);
                                         }
+                                    } else if let Some(decision) =
+                                        net::is_request_decision(&message.body)
+                                    {
+                                        // A decision the centre made about one of **this** node's asks
+                                        // (v1.0 M6-4b). It is written on this chain with the spelling a
+                                        // local decision uses, so a restart rebuilds the queue with it;
+                                        // an ask this node does not hold, or one already decided, is
+                                        // ignored — a body about someone else's queue must not stop the
+                                        // reader.
+                                        let _ = decide_request_from_peer(watch, &decision, now);
                                     }
                                 }
                                 // A segment that stood in elsewhere, addressed to **this** node as its
@@ -1911,6 +1925,54 @@ fn receive_segment(
         }),
     );
     Ok(())
+}
+
+/// Write a peer's decision on this node's chain, and move the queue with it (v1.0 M6-4b).
+///
+/// The row is spelled like a **local** decision — `m.request.approve` / `m.request.reject` — and its
+/// detail carries the same four keys (`id`, `action`, `sandbox`, `decided_by`), which is what makes a
+/// decision taken elsewhere survive a restart: `derive_requests_from` folds exactly that family back
+/// into the queue (decisions §84). `decided_by` names the node that decided, so the row is readable as
+/// a **remote** one without a second spelling. An ask this node does not hold, or one already decided,
+/// is ignored: this body may be about another node's queue, and a reader never panics on it.
+fn decide_request_from_peer(
+    watch: &CentreWatch,
+    decision: &net::RequestDecision,
+    now: i64,
+) -> bool {
+    let status = match decision.decision.as_str() {
+        "approved" => SandboxRequestStatus::Approved,
+        "rejected" => SandboxRequestStatus::Rejected,
+        _ => return false,
+    };
+    let Ok(view) = watch
+        .requests
+        .decide(&decision.request_id, status, &decision.decided_by)
+    else {
+        return false;
+    };
+    let action = if status == SandboxRequestStatus::Approved {
+        "m.request.approve"
+    } else {
+        "m.request.reject"
+    };
+    let Ok(mut store) = watch.store.lock() else {
+        return false;
+    };
+    let _ = store.append(audit::AuditEvent {
+        timestamp_ms: now,
+        actor: "host".to_string(),
+        action: action.to_string(),
+        detail: serde_json::json!({
+            "id": view.id,
+            "action": view.action,
+            "sandbox": view.sandbox,
+            "decided_by": decision.decided_by,
+        }),
+        // The actor is the node that decided, exactly as a local decision writes it.
+        agent_id: Some(decision.decided_by.clone()),
+    });
+    true
 }
 
 /// What the probe thread needs to **receive a task** for this node (v1.0 M6-1b).
@@ -4456,7 +4518,26 @@ impl AppState {
             crate::events::EV_M_REQUEST_APPROVE,
             crate::events::m_request_payload(&view.id, "approved", Some(decided_by)),
         );
+        self.tell_asker(&view, "approved");
         Ok(view)
+    }
+
+    /// Hand a decision back to the node that asked, when it was not this one (v1.0 M6-4b).
+    ///
+    /// A request made on a stand-in is decided here — the centre owns the queue it merged — and the
+    /// decision has to reach the node that asked. It travels **sideways**, down the session that node
+    /// already holds: `send_to` is the centre's own answer path, so nothing is dialled and no route is
+    /// involved. A node deciding its own ask writes the row locally and sends nothing — and a node
+    /// that is not dialled in hears nothing, exactly as every other answer behaves.
+    fn tell_asker(&self, view: &SandboxRequestView, decision: &str) {
+        if view.requester_agent_id == self.agent_id() {
+            return;
+        }
+        let Some(server) = self.server_role() else {
+            return;
+        };
+        let body = net::request_decision_body(&view.id, decision, self.agent_id(), net::now_ms());
+        let _ = server.send_to(&view.requester_agent_id, body);
     }
 
     /// Reject a pending request.
@@ -4488,6 +4569,7 @@ impl AppState {
             crate::events::EV_M_REQUEST_REJECT,
             crate::events::m_request_payload(&view.id, "rejected", Some(decided_by)),
         );
+        self.tell_asker(&view, "rejected");
         Ok(view)
     }
 
@@ -5188,6 +5270,7 @@ impl AppState {
             store: Arc::clone(&self.audit),
             sink: Arc::clone(&self.sink),
             agent_id: self.agent_id.clone(),
+            requests: self.sandbox_requests.clone(),
         });
         let probe = Probe::start(
             client,
@@ -5304,6 +5387,7 @@ impl AppState {
             store: Arc::clone(&self.audit),
             sink: Arc::clone(&self.sink),
             agent_id: self.agent_id.clone(),
+            requests: self.sandbox_requests.clone(),
         };
         let ticker = SuppressionTicker::start(watch, interval, net::now_ms());
         let previous = self
@@ -8253,6 +8337,7 @@ mod tests {
             store: Arc::clone(&state.audit),
             sink: Arc::clone(&state.sink),
             agent_id: state.agent_id.clone(),
+            requests: state.sandbox_requests.clone(),
         };
         let now = 1_700_000_000_000;
         let opened = declare_takeover(&watch, now).expect("a temporary segment");
@@ -8314,6 +8399,7 @@ mod tests {
             store: Arc::clone(&state.audit),
             sink: Arc::clone(&state.sink),
             agent_id: state.agent_id.clone(),
+            requests: state.sandbox_requests.clone(),
         }
     }
 
@@ -8814,6 +8900,91 @@ mod tests {
         );
     }
 
+    /// A decision a **peer** made lands on this node's chain and moves its queue (v1.0 M6-4b).
+    ///
+    /// The row is spelled like a local decision, which is what makes it survive a restart:
+    /// `derive_requests_from` folds the same three actions back into the queue.
+    #[test]
+    fn a_peers_decision_lands_on_this_nodes_chain_and_queue() {
+        let state = state_with("remote-decision", serde_json::json!({}));
+        let ask_id = "req-dev-a-7-1".to_string();
+        // The ask is **on the chain** as well, the way M6-4a's merge transcribes it — the rebuild reads
+        // the chain, not the queue, so a test that seeded only the queue would prove nothing.
+        state
+            .audit
+            .lock()
+            .expect("audit")
+            .append(audit::AuditEvent::new(
+                "host",
+                "m.request.ask",
+                serde_json::json!({ "id": ask_id, "action": "switch", "sandbox": "blink" }),
+            ))
+            .expect("append");
+        let (restored, conflicts) =
+            state
+                .sandbox_requests()
+                .restore(&[crate::sandbox_request::ReconciledRequest {
+                    id: ask_id.clone(),
+                    requester_agent_id: "dev-a-7-1".to_string(),
+                    action: SandboxAction::Switch,
+                    sandbox: Some("blink".to_string()),
+                    status: SandboxRequestStatus::Pending,
+                    decided_by: None,
+                    requested_at_ms: 1,
+                    decided_at_ms: None,
+                    reason: None,
+                }]);
+        assert_eq!(
+            (restored, conflicts.len()),
+            (1, 0),
+            "the ask is queued first"
+        );
+
+        let watch = watch_for(&state, &["dev-b"]);
+        let decision = net::RequestDecision {
+            request_id: ask_id.clone(),
+            decision: "approved".to_string(),
+            decided_by: "centre".to_string(),
+            at_ms: 1_700_000_000_000,
+        };
+        assert!(decide_request_from_peer(
+            &watch,
+            &decision,
+            1_700_000_000_001
+        ));
+
+        // The queue moved off pending, and the chain carries the decision under the local spelling.
+        assert!(
+            state.sandbox_requests().pending().is_empty(),
+            "an approved ask is not pending any more"
+        );
+        let events = state.audit.lock().expect("audit").all().expect("events");
+        let row = events
+            .iter()
+            .find(|stored| stored.event.action == "m.request.approve")
+            .expect("the decision is on the chain");
+        assert_eq!(row.event.detail["id"], serde_json::json!(ask_id));
+        assert_eq!(row.event.detail["decided_by"], serde_json::json!("centre"));
+
+        // …and a restart rebuilds it as approved, with the name of the node that decided it.
+        let rebuilt = derive_requests_from(&events);
+        let record = rebuilt
+            .iter()
+            .find(|record| record.id == ask_id)
+            .expect("the ask is rebuilt from the chain");
+        assert_eq!(record.status, SandboxRequestStatus::Approved);
+        assert_eq!(record.decided_by.as_deref(), Some("centre"));
+
+        // A decision for an ask this node does not hold is ignored, not fatal.
+        let stranger = net::RequestDecision {
+            request_id: "req-nobody".to_string(),
+            decision: "rejected".to_string(),
+            decided_by: "centre".to_string(),
+            at_ms: 1,
+        };
+        assert!(!decide_request_from_peer(&watch, &stranger, 2));
+    }
+
     /// A segment-side sink for a centre, and the store it writes into.
     fn centre_side_for(centre: &AppState) -> SegmentSink {
         SegmentSink {
@@ -9249,6 +9420,7 @@ mod tests {
             store: Arc::clone(&state.audit),
             sink: Arc::clone(&state.sink),
             agent_id: state.agent_id.clone(),
+            requests: state.sandbox_requests.clone(),
         };
         assert!(
             declare_takeover(&watch, 1_700_000_000_000).is_some(),
