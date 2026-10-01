@@ -938,6 +938,11 @@ pub struct AppState {
     connection_server: Mutex<Option<net::RelayServer>>,
     /// Where the server role is bound, when it is serving (v1.0 AC-4). `None` otherwise.
     connection_server_addr: Mutex<Option<String>>,
+    /// The last digest **heard** from each peer (v1.0 M6-5-4). Keyed by `node_id`, holding the
+    /// `(chain, length)` the centre was last told. It exists so a report that repeats itself writes no
+    /// second row: the recording is "on change", which is what keeps a thirty-second cadence from
+    /// filling the chain.
+    digest_heard: Mutex<HashMap<String, (Option<String>, u64)>>,
     /// The executor handles a task is routed to (v0.9 interface E0).
     ///
     /// Built from `settings.executors` after the settings file is read. The
@@ -1555,12 +1560,20 @@ fn deliver_segment(watch: &CentreWatch, standing: &StandingSegment, closed_id: i
             Some((digest, length)) => (digest, length),
             None => (None, None),
         };
+        // The `segment_opened` row's own hash (v1.0 M6-5-4): the anchor link's missing evidence, and the
+        // value the centre compares `events[0].prev_hash` against.
+        let anchor_hash = store
+            .events_in_range(standing.opened_id, standing.opened_id)
+            .ok()
+            .and_then(|mut rows| rows.pop())
+            .map(|row| row.hash);
         segment_frames(
             &events,
             &standing.id,
             &watch.centre,
             digest.as_deref(),
             length,
+            anchor_hash.as_deref(),
         )
     };
     let (events, done) = frames;
@@ -1594,6 +1607,7 @@ fn segment_frames(
     centre: &str,
     head_prev_chain: Option<&str>,
     head_prev_length: Option<i64>,
+    anchor_hash: Option<&str>,
 ) -> (Vec<net::SegmentEvent>, net::SegmentDone) {
     let total = events.len();
     let frames = events
@@ -1623,6 +1637,8 @@ fn segment_frames(
         // The wire's length is a count, like `ChainDigest.length`; the row's is an id. A value that
         // cannot be one is not reported as one (v1.0 M6-5-1).
         anchor_length: head_prev_length.and_then(|length| u64::try_from(length).ok()),
+        // The opened row's hash, so the centre can check the anchor link (v1.0 M6-5-4).
+        anchor_hash: anchor_hash.map(str::to_string),
     };
     (frames, done)
 }
@@ -1749,6 +1765,31 @@ fn receive_segment(
                 }
             })
     };
+    // Does the stream continue from where the sender says the segment opened (v1.0 M6-5-4)? The
+    // `segment_opened` row's own hash is `events[0]`'s `prev_hash`, so the check is an equality — the one
+    // piece the anchor link was missing. A sender that carries no hash is **skipped**, exactly as a sender
+    // whose events carry no hashes is.
+    let mut anchor_verdict = "skipped";
+    let anchor_check: Result<(), String> = match done.anchor_hash.as_deref() {
+        None => Ok(()),
+        Some(wanted) => {
+            match events.first().and_then(|event| event.prev_hash.as_deref()) {
+                Some(first) if first == wanted => {
+                    anchor_verdict = "ok";
+                    Ok(())
+                }
+                // Nothing was delivered, so there is no first event to compare: the claim cannot be checked,
+                // and that is recorded as skipped rather than as a match nobody can demonstrate.
+                None => Ok(()),
+                Some(_) => {
+                    anchor_verdict = "broken";
+                    Err("the first delivered event does not continue from the anchor the sender named"
+                    .to_string())
+                }
+            }
+        }
+    };
+    let verdict = verdict.and(anchor_check);
     let anchor_digest = done.head_prev_chain.as_deref();
     let anchor_length = done
         .anchor_length
@@ -1772,6 +1813,7 @@ fn receive_segment(
                 reason,
                 checked,
                 linkage,
+                anchor_verdict,
             ),
         );
         return Ok(());
@@ -1788,6 +1830,7 @@ fn receive_segment(
             events.len(),
             checked,
             linkage,
+            anchor_verdict,
         ),
     );
     // What the merge transcribed (v1.0 M6-4a): the rows it just appended are the newest `merged` ones,
@@ -2583,6 +2626,7 @@ impl AppState {
             centre_witnesses: net::WitnessTable::new(),
             takeover_heard: Arc::new(Mutex::new(None)),
             connection_server: Mutex::new(None),
+            digest_heard: Mutex::new(HashMap::new()),
             connection_server_addr: Mutex::new(None),
             executors: Arc::new(Mutex::new(Vec::new())),
             task_replies: Arc::new(Mutex::new(HashMap::new())),
@@ -5405,6 +5449,42 @@ impl AppState {
         Arc::new(move |transition| state.record_connection_transition(transition))
     }
 
+    /// What this node writes when a **peer's** digest arrives (v1.0 M6-5-4): one row per **change**.
+    ///
+    /// The centre is told a digest every thirty seconds per node, and almost all of those say the same
+    /// thing. Recording only what changed gives the same "what the centre was told, in order" as a
+    /// batching timer would, **without a clock**: a quiet node writes nothing, and a node that moves its
+    /// chain writes once. The row joins the `host.audit.*` family (decisions §33: what the centre was
+    /// told is a fact about the centre) and is deliberately **not** one of
+    /// `docs/control-plane-events.md`'s twenty stream events.
+    pub fn connection_digest_sink(self: &Arc<Self>) -> net::DigestSink {
+        let state = Arc::clone(self);
+        Arc::new(move |node_id: &str, digest: &net::ChainDigest| {
+            let entry = (digest.chain.clone(), digest.length);
+            let changed = match state.digest_heard.lock() {
+                Ok(mut heard) => {
+                    if heard.get(node_id) == Some(&entry) {
+                        false
+                    } else {
+                        heard.insert(node_id.to_string(), entry);
+                        true
+                    }
+                }
+                Err(_) => return,
+            };
+            if changed {
+                state.emit_host(
+                    "host.audit.digest_received",
+                    serde_json::json!({
+                        "node_id": node_id,
+                        "chain": digest.chain,
+                        "length": digest.length,
+                    }),
+                );
+            }
+        })
+    }
+
     /// Install §6.7's judgement sink on this node's **own** server role (v1.0 batch AK).
     ///
     /// A node that runs the server role is the server that judges the nodes below it, so the rows a
@@ -5423,6 +5503,9 @@ impl AppState {
             return false;
         };
         server.set_transition_sink(self.connection_judgement_sink());
+        // What the centre is **told** belongs on its own chain too (v1.0 M6-5-4): the same sink shape,
+        // the same reason (only a caller with a chain can write a row).
+        server.set_digest_sink(self.connection_digest_sink());
         true
     }
 
@@ -8439,6 +8522,7 @@ mod tests {
             "centre",
             anchor.as_deref(),
             anchor_length,
+            None,
         );
         assert_eq!(frames.len(), 2);
         assert_eq!(done.total, 2);
@@ -8546,6 +8630,7 @@ mod tests {
             total: 1,
             head_prev_chain: Some("anchor-hash".to_string()),
             anchor_length: Some(7),
+            anchor_hash: None,
         };
         let frames = vec![net::SegmentEvent {
             segment_id: "seg-dev-a-9".to_string(),
@@ -8602,6 +8687,131 @@ mod tests {
             .filter(|stored| stored.event.action == "host.sandbox_request.restore")
             .count();
         assert_eq!(restored, 1, "the restore is recorded once");
+    }
+
+    /// A digest the centre is told lands on its chain — once per **change** (v1.0 M6-5-4).
+    #[test]
+    fn a_digest_the_centre_is_told_is_recorded_once_per_change() {
+        let centre = Arc::new(state_with("digest-heard", serde_json::json!({})));
+        let sink = centre.connection_digest_sink();
+        let same = net::ChainDigest {
+            chain: Some("ab".to_string()),
+            length: 3,
+        };
+        sink("dev-a", &same);
+        sink("dev-a", &same); // the thirty-second report repeats itself: no second row
+        sink(
+            "dev-a",
+            &net::ChainDigest {
+                chain: Some("cd".to_string()),
+                length: 4,
+            },
+        );
+
+        let rows = centre
+            .audit
+            .lock()
+            .expect("audit")
+            .list(
+                audit::EventFilter {
+                    action_prefix: Some("host.audit.digest_received".to_string()),
+                    ..Default::default()
+                },
+                10,
+            )
+            .expect("rows");
+        assert_eq!(
+            rows.len(),
+            2,
+            "one row per change, not per report: {rows:?}"
+        );
+        assert_eq!(rows[0].event.detail["node_id"], serde_json::json!("dev-a"));
+        assert_eq!(rows[0].event.detail["chain"], serde_json::json!("ab"));
+        assert_eq!(rows[0].event.detail["length"], serde_json::json!(3));
+        assert_eq!(rows[1].event.detail["chain"], serde_json::json!("cd"));
+    }
+
+    /// The anchor link is checked when the sender names the opened row's hash (v1.0 M6-5-4).
+    #[test]
+    fn the_anchor_link_is_checked_when_the_sender_names_it() {
+        let anchor = "opened-row-hash".to_string();
+        // A real chain: the first event's hash is recomputed by `chained`, so the linkage check passes and
+        // the anchor check has something to compare.
+        let frames = vec![chained(delivered(0, 1, 1), &anchor)];
+        let anchor_of = |centre: &AppState, action: &str| -> serde_json::Value {
+            centre
+                .audit
+                .lock()
+                .expect("audit")
+                .all()
+                .expect("events")
+                .into_iter()
+                .find(|stored| stored.event.action == action)
+                .unwrap_or_else(|| panic!("no {action} row"))
+                .event
+                .detail["anchor"]
+                .clone()
+        };
+
+        // The first event continues from the anchor the sender named: `ok`, and it folds.
+        let centre = state_with("anchor-ok", serde_json::json!({}));
+        let mut done = delivery_done(1, Some(7));
+        done.anchor_hash = Some(anchor.clone());
+        let side = centre_side_for(&centre);
+        receive_segment(
+            &side,
+            "dev-me",
+            "dev-a",
+            &done,
+            &frames,
+            1_700_000_000_001,
+            None,
+        )
+        .expect("delivered");
+        assert_eq!(
+            anchor_of(&centre, audit::ACTION_CHAIN_VERIFIED),
+            serde_json::json!("ok")
+        );
+
+        // A different hash: the link is broken, and the delivery is refused.
+        let centre = state_with("anchor-broken", serde_json::json!({}));
+        let mut done = delivery_done(1, Some(7));
+        done.anchor_hash = Some("somebody-else".to_string());
+        let side = centre_side_for(&centre);
+        receive_segment(
+            &side,
+            "dev-me",
+            "dev-a",
+            &done,
+            &frames,
+            1_700_000_000_002,
+            None,
+        )
+        .expect("recorded");
+        assert_eq!(
+            anchor_of(&centre, audit::ACTION_CHAIN_REJECTED),
+            serde_json::json!("broken")
+        );
+
+        // A sender that predates the member: nothing is claimed, so the link is `skipped` — and the
+        // delivery still folds, exactly as a sender without event hashes still does.
+        let centre = state_with("anchor-skipped", serde_json::json!({}));
+        let done = delivery_done(1, Some(7));
+        let side = centre_side_for(&centre);
+        receive_segment(
+            &side,
+            "dev-me",
+            "dev-a",
+            &done,
+            &frames,
+            1_700_000_000_003,
+            None,
+        )
+        .expect("delivered");
+        assert_eq!(
+            anchor_of(&centre, audit::ACTION_CHAIN_VERIFIED),
+            serde_json::json!("skipped")
+        );
     }
 
     /// A segment-side sink for a centre, and the store it writes into.
@@ -8663,6 +8873,7 @@ mod tests {
             total,
             head_prev_chain: Some("anchor-hash".to_string()),
             anchor_length,
+            anchor_hash: None,
         }
     }
 
@@ -8817,6 +9028,7 @@ mod tests {
             total: 0,
             head_prev_chain: Some("anchor-hash".to_string()),
             anchor_length: Some(5),
+            anchor_hash: None,
         };
         receive_segment(
             &side,
@@ -9070,6 +9282,7 @@ mod tests {
             total: 1,
             head_prev_chain: Some("anchor-hash".to_string()),
             anchor_length: Some(7),
+            anchor_hash: None,
         };
         let frames = vec![net::SegmentEvent {
             segment_id: "seg-dev-a-9".to_string(),

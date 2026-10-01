@@ -336,6 +336,15 @@ pub struct SegmentDone {
     /// for that sender can compare rather than guess (M6-5-2 does the comparing). `None` when the sender
     /// opened the segment before it recorded a length.
     pub anchor_length: Option<u64>,
+    /// The hash of the sender's **`segment_opened` row** (v1.0 M6-5-4) — the one piece the anchor link was
+    /// missing.
+    ///
+    /// The anchor digest names a point on the sender's chain; this names the *row the segment opened
+    /// with*, whose own `prev_hash` is that point. A centre can therefore check
+    /// `events[0].prev_hash == anchor_hash` — the first delivered event really continues from where the
+    /// sender says the segment began — which no member before this one could express. `None` from a
+    /// sender that predates it, which the centre records as **skipped** rather than refused.
+    pub anchor_hash: Option<String>,
 }
 
 /// The body one segment event travels as (v1.0 M5-3c-2).
@@ -586,6 +595,7 @@ pub fn segment_done_body(done: &SegmentDone) -> Value {
         "head_prev_chain": done.head_prev_chain,
         "anchor_digest": done.head_prev_chain,
         "anchor_length": done.anchor_length,
+        "anchor_hash": done.anchor_hash,
     })
 }
 
@@ -609,6 +619,12 @@ pub fn is_segment_done(body: &Value) -> Option<SegmentDone> {
         // The length is optional and lenient: absent or not a number means "the sender did not say",
         // which is the honest reading for a segment opened before the length was recorded.
         anchor_length: body.get("anchor_length").and_then(Value::as_u64),
+        // The opened row's own hash (v1.0 M6-5-4), optional like the length: a sender that predates it
+        // simply does not say, and the centre records that rather than refusing the segment.
+        anchor_hash: body
+            .get("anchor_hash")
+            .and_then(Value::as_str)
+            .map(str::to_string),
     })
 }
 
@@ -803,12 +819,15 @@ mod tests {
             total: 3,
             head_prev_chain: Some("abc123".to_string()),
             anchor_length: Some(9),
+            anchor_hash: Some("opened-row-hash".to_string()),
         };
         let body = segment_done_body(&done);
         // The digest travels under both of its names, and behind them is one value.
         assert_eq!(body["head_prev_chain"], serde_json::json!("abc123"));
         assert_eq!(body["anchor_digest"], serde_json::json!("abc123"));
         assert_eq!(body["anchor_length"], serde_json::json!(9));
+        // The opened row's own hash travels too (v1.0 M6-5-4), and reads back as it was sent.
+        assert_eq!(body["anchor_hash"], serde_json::json!("opened-row-hash"));
         assert_eq!(is_segment_done(&body), Some(done));
 
         // A frame from a sender that predates the anchor names: the M5-3c-2 spelling, read as one.
@@ -827,6 +846,7 @@ mod tests {
                 total: 0,
                 head_prev_chain: Some("def456".to_string()),
                 anchor_length: None,
+                anchor_hash: None,
             }),
             "a sender that predates M6-5-1 still reads"
         );
@@ -844,6 +864,10 @@ mod tests {
         let read = is_segment_done(&empty).expect("a done frame");
         assert_eq!(read.head_prev_chain, None);
         assert_eq!(read.anchor_length, None);
+        assert_eq!(
+            read.anchor_hash, None,
+            "a sender that says nothing says nothing"
+        );
     }
 
     /// The delivery check reads the envelope and nothing else (v1.0 M6-5-2a).
@@ -855,6 +879,7 @@ mod tests {
             total: 2,
             head_prev_chain: Some("abc".to_string()),
             anchor_length: Some(5),
+            anchor_hash: None,
         };
         let event = |index: usize| SegmentEvent {
             segment_id: "seg-dev-a-1".to_string(),

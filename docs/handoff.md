@@ -522,6 +522,14 @@ current request authorising it (§2).
   reported by id; a forked merge folds in nothing), so a remote ask shows up at `GET /v0/sandboxes/requests`
   without a restart. **No new frame, no new route, no new event name; `merge_segment` is untouched.**
   **Decision §155.**
+- **And the centre's own chain records what it was told — and the anchor link is closed** (v1.0 batch DH /
+  M6-5-4, 2026-10-01, **the end of the M6-5 line (5-1…5-4)**): a digest a node reports is written by the node
+  that **runs the server role** as one `host.audit.digest_received` row (`{node_id, chain, length}`), **once per
+  change** (a repeat writes nothing) through a new `net::DigestSink` — the standalone `riscdom-relay` installs
+  none, having no chain. **No summary chain of its own.** And `segment_done` carries **`anchor_hash`**, which
+  the centre checks against `events[0].prev_hash`; the verdict is `anchor: "ok" | "broken" | "skipped"` beside
+  `checked` and `linkage`. **`merge_segment`, `audit/src/hash.rs` and the triggers are untouched.**
+  **Decision §156.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

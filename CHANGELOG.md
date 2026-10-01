@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **What the centre was told is on its own chain, and the anchor link is closed** (v1.0 batch DH / M6-5-4, the
+  end of the M6-5 line): a digest a node reports is recorded by the node that **runs the server role** as one
+  `host.audit.digest_received` row (`{node_id, chain, length}`), **once per change** — a report that repeats
+  itself writes nothing — through a new `net::DigestSink` (mirroring §6.7's judgement sink; the standalone
+  `riscdom-relay` installs none, having no chain). **No summary chain of its own.** And `segment_done` now
+  carries **`anchor_hash`** (the sender's `segment_opened` row hash), which the centre checks against
+  `events[0].prev_hash`; the verdict travels as `anchor: "ok" | "broken" | "skipped"` beside `checked` and
+  `linkage`. **No route row, no capability name, no SDK change, no dependency; `merge_segment`,
+  `audit/src/hash.rs` and the triggers are untouched, and `verify_chain`'s logic is unchanged.**
+  **Decision §156.**
+
 - **A request made on another node reaches this node's queue** (v1.0 batch DG / M6-4a): an ask is an
   ordinary `m.request.ask` chain row, so it already arrives with a stand-in's segment — what was missing was
   the reader. `receive_segment` now folds **just the rows a folded merge wrote** into the live

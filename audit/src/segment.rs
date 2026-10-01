@@ -327,6 +327,9 @@ pub fn segment_forked_detail(
 /// Neither word ever claims the anchor: tying the first event back to it is a **remaining goal**
 /// ([cross-chain-verification.md](../../docs/cross-chain-verification.md)), because the link between them is
 /// the `segment_opened` marker, which is not delivered.
+/// The detail of a [`ACTION_CHAIN_VERIFIED`] event (v1.0 M6-5-2a; M6-5-2b and M6-5-4 added words): the
+/// delivery, and the checks it survived.
+#[allow(clippy::too_many_arguments)]
 pub fn chain_verified_detail(
     segment_id: &str,
     from: &str,
@@ -335,6 +338,9 @@ pub fn chain_verified_detail(
     events: usize,
     checked: &str,
     linkage: &str,
+    // The anchor-link verdict (v1.0 M6-5-4): `"skipped"` (the sender named no opened-row hash), `"ok"`
+    // (the first delivered event continues from it), `"broken"` (it does not).
+    anchor: &str,
 ) -> serde_json::Value {
     serde_json::json!({
         "segment_id": segment_id,
@@ -344,6 +350,7 @@ pub fn chain_verified_detail(
         "events": events,
         "checked": checked,
         "linkage": linkage,
+        "anchor": anchor,
     })
 }
 
@@ -362,6 +369,8 @@ pub fn chain_rejected_detail(
     reason: &str,
     checked: &str,
     linkage: &str,
+    // The anchor-link verdict (v1.0 M6-5-4): see [`chain_verified_detail`].
+    anchor: &str,
 ) -> serde_json::Value {
     serde_json::json!({
         "segment_id": segment_id,
@@ -372,6 +381,7 @@ pub fn chain_rejected_detail(
         "reason": reason,
         "checked": checked,
         "linkage": linkage,
+        "anchor": anchor,
     })
 }
 

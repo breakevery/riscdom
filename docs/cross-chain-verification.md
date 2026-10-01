@@ -127,9 +127,12 @@ and it does not claim the anchor.
 
 ## 5. The other two questions
 
-**Answer to (1): the summary chain is not needed for the anchor.** §2's choice answers (2) without one. A
-summary chain of its own `prev_hash` would answer a different question — what the *centre* was told, in order
-— and it is **M6-5-4**, out of the first piece.
+**Answer to (1): settled — the centre's own chain (v1.0 M6-5-4).** A summary chain of its own `prev_hash`
+would be a second genesis, a second format and a second verification story, and it would make the centre a
+holder of history, which §6.2 avoids. What "what was the centre told, in order" needs is **a row**, and the
+centre has a chain already: a digest it is told is recorded there as `host.audit.digest_received`
+(`{node_id, chain, length}`), **once per change** — a report that repeats itself writes nothing, so a
+thirty-second cadence does not become thirty seconds of chain. §2's choice already answered (2) without it.
 
 **Answer to (3): the kernel gives observability and tools, not a rule.** M5-2 already does the honest half:
 the narrowest possible test (exact equality of `actor`, `action` and cleared detail), a **fork** rather than a
@@ -141,10 +144,13 @@ person to judge. No automatic adjudication, **M6**.
 
 ## 6. What is not here yet
 
-- **The anchor link** (see §4): tying the first event back to `anchor_digest` needs the `segment_opened`
-  marker's hash, which is not delivered. Recorded as **work still owed by M6-5**.
-- **No new frame.** M6-5-2a and M6-5-2b add members to frames M5-3c-2 already sends; nothing new is dialled.
-- **No summary chain, no `prev_hash` of its own, no range proof** (M6-5-4).
+- **The anchor link is closed** (v1.0 M6-5-4). The end frame now carries `anchor_hash` — the hash of the
+  sender's `segment_opened` row — so the centre can check that `events[0].prev_hash` **is** that point. A
+  sender that predates the member claims nothing and is recorded `anchor: "skipped"`, exactly as a sender
+  whose events carry no hashes is.
+- **No new frame.** M6-5-2a to M6-5-4 add members to frames M5-3c-2 already sends; nothing new is dialled.
+- **A summary chain exists, and it is the centre's own** — a row per change
+  (`host.audit.digest_received`), not a second chain; **no `prev_hash` of its own, and no range proof** (M6-5-4).
 - **No conflict rule** (M6-5-3), and no change to M5-2's exact test.
 - **No change to `ChainDigest`.** It stays a commitment to a head.
 - **`compute_hash`, `verify_chain`, the append-only triggers, the route table and the 33-name capability

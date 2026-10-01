@@ -1717,3 +1717,19 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **不在本批（M6-4b）**：**裁决**的回传。`m.request.approve` 写在裁决方的链上，所以提问方的队列看不见它；裁决是否到达提问方（一条反向帧，或反方向的段）是 M6-4b，它不是这一半的前提。
 
 **影响**：`host-core/src/state.rs`（`SegmentSink.requests`、折叠合并后的尾部读取、刷新与它的记录、以及四处构造点）+ 一个单测；`docs/cross-device-dispatch.md` §9 + zh；`docs/control-plane-api.md` + zh（队列的 `GET` 行）；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。**无路由行、无 §5.1/§5.2 计数、无 capability 名、无 SDK 改动、无依赖；`merge_segment`、`compute_hash`、`verify_chain` 与 append-only 触发器未动。**
+
+## 156. 中心被告知了什么，以及锚点那一环的收口
+
+**日期**：2026-10-01 ｜ **状态**：已定且已实现（批 DH / M6-5-4）
+
+**决策**：M6-5 的最后一块，也是它手里那两个 `[open]`：
+
+- **(1) 汇总链就是中心自己的链。** 中心被*告知*的 digest 变成部署者自己链上的一条 `host.audit.digest_received` 行 —— `{node_id, chain, length}`。**没有第二个创世、没有第二种格式、没有它自己的 `prev_hash`**，所以中心仍是有摘要的持有者而不是历史的持有者（§6.2）。
+- **按变化记，不用定时器。** 服务器每三十秒被每个节点告知一次 digest，而其中几乎全部是在重复自己；sink 比对每节点上一个 `(chain, length)`，**只写变了的部分**。这与批量定时器给出的「被告知了什么、顺序如何」相同，却不需要时钟 —— 而且在安静的节点上什么都不写。
+- **sink 属于 `net`，行属于我们。** `net` 多出 `DigestSink` 与 `RelayServer::set_digest_sink`，照 §6.7 的 `TransitionSink`：服务器持有那张表，只有持链的调用方能写行，而独立 `riscdom-relay` 不装。
+- **(2) 锚点那一环收口了。** `segment_done` 多出 **`anchor_hash`** —— 发送方 `segment_opened` 行的哈希 —— 中心查 `events[0].prev_hash == anchor_hash`。判定以 **`checked` 与 `linkage` 旁边的第三个词**旅行：`anchor` 取 `"ok"`、`"broken"`（拒收本次交付）或 `"skipped"`（早于该成员的发送方什么都不声称 —— M6-5-2b 已经给不带哈希的发送方同样的宽容）。`linkage` 说这条流自身自洽；`anchor` 说它**从发送方声称的起点接着往下** —— 两个不同的检查，刻意分开放。
+- **`merge_segment` 未动**，哈希公式未动，也没有任何新连接：两处改动都是 M5-3c-2 已经在发的帧的成员。
+
+**缘由**：「中心被告知了什么、顺序如何」是关于**中心**的事实，所以它属于中心的链 —— 它本来就有一条，而 §6.2 的要点正是它持有的是摘要、不是消息。而锚点那一环是 §4/M6-5-2b 唯一表达不了的东西：流能自证段内自洽，却不能证明它开在发送方声称的地方。开段行自己的哈希正好就是那个声明，它早就在发送方的链上，只是从未旅行。
+
+**影响**：`net/src/relay.rs`（`DigestSink`、字段、`set_digest_sink`、`fire_digest`、`Local::Digest` 分支）；`net/src/lib.rs`（导出）；`net/src/suppression.rs`（`SegmentDone.anchor_hash`、body、宽松读）+ `net/tests/suppression.rs`；`audit/src/segment.rs`（两个 detail 构造器各加一个 `anchor` 词）；`host-core/src/state.rs`（`digest_heard`、`connection_digest_sink`、紧挨判断 sink 的装点、`deliver_segment` 填哈希、`receive_segment` 校验）+ 两个单测；`docs/cross-chain-verification.md` §5/§6 + zh；`docs/connection.md` §7 + zh；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。**无路由行、无 §5.1/§5.2 计数、无 capability 名、无 SDK 改动、无依赖；`audit/src/hash.rs` 与 `merge_segment` 未动，`verify_chain` 逻辑不变（只是某个 detail 多了一个字段），append-only 触发器未动。**

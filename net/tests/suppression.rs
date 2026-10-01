@@ -140,6 +140,7 @@ fn a_segment_stream_reaches_the_centre_through_the_relay() {
         total: 1,
         head_prev_chain: Some("deadbeef".to_string()),
         anchor_length: Some(7),
+        anchor_hash: None,
     };
     client.segment_done_to("dev-b", &done).expect("send done");
 

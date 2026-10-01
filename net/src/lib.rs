@@ -90,10 +90,10 @@ pub use relay::{
     address_answer_body, address_query, address_query_body, answered_addresses, client_for_server,
     digest_body, heartbeat_body, hello_body, is_digest, is_heartbeat, is_hello, is_key_event,
     is_register, is_registered, key_event_body, register_body, registered_body, route, Answer,
-    ChainDigest, Forwarder, KeyEvent, Local, LocalReply, Online, OnlineEntry, OnlineTable,
-    Registration, RelayClient, RelayError, RelayServer, RelayServerError, RelaySession, Routed,
-    SessionTable, DIGEST_INTERVAL, FIRST_GENERATION, HEARTBEAT_INTERVAL, KEY_EVENT_LOG,
-    ONLINE_WINDOW_MS,
+    ChainDigest, DigestSink, Forwarder, KeyEvent, Local, LocalReply, Online, OnlineEntry,
+    OnlineTable, Registration, RelayClient, RelayError, RelayServer, RelayServerError,
+    RelaySession, Routed, SessionTable, DIGEST_INTERVAL, FIRST_GENERATION, HEARTBEAT_INTERVAL,
+    KEY_EVENT_LOG, ONLINE_WINDOW_MS,
 };
 pub use replay::{ReplayError, ReplayGuard, Window, REPLAY_WINDOW_AHEAD_MS, REPLAY_WINDOW_BACK_MS};
 pub use rooms::{

@@ -172,6 +172,15 @@ pub fn is_registered(body: &Value) -> bool {
     body.get("registered").and_then(Value::as_u64) == Some(u64::from(PROTOCOL_VERSION))
 }
 
+/// Where a **received** chain digest is handed, when the deployment runs a chain beside the server
+/// (v1.0 M6-5-4).
+///
+/// `net` holds the digest table in memory and nothing more — the chain is `host-core`'s — so recording
+/// "what the centre was told" is the caller's act, exactly as §6.7's judgement is
+/// ([`TransitionSink`](crate::TransitionSink)). A standalone `riscdom-relay` holds no chain and installs
+/// no sink, which is why this is optional rather than a required part of the server.
+pub type DigestSink = Arc<dyn Fn(&str, &ChainDigest) + Send + Sync>;
+
 /// A chain digest: the chain's head and how many events lead to it (§7, v1.0
 /// M4e-1).
 ///
@@ -1067,6 +1076,8 @@ struct ServerInner {
     /// role holds, not a second copy of anyone's history.
     key_events: Mutex<HashMap<String, VecDeque<KeyEvent>>>,
     transition_sink: RwLock<Option<TransitionSink>>,
+    /// Where a **received** digest goes, when the deployment has a chain to write it to (v1.0 M6-5-4).
+    digest_sink: RwLock<Option<DigestSink>>,
 }
 
 impl RelayServer {
@@ -1100,6 +1111,7 @@ impl RelayServer {
                 digests: Mutex::new(HashMap::new()),
                 key_events: Mutex::new(HashMap::new()),
                 transition_sink: RwLock::new(None),
+                digest_sink: RwLock::new(None),
             }),
         })
     }
@@ -1179,6 +1191,30 @@ impl RelayServer {
             .transition_sink
             .write()
             .expect("the transition sink is not poisoned") = Some(sink);
+    }
+
+    /// Wire where a **received** digest goes (v1.0 M6-5-4). The chain is `host-core`'s, so the server
+    /// hands the fact out rather than inventing a row: a deployment that runs a server in a process with
+    /// a chain installs a sink, and the standalone relay installs none.
+    pub fn set_digest_sink(&self, sink: DigestSink) {
+        *self
+            .inner
+            .digest_sink
+            .write()
+            .expect("the digest sink is not poisoned") = Some(sink);
+    }
+
+    /// Hand a received digest to the sink, when one is wired.
+    fn fire_digest(&self, node_id: &str, digest: &ChainDigest) {
+        let sink = self
+            .inner
+            .digest_sink
+            .read()
+            .expect("the digest sink is not poisoned")
+            .clone();
+        if let Some(sink) = sink {
+            sink(node_id, digest);
+        }
     }
 
     /// Hand a transition to the sink, when one is wired.
@@ -1390,7 +1426,11 @@ impl RelayServer {
                     .digests
                     .lock()
                     .expect("the digest table is not poisoned")
-                    .insert(from.to_string(), digest);
+                    .insert(from.to_string(), digest.clone());
+                // The deployment's chain hears about it (v1.0 M6-5-4). The table above is the centre's
+                // working memory; what it was **told** belongs on its own chain, and only a caller that
+                // has one can write it.
+                self.fire_digest(from, &digest);
                 Ok(LocalReply::DigestTaken {
                     node_id: from.to_string(),
                     length: *length,

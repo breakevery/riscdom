@@ -4683,3 +4683,45 @@ refresh and its record, and the four construction sites) + one unit test;
 `CHANGELOG.md` + zh; `docs/handoff.md` + zh. **No route row, no §5.1/§5.2 count, no capability name, no
 SDK change, no dependency; `merge_segment`, `compute_hash`, `verify_chain` and the append-only triggers are
 untouched.**
+
+## 156. What the centre was told, and the anchor link closed
+
+**Date**: 2026-10-01 ｜ **Status**: Decided and implemented (batch DH / M6-5-4)
+
+**Decision**: The last piece of M6-5, and the two `[open]` items it was holding:
+
+- **(1) The summary chain is the centre's own chain.** A digest the centre is *told* becomes one
+  `host.audit.digest_received` row — `{node_id, chain, length}` — on the deployment's own chain. **No second
+  genesis, no second format, no `prev_hash` of its own**, so the centre stays a holder of digests rather
+  than of history (§6.2).
+- **Recorded on change, not on a timer.** The server is told a digest every thirty seconds per node and
+  almost all of those repeat themselves; the sink compares against the last `(chain, length)` per node and
+  writes **only what changed**. That is the same "what was it told, in order" a batching timer would give,
+  without a clock — and a quiet node writes nothing.
+- **The sink is `net`'s, the row is ours.** `net` gains `DigestSink` and `RelayServer::set_digest_sink`,
+  mirroring §6.7's `TransitionSink`: the server holds the table, only a caller with a chain can write a row,
+  and the standalone `riscdom-relay` installs none.
+- **(2) The anchor link is closed.** `segment_done` gains **`anchor_hash`** — the hash of the sender's
+  `segment_opened` row — and the centre checks `events[0].prev_hash == anchor_hash`. The verdict travels as a
+  **third word beside `checked` and `linkage`**: `anchor` is `"ok"`, `"broken"` (which refuses the delivery)
+  or `"skipped"` (a sender that predates the member claims nothing — the leniency M6-5-2b already gives a
+  sender whose events carry no hashes). `linkage` says the stream holds together; `anchor` says it
+  **continues from where the sender says it began** — two different checks, kept apart on purpose.
+- **`merge_segment` is untouched**, the hash formula is untouched, and nothing new is dialled: both changes
+  are members of frames M5-3c-2 already sends.
+
+**Why**: "what the centre was told, in order" is a fact about the **centre**, so it belongs on the centre's
+chain — it already has one, and §6.2's point is that it holds digests rather than messages. And the anchor
+link was the one thing §4/M6-5-2b could not express: the stream proved its own chaining but not that it began
+where the sender claimed. The opened row's hash is exactly that claim, it was already on the sender's chain,
+and it simply never travelled.
+
+**Impact**: `net/src/relay.rs` (`DigestSink`, the field, `set_digest_sink`, `fire_digest`, the `Local::Digest`
+arm); `net/src/lib.rs` (export); `net/src/suppression.rs` (`SegmentDone.anchor_hash`, the body, the lenient
+parse) + `net/tests/suppression.rs`; `audit/src/segment.rs` (an `anchor` word on both detail constructors);
+`host-core/src/state.rs` (`digest_heard`, `connection_digest_sink`, the install beside the judgement sink,
+`deliver_segment` filling the hash, `receive_segment` checking it) + two unit tests;
+`docs/cross-chain-verification.md` §5/§6 + zh; `docs/connection.md` §7 + zh; `CHANGELOG.md` + zh;
+`docs/handoff.md` + zh. **No route row, no §5.1/§5.2 count, no capability name, no SDK change, no dependency;
+`audit/src/hash.rs` and `merge_segment` are untouched, `verify_chain`'s logic is unchanged (a detail gained a
+field), and the append-only triggers are untouched.**

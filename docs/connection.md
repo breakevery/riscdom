@@ -717,6 +717,13 @@ latest per node in memory; the 30-second batch as a *default*; and that the time
 **Not frozen**: what the aggregation role does with a digest beyond holding the latest one; how several
 servers would be run together (a commercialisation-layer item).
 
+**[settled]** **The node on the other side of the report can record it (v1.0 M6-5-4).** A server holds the
+latest digest per node; a **node** that runs a server role and has a chain writes what it was told as one
+`host.audit.digest_received` row (`{node_id, chain, length}`), **once per change** — a report that repeats
+itself writes nothing. The standalone `riscdom-relay` holds no chain and installs no sink, exactly as it
+installs none for §6.7's judgements. The recording is a row on the deployment's own chain, never a second
+chain.
+
 ## 8. Architecture independence
 
 - **[settled]** **The identity layer assumes nothing about a guest.** §2 and §3 name no machine, no instruction set and no emulator: a node's key signs *messages*, not binaries, and a message body is opaque to the layer that carries it. Nothing here may grow a field that only makes sense for one architecture ([roadmap §4](roadmap-v1.0.md), [decisions §2](decisions.md)).
