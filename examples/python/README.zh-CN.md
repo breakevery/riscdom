@@ -82,9 +82,14 @@ python supervisor.py --agent-id m-admin --once --llm-base-url http://127.0.0.1:1
     --llm-model qwen2.5:7b                             # 一轮，带模型（这里用 Ollama）
 python supervisor.py --agent-id m-admin --events       # 只要事件流（只读）
 python supervisor.py --self-test                       # 离线：假节点**加**假模型
+python supervisor.py --agent-id m-admin --level lan --once \
+    --node dev-b=127.0.0.1:7823 --node-token-file dev-b=~/.riscdom/dev-b.token
+                                                       # 读 workgroup，而不只是本节点
 ```
 
 以上每一条都需要 **`--agent-id`**（或 `$RISCDOM_AGENT_ID`）：M 把它的名字作为 `X-RiscDom-Agent` header 发在**每一个**请求上，而节点会把这个名字写进该调度员引起的每一行审计（`m.sandbox.spawn`、`m.task.dispatch` ……）。它是**必填**而不是默认值，因为「没有名字的调度员」正是当初让 M 在链上不可见的原因：带上 header，行里写的是**谁要的**；不带，行里写的是节点。
+
+**`--level node|lan` 决定 M 读什么**（v1.0 M6-6）。`node`（默认，也是先前每个版本的行为）是 `--server` 指名的那个节点。`lan` 是 **workgroup**：节点清单来自 `/v0/online`（服务器角色的运行时表）、本节点自己的 `/v0/peers`，以及每个由 `--node <node_id>=<host:port>` 指名的节点 —— 经**那个节点自己的**控制面读，它的 token 放在文件里（`--node-token-file <node_id>=<path>`；**token 绝不作参数**，因为 shell 历史与进程表都可读）。地址没有对应 token 文件是**用法错误**。**两个层级的工具集相同** —— 变的只是快照的半径 —— 而读不到的节点被**记下**（`{"unreachable": …}`）而不是致命，所以不完整的视图会被报告而不是被藏起来。行动仍走 `--server` 指名的那个节点（`POST /v0/tasks` 带 `node`），所以**行动**不需要同侪的 token —— 只有读才需要。
 
 M 的模型是 **M 自己的**，不是节点的：`--llm-base-url`、`--llm-model`、`--llm-api-key-file`（或 `$RISCDOM_LLM_API_KEY`）从命令行与环境读，从不取自节点的 `llm_configs`。节点的模型跑**任务**；M 的模型决定**哪些任务**。`--max-rounds`（默认 6）限制一轮里允许的调用数，所以一个一直要工具的模型会结束这一轮，而不是永远跑下去。
 
@@ -130,6 +135,7 @@ self-test 会起一个假节点**和一个假模型**：一个按脚本作答的
 | 写 | `POST /v0/tasks` | 派发、实例、切换、待批槽 |
 | 读 | 队伍 | status / 能力 / 沙箱 / 实例 / 待批请求 / 链 |
 | 事件 | `--follow`，不续订 | `--events`，用 `Last-Event-ID` 续订 |
+| 层级 | 一个节点 | `--level lan`：workgroup（`/v0/online` + 每个节点自己的控制面） |
 | 复用 | —— | `dispatch.py` 的传输、token 规矩与错误 |
 
 ## 与 `worker/examples/dispatch.rs` 对照

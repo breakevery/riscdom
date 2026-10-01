@@ -118,6 +118,9 @@ python supervisor.py --agent-id m-admin --once --llm-base-url http://127.0.0.1:1
     --llm-model qwen2.5:7b                             # one turn, with a model (Ollama here)
 python supervisor.py --agent-id m-admin --events       # just the event stream (read-only)
 python supervisor.py --self-test                       # offline: a fake node *and* a fake model
+python supervisor.py --agent-id m-admin --level lan --once \
+    --node dev-b=127.0.0.1:7823 --node-token-file dev-b=~/.riscdom/dev-b.token
+                                                       # the workgroup, not just this node
 ```
 
 Every one of those needs **`--agent-id`** (or `$RISCDOM_AGENT_ID`): M sends its name as the
@@ -125,6 +128,18 @@ Every one of those needs **`--agent-id`** (or `$RISCDOM_AGENT_ID`): M sends its 
 the dispatcher causes (`m.sandbox.spawn`, `m.task.dispatch`, …). It is required rather than
 defaulted because an unnamed dispatcher is exactly what made M invisible in the chain before:
 with the header, a row says *who asked*; without it, the row names the node.
+
+**`--level node|lan` says what M reads** (v1.0 M6-6). `node` (the default, and what every
+earlier version did) is the one node `--server` names. `lan` is the **workgroup**: the node
+list from `/v0/online` (the server role's runtime table), this node's own `/v0/peers`, and
+each node named by `--node <node_id>=<host:port>` — read through that node's **own** control
+plane, with its token in a file (`--node-token-file <node_id>=<path>`; a token is never an
+argument, because the shell history and the process list are both readable). An address with
+no token file is a usage error. **The tool set is the same at either level** — only the
+snapshot's radius changes — and a node that cannot be reached is **recorded**
+(`{"unreachable": …}`) rather than fatal, so a partial view is reported instead of hidden.
+The acts still go to the node `--server` names (`POST /v0/tasks` with `node`), which is why
+no peer token is needed to *act* — only to read.
 
 M's model is **M's own**, not the node's: `--llm-base-url`, `--llm-model`,
 `--llm-api-key-file` (or `$RISCDOM_LLM_API_KEY`) are read from the command line and the
@@ -214,6 +229,7 @@ kernel batch, not this file:
 | Writes | `POST /v0/tasks` | dispatch, instances, the switch, the approval slot |
 | Reads | the fleet | status / capabilities / sandboxes / instances / pending requests / the chain |
 | Events | `--follow`, no resume | `--events`, resuming with `Last-Event-ID` |
+| Level | one node | `--level lan`: the workgroup (`/v0/online` + each node's own control plane) |
 | Reuses | — | `dispatch.py`'s transport, token rule and errors |
 
 ## Compared with `worker/examples/dispatch.rs`
