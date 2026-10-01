@@ -565,6 +565,13 @@ current request authorising it (§2).
   their Release). No `wix.version` override is needed (`1.0.0` is numeric), and `docs/README.md`'s
   `api-compatibility.md` row follows the document's *frozen as of v1.0* status. **The tag and the Release are
   M8-3**, separately authorised. **Decision §161.**
+- **And v1.0 is released** (v1.0 batch DQ / M8-3, 2026-10-01): the tag **`v1.0.0`** (lightweight, at
+  `891c237`) and the GitHub Release **"RiscDom v1.0.0"** (**Latest**, twelve assets: `.dmg`, `.deb`, `.rpm`,
+  `.AppImage`, `.msi`, `.exe`, and the Linux/macOS/Windows `server` + `relay` archives) are up. The
+  desktop/Linux/macOS bundles and the non-Windows archives are the tag's own CI output (run `36821170320`);
+  the Windows installers and the Windows archives were **built on this machine** (no Windows runner). **No
+  file changed in this batch.** **Decision §162.** **M8-4 (the split) is the last piece and is not
+  authorised.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

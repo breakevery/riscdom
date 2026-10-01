@@ -4904,3 +4904,31 @@ Splitting the version work (this batch) from the publish act (M8-3) keeps "we wr
 shell logic changed — the diffs in the version files are the number and nothing else; no route, no capability,
 no SDK, no `audit`, no `net`, no `server`; no tag, no release. `compute_hash`, `verify_chain` and the
 append-only triggers are untouched.**
+
+## 162. v1.0.0 is tagged and released
+
+**Date**: 2026-10-01 ｜ **Status**: Done (v1.0 batch DQ / M8-3)
+
+**Decision**: v1.0 is published:
+
+- **The tag is `v1.0.0`** (lightweight, as v0.9.9 was), cut at `891c237` — the commit that carries the
+  version, the finalised CHANGELOG and the rewritten release notes (M8-2). Pushed, and confirmed by
+  `git ls-remote`.
+- **The GitHub Release is "RiscDom v1.0.0"**, marked **Latest**, with the **twelve** assets the release
+  needs: the four desktop packages (`.dmg`, `.deb`, `.rpm`, `.AppImage`), the two Windows installers
+  (`.msi`, `.exe`), and the six server/relay archives (Linux, macOS and Windows, each a `server` and a
+  `relay`).
+- **Where each asset came from**: the `.dmg` / `.deb` / `.rpm` / `.AppImage` and the Linux and macOS
+  server/relay archives are the tag's own CI jobs (`bundle` and `server-bundle`, run `36821170320`, all
+  jobs green); the two Windows installers and the Windows server/relay archives are **built on this
+  machine** (`npm run tauri build` and `scripts/pack.ps1`), because CI has no Windows runner (M7b-4).
+- **The release body is `RELEASE_NOTES.md`**, as every release's has been.
+
+**Why**: M8-1 declared the freeze and M8-2 wrote the version down; this is the act that makes them public,
+and it is deliberately its own authorised batch (§161's "not in this batch") because a tag cannot be renamed
+and a Release cannot be unpublished.
+
+**Impact**: **no source file, no document and no version changed in this batch** — the tree is exactly what
+M8-2 committed. The tag and the Release are repository state, not file content: `v1.0.0` (lightweight) and
+the "RiscDom v1.0.0" Release, Latest, twelve assets. **M8-4 (the repository split) is the remaining piece and
+needs its own authorisation.**

@@ -1820,3 +1820,18 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **缘由**：API 已宣布冻结（M8-1）；artifacts 上还挂着旧版本号的冻结是自相矛盾，而发布材料正是把声明变成部署者拿得住的东西。把版本工作（本批）与发布动作（M8-3）分开，使「我们写下了 1.0.0」与「我们告诉了世界」可分别进行，于是 tag 才能单独被授权。
 
 **影响**：`Cargo.toml` / `Cargo.lock` / `ui/package.json` / `ui/package-lock.json` / `ui/src-tauri/Cargo.toml` / `ui/src-tauri/Cargo.lock` / `ui/src-tauri/tauri.conf.json`（仅版本字段）、`CHANGELOG.md` + zh、`RELEASE_NOTES.md` + zh、`docs/README.md` + zh、`docs/handoff.md` + zh，以及本条。**无 Rust / Python / JS / shell 逻辑改动 —— 版本文件里的 diff 就是那个数字本身；无路由、无 capability、无 SDK、无 `audit`、无 `net`、无 `server`；不打 tag、不发布。`compute_hash`、`verify_chain` 与 append-only 触发器未动。**
+
+## 162. v1.0.0 已打 tag 并发布
+
+**日期**：2026-10-01 ｜ **状态**：已完成（v1.0 批 DQ / M8-3）
+
+**决策**：v1.0 已发布：
+
+- **tag 是 `v1.0.0`**（轻量，照 v0.9.9），打在 `891c237` —— 那一提交携带版本号、定稿的 CHANGELOG 与重写的发布说明（M8-2）。已推送，并经 `git ls-remote` 确认。
+- **GitHub Release 是「RiscDom v1.0.0」**，标为 **Latest**，带齐发布所需的**十二**个资产：四个桌面包（`.dmg`、`.deb`、`.rpm`、`.AppImage`）、两个 Windows 安装包（`.msi`、`.exe`），以及六个 server/relay 归档（Linux、macOS、Windows 各一 server 一 relay）。
+- **每个资产的来源**：`.dmg` / `.deb` / `.rpm` / `.AppImage` 与 Linux、macOS 的 server/relay 归档来自 tag 自己的 CI 作业（`bundle` 与 `server-bundle`，run `36821170320`，全绿）；两个 Windows 安装包与 Windows 的 server/relay 归档是**本机构建**（`npm run tauri build` 与 `scripts/pack.ps1`），因为 CI 没有 Windows runner（M7b-4）。
+- **release body 就是 `RELEASE_NOTES.md`**，每一次发布皆如此。
+
+**缘由**：M8-1 宣布了冻结，M8-2 把版本写下来；本批是把它们变成公开的那一动作。它**故意**是独立授权的一批（§161 的「不在本批」）：tag 不能重命名、Release 不能撤回。
+
+**影响**：**本批未改动任何源文件、文档与版本** —— 工作树恰好是 M8-2 提交的样子。tag 与 Release 是仓库状态，不是文件内容：`v1.0.0`（轻量）与「RiscDom v1.0.0」Release、Latest、十二个资产。**M8-4（拆仓）是余下的一块，需单独授权。**
