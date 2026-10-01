@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The API is frozen** (v1.0 batch DO / M8-1): the freeze is declared in the documents rather than by a tag —
+  `api-compatibility.md`'s status line reads *frozen as of v1.0*, `roadmap-v1.0.md` §13 records it, and
+  decisions §160 names the three frozen things. **`/v0/` is the path v1.0 ships with**: the four documents that
+  said the prefix becomes `/v1/` *at v1.0* are corrected, and `error-model.md`'s `cause` chain is tied to the
+  prefix's real move instead. **No code, no version bump, no tag.** **Decision §160.**
+
 ### Tests
 
 - **M6 is closed** (v1.0 batch DM): the multi-node line **M6-1…M6-6 is complete at `d7f2a76`**. Its last

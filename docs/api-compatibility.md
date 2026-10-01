@@ -2,7 +2,7 @@
 
 # API compatibility, data migration and upgrade
 
-**Status** v1.0 specification (milestone [M1](roadmap-v1.0.md)) ｜ **Date** 2026-09-27 ｜ **Baseline**
+**Status** frozen as of v1.0 (milestone [M1](roadmap-v1.0.md)) ｜ **Date** 2026-09-27 ｜ **Baseline**
 v0.9.9 (`3365970`) ｜ **Audience** distribution integrators — whoever builds a product on this kernel.
 
 **What this document is.** The rulebook for what may change without breaking a client, and how data on
@@ -37,7 +37,7 @@ changing them lives.
   field ignores it; a server that does not receive it keeps today's behaviour. This is the rule the
   settings file has followed since v0.4 — and which kept `SETTINGS_VERSION` at **1** until the
 v1.0 M2b-1 migration, the first change that needed a version of its own).
-- **[settled]** **Adding an endpoint.** A new path under `/v1/` is additive by construction.
+- **[settled]** **Adding an endpoint.** A new path under the frozen prefix (`/v0/`) is additive by construction.
 - **[settled]** **Adding a capability.** The vocabulary grows and existing tokens are unaffected —
   [`server/src/auth.rs`](../server/src/auth.rs) holds **33** capabilities today, and the number is not a
   contract.
@@ -73,15 +73,17 @@ Each of these needs a **major** version, and therefore the migration path of §6
 
 ## 5. Versions
 
-- **[settled]** **The path prefix carries the protocol's major version.** `/v0/` for the whole v0.x line,
-  `/v1/` from v1.0 (this follows [`control-plane-api.md`](control-plane-api.md) §7, which already says
-  so: v1.0 freezes the API and the prefix becomes `/v1/`).
+- **[settled]** **The path prefix carries the protocol's major version.** `/v0/` for the whole v0.x line.
+  **`/v0/` is the path v1.0 ships with**: the freeze pins what the paths *mean*, it does not rename them. The
+  prefix moves to `/v1/` at the **next protocol-breaking change** — not at v1.0, whose whole point is that the
+  paths stay put while the meaning behind them stops moving (see
+  [`control-plane-api.md`](control-plane-api.md) §7).
 - **[settled]** **v0.x promises nothing.** Within v0.x a breaking change ships without a prefix bump and
   clients must tolerate it. A v0.x integration pins a RiscDom **version range**, not an API version.
 - **[settled]** **From v1.0, semver is strict**: `MAJOR.MINOR.PATCH`. A minor release may contain only
   §2's changes; a major release may contain §3's, and comes with a migration.
 - **[settled]** **The package version and the protocol version are not the same number.** A 1.3.0
-  release still speaks `/v1/`; the prefix moves only when the protocol breaks.
+  release still speaks `/v0/`; the prefix moves only when the protocol breaks.
 
 ## 6. Data migration
 

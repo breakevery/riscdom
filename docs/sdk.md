@@ -78,7 +78,7 @@ than hand-copying it: **a new endpoint reaches the SDKs because it reached the t
 
 An SDK version is only as meaningful as the API's stability, and **the API is not stable yet**:
 [control-plane-api.md](control-plane-api.md) §7 says the whole v0.x line ships breaking changes without a
-prefix bump, and **v1.0 is the freeze** (from which the path becomes `/v1/`, additive fields do not bump the
+prefix bump, and **v1.0 is the freeze** (`/v0/` is the path it ships with, additive fields do not bump the
 version, and a semantic change does).
 
 So the SDKs follow the API's own rule, and say so out loud:

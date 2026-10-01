@@ -43,16 +43,18 @@ devices).
 }
 ```
 
-| Field | Type (v0.x) | Type (from `/v1/`) | Meaning |
+| Field | Type (v0.x) | Type (from the next prefix move) | Meaning |
 |---|---|---|---|
 | `code` | string | string | Stable and machine-readable. The list is **closed for v0.9**; v1.0 extends it (§8) and then closes it again. |
 | `message` | string | string | Human-readable. **Never contains a secret** — no token, no key, no credential. |
 | `retryable` | bool | bool | Whether an identical retry can plausibly succeed (§4). |
-| `cause` | string \| null | **string[]** | The offending input field or subsystem. v1.0 makes it a **chain**: outermost first, so `["network", "executor"]` reads "the network, and under it the executor". |
+| `cause` | string \| null | **string[]** | The offending input field or subsystem. The next prefix move makes it a **chain**: outermost first, so `["network", "executor"]` reads "the network, and under it the executor". |
 
-- **[settled]** **`cause` becomes a chain at `/v1/`, not before.** Until the freeze the field is what
-  [`control-plane-api.md`](control-plane-api.md) §4 documents (a single string or `null`), so no v0.x
-  client is broken by this document. The switch belongs to the same batch as the prefix change.
+- **[settled]** **`cause` becomes a chain at the next prefix move, not at v1.0.** v1.0 freezes the **paths**
+  (`/v0/` is the path it ships with, [`api-compatibility.md`](api-compatibility.md) §5), not this field: the
+  wire keeps what [`control-plane-api.md`](control-plane-api.md) §4 documents — a single string or `null`,
+  which is what `server/src/http.rs` builds today — so no v0.x client is broken by this document. The switch
+  belongs to the same batch as the prefix change.
 - **[settled]** **`message` is for a person; `code` and `cause` are for a program.** A client that
   matches on `message` is broken by design.
 
@@ -123,7 +125,7 @@ choose to retry a refusal, but the model does not call it retryable.
 - **[settled]** **In process**: `Box<dyn std::error::Error>` where a real source exists, and a string
   where the source is a refusal with a sentence. A variant carries data, not prose, wherever the caller
   can branch on it (`exit_status`, `completed`, `failed`, `kind`).
-- **[settled]** **On the wire**: the chain is flattened into `cause` (an array from `/v1/`, §2),
+- **[settled]** **On the wire**: the chain is flattened into `cause` (an array from the next prefix move, §2),
   outermost first, with each element a short, stable token or field name — the same vocabulary a client
   can switch on, never a sentence that changes between releases.
 - **[settled]** **A chain never carries a secret.** The rule for `message` (§2) applies to every element:
@@ -184,7 +186,7 @@ with the prefix change so no v0.x client sees them.
 - **[open]** **`Partial`'s status**: `500` with a `partial` cause, or a `code` of its own. Both are
   defensible; the choice belongs to the batch that lands the enum.
 - **[open]** **Whether any new `code` may appear in `/v0/`.** The list is closed for v0.9, and the honest
-  reading is that the additions above arrive with `/v1/` — but a fix that needs one earlier is a
+  reading is that the additions above arrive with the next prefix move — but a fix that needs one earlier is a
   judgement call, not a rule.
 - **[open]** **The exact JSON of the `cause` chain** (an array of tokens versus an array of objects with
   a `kind`). The shape is decided when the first endpoint returns one.

@@ -1782,3 +1782,23 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **缘由**：M6 是本发布最大的一块工程，而一条只被推理过、没有被证过的接缝不算接缝。这两个测试是这条线被称为「完成」所需的最后一件东西。
 
 **影响**：仅 `host-core/tests/connection.rs` 及其辅助函数。**未改动任何实现行** —— 工作树只有一个文件不同，而那是测试文件。不动 `net`、不动 `audit`、不加路由、不加 capability、不动 SDK、不加依赖；`merge_segment`、`audit/src/hash.rs` 与 append-only 触发器未动。
+
+## 160. API 已冻结
+
+**日期**：2026-10-01 ｜ **状态**：已定（v1.0 批 DO / M8-1）
+
+**决策**：v1.0 的前一半：**API 已冻结**，而冻结是三样东西 —— 再点名一次，因为整个发布都挂在它们上面（[`api-compatibility.zh-CN.md`](api-compatibility.zh-CN.md) §1）：
+
+- **控制面的 HTTP 协议** —— [`control-plane-api.zh-CN.md`](control-plane-api.zh-CN.md) 记录的每条路径、方法、请求体、响应体、状态码与头。
+- **客户端可观测量** —— 事件流信封与词汇、提供给模型的工具 schema、审计事件词汇。
+- **宿主 crate 的 `pub use` 面** —— `host-core` / `agent` / `sandbox` / `audit`。它们的内部不冻结。
+
+**宣布方式是文档，不是 tag**：[`api-compatibility.zh-CN.md`](api-compatibility.zh-CN.md) 的状态行现在写作*自 v1.0 起冻结*，[`roadmap-v1.0.zh-CN.md`](roadmap-v1.0.zh-CN.md) §13 记录它、并不再自称草案，而本决策是台账条目。**tag 与发布是 M8-3**，需单独授权；版本号 bump 与发布说明是 M8-2。
+
+- **`/v0/` 就是 v1.0 发布的路径。** 冻结钉住的是路径的**含义**，不是把它们改名。前缀在**下一个协议破坏性变更**时才移到 `/v1/` —— 不是 v1.0，v1.0 的全部要义正是路径原地不动。有四个文档说过前缀*在 v1.0* 变为 `/v1/`（`api-compatibility.md` §2 与 §5、`control-plane-api.md` §7、`error-model.md` §2/§6/§9、`sdk.md` 的版本化一节）；**四个都在同一批改正**，因为一份与自己规格相矛盾的冻结声明，比不宣布还糟。
+- **后果被跟到底，而不只是改词。** [`error-model.zh-CN.md`](error-model.zh-CN.md) 曾把 `cause` 链绑在前缀变更上（「`cause` 在 `/v1/` 才变成链，之前不变……这次切换属于前缀变更的同一个批次」）。既然前缀不再在 v1.0 移动，v1.0 的 `cause` 保持线上今天携带的样子 —— **单个字符串或 `null`**（`server/src/http.rs` 的 `cause: Option<&str>`）—— 而链随前缀到来。
+- **[roadmap §1](roadmap-v1.0.zh-CN.md) 的四条红线**本来就是稳定性策略通过的那场考试（[`api-compatibility.zh-CN.md`](api-compatibility.zh-CN.md) §9，决策 §86）；冻结没有新增条款、没有移动任何不变量。
+
+**缘由**：冻结是一次**声明**，所以它必须是**真的**：§6 的六份文档在盘，策略已通过 §1 的四条红线（§86），M1–M7 已完成。唯一不真的那句 —— 路径在 v1.0 变更 —— 在这里改正，而不是留给客户端去发现。
+
+**影响**：仅文档 —— `docs/api-compatibility.md` + zh、`docs/control-plane-api.md` + zh、`docs/error-model.md` + zh、`docs/sdk.md` + zh、`docs/roadmap-v1.0.md` + zh、`docs/handoff.md` + zh、`CHANGELOG.md` + zh，以及本条。**无源文件、无路由表、无能力词汇表、无 SDK 代码、无 `Cargo.toml`；版本号未 bump、tag 未打。`compute_hash`、`verify_chain` 与 append-only 触发器未动 —— 本批一行代码都没有。**

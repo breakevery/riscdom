@@ -548,6 +548,15 @@ current request authorising it (§2).
   `d7f2a76`**. Batch DL's two seams — the centre → asker leg and "a node deciding its own ask sends nothing" —
   are now end-to-end tested (a real `RelayServer` and a real `RelayClient`), with **no implementation
   change**. **Decision §159.**
+- **And the API is frozen** (v1.0 batch DO / M8-1, 2026-10-01 — the first half of M8): the freeze is declared
+  **in the documents, not by a tag** — `api-compatibility.md`'s status line reads *frozen as of v1.0*, and
+  `roadmap-v1.0.md` §13 records it and no longer calls itself a draft. The frozen surface is the three things
+  `api-compatibility.md` §1 names (the control-plane HTTP protocol, what a client can observe, the host crates'
+  `pub use` face), and **`/v0/` is the path v1.0 ships with** — the prefix moves at the next protocol-breaking
+  change, so the four documents that said it becomes `/v1/` *at v1.0* (`api-compatibility` §2/§5,
+  `control-plane-api` §7, `error-model` §2/§6/§9, `sdk`) are corrected, and `error-model`'s `cause` chain is
+  tied to the prefix's real move instead. **Documentation only: no code, no version bump, no tag.**
+  **Decision §160.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

@@ -517,8 +517,10 @@ resolved explicitly here; none is silently dropped.
 
 - The path prefix is `/v0/` for the whole v0.x line. Within v0.x, breaking changes ship
   without a prefix bump; clients must tolerate them.
-- **v1.0 freezes the API.** From v1.0 the path becomes `/v1/`, and from then on additive
-  fields do not bump the version while a semantic change does.
+- **v1.0 freezes the API.** `/v0/` is the path v1.0 ships with — the freeze pins what the paths
+  *mean*, it does not rename them; the prefix moves to `/v1/` at the next protocol-breaking change,
+  not at v1.0. From the freeze on, additive fields do not bump the version while a semantic change
+  does.
 - A client pins a RiscDom version range, not the API version, for v0.x. This is honest
   about the instability instead of pretending otherwise.
 

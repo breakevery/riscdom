@@ -4822,3 +4822,47 @@ is known to hold. These two tests are the last thing the line needed to be calle
 **Impact**: `host-core/tests/connection.rs` only, plus its helpers. **No implementation line changed** — the
 working tree differs in one file, and that file is a test. No `net`, no `audit`, no route, no capability, no
 SDK, no dependency; `merge_segment`, `audit/src/hash.rs` and the append-only triggers are untouched.
+
+## 160. The API is frozen
+
+**Date**: 2026-10-01 ｜ **Status**: Decided (v1.0 batch DO / M8-1)
+
+**Decision**: v1.0's first half: **the API is frozen**, and the freeze is three things, named once more here
+because the whole release hangs on them ([`api-compatibility.md`](api-compatibility.md) §1):
+
+- **The control plane's HTTP protocol** — every path, method, request body, response body, status code and
+  header documented in [`control-plane-api.md`](control-plane-api.md).
+- **What a client can observe** — the event stream's envelope and vocabulary, the tool schemas a model is
+  offered, and the audit event vocabulary.
+- **The `pub use` surface of the host crates** — `host-core` / `agent` / `sandbox` / `audit`. Their internals
+  are not frozen.
+
+**The announcement is the documents, not a tag**: [`api-compatibility.md`](api-compatibility.md)'s status line
+now reads *frozen as of v1.0*, [`roadmap-v1.0.md`](roadmap-v1.0.md) §13 records it and no longer calls itself a
+draft, and this decision is the ledger entry. **The tag and the release are M8-3**, separately authorised, and
+the version bump and the notes are M8-2.
+
+- **`/v0/` is the path v1.0 ships with.** The freeze pins what the paths **mean**; it does not rename them. The
+  prefix moves to `/v1/` at the **next protocol-breaking change** — not at v1.0, whose whole point is that the
+  paths stay put. Four documents said the prefix becomes `/v1/` *at v1.0* (`api-compatibility.md` §2 and §5,
+  `control-plane-api.md` §7, `error-model.md` §2/§6/§9, and `sdk.md`'s versioning section); **all four are
+  corrected in the same batch**, because a freeze declaration that contradicts its own specification is worse
+  than no declaration.
+- **The consequence is followed through, not just the words.** [`error-model.md`](error-model.md) had tied the
+  `cause` chain to the prefix change ("`cause` becomes a chain at `/v1/`, not before … the switch belongs to the
+  same batch as the prefix change"). With the prefix no longer moving at v1.0, v1.0's `cause` stays what the wire
+  carries today — **a single string or `null`** (`server/src/http.rs`'s `cause: Option<&str>`) — and the chain
+  arrives with the prefix.
+- **[roadmap §1](roadmap-v1.0.md)'s four red lines** were already the test the stability policy passed
+  ([`api-compatibility.md`](api-compatibility.md) §9, decisions §86); the freeze adds no clause and moves no
+  invariant.
+
+**Why**: the freeze is a **declaration**, so it has to be *true*: §6's six documents are on disk, the policy has
+passed §1's red lines (§86), and M1–M7 are complete. The one statement that was not true — that the paths change
+at v1.0 — is corrected here rather than left for a client to discover.
+
+**Impact**: documentation only — `docs/api-compatibility.md` + zh, `docs/control-plane-api.md` + zh,
+`docs/error-model.md` + zh, `docs/sdk.md` + zh, `docs/roadmap-v1.0.md` + zh, `docs/handoff.md` + zh,
+`CHANGELOG.md` + zh, and this entry. **No source file, no route table, no capability vocabulary, no SDK code, no
+`Cargo.toml`; the version is not bumped and no tag is cut. `compute_hash`, `verify_chain` and the append-only
+triggers are untouched — there is no code in the batch at all.**

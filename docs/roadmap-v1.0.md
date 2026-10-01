@@ -357,6 +357,15 @@ These are open items v1.0 inherits. They are listed here so that no discussion h
   M5/M6's.
 - **[settled]** M5's authorisation was granted in **decisions §127** (the cross-device design is authorised);
   M6 depends on M5.
+- **[settled]** **M8 is half done: the freeze is declared** (v1.0 batch DO, 2026-10-01). The frozen surface is
+  the three things [`api-compatibility.md`](api-compatibility.md) §1 names — the control plane's HTTP protocol,
+  what a client can observe, and the host crates' `pub use` surface — and **`/v0/` is the path v1.0 ships
+  with**: the prefix moves at the next protocol-breaking change, not here. The release itself (the version
+  bump, the tag and the notes) is M8-2 and M8-3. **Decision §160.**
+- **[settled]** **M6-6's cross-region level is deferred to v1.x** (v1.0 batch DO). The reference M under
+  `examples/` reads one **workgroup** (`--level lan`); the level above it — a list of LAN Ms, and a `--config`
+  file — is **out of v1.0's scope** ([decisions §157](decisions.md) records it as "not in this batch") and is
+  **deferred to v1.x**.
 
 ## 14. Open questions
 
@@ -408,4 +417,6 @@ drift.
 
 ---
 
-*This is a draft. §14 records what is not settled; §7 records what was authorised (decisions §127).*
+*The API is frozen (v1.0 batch DO; [decisions §160](decisions.md)). §14 records the defaults that remain open
+to change; §7 records what was authorised (decisions §127). The release itself — the version bump, the tag and
+the notes — is M8-2 and M8-3.*
