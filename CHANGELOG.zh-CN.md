@@ -9,6 +9,10 @@
 
 ## [未发布]
 
+### 测试
+
+- **M6 收口**（v1.0 批 DM）：多节点线 **M6-1…M6-6 在 `d7f2a76` 完成**。它最后两条接缝 —— 中心 → 提问者这一段、「一个节点裁决自己的 ask 时不发送」—— 现由 `host-core/tests/connection.rs` 的端到端测试覆盖（真 `RelayServer` 与真 `RelayClient`），**零实现改动**。**决策 §159。**
+
 ### 新增
 
 - **裁决到达提问的那个节点**（v1.0 批 DL / M6-4b，**M6 的终点**）：在另一个节点上做出、在这里被裁决的请求，**沿提问者自己的会话**回答它（`net::request_decision_body`；不新拨号、不经路由），而提问者把它写在链上：**`m.request.approve` / `m.request.reject`** —— **不新增事件名** —— `decided_by` 点名做决定的节点，于是裁决跨重启存活（`derive_requests_from` 折叠的正是这一族）。只告诉提问者；不删任何东西；关于一个本节点没有的 ask 的裁决被忽略。`RelayServer::send_to` 变为 public（中心的应答路径）。**无路由、无 capability、无 SDK、无依赖；`merge_segment`、`audit/src/hash.rs` 与触发器未动。** **决策 §158。**

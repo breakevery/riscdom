@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tests
+
+- **M6 is closed** (v1.0 batch DM): the multi-node line **M6-1…M6-6 is complete at `d7f2a76`**. Its last
+  two seams — the centre → asker leg, and "a node deciding its own ask sends nothing" — are now covered by
+  end-to-end tests in `host-core/tests/connection.rs` (a real `RelayServer` and a real `RelayClient`), with
+  **no implementation change**. **Decision §159.**
+
 ### Added
 
 - **A decision reaches the node that asked** (v1.0 batch DL / M6-4b, **the end of M6**): a request made on

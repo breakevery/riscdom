@@ -4798,3 +4798,27 @@ answer path, which only a caller with a chain can build a body for); `host-core/
 restart; `docs/cross-device-dispatch.md` §10 + zh; `CHANGELOG.md` + zh; `docs/handoff.md` + zh. **No new event
 name, no route, no capability, no SDK, no dependency; `merge_segment`, `audit/src/hash.rs` and the append-only
 triggers are untouched, and `verify_chain`'s logic is unchanged.**
+
+## 159. M6 is closed, and its last two seams are proved
+
+**Date**: 2026-10-01 ｜ **Status**: Decided and implemented (batch DM)
+
+**Decision**: The multi-node line **M6-1…M6-6 is closed** at `d7f2a76`. Batch DL left two seams proved
+apart rather than together; both are now tested against the wire:
+
+- **(i) the centre → asker leg, end to end**: a real in-network server role plus a real `RelayClient`; the
+  centre decides an ask the asker left (`approve_sandbox_request` → `tell_asker` → `send_to`) and the asker
+  reads `is_request_decision`'s body off its **own** session.
+- **(ii) a node deciding its own ask sends nothing**: the guard `requester_agent_id == self.agent_id()` is
+  checked against a spy dialled in **under this node's own agent id**, so "nothing arrived" means the guard
+  held rather than that there was nowhere to send.
+
+Both are non-vacuous: removing the guard fails (ii), and not sending fails (i) — each confirmed by mutation
+and then reverted.
+
+**Why**: M6 is the release's largest piece of work, and a seam that is only reasoned about is not a seam that
+is known to hold. These two tests are the last thing the line needed to be called done.
+
+**Impact**: `host-core/tests/connection.rs` only, plus its helpers. **No implementation line changed** — the
+working tree differs in one file, and that file is a test. No `net`, no `audit`, no route, no capability, no
+SDK, no dependency; `merge_segment`, `audit/src/hash.rs` and the append-only triggers are untouched.

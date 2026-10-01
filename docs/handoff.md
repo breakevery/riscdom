@@ -544,6 +544,10 @@ current request authorising it (§2).
   name — with `decided_by` naming the node that decided, so it survives a restart. The probe thread's drain
   loop is the reader, and `CentreWatch` now carries the queue. Only the asker is told; nothing is deleted.
   **`merge_segment` and `audit/src/hash.rs` untouched.** **Decision §158.**
+- **And M6 is closed** (v1.0 batch DM, 2026-10-01): the multi-node line **M6-1…M6-6 is complete at
+  `d7f2a76`**. Batch DL's two seams — the centre → asker leg and "a node deciding its own ask sends nothing" —
+  are now end-to-end tested (a real `RelayServer` and a real `RelayClient`), with **no implementation
+  change**. **Decision §159.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

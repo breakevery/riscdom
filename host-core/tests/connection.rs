@@ -8,7 +8,7 @@
 
 use host_core::settings::{LocalSettings, NetworkSettings, ServerRoleSettings, SETTINGS_VERSION};
 use host_core::state::AppState;
-use host_core::{ConnectionFile, EventFilter};
+use host_core::{ConnectionFile, EventFilter, EventSink, SandboxAction};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -1082,4 +1082,188 @@ fn installing_the_sink_puts_a_nodes_own_judgement_on_its_chain() {
         &configured("judge-installed-norole"),
     ));
     assert!(!plain.install_connection_sink());
+}
+
+/// A sink that records and is thrown away: an ask and a decision need one, and these tests read the
+/// chain, not the sink.
+fn recording_sink() -> Arc<dyn EventSink> {
+    Arc::new(host_core::events::RecordingEventSink::new())
+}
+
+/// A read timeout short enough that §6.3's ordinary quiet read is a quick answer rather than a
+/// ten-second wait.
+fn short_read() -> net::TransportConfig {
+    net::TransportConfig {
+        read_timeout: Duration::from_millis(400),
+        ..net::TransportConfig::default()
+    }
+}
+
+/// Wait (up to five seconds) for `server` to show a row for `node_id`.
+fn wait_online(server: &net::RelayServer, node_id: &str) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while server.online().iter().all(|row| row.node_id != node_id) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{node_id} never registered"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn a_decision_reaches_the_asker_down_its_own_session() {
+    // (i) of v1.0 batch DM: M6-4b's **other** half — the centre → asker leg, end to end. Batch DL
+    // proved the body round-trips, and that a received body lands in the asker's queue; the wire
+    // between the two (`tell_asker` → `send_to` → the asker's socket) was only reasoned about.
+    // Here the centre is a real in-network server role and the asker a real `RelayClient`.
+    let data_dir = configured_server_role("decision-asker", "127.0.0.1:0");
+    let centre_key = net::NodeKey::generate().expect("key");
+    net::NodeKey::save_new_in(&data_dir, &centre_key).expect("node.key");
+
+    // The asker is a node the centre's own `peers.json` knows, so it may dial in and register.
+    let asker_key = net::NodeKey::generate().expect("key");
+    let mut peers = net::PeersFile::empty();
+    peers.peers.push(net::PeerEntry::new(
+        "dev-a",
+        "127.0.0.1:1",
+        asker_key.public_jwk(),
+    ));
+    net::PeersFile::save_in(&data_dir, &peers).expect("peers.json");
+    net::RoomsFile::save_in(&data_dir, &net::RoomsFile::empty()).expect("rooms.json");
+
+    let state = state_in(&unique_dir("decision-asker-ws"), &data_dir);
+    let addr = state
+        .server_role_addr()
+        .expect("the configured server role is serving");
+    let server = state.server_role().expect("the handle is kept");
+
+    // The asker dials the centre and registers (§6.6): a session now exists, so an answer can reach it.
+    let entry = net::PeerEntry::new(&agent::device(), &addr, centre_key.public_jwk());
+    let asker = net::RelayClient::new("dev-a", asker_key, &entry, short_read()).expect("client");
+    asker
+        .register(&net::Registration::in_rooms(Vec::<String>::new()))
+        .expect("register");
+    wait_online(&server, "dev-a");
+
+    // The centre decides an ask left by **the asker**, through the ordinary path:
+    // `approve_sandbox_request` → `tell_asker` → `send_to`.
+    let asked = state
+        .request_sandbox(
+            "dev-a",
+            SandboxAction::Switch,
+            Some("blink".into()),
+            None,
+            None,
+            recording_sink(),
+        )
+        .expect("the ask is recorded");
+    let decided_by = state.agent_id().to_string();
+    state
+        .approve_sandbox_request(&asked.id, &decided_by, recording_sink())
+        .expect("approve");
+
+    // The decision comes down the asker's **own** session. §6.6 answers the registration on that same
+    // session, so the loop skips whatever else arrived and reads the body M6-4b defined.
+    let mut decision = None;
+    for _ in 0..8 {
+        let Some(frame) = asker.receive().expect("read") else {
+            break;
+        };
+        if let Some(found) = net::is_request_decision(&frame.body) {
+            decision = Some(found);
+            break;
+        }
+    }
+    let decision = decision.expect("the decision reaches the asker down its own session");
+    assert_eq!(decision.request_id, asked.id);
+    assert_eq!(decision.decision, "approved");
+    assert_eq!(
+        decision.decided_by, decided_by,
+        "the body names the node that decided"
+    );
+    assert!(decision.at_ms > 0, "and when: {decision:?}");
+}
+
+#[test]
+fn a_node_deciding_its_own_ask_sends_nothing() {
+    // (ii) of v1.0 batch DM: the guard on `tell_asker` — `requester_agent_id == self.agent_id()`
+    // sends nothing, because the decision is already on this node's own chain. To make "nothing
+    // arrived" mean the **guard** held rather than merely that there was nowhere to send, the spy is
+    // dialled in **under this node's own agent id**: a self-send would find that session and land.
+    let data_dir = configured_server_role("decision-self", "127.0.0.1:0");
+    let centre_key = net::NodeKey::generate().expect("key");
+    net::NodeKey::save_new_in(&data_dir, &centre_key).expect("node.key");
+    net::PeersFile::save_in(&data_dir, &net::PeersFile::empty()).expect("peers.json");
+    net::RoomsFile::save_in(&data_dir, &net::RoomsFile::empty()).expect("rooms.json");
+
+    let state = state_in(&unique_dir("decision-self-ws"), &data_dir);
+    let addr = state
+        .server_role_addr()
+        .expect("the configured server role is serving");
+    let server = state.server_role().expect("the handle is kept");
+    let me = state.agent_id().to_string();
+
+    // The spy *is* this node, dialled in to its own server — the one session a self-send could reach.
+    // It is learned at runtime (`set_peers`) because the agent id is minted at construction, after
+    // `peers.json` is read.
+    let spy_key = net::NodeKey::generate().expect("key");
+    let mut peers = net::PeersFile::empty();
+    peers.peers.push(net::PeerEntry::new(
+        &me,
+        "127.0.0.1:4",
+        spy_key.public_jwk(),
+    ));
+    server.set_peers(peers).expect("the server learns the spy");
+
+    let entry = net::PeerEntry::new(&agent::device(), &addr, centre_key.public_jwk());
+    let spy = net::RelayClient::new(&me, spy_key, &entry, short_read()).expect("client");
+    spy.register(&net::Registration::in_rooms(Vec::<String>::new()))
+        .expect("register");
+    wait_online(&server, &me);
+
+    // An ask left by **this node**, decided here through the ordinary path.
+    let asked = state
+        .request_sandbox(
+            &me,
+            SandboxAction::Switch,
+            Some("blink".into()),
+            None,
+            None,
+            recording_sink(),
+        )
+        .expect("the ask is recorded");
+    let decided = state
+        .approve_sandbox_request(&asked.id, &me, recording_sink())
+        .expect("approve");
+
+    // It is decided — the row is on this node's own chain and the queue agrees.
+    assert_eq!(decided.status, "approved");
+    let on_chain = state
+        .list_events(
+            200,
+            EventFilter {
+                action_prefix: Some("m.request.approve".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("events")
+        .into_iter()
+        .any(|row| row.action == "m.request.approve" && row.detail["id"] == asked.id);
+    assert!(on_chain, "the decision is on this node's own chain");
+
+    // ... and nothing was pushed down the spy's session. Had the decision been sent it is already on
+    // the socket (the send happens before this read), so draining to §6.3's quiet `None` both
+    // terminates and would have seen it.
+    let mut stray = None;
+    while let Some(frame) = spy.receive().expect("read") {
+        if let Some(found) = net::is_request_decision(&frame.body) {
+            stray = Some(found);
+            break;
+        }
+    }
+    assert!(
+        stray.is_none(),
+        "a node deciding its own ask sends nothing, but {stray:?} arrived"
+    );
 }

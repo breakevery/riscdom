@@ -235,3 +235,8 @@ this node does not hold is **ignored** rather than fatal.
 
 **Frozen**: the body's shape and the `m.request.*` spelling of the row it becomes. **Not frozen**: whether a
 decision is ever announced to the whole workgroup.
+
+**Proved on the wire** (v1.0 batch DM): the asker's half is a real `RelayClient` dialled into a real in-network
+server role — the centre decides an ask the asker left and the body is read off the asker's **own** session —
+and a node deciding **its own** ask is checked against a spy dialled in under that node's own agent id, so
+"nothing was sent" means the guard held rather than that there was nowhere to send.

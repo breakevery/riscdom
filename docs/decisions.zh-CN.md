@@ -1767,3 +1767,18 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **缘由**：§155 让别处做出的 ask **看得见**；这一批让答复**成真** —— 没有它，提问者的队列会一直 pending 在一个已经被做出的裁决上。复用 `m.request.*` 就是整个重启故事（决策 §84：链是记录，队列是它的一个视图），而横着走的 body 是 §6.7 与 M5-3b-1 早已为「节点之间、而不是链行」的事实定下的形状。
 
 **影响**：`net/src/suppression.rs`（`RequestDecision`、它的 body 与谓词）+ 一个往返单测；`net/src/lib.rs`（导出）；`net/src/relay.rs`（`RelayServer::send_to` 变为 **public** —— 中心的应答路径，只有持链的调用方才能为它构造 body）；`host-core/src/state.rs`（`CentreWatch.requests` + 它的五处构造点、两个裁决上的 `tell_asker`、drain 分支、`decide_request_from_peer`）+ 一个单测，断言队列、链行与随重启而来的重建；`docs/cross-device-dispatch.md` §10 + zh；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。**不新增事件名、不加路由、不加 capability、不动 SDK、不加依赖；`merge_segment`、`audit/src/hash.rs` 与 append-only 触发器未动，`verify_chain` 逻辑不变。**
+
+## 159. M6 收口，最后两条接缝已被证明
+
+**日期**：2026-10-01 ｜ **状态**：已定且已实现（批 DM）
+
+**决策**：多节点线 **M6-1…M6-6 在 `d7f2a76` 收口**。批 DL 留下两条「分开证过、没有合起来证过」的接缝；两者现已在线上被测试：
+
+- **(i) 中心 → 提问者这一段，端到端**：一个真的网内 server role 加一条真 `RelayClient`；中心裁决一条提问者留下的 ask（`approve_sandbox_request` → `tell_asker` → `send_to`），body 由提问者从**自己的**会话上读出。
+- **(ii) 一个节点裁决自己的 ask 时不发送**：守卫 `requester_agent_id == self.agent_id()` 用一条以**该节点自身 agent id** 拨入的探针来核对，于是「什么都没到」意味着守卫成立，而不是无处可发。
+
+两者都非空：删掉守卫则 (ii) 失败，不发送则 (i) 失败 —— 各自经变异确认后已还原。
+
+**缘由**：M6 是本发布最大的一块工程，而一条只被推理过、没有被证过的接缝不算接缝。这两个测试是这条线被称为「完成」所需的最后一件东西。
+
+**影响**：仅 `host-core/tests/connection.rs` 及其辅助函数。**未改动任何实现行** —— 工作树只有一个文件不同，而那是测试文件。不动 `net`、不动 `audit`、不加路由、不加 capability、不动 SDK、不加依赖；`merge_segment`、`audit/src/hash.rs` 与 append-only 触发器未动。
