@@ -6,11 +6,10 @@
 # check can never drift apart between CI and a developer machine again. If a check
 # belongs in CI, it belongs here -- not in the workflow.
 #
-# Requirements: Rust (rustfmt + clippy) and Node >= 22.6 (the UI probes import the
+# Requirements: Rust (rustfmt + clippy) and Node (the TypeScript SDK tests import the
 # `.ts` modules and rely on type stripping: default from Node 23.6, needs
-# `--experimental-strip-types` on 22.6-23.5). On Linux the two Tauri crates need the
-# webkit2gtk / gtk / librsvg / libsoup development packages, and `host-core` needs
-# `libdbus-1-dev` through `keyring`; CI installs them (`.github/workflows/ci.yml`).
+# `--experimental-strip-types` on 22.6-23.5). On Linux `host-core` needs
+# `libdbus-1-dev` through `keyring`; CI installs it (`.github/workflows/ci.yml`).
 # On Windows, QEMU (`qemu-system-riscv64`) and a RISC-V bare-metal GCC must be on PATH,
 # because several tests boot a real guest. Python 3 is optional: it runs
 # `examples/python`'s two self-tests, which print a skip when no interpreter is there.
@@ -76,18 +75,11 @@ echo "==> cargo check (portable crates audit sandbox agent)"
 cargo check -p audit -p sandbox -p agent || fail "cargo check"
 
 # Every crate is linted and checked on **every** platform, so there is no OS branch here.
-# The two Tauri crates need webkit2gtk / gtk / librsvg on Linux and `host-core` needs
-# `dbus-1` (through `keyring`); CI installs those. `worker` was missing from every clippy
-# list before this batch, on both platforms.
-echo "==> cargo clippy (cli + server + host-core + host-tauri + worker + net + riscdom-backup + riscdom-sdk)"
+# `host-core` needs `dbus-1` (through `keyring`) on Linux; CI installs it. `worker` was
+# missing from every clippy list before that batch, on both platforms.
+echo "==> cargo clippy (cli + server + host-core + worker + net + riscdom-backup + riscdom-sdk)"
 # `--no-deps`: the crates we own are linted, their dependencies are only built.
-cargo clippy -p cli -p server -p host-core -p host-tauri -p worker -p net -p riscdom-backup -p riscdom-sdk --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + server + host-core + host-tauri + worker + net + riscdom-backup + riscdom-sdk"
-
-echo "==> cargo clippy (ui/src-tauri)"
-cargo clippy --manifest-path ui/src-tauri/Cargo.toml --all-targets -- -D warnings || fail "cargo clippy ui/src-tauri"
-
-echo "==> cargo check (ui/src-tauri)"
-cargo check --manifest-path ui/src-tauri/Cargo.toml || fail "cargo check ui/src-tauri"
+cargo clippy -p cli -p server -p host-core -p worker -p net -p riscdom-backup -p riscdom-sdk --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + server + host-core + worker + net + riscdom-backup + riscdom-sdk"
 
 if have_guest_tools; then
   echo "==> cargo test (--include-ignored, minus the ones that need a key or the OS keyring)"
@@ -98,34 +90,12 @@ else
   cargo test --workspace --no-fail-fast || fail "cargo test --workspace"
 fi
 
-echo "==> npm run build (ui)"
-(cd ui && npm run build) || fail "npm run build"
-
-echo "==> ui probes (scroll / layout / runs / snapshot / dialog / preflight / theme / i18n / api / login / sse / read-only / node page / network tab / LAN / executor picker)"
-node ui/scripts/probe-ui-scroll.mjs || fail "ui probe (chat scroll)"
-node ui/scripts/probe-ui-width.mjs || fail "ui probe (pane layout)"
-node ui/scripts/probe-ui-runs.mjs || fail "ui probe (run list)"
-node ui/scripts/probe-ui-snapshot.mjs || fail "ui probe (snapshot naming)"
-node ui/scripts/probe-ui-dialog.mjs || fail "ui probe (file picker)"
-node ui/scripts/probe-ui-preflight.mjs || fail "ui probe (preflight)"
-node ui/scripts/probe-ui-theme.mjs || fail "ui probe (theme)"
-node ui/scripts/probe-ui-i18n.mjs || fail "ui probe (i18n)"
-node ui/scripts/probe-ui-api.mjs || fail "ui probe (api adapter)"
-node ui/scripts/probe-ui-login.mjs || fail "ui probe (login gate)"
-node ui/scripts/probe-ui-sse.mjs || fail "ui probe (event stream)"
-node ui/scripts/probe-ui-web-readonly.mjs || fail "ui probe (read-only board)"
-node ui/scripts/probe-ui-node-panel.mjs || fail "ui probe (node page)"
-node ui/scripts/probe-ui-network-tab.mjs || fail "ui probe (network tab)"
-node ui/scripts/probe-ui-lan.mjs || fail "ui probe (LAN board)"
-node ui/scripts/probe-ui-remote.mjs || fail "ui probe (remote node)"
-node ui/scripts/probe-ui-executor-selector.mjs || fail "ui probe (executor picker)"
-
 echo "==> typescript sdk (endpoint tables, client, stream)"
 # No install step: the tests run on Node's own test runner with type stripping, so this needs no
-# `node_modules` — the same reason the UI probes need none.
+# `node_modules`.
 node --test sdk/typescript/test/*.test.ts || fail "typescript sdk"
 
-echo "==> mirrored constants (host-core/src + host-tauri/src)"
+echo "==> mirrored constants (host-core/src)"
 node scripts/check-mirrored-constants.mjs || fail "mirrored constants"
 
 echo "==> encoding scan (mojibake + BOM)"
@@ -169,12 +139,6 @@ cargo run -q -p net --example rooms -- --self-test || fail "rooms example"
 
 echo "==> relay example self-test (net)"
 cargo run -q -p net --example relay -- --self-test || fail "relay example"
-
-echo "==> wix version guard"
-node scripts/check-wix-version.mjs || fail "wix version guard"
-
-echo "==> ui string registry"
-node scripts/check-ui-strings.mjs || fail "ui string registry"
 
 echo "==> packaging script syntax (scripts/pack.sh)"
 # The packer is run by the `server-bundle` CI job (batch BF); a syntax error would only

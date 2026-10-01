@@ -18,7 +18,8 @@
   之前它仍待在 workspace 里，时机由 §7 记录。
 - **`riscdom-adminapp` 是管理程序**：Tauri 外壳与它的前端（`host-tauri` 与 `ui`，后者取 `server`，供手机
   接入控制平面）。[RELEASE_NOTES.md](../RELEASE_NOTES.md) 说得明白 —— 该程序 v0.9 **在本仓内**交付、
-  **v1.0 成为自己的仓**（即 v1.0 发布之后，§7）；[decisions §9](decisions.zh-CN.md) 的影响段同此。
+  **v1.0 成为自己的仓**：它已上线（v1.0 **M8-4b**，`abbe731`，tag `v1.0.0`），而 `host-tauri` + `ui` 已在
+  那一批里离开本 workspace。[decisions §9](decisions.zh-CN.md) 的影响段同此。
 - **`riscdom-server` 是作为程序的控制平面**：`server` crate（HTTP + SSE 控制平面）**以及那条 `serve` 本地
   模式**（`riscdom` CLI 从前在进程内跑的），成为自己的仓，好让一台宿主无需桌面程序即可安装并运行它。该
   程序所服务的前端是 `riscdom-adminapp` 的构建（来源见 §7）。它眼下仍留在本仓（§7）。
@@ -26,29 +27,40 @@
   是「独立仓库，**由同一份源码维护**（像 Linux 的 coreutils / iproute2）」。每个程序都是**内核级工具**：它是
   内核的一个消费者，不拥有该内核，随内核特性同步推进 —— 这也是 §12 之所以说每条内核能力都必须有管理 API、
   而程序够不着的能力就是装饰。
-- **拆仓等 v1.0。** 两个程序都以**钉在 tag 上**的依赖消费内核（§2），而本仓还没有 v1.0 tag，所以拆仓在那次
-  发布之后执行；§7 记下时机与顺序。
+- **拆仓等到了 v1.0，而 v1.0 已出。** 两个程序都以**钉在 tag 上**的依赖消费内核（§2），而那个 tag 就是
+  `v1.0.0`（2026-10-01）—— 所以 `riscdom-server` 与 `riscdom-adminapp` 都已上线；§7 记下顺序与剩下的部分。
 
 ## 2. 第二仓如何取得内核
 
-**git 依赖、钉在 tag 上。** 第二仓的 `Cargo.toml` 只列它**直接使用**的 crate，每个都写同一个
-`{ git = …, tag = … }`：
+**git 依赖、钉在 tag 上。** 程序仓只列它**直接使用**的 crate，每个都写 `{ git = …, tag = … }`。自 M8-4a 起
+控制平面不在内核里，所以 `server` 那条边钉 `riscdom-server` 自己的 tag；自 M8-4b 起 Tauri 外壳也不在内核里，
+于是 `riscdom-adminapp` **拥有** `host-tauri`，只通过那个 crate 所需的东西依赖内核：
 
 ```toml
+# riscdom-server/Cargo.toml —— 作为程序的控制平面
 [dependencies]
-# 管理程序真正用到的 crate，一个一行，不多。
-host-tauri = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
-server     = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
+host-core = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
+
+# riscdom-adminapp/host-tauri/Cargo.toml —— Tauri 外壳（该仓的一个 crate）
+[dependencies]
+host-core = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
+net       = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
+
+# riscdom-adminapp/src-tauri/Cargo.toml —— 应用 crate
+[dependencies]
+host-tauri = { path = "../host-tauri" }                                            # 本仓内
+server     = { git = "https://github.com/breakevery/riscdom-server", tag = "v1.0.0" }
 ```
 
-- **这个 tag 在 v1.0 时才打，今天只有 v0.9.x 的。** 上面的 `v1.0.0` 是本仓在 v1.0 发布时会打的 tag（§7）；
-  在它存在之前，没有东西可钉，所以**拆仓不在那之前执行**。今天要钉只能钉 `v0.9.9`，而它早于连接层、
-  备份工具与 SDK —— 一个比消费它的程序更旧的内核。清单是每个 crate 一行：`riscdom-adminapp` 点名
-  `host-tauri` 与 `server`（它内嵌控制平面）；`riscdom-server` 只点名 `server`。
-- **间接 crate 会跟着一起来，且在同一 revision。** 一个内核 crate 自己的依赖是本仓内的 `path` 依赖
-  （`host-tauri` → `host-core` / `net`；`ui` → `host-tauri` / `server`），而 Cargo 会把「住在同一个 git 仓内的
-  path 依赖」对着**那同一份 checkout** 解析。于是当第二仓按 `tag = "v1.0.0"` 点名 `host-tauri` 时，它同时拿到
-  `v1.0.0` 所钉的 `host-core` 与 `net` —— 一个 tag、一个 revision，没有第二份要对齐的清单。
+- **这个 tag 在 v1.0 时打，而它已经存在。** `v1.0.0` 于 2026-10-01 打出（内核第一个冻结版本），正因如此两个
+  程序才得以钉它、而不是钉 `v0.9.9` —— 一个早于连接层、备份工具与 SDK 的内核。`riscdom-server` 点名
+  `host-core`（`net` 为 **dev** 依赖）；`riscdom-adminapp` 的 `host-tauri` 点名 `host-core` 与 `net`；它的
+  `src-tauri` 用**同仓 path** 点名外壳、用 **`riscdom-server` 的 tag** 点名控制平面。第二仓**不**做的，是按
+  *本仓*的 tag 点名 `host-tauri`：外壳是它自己的。
+- **间接 crate 会跟着一起来，且在同一 revision。** 一个内核 crate 自己的依赖是**内核仓内**的 `path` 依赖，
+  而 Cargo 会把「住在同一个 git 仓内的 path 依赖」对着**那同一份 checkout** 解析。于是按
+  `tag = "v1.0.0"` 点名 `host-core` 的程序，同时拿到 `v1.0.0` 所钉的 `agent` / `sandbox` / `audit` / `net`
+  —— 一个 tag、一个 revision，没有第二份要对齐的清单。
 - **`Cargo.lock` 要提交，它才是真正的钉。** 一条锁记录写下的是解析出的 commit、不只是 tag：
 
   ```text

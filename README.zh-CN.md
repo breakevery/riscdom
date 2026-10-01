@@ -43,11 +43,14 @@ RiscDom（中文名 **智芯城**）是一个桌面应用：AI 在 QEMU RISC-V �
         │ 工具 / 策略    │  │ 串口 / QMP     │  │ hash chain   │
         └──────────────┘  └────────────────┘  └──────────────┘
                     ▲              ▲
-                    └──── ui (React) ────┘   前端不直接接触 Rust crate
+                    └── 客户端（CLI、控制平面）──┘   没有 GUI 链进这些 crate
 ```
 
-依赖方向（单向，无环）：`ui/src-tauri → host → {agent, sandbox, audit}`，
-且 `agent → sandbox → audit`。
+依赖方向（单向，无环）：`host-core → {agent, sandbox, audit, net}`、
+`agent → sandbox → audit`，以及 `net → audit`。桌面程序 —— Tauri 外壳（`host-tauri`）与其
+前端（`ui/src-tauri`）—— **不在这里**：它是
+[`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp)，消费本内核、并通过控制平面与节点
+对话。
 
 ## 环境要求
 
@@ -107,24 +110,27 @@ riscdom/
 ├── ENVIRONMENT.md            # 本机工具链与平台限制
 ├── CHANGELOG.md              # 版本记录
 ├── LICENSE                   # Apache-2.0
-├── Cargo.toml                # Rust workspace（cli / host-core / host-tauri / sandbox /
-│                             #   audit / agent / worker / server）
+├── Cargo.toml                # Rust workspace（cli / host-core / sandbox / audit /
+│                             #   agent / worker / server / net / backup / sdk/rust）
 ├── sandbox/                  # QEMU RISC-V 沙箱（进程/QMP/串口/快照）
 ├── audit/                    # append-only SQLite + hash chain（含 audit-verify）
 ├── agent/                    # LLM 循环、工具、能力策略、编译器封装
 ├── host-core/                # 宿主的可移植半（不碰 Tauri）
-├── host-tauri/               # 桌面外壳：commands / events / state（Tauri）
+├── net/                      # 连接层：身份、签名、发现、房间、relay
+├── backup/                   # 可移植工具（一个加密包）
+├── sdk/rust/                 # 控制平面的类型化 Rust 客户端
 ├── server/                   # HTTP + SSE 上的控制平面
 ├── cli/                      # `riscdom` 命令行客户端
 ├── worker/                   # 执行者进程，以及监工半边
 ├── docs/                     # 设计记录、API 表格、指南（导航：docs/README.zh-CN.md）
 ├── examples/python/          # 参考监工
 ├── scripts/                  # gate、commit 包装脚本、各检查器
-├── walkthroughs/             # 发布门禁的走查记录（刻意单语）
-└── ui/                       # React 前端（Tauri shell + 三栏界面）
-    ├── src/                  # 布局 / 面板 / API / 状态
-    └── src-tauri/            # Tauri shell（注册 host-tauri 的命令）
+└── walkthroughs/             # 发布门禁的走查记录（刻意单语）
 ```
+
+桌面程序（`host-tauri` + `ui`）现在是
+[`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp)（v1.0 M8-4b）：v0.9 时它
+住在内核里，自 v1.0 起自成一座仓。
 
 ## 测试
 
@@ -173,7 +179,8 @@ Key 只存在后端内存：**不写** localStorage / sessionStorage / 磁盘 / 
 - **快照**：`save_snapshot` / `load_snapshot` 是"存参数 + 重启"，**不是**真实
   VM 状态（v0.2 换 QEMU `savevm`/`loadvm`）。
 - **串口来源**：由 sandbox 串口读取线程**主动推送**（`subscribe_serial` → `serial:chunk`），
-  不再是审计派生；订阅只收到订阅之后的数据（见 `host-tauri/README.md`）。
+  不再是审计派生；订阅只收到订阅之后的数据（桌面外壳的 README 现在在
+  [`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp)）。
 - **平台**：黄金路径在 Windows 上验证过。macOS/Linux 的安装包由 CI 产出（`.app`/`.dmg`、`.deb`/`.rpm`/`.AppImage`），**未签名、也尚未人工走查**；QMP over Unix socket 仍未实现（仅 TCP）。
 - **无流式输出**：LLM 响应为整块返回。
 - **无会话持久化**：每轮 `run_agent` 是独立上下文。
@@ -207,5 +214,5 @@ gate（`scripts/gate.ps1` / `scripts/gate.sh`），并经由受门禁保护的�
 - [ENVIRONMENT.md](ENVIRONMENT.md) — 工具链与平台限制
 - [CHANGELOG.md](CHANGELOG.md) — 版本历史
 - 各 crate 的 README：[sandbox](sandbox/README.md) · [audit](audit/README.md) ·
-  [agent](agent/README.md) · [host-core](host-core/README.md) · [host-tauri](host-tauri/README.md) ·
-  [server](server/README.md) · [cli](cli/README.md) · [worker](worker/README.md) · [ui](ui/README.md)
+  [agent](agent/README.md) · [host-core](host-core/README.md) · [net](net/README.md) ·
+  [server](server/README.md) · [cli](cli/README.md) · [worker](worker/README.md) · [backup](backup/README.md)

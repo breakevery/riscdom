@@ -21,8 +21,9 @@ stand next to this one, how they get the kernel, what they inherit and what they
   until the split lands it still sits in this workspace, and §7 records the timing.
 - **`riscdom-adminapp` is the management program**: the Tauri shell and its front end (`host-tauri` and
   `ui`, which takes `server` for the control plane a phone reaches). [RELEASE_NOTES.md](../RELEASE_NOTES.md)
-  says it plainly — the program ships **inside this repository** in v0.9 and **becomes its own repository at
-  v1.0** (that is, after the v1.0 release, §7); [decisions §9](decisions.md)'s impact says the same.
+  says it plainly — the program shipped **inside this repository** in v0.9 and **became its own repository
+  at v1.0**: it is live (v1.0 **M8-4b**, `abbe731`, tag `v1.0.0`), and `host-tauri` + `ui` left this
+  workspace in that batch. [decisions §9](decisions.md)'s impact says the same.
 - **`riscdom-server` is the control plane as a program**: the `server` crate (the HTTP + SSE control plane)
   **and the `serve` local mode** the `riscdom` CLI used to run in-process, as its own repository, so a host
   can install and run it without the desktop program. The front end that program serves is
@@ -32,33 +33,44 @@ stand next to this one, how they get the kernel, what they inherit and what they
   coreutils / iproute2)". Each program is a **kernel-level tool**: it is one consumer of a kernel it does not
   own, advancing in step with the kernel's features — which is why §12 also says every kernel capability must
   have a management API, and a capability a program cannot reach is decoration.
-- **The split waits for v1.0.** Both programs consume the kernel as a dependency pinned to a **tag** (§2),
-  and this repository has no v1.0 tag yet, so the split runs after that release; §7 records the timing and
-  the order.
+- **The split waited for v1.0, and v1.0 is out.** Both programs consume the kernel as a dependency pinned
+to a **tag** (§2), and the tag is `v1.0.0` (2026-10-01) — so `riscdom-server` and `riscdom-adminapp` are
+live; §7 records the order and what remains.
 
 ## 2. How the second repository gets the kernel
 
-**A git dependency pinned to a tag.** The second repository's `Cargo.toml` names the crates it uses
-**directly**, each as the same `{ git = …, tag = … }`:
+**A git dependency pinned to a tag.** A program repository names the crates it uses **directly**, each as
+`{ git = …, tag = … }`. Since M8-4a the control plane is not in the kernel, so a `server` edge points at
+`riscdom-server`'s own tag; and since M8-4b the Tauri shell is not in the kernel either, so
+`riscdom-adminapp` **owns** `host-tauri` and depends on the kernel only through what that crate needs:
 
 ```toml
+# riscdom-server/Cargo.toml — the control plane as a program
 [dependencies]
-# One line per crate the management program actually uses. No more.
-host-tauri = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
-server     = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
+host-core = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
+
+# riscdom-adminapp/host-tauri/Cargo.toml — the Tauri shell (a crate of that repository)
+[dependencies]
+host-core = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
+net       = { git = "https://github.com/breakevery/riscdom", tag = "v1.0.0" }
+
+# riscdom-adminapp/src-tauri/Cargo.toml — the application crate
+[dependencies]
+host-tauri = { path = "../host-tauri" }                                            # this repository
+server     = { git = "https://github.com/breakevery/riscdom-server", tag = "v1.0.0" }
 ```
 
-- **The tag is cut at v1.0, and there is one today only for v0.9.x.** `v1.0.0` above is the tag this
-  repository will cut at its v1.0 release (§7); until it exists there is nothing to pin, so **the split does
-  not execute before then**. A repository that pinned today would have to pin `v0.9.9`, which predates the
-  connection layer, the backup tool and the SDK — an older kernel than the programs that consume it. The
-  list is one line per crate: `riscdom-adminapp` names `host-tauri` and `server` (it embeds the control
-  plane); `riscdom-server` names `server` alone.
+- **The tag is cut at v1.0, and it exists.** `v1.0.0` was cut on 2026-10-01 (the kernel's first frozen
+  release), which is what let both programs pin instead of pinning `v0.9.9` — a kernel that predates the
+  connection layer, the backup tool and the SDK. `riscdom-server` names `host-core` (and `net` as a
+  **dev**-dependency); `riscdom-adminapp`'s `host-tauri` names `host-core` and `net`; its `src-tauri` names
+  the shell by a **same-repository path** and the control plane at **`riscdom-server`'s** tag. What the
+  second repository does **not** do is name `host-tauri` at *this* repository's tag: the shell is its own.
 - **The indirect crates come along, at the same revision.** A kernel crate's own dependencies are `path`
-  dependencies inside this repository (`host-tauri` → `host-core` / `net`; `ui` → `host-tauri` / `server`),
-  and Cargo resolves a path dependency that lives inside the same git repository against **that same
-  checkout**. So when the second repository names `host-tauri` at `tag = "v1.0.0"`, it also gets the
-  `host-core` and `net` that `v1.0.0` pins — one tag, one revision, no second list to keep in step.
+  dependencies **inside the kernel repository**, and Cargo resolves a path dependency that lives inside the
+  same git repository against **that same checkout**. So a program that names `host-core` at
+  `tag = "v1.0.0"` also gets the `agent` / `sandbox` / `audit` / `net` that `v1.0.0` pins — one tag, one
+  revision, no second list to keep in step.
 - **`Cargo.lock` is committed, and it is the real pin.** A lock entry records the resolved commit, not just
   the tag:
 

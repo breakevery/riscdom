@@ -39,16 +39,16 @@ sh scripts/gate.sh    # Unix
 The gate is the **single list of what "green" means**: CI runs the same file
 (`sh scripts/gate.sh` in `.github/workflows/ci.yml`), so a check cannot drift between CI and a
 developer machine. In order: `cargo fmt --all -- --check` → `cargo clippy -D warnings` (the
-workspace crates `audit` / `sandbox` / `agent` / `cli` / `server` / `host-core` / `host-tauri` /
-`worker`, and `ui/src-tauri`) → `cargo check` →
-`cargo test` → `cargo check` for `ui/src-tauri` → `npm run build` →
-the ui regression probes (`node ui/scripts/probe-ui-*.mjs`) → the mirror guard
+workspace crates `audit` / `sandbox` / `agent` / `cli` / `server` / `host-core` /
+`worker` / `net` / `riscdom-backup` / `riscdom-sdk`) → `cargo check` →
+`cargo test` → the TypeScript SDK tests → the mirror guard
 (`node scripts/check-mirrored-constants.mjs`) → the encoding scan
 (`python scripts/scan-encoding.py --check` — mojibake and BOM; skipped, loudly, without Python) →
-the wix-version guard
-(`node scripts/check-wix-version.mjs`) → the ui string registry guard
-(`node scripts/check-ui-strings.mjs`) → the bilingual-link check
+the bilingual-link check
 (`scripts/check-bilingual.ps1` / `.sh`).
+
+The desktop program's own checks — the front end build, its seventeen probes, the ui string
+registry and the wix-version guard — run in **`riscdom-adminapp`**, which owns those sources.
 
 Platform differences are **printed, never skipped silently**: a test that needs a QEMU guest or a
 RISC-V GCC carries `#[ignore = "<what it needs>; run with --include-ignored"]`, so a plain

@@ -32,7 +32,7 @@ gate 用了 **`--include-ignored`**，因为本机有访客工具，所以平时
 6. `cargo check --manifest-path ui/src-tauri/Cargo.toml`
 7. `cargo test`（上面那行命令）
 8. `npm run build`（前端）
-9. **16 个 UI probe** —— scroll、width、runs、snapshot、dialog、preflight、theme、i18n、api、login、sse、read-only、node panel、network tab、LAN、executor picker（最后一个是 `probe-ui-remote`）
+9. **17 个 UI probe** —— scroll、width、runs、snapshot、dialog、preflight、theme、i18n、api、login、sse、read-only、node panel、network tab、LAN、remote node、executor picker
 10. `node --test sdk/typescript/test/*.test.ts`
 11. `node scripts/check-mirrored-constants.mjs`
 12. `python scripts/scan-encoding.py --check`（乱码 + BOM）

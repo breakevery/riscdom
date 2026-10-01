@@ -596,6 +596,15 @@ current request authorising it (§2).
   (`gate: OK`, 26 steps, **1018 tests passed / 0 failed**, the `#[ignore]` tests included) and the
   bilingual count moved **128 → 144**; the two demo scripts were run here and exit `0`. **No crate, test,
   CI file, gate script, route, capability or SDK changed.** **Decision §165.**
+- **And the management program has left the kernel** (v1.0 batches DZ-1 / DZ-1b / DZ-2 / M8-4b, 2026-10-01):
+  **`riscdom-adminapp`** is live — `main` = `abbe731`, tag **`v1.0.0`**, 117 commits (a `ui` subtree split
+  of 95 plus a `host-tauri` split of 19, grafted together), the front end at the repository root, CI green
+  on `main` and on the tag. Its `src-tauri` takes `host-tauri` by **path** and `server` from
+  **`riscdom-server`'s tag**; its `host-tauri` takes `host-core` / `net` from this repository's `v1.0.0`.
+  Four probes read kernel sources and now print a **SKIP** (M8-4d upgrades them with `RISCDOM_KERNEL_DIR`);
+  the UI probes are **17**, not 16. **This repository removed `ui/` (82 files) and `host-tauri/` (6 files)**
+  and every reference to them; **`server/` and the `server-bundle` job stay for M8-4c** (whose "build the
+  front end" step now points at a directory that has left). **Decision §166.** **M8-4c and M8-4d remain.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

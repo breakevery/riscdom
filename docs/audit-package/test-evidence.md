@@ -34,7 +34,7 @@ is why `ignored: 0` everywhere in the log.
 6. `cargo check --manifest-path ui/src-tauri/Cargo.toml`
 7. `cargo test` (the line above)
 8. `npm run build` (the UI)
-9. **16 UI probes** — scroll, width, runs, snapshot, dialog, preflight, theme, i18n, api, login, sse, read-only, node panel, network tab, LAN, executor picker (the last is `probe-ui-remote`)
+9. **17 UI probes** — scroll, width, runs, snapshot, dialog, preflight, theme, i18n, api, login, sse, read-only, node panel, network tab, LAN, remote node, executor picker
 10. `node --test sdk/typescript/test/*.test.ts`
 11. `node scripts/check-mirrored-constants.mjs`
 12. `python scripts/scan-encoding.py --check` (mojibake + BOM)

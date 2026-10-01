@@ -25,9 +25,11 @@ counterpart.
 
 ## 2. Kernel developers
 
-The kernel is `agent` + `sandbox` + `audit`, wrapped by `host-core` (portable) and
-`host-tauri` (the desktop shell). These documents are about the machinery: how it is put
-together, why it is that way, and what was settled.
+The kernel is `agent` + `sandbox` + `audit`, wrapped by `host-core` (portable). `net` carries
+the connection layer, `worker` the executor, and `backup` / `sdk/rust` the tooling. The desktop
+shell (`host-tauri`) and its front end (`ui`) are **`riscdom-adminapp`** (v1.0 M8-4b), and the
+control plane as a program is **`riscdom-server`**. These documents are about the machinery: how
+it is put together, why it is that way, and what was settled.
 
 ### 2.1 The design record
 
@@ -70,7 +72,6 @@ together, why it is that way, and what was settled.
 | [sandbox/README.md](../sandbox/README.md) — [中文](../sandbox/README.zh-CN.md) | QEMU lifecycle, serial capture, snapshots (including the MVP fallback) and the relay. | living |
 | [audit/README.md](../audit/README.md) — [中文](../audit/README.zh-CN.md) | The append-only store, the hash chain, the event vocabulary, and `audit-verify`. | living |
 | [host-core/README.md](../host-core/README.md) — [中文](../host-core/README.zh-CN.md) | The portable half of the host: modules, its relationship to `host-tauri`, and its constraints (no Tauri). | living |
-| [host-tauri/README.md](../host-tauri/README.md) — [中文](../host-tauri/README.zh-CN.md) | The desktop shell: commands, events, keyring, snapshots, session persistence, manual verification. | living |
 | [worker/README.md](../worker/README.md) — [中文](../worker/README.zh-CN.md) | The executor process and the supervisor half — including the remote executor handle (v0.9 E4). | living |
 | [net/README.md](../net/README.md) — [中文](../net/README.zh-CN.md) | The connection layer (v1.0 M4): node identity on disk today; signing, discovery, rooms and the cross-region server as the frozen sections land. | living |
 | [backup/README.md](../backup/README.md) — [中文](../backup/README.zh-CN.md) | The portability tool (v1.0 M7e): export a whole node — both roots, the audit store through SQLite's consistent path, and the derived keyring credentials — as one encrypted package. | living (AV-1 + AV-2) |
@@ -119,7 +120,6 @@ Whoever just wants to run the thing.
 | Document | What it is | State |
 |---|---|---|
 | [cli/README.md](../cli/README.md) — [中文](../cli/README.zh-CN.md) | The `riscdom` command line: every command, the two modes, the token, output, exit codes. | living |
-| [ui/README.md](../ui/README.md) — [中文](../ui/README.zh-CN.md) | The desktop app: layout, auto-scroll, how to run it, the snapshot panel and the audit tab. | living |
 | [CHANGELOG.md](../CHANGELOG.md) — [中文](../CHANGELOG.zh-CN.md) | What changed, release by release, and in the unreleased line. | history (append-only) |
 | [RELEASE_NOTES.md](../RELEASE_NOTES.md) — [中文](../RELEASE_NOTES.zh-CN.md) | The released text for the newest release (v0.9.9), including its known limitations. | history (per release) |
 

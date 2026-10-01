@@ -5,15 +5,16 @@
  * Some values belong to `sandbox` / `agent`: the QEMU machine and cpu, the guest
  * RAM, the crt0 injection marker, the RISC-V GCC executable names, the snapshot
  * file extensions. Everything that needs them must reference the exported
- * constant. A second copy inside `host-core/src` or `host-tauri/src` compiles just
+ * constant. A second copy inside `host-core/src` compiles just
  * as well, drifts silently when the owner changes, and quietly makes v0.6's run
  * comparison wrong.
  *
- * This scans `host-core/src` and `host-tauri/src` (production sources only) and fails
+ * This scans `host-core/src` (production sources only) and fails
  * on a literal copy of any of those values. Comment lines are skipped, because a doc
- * comment may name them. `host-core` moved out of `host` in v0.9's A1 wave 1 (the
- * Tauri half is now `host-tauri`), so both directories are scanned: a guard that
- * covers half the crate is a guard that quietly stops guarding.
+ * comment may name them. `host-core` moved out of `host` in v0.9's A1 wave 1; the
+ * Tauri half (`host-tauri`) left with the management program in v1.0 M8-4b, so this
+ * repository scans `host-core/src` alone. The management repository keeps its own
+ * guard over what it owns.
  *
  *   node scripts/check-mirrored-constants.mjs                    # self-test, then scan
  *   node scripts/check-mirrored-constants.mjs --self-test        # only the self-test
@@ -31,7 +32,6 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..");
 const DEFAULT_DIRS = [
   path.join(REPO, "host-core", "src"),
-  path.join(REPO, "host-tauri", "src"),
 ];
 
 /** One rule per mirrored value: the literal to spot, and the owner to point at. */
@@ -104,7 +104,7 @@ function scanAll(dirs) {
   return dirs.flatMap((dir) => scan(dir));
 }
 
-/** The scanned directories, as `host-core/src + host-tauri/src`. */
+/** The scanned directories, as `host-core/src`. */
 function where(dirs) {
   return dirs.map((dir) => path.relative(REPO, dir).replace(/\\/g, "/")).join(" + ");
 }

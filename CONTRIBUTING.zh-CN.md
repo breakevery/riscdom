@@ -33,15 +33,15 @@ sh scripts/gate.sh    # Unix
 
 gate 就是**「全绿」的唯一清单**：CI 跑的是同一个文件（`.github/workflows/ci.yml` 里的
 `sh scripts/gate.sh`），所以检查项再也不会在 CI 与本机之间漂移。依次执行：`cargo fmt --all -- --check` →
-`cargo clippy -D warnings`（workspace 的 `audit` / `sandbox` / `agent` / `cli` / `server` / `host-core` / `host-tauri` /
-`worker`，以及 `ui/src-tauri`）→
-`cargo check` → `cargo test` → `ui/src-tauri` 的 `cargo check` → `npm run build` →
-UI 回归探针（`node ui/scripts/probe-ui-*.mjs`）→ 镜像常量守卫
+`cargo clippy -D warnings`（workspace 的 `audit` / `sandbox` / `agent` / `cli` / `server` / `host-core` /
+`worker` / `net` / `riscdom-backup` / `riscdom-sdk`）→
+`cargo check` → `cargo test` → TypeScript SDK 测试 → 镜像常量守卫
 （`node scripts/check-mirrored-constants.mjs`）→ 编码扫描
-（`python scripts/scan-encoding.py --check`——查 mojibake 与 BOM；无 Python 时会大声跳过）→ wix 版本守卫
-（`node scripts/check-wix-version.mjs`）→ UI 字符串注册表守卫
-（`node scripts/check-ui-strings.mjs`）→ 双语文档链接检查（`scripts/check-bilingual.ps1` /
-`.sh`）。
+（`python scripts/scan-encoding.py --check`——查 mojibake 与 BOM；无 Python 时会大声跳过）→ 双语文档链接检查
+（`scripts/check-bilingual.ps1` / `.sh`）。
+
+桌面程序自己的检查 —— 前端构建、十七个探针、ui 字符串注册表与 wix 版本守卫 —— 在
+**`riscdom-adminapp`** 里跑，那些源码归它。
 
 平台差异一律**打印出来，绝不静默跳过**：需要 QEMU guest 或 RISC-V GCC 的测试都带 `#[ignore = "<它需要什么>; run with --include-ignored"]`，所以普通的 `cargo test --workspace --no-fail-fast` 在任何机器上跑的都是可移植那套。有工具的机器上，用
 `cargo test --no-fail-fast -- --include-ignored --skip real_deepseek_writes_and_runs_hello_world --skip real_api_streams_content_deltas --skip os_keyring_persists_to_credential_manager`

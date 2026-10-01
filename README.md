@@ -45,11 +45,14 @@ Full text: [PROJECT_CONSTITUTION.md](PROJECT_CONSTITUTION.md).
         │ tools/policy │  │ serial / QMP   │  │ hash chain   │
         └──────────────┘  └────────────────┘  └──────────────┘
                     ▲              ▲
-                    └──── ui (React) ────┘   the frontend never touches Rust crates
+                    └── clients (CLI, control plane) ──┘   no GUI is linked into these crates
 ```
 
-Dependency direction (one-way, acyclic): `ui/src-tauri → host → {agent, sandbox, audit}`,
-and `agent → sandbox → audit`.
+Dependency direction (one-way, acyclic): `host-core → {agent, sandbox, audit, net}`,
+`agent → sandbox → audit`, and `net → audit`. The desktop program — the Tauri shell
+(`host-tauri`) and its front end (`ui/src-tauri`) — is **not here**: it is
+[`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp), which consumes this
+kernel and talks to a node over the control plane.
 
 ## Requirements
 
@@ -114,24 +117,27 @@ riscdom/
 ├── ENVIRONMENT.md            # local toolchain and platform limits
 ├── CHANGELOG.md              # version history
 ├── LICENSE                   # Apache-2.0
-├── Cargo.toml                # Rust workspace (cli / host-core / host-tauri / sandbox /
-│                             #   audit / agent / worker / server)
+├── Cargo.toml                # Rust workspace (cli / host-core / sandbox / audit /
+│                             #   agent / worker / server / net / backup / sdk/rust)
 ├── sandbox/                  # QEMU RISC-V sandbox (process/QMP/serial/snapshot)
 ├── audit/                    # append-only SQLite + hash chain (includes audit-verify)
 ├── agent/                    # agent loop, tools, capability policy, compiler wrapper
 ├── host-core/                # the portable half of the host (no Tauri in it)
-├── host-tauri/               # the desktop shell: commands / events / state (Tauri)
+├── net/                      # the connection layer: identity, signing, discovery, rooms, relay
+├── backup/                   # the portability tool (one encrypted package)
+├── sdk/rust/                 # a typed Rust client of the control plane
 ├── server/                   # the control plane over HTTP + SSE
 ├── cli/                      # the `riscdom` command-line client
 ├── worker/                   # the executor process, plus the supervisor half
 ├── docs/                     # design records, the API tables, the guides (map: docs/README.md)
 ├── examples/python/          # the reference supervisor
 ├── scripts/                  # the gate, the commit wrapper, the checks
-├── walkthroughs/             # release-gate walk records (single-language, by design)
-└── ui/                       # React frontend (Tauri shell + three-pane UI)
-    ├── src/                  # layout / panels / API / state
-    └── src-tauri/            # Tauri shell (registers the host-tauri commands)
+└── walkthroughs/             # release-gate walk records (single-language, by design)
 ```
+
+The desktop program (`host-tauri` + `ui`) is
+[`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp) (v1.0 M8-4b): it consumed
+the kernel in v0.9 and is its own repository from v1.0.
 
 ## Tests
 
@@ -182,7 +188,8 @@ disk / audit / logs, and status read-outs never contain it. Closing the app inva
   ([`sandbox/docs/snapshot-experiment.md`](sandbox/docs/snapshot-experiment.md)).
 - **Serial source**: pushed by the sandbox's serial reader thread
   (`subscribe_serial` → `serial:chunk`), no longer derived from the audit log; subscribers
-  only receive what arrives after they subscribe (see `host-tauri/README.md`).
+  only receive what arrives after they subscribe (the desktop shell's README lives in
+[`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp)).
 - **Platform**: Windows is the platform the golden path is verified on. macOS and Linux packages are
   built by CI (`.app`/`.dmg`, `.deb`/`.rpm`/`.AppImage`) and are **unsigned and not yet walked**; QMP
   over a Unix socket is still not implemented (TCP only).
@@ -222,5 +229,5 @@ behaviour through the contact listed there.
 - [ENVIRONMENT.md](ENVIRONMENT.md) — toolchain and platform limits
 - [CHANGELOG.md](CHANGELOG.md) — version history
 - Per-crate READMEs: [sandbox](sandbox/README.md) · [audit](audit/README.md) ·
-  [agent](agent/README.md) · [host-core](host-core/README.md) · [host-tauri](host-tauri/README.md) ·
-  [server](server/README.md) · [cli](cli/README.md) · [worker](worker/README.md) · [ui](ui/README.md)
+  [agent](agent/README.md) · [host-core](host-core/README.md) · [net](net/README.md) ·
+  [server](server/README.md) · [cli](cli/README.md) · [worker](worker/README.md) · [backup](backup/README.md)

@@ -5046,3 +5046,52 @@ and this entry, `docs/handoff.md` + zh, `CHANGELOG.md` + zh and one row in `docs
 crate, no test, no CI file, no gate script, no route, no capability name and no SDK changed** — the
 demo scripts write only under `target/demo/`, and `compute_hash`, `verify_chain` and the append-only
 triggers are untouched. **The split (M8-4b/c/d) is unaffected.**
+
+## 166. The management program is its own repository, and this one is a kernel
+
+**Date**: 2026-10-01 ｜ **Status**: Done (v1.0 batch DZ-1/DZ-1b/DZ-2 / M8-4b)
+
+**Decision**: M8-4b is complete — the desktop program left, and the kernel is a kernel:
+
+- **`riscdom-adminapp` is a repository** (`abbe731`, tag **`v1.0.0`**): assembled from this repository with
+  **two `git subtree split`s** — `--prefix=ui` (95 commits) seeds `main`, and `--prefix=host-tauri`
+  (19 commits) is grafted in with `git merge -s ours` + `git read-tree --prefix=host-tauri/`, so one commit
+  has both histories and the repository has 117. The front end sits at the **root** (shape A: `ui/`'s
+  contents, not `ui/`), `host-tauri/` is a subdirectory, and `LICENSE` was carried over from the empty
+  repository's initial commit.
+- **The dependencies were rewritten to match the split**: `src-tauri/Cargo.toml` takes `host-tauri` by
+  **path** and `server` from **`riscdom-server`'s `v1.0.0` tag**; `host-tauri/Cargo.toml` takes `host-core`
+  and `net` from **this repository's `v1.0.0` tag**. `Cargo.lock` files are committed (a tag can move, a
+  lock cannot). The repository builds from a fresh clone: `cargo build`, `cargo build --manifest-path
+  src-tauri/Cargo.toml` (which fetches `server` from `riscdom-server?tag=v1.0.0#a41c505f`), `npm ci`,
+  `npm run build` — all verified, and its CI is green on `main` and on the tag.
+- **Four probes read the kernel, and they now say so.** `probe-ui-{node-panel,lan,network-tab,remote}`
+  asserted cross-repository facts (`host-core/src/*.rs`, `server/src/token.rs`,
+  `docs/api-compatibility.md`). Those files left with the split, so each such check is guarded by
+  `existsSync` and prints **`SKIP  <name>: kernel source not present in adminapp repo; cross-repo
+  consistency check deferred to M8-4d`**. The other thirteen probes run unchanged. **M8-4d upgrades this**:
+  a `RISCDOM_KERNEL_DIR` pointed at a kernel checkout turns the skips back into checks; it is not
+  implemented in M8-4b.
+- **The UI probes number 17, not 16.** The gate's own comment named sixteen while running seventeen
+  (`probe-ui-remote.mjs` was the uncounted one); every count is corrected in this batch.
+- **This repository is a kernel.** `ui/` (82 files) and `host-tauri/` (6 files) were removed here; the
+  root `Cargo.toml` lost the member and the `exclude`, `Cargo.lock` was regenerated, `ci.yml` lost the
+  whole `bundle` job, `gate.sh` lost the front end build, the seventeen probes, `check-wix-version` and
+  `check-ui-strings`, `check-mirrored-constants.mjs` scans `host-core/src` alone, and `.gitignore` lost its
+  four `ui/` lines. **`server/` stays** until M8-4c, and so does the `server-bundle` job — whose
+  "build the front end" step now points at a directory that has left, which M8-4c resolves.
+- **`multi-repo.md` §2 was corrected**: after M8-4b the second repository does **not** name `host-tauri` at
+  this repository's tag — it owns the shell. The example now shows the three edges that exist (kernel tag,
+  shell path, `riscdom-server` tag).
+
+**Why**: a program is a consumer, and a consumer belongs beside the interface it presents, not inside the
+thing it consumes. The kernel is what a *host* runs; the management program is what a *person* runs.
+
+**Impact**: the new repository `riscdom-adminapp` (`abbe731`, tag `v1.0.0`, 117 commits); this repository
+loses `ui/` and `host-tauri/` (88 tracked files) and the references listed above; `docs/README.md` + zh,
+`CONTRIBUTING.md` + zh, `README.md` + zh, `docs/multi-repo.md` + zh, `docs/audit-package/test-evidence.md`
++ zh, the handoff's §1, the CHANGELOG and this entry. **`server/` is untouched** (M8-4c), the `v1.0.0` tag
+(`891c237`) is untouched, and so is `riscdom-server`. **No kernel semantics changed**: `compute_hash`,
+`verify_chain` and the append-only triggers are untouched. **M8-4c (this repository's close-out: `server/`
+removed, the packers relay-only, `server-bundle` → `relay-bundle`) and M8-4d (reconciliation) remain, each
+with its own authorisation.**

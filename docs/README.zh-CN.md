@@ -16,7 +16,7 @@
 
 ## 2. 内核开发者
 
-内核是 `agent` + `sandbox` + `audit`，外面包着 `host-core`（可移植半）与 `host-tauri`（桌面外壳）。这些文档讲机器本身：它怎么搭起来、为什么这样、以及定下过什么。
+内核是 `agent` + `sandbox` + `audit`，外面包着 `host-core`（可移植半）。`net` 承载连接层，`worker` 是执行者，`backup` / `sdk/rust` 是工具。桌面外壳（`host-tauri`）与它的前端（`ui`）是 **`riscdom-adminapp`**（v1.0 M8-4b），而作为程序的控制平面是 **`riscdom-server`**。这些文档讲机器本身：它怎么搭起来、为什么这样、以及定下过什么。
 
 ### 2.1 设计记录
 
@@ -59,7 +59,6 @@
 | [sandbox/README.md](../sandbox/README.md) — [中文](../sandbox/README.zh-CN.md) | QEMU 生命周期、串口捕获、快照（含 MVP 降级）与 relay。 | 活跃 |
 | [audit/README.md](../audit/README.md) — [中文](../audit/README.zh-CN.md) | 只追加存储、哈希链、事件词汇表，以及 `audit-verify`。 | 活跃 |
 | [host-core/README.md](../host-core/README.md) — [中文](../host-core/README.zh-CN.md) | 宿主的可移植半：模块、与 `host-tauri` 的关系、它的约束（不碰 Tauri）。 | 活跃 |
-| [host-tauri/README.md](../host-tauri/README.md) — [中文](../host-tauri/README.zh-CN.md) | 桌面外壳：命令、事件、钥匙串、快照、会话持久化、人工验证。 | 活跃 |
 | [worker/README.md](../worker/README.md) — [中文](../worker/README.zh-CN.md) | 执行者进程与监工半边——含远程执行者句柄（v0.9 E4）。 | 活跃 |
 | [net/README.md](../net/README.md) — [中文](../net/README.zh-CN.md) | 连接层（v1.0 M4）：今天在盘上的是节点身份；签名、发现、房间与跨区域服务器随各冻结节落地。 | 活跃 |
 | [backup/README.md](../backup/README.md) — [中文](../backup/README.zh-CN.md) | 可移植性工具（v1.0 M7e）：把整个节点 —— 两个根、经 SQLite 一致性路径取出的审计存储、以及反推出的 keyring 凭据 —— 导出为一个加密包。 | 活跃（AV-1 + AV-2） |
@@ -106,7 +105,6 @@
 | 文档 | 它是什么 | 状态 |
 |---|---|---|
 | [cli/README.md](../cli/README.md) — [中文](../cli/README.zh-CN.md) | `riscdom` 命令行：每条命令、两种模式、token、输出、退出码。 | 活跃 |
-| [ui/README.md](../ui/README.md) — [中文](../ui/README.zh-CN.md) | 桌面应用：布局、自动滚动、怎么运行、快照面板与审计页。 | 活跃 |
 | [CHANGELOG.md](../CHANGELOG.md) — [中文](../CHANGELOG.zh-CN.md) | 逐版本改了什么，以及未发布的那一行。 | 历史（只追加） |
 | [RELEASE_NOTES.md](../RELEASE_NOTES.md) — [中文](../RELEASE_NOTES.zh-CN.md) | 最新发行版（v0.9.9）的正文，含它的已知限制。 | 历史（逐发行版） |
 

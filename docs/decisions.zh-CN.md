@@ -1889,3 +1889,20 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **缘由**：项目把一切都决定在自己的长文档里，而评审者不该为了弄清什么是真的而把它们全读一遍。所以本包**引用**它们，只补上它们没有的两样东西：一页三十分钟读得完的，以及一份诚实的「哪里有问题」。
 
 **影响**：`docs/audit-package/`（8 对双语、16 个文件）、`scripts/demo.ps1`、`scripts/demo.sh`，以及本条、`docs/handoff.md` + zh、`CHANGELOG.md` + zh 与 `docs/README.md` + zh 中的一行。**未改动任何 crate、测试、CI 文件、gate 脚本、路由、capability 名或 SDK** —— demo 脚本只写 `target/demo/` 之下，而 `compute_hash`、`verify_chain` 与只追加触发器未动。**拆仓（M8-4b/c/d）不受影响。**
+
+## 166. 管理程序已自成一座仓，而本仓就是内核
+
+**日期**：2026-10-01 ｜ **状态**：已完成（v1.0 批 DZ-1/DZ-1b/DZ-2 / M8-4b）
+
+**决策**：M8-4b 已完成 —— 桌面程序离开，而内核终于只是内核：
+
+- **`riscdom-adminapp` 是一个仓**（`abbe731`，tag **`v1.0.0`**）：以**两次 `git subtree split`** 从本仓组装 —— `--prefix=ui`（95 提交）起 `main`，`--prefix=host-tauri`（19 提交）以 `git merge -s ours` + `git read-tree --prefix=host-tauri/` 叠加，于是一个提交同时带着两条历史，仓共 117 提交。前端位于**仓库根**（形态 A：`ui/` 的内容，而不是 `ui/`），`host-tauri/` 是一个子目录，而 `LICENSE` 从空仓的初始 commit 取回。
+- **依赖按拆仓改写**：`src-tauri/Cargo.toml` 以 **path** 取 `host-tauri`、以 **`riscdom-server` 的 `v1.0.0` tag** 取 `server`；`host-tauri/Cargo.toml` 以**本仓的 `v1.0.0` tag** 取 `host-core` 与 `net`。`Cargo.lock` 均已提交（tag 会移动，lock 不会）。全新 clone 可构建：`cargo build`、`cargo build --manifest-path src-tauri/Cargo.toml`（会从 `riscdom-server?tag=v1.0.0#a41c505f` 拉 `server`）、`npm ci`、`npm run build` —— 均已验证，其 CI 在 `main` 与 tag 上均为绿。
+- **四个探针读内核，而现在它们直言此事。** `probe-ui-{node-panel,lan,network-tab,remote}` 断言跨仓事实（`host-core/src/*.rs`、`server/src/token.rs`、`docs/api-compatibility.md`）。那些文件随拆仓离去，所以每一处这样的检查都由 `existsSync` 守卫，并打印 **`SKIP  <name>: kernel source not present in adminapp repo; cross-repo consistency check deferred to M8-4d`**。其余十三个探针原样运行。**M8-4d 会升级它**：一个指向内核检出的 `RISCDOM_KERNEL_DIR` 能把 SKIP 变回检查；M8-4b 不实现它。
+- **UI 探针是 17 个，不是 16 个。** gate 自己的注释点名了 16 个却跑了 17 个（未被数进去的是 `probe-ui-remote.mjs`）；本批把所有计数改正。
+- **本仓是一个内核。** 本仓删去了 `ui/`（82 文件）与 `host-tauri/`（6 文件）；根 `Cargo.toml` 去掉该 member 与 `exclude`，`Cargo.lock` 重生成，`ci.yml` 去掉整个 `bundle` 作业，`gate.sh` 去掉前端构建、17 个探针、`check-wix-version` 与 `check-ui-strings`，`check-mirrored-constants.mjs` 只扫 `host-core/src`，`.gitignore` 去掉那四行 `ui/`。**`server/` 留到 M8-4c**，`server-bundle` 作业也留着 —— 它那步「造前端」现在指向一个已经离去的目录，由 M8-4c 处置。
+- **`multi-repo.md` §2 被改正**：M8-4b 之后，第二仓**不**按本仓的 tag 点名 `host-tauri` —— 它拥有那个外壳。示例现在展示真实存在的三条边（内核 tag、外壳 path、`riscdom-server` tag）。
+
+**缘由**：程序是消费者，而消费者该待在它所呈现的界面旁，不是待在它所消费的东西里。内核是 *host* 跑的东西；管理程序是人跑的东西。
+
+**影响**：新仓 `riscdom-adminapp`（`abbe731`，tag `v1.0.0`，117 提交）；本仓失去 `ui/` 与 `host-tauri/`（88 个跟踪文件）及上述引用；`docs/README.md` + zh、`CONTRIBUTING.md` + zh、`README.md` + zh、`docs/multi-repo.md` + zh、`docs/audit-package/test-evidence.md` + zh、handoff §1、CHANGELOG 与本条。**`server/` 未动**（M8-4c），`v1.0.0` tag（`891c237`）未动，`riscdom-server` 也未动。**内核语义未变**：`compute_hash`、`verify_chain` 与只追加触发器未动。**M8-4c（本仓收尾：删 `server/`、打包器只打 relay、`server-bundle` → `relay-bundle`）与 M8-4d（对账）仍在，各自需授权。**

@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repository is unchanged**: `server/` and its packaging stay here until **M8-4c**, because `ui/src-tauri`
   depends on the crate by path and `ui/` leaves in **M8-4b**. **Decision §164.**
 
+### Removed
+
+- **The desktop program** (v1.0 batches DZ-1/DZ-1b/DZ-2 / M8-4b): `ui/` (82 files) and `host-tauri/`
+  (6 files) left for **`riscdom-adminapp`** (`abbe731`, tag `v1.0.0`), which now owns them. The front end
+  build, the seventeen UI probes, the wix-version guard and the ui string registry left with them; this
+  repository's gate checks the kernel alone. **`server/` stays until M8-4c.** **Decision §166.**
+
 - **The three repositories are written down consistently** (v1.0 batch DS / M8-4-prep): M8-4's five rulings
   land in `docs/multi-repo.md` — **`serve` belongs to `riscdom-server`** (this repository's `cli` becomes a
   pure client), a server package's **front end comes from `riscdom-adminapp`'s release**, **each repository
