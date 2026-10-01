@@ -9,10 +9,10 @@
 //! stdin is a pipe here, so the confirmation tests exercise the path a script or
 //! an AI takes: without `--yes`, refuse.
 
+mod common;
+
 use riscdom_cli::args::{parse, Parsed};
-#[cfg(windows)]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -36,12 +36,15 @@ fn unique_dir(tag: &str) -> PathBuf {
 fn run(tag: &str, args: &[&str]) -> Output {
     let workspace = unique_dir(&format!("{tag}-ws"));
     let data_dir = unique_dir(&format!("{tag}-data"));
+    // The control plane is a real `riscdom-server` now (v1.0 batch DT): the CLI
+    // starts none of its own, so the test runs one and points the CLI at it.
+    let server = common::Server::start(&workspace, &data_dir).expect("a riscdom-server");
     let mut command = Command::new(env!("CARGO_BIN_EXE_riscdom"));
     command
-        .arg("--workspace")
-        .arg(&workspace)
-        .arg("--data-dir")
-        .arg(&data_dir)
+        .arg("--remote")
+        .arg(&server.addr)
+        .arg("--token-file")
+        .arg(&server.token_file)
         .env_remove("DEEPSEEK_API_KEY")
         .env_remove("DEEPSEEK_BASE_URL")
         .env_remove("DEEPSEEK_MODEL");
@@ -50,13 +53,14 @@ fn run(tag: &str, args: &[&str]) -> Output {
 }
 
 /// Run with a chosen workspace, for a sequence of commands.
-fn run_in(workspace: &PathBuf, data_dir: &PathBuf, args: &[&str]) -> Output {
+fn run_in(workspace: &Path, data_dir: &Path, args: &[&str]) -> Output {
+    let server = common::Server::start(workspace, data_dir).expect("a riscdom-server");
     let mut command = Command::new(env!("CARGO_BIN_EXE_riscdom"));
     command
-        .arg("--workspace")
-        .arg(workspace)
-        .arg("--data-dir")
-        .arg(data_dir)
+        .arg("--remote")
+        .arg(&server.addr)
+        .arg("--token-file")
+        .arg(&server.token_file)
         .env_remove("DEEPSEEK_API_KEY")
         .env_remove("DEEPSEEK_BASE_URL")
         .env_remove("DEEPSEEK_MODEL");
@@ -111,6 +115,9 @@ fn json_stdout(output: &Output) -> serde_json::Value {
 
 #[test]
 fn run_reports_the_hosts_refusal_when_no_model_is_configured() {
+    if common::skip_if_no_server() {
+        return;
+    }
     // The control plane answers the documented `503 unavailable`, and the CLI
     // maps it to exit 3 with the error object on stderr.
     let output = run("run", &["--json", "run", "say hi"]);
@@ -132,6 +139,9 @@ fn run_reports_the_hosts_refusal_when_no_model_is_configured() {
 
 #[test]
 fn run_follow_terminates_instead_of_waiting_for_a_run_that_never_starts() {
+    if common::skip_if_no_server() {
+        return;
+    }
     // `--follow` subscribes first and runs second. With no model the run fails
     // immediately and there are no agent events at all — the point here is that
     // the command *ends* (the reader thread is not allowed to hold it open).
@@ -143,6 +153,9 @@ fn run_follow_terminates_instead_of_waiting_for_a_run_that_never_starts() {
 
 #[test]
 fn follow_is_refused_on_anything_but_run() {
+    if common::skip_if_no_server() {
+        return;
+    }
     for args in [
         vec!["health", "--follow"],
         vec!["--follow", "status"],
@@ -160,6 +173,9 @@ fn follow_is_refused_on_anything_but_run() {
 
 #[test]
 fn the_request_queue_reads_back_and_a_decision_asks_first() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("requests-ws");
     let data_dir = unique_dir("requests-data");
 
@@ -195,6 +211,9 @@ fn the_request_queue_reads_back_and_a_decision_asks_first() {
 
 #[test]
 fn deciding_an_unknown_request_is_the_control_planes_404() {
+    if common::skip_if_no_server() {
+        return;
+    }
     // The CLI cannot invent a request (only an agent or the API leaves one), so
     // the success path lives in the server's own tests. What this pins is that
     // `--yes`, the path and the id all reach the control plane intact: its answer
@@ -220,6 +239,9 @@ fn deciding_an_unknown_request_is_the_control_planes_404() {
 
 #[test]
 fn a_destructive_command_refuses_without_yes_when_stdin_is_a_pipe() {
+    if common::skip_if_no_server() {
+        return;
+    }
     for args in [
         vec!["vm", "stop"],
         vec!["snapshots", "delete", "nope"],
@@ -244,6 +266,9 @@ fn a_destructive_command_refuses_without_yes_when_stdin_is_a_pipe() {
 
 #[test]
 fn a_switch_to_an_unknown_sandbox_is_the_control_planes_404() {
+    if common::skip_if_no_server() {
+        return;
+    }
     // `--yes` gets past the confirmation; the answer is the control plane's, and
     // the CLI keeps its status-derived exit code (3 — refused or failed).
     let output = run(
@@ -258,6 +283,9 @@ fn a_switch_to_an_unknown_sandbox_is_the_control_planes_404() {
 
 #[test]
 fn vm_stop_with_yes_succeeds_even_with_no_vm() {
+    if common::skip_if_no_server() {
+        return;
+    }
     // The host's stop is idempotent: no VM is not an error.
     let output = run("vm-stop", &["vm", "stop", "--yes"]);
     assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
@@ -266,6 +294,9 @@ fn vm_stop_with_yes_succeeds_even_with_no_vm() {
 
 #[test]
 fn vm_start_is_reserved_and_says_so() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let output = run("vm-start", &["--json", "vm", "start"]);
     assert_eq!(exit_code(&output), 3, "stderr: {}", stderr(&output));
     let body = error_body(&output);
@@ -274,6 +305,9 @@ fn vm_start_is_reserved_and_says_so() {
 
 #[test]
 fn deleting_an_unknown_snapshot_reports_that_nothing_was_deleted() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let output = run(
         "snapshot-delete",
         &["--json", "snapshots", "delete", "nope", "--yes"],
@@ -291,6 +325,9 @@ fn deleting_an_unknown_snapshot_reports_that_nothing_was_deleted() {
 
 #[test]
 fn the_session_lifecycle_works_end_to_end() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("sessions-ws");
     let data_dir = unique_dir("sessions-data");
 
@@ -350,6 +387,9 @@ fn the_session_lifecycle_works_end_to_end() {
 
 #[test]
 fn abandon_stale_is_idempotent_and_asks_nothing() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let output = run("abandon", &["--json", "runs", "abandon-stale"]);
     assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
     assert_eq!(json_stdout(&output)["abandoned"], serde_json::json!([]));
@@ -361,6 +401,9 @@ fn abandon_stale_is_idempotent_and_asks_nothing() {
 
 #[test]
 fn a_control_command_with_a_missing_argument_is_a_usage_error() {
+    if common::skip_if_no_server() {
+        return;
+    }
     for args in [
         vec!["run"],
         vec!["snapshots", "save"],
@@ -382,6 +425,9 @@ fn a_control_command_with_a_missing_argument_is_a_usage_error() {
 
 #[test]
 fn the_project_goes_out_and_comes_back_through_the_cli() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("project-ws");
     let data_dir = unique_dir("project-data");
     // The workspace it owns: the CLI's embedded control plane resolves paths
@@ -474,6 +520,9 @@ fn the_project_goes_out_and_comes_back_through_the_cli() {
 
 #[test]
 fn importing_something_that_is_not_an_archive_is_refused_before_the_host_sees_it() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("not-archive-ws");
     let data_dir = unique_dir("not-archive-data");
     let file = unique_dir("not-archive-file").join("notes.txt");
@@ -511,6 +560,9 @@ fn importing_something_that_is_not_an_archive_is_refused_before_the_host_sees_it
 
 #[test]
 fn a_run_may_declare_the_sandbox_it_wants() {
+    if common::skip_if_no_server() {
+        return;
+    }
     // The declaration travels in the run's body and is answered by the host before
     // anything else about the run (v0.9 sandbox F2d): an unknown name is the
     // caller's `404`, reachable in local mode without a model, because a bad
@@ -541,6 +593,9 @@ fn a_run_may_declare_the_sandbox_it_wants() {
 
 #[test]
 fn the_parser_agrees_with_the_binary_about_the_new_commands() {
+    if common::skip_if_no_server() {
+        return;
+    }
     // A sanity check that the library view and the binary share one parser: the
     // commands the tests drive above are the ones `parse` produces.
     for (words, expected_path, expected_method) in [
@@ -676,6 +731,9 @@ fn a_cli_executor(data_dir: &Path) -> String {
 
 #[test]
 fn the_fleet_reads_and_a_dispatch_to_nobody_is_refused() {
+    if common::skip_if_no_server() {
+        return;
+    }
     // A fresh node owns no executors, and says so rather than showing an empty
     // table: the way to run *here* is `run`, which this message names.
     let output = run("executors-empty", &["executors", "list"]);
@@ -710,6 +768,9 @@ fn the_fleet_reads_and_a_dispatch_to_nobody_is_refused() {
 #[cfg(windows)]
 #[test]
 fn a_dispatch_reaches_a_configured_executor_and_prints_its_outcome() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("task-run-ws");
     let data_dir = unique_dir("task-run-data");
     let program = a_cli_executor(&data_dir);

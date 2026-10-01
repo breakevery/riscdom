@@ -5,8 +5,8 @@
 `riscdom` drives the RiscDom control plane from a shell: the same HTTP + SSE
 interface the desktop app and an AI supervisor use. It is a **client**, not a
 second way into the kernel — every command goes through the control plane, and the
-local mode simply starts the control plane inside this process on a loopback port
-the OS picks.
+control plane is a **`riscdom-server` you run** (v1.0 batch DT / M8-4a: the CLI
+starts none of its own).
 
 ```text
 riscdom [options] <command> [args]
@@ -161,9 +161,7 @@ Three `POST`s that hand the *server* a path to write:
 | `--model <model>` | the model's name |
 | `--provider-id <id>` | the provider preset `llm set` configures |
 | `--remember` | `llm set`: also store the key in the OS credential store |
-| `--remote <host:port>` | talk to a running `riscdom-server` instead of starting one here |
-| `--data-dir <dir>` | where settings, sessions and the token live (default: this platform's host data dir) |
-| `--workspace <dir>` | the workspace the embedded control plane owns (default: the current directory) |
+| `--remote <host:port>` | the `riscdom-server` to talk to; **required** (the CLI is a client only) |
 | `--token-file <path>` | read the bearer token from a file |
 | `--token <value>` | pass the token on the command line — it lands in the shell history, so the CLI warns |
 | `--limit <n>` | how many rows `runs list` / `audit events` ask for |
@@ -174,27 +172,28 @@ Three `POST`s that hand the *server* a path to write:
 
 Options may appear before, between or after the command words.
 
-## Two modes, one code path
+## One way in: `--remote`
 
-- **Local (default).** The CLI starts the control plane inside its own process,
-  bound to `127.0.0.1:0` — a loopback port the OS picks, so two runs never fight
-  over a port — and then speaks HTTP to it. Nothing is left behind: the process
-  exits when the command is done.
-- **Remote (`--remote host:port`).** The CLI talks to a `riscdom-server` you are
-  already running. Useful for a daemon on another machine or in a container.
+**`--remote <host:port>` is required.** The CLI used to start a control plane
+inside its own process when the flag was missing; that local mode is gone (v1.0
+batch DT / M8-4a) — it is `riscdom-server` now, because a program that starts a
+control plane is the control plane's program, not this client's. Run
 
-Both go through the same client code, so a command that works locally works
-remotely, and vice versa.
+```text
+riscdom-server --bind 127.0.0.1:7821 --workspace . --data-dir ~/.riscdom
+```
+
+and then point the CLI at it. A run without `--remote` is refused with a message
+that names the program to start.
 
 ## The token
 
 The control plane requires `Authorization: Bearer <token>` (there is no anonymous
 mode; `--no-auth` on the server is the only opt-out and it prints a warning).
 
-- **Local mode** reads `<data-dir>/token` for you. On the very first run the file
-  does not exist yet and the embedded control plane **generates** it, exactly as
-  `riscdom-server` does — the operator never has to copy a token by hand.
-- **Remote mode**, in order of preference:
+- **The token is the server's** (`<data-dir>/token`; `riscdom-server` generates it
+  on first use and prints its path — never its value). The CLI reads it in one of
+  three ways, in order of preference:
   1. `--token-file <path>` — only a path is on the command line;
   2. `RISCDOM_TOKEN` — not on the command line either;
   3. `--token <value>` — works, but the value lands in your shell history and in
@@ -282,7 +281,7 @@ unreadable, or that the credential was refused, and nothing more.
 | Code | Meaning |
 |---|---|
 | `0` | success (a 2xx answer), or `--help` / `--version` |
-| `1` | a local failure: no connection, no token file, no workspace, no runtime |
+| `1` | a local failure: no connection, or no readable token file |
 | `2` | a usage error, or the control plane rejected the request (`400`) |
 | `3` | the control plane refused or failed (`404` / `405` / `409` / `5xx`) |
 | `4` | authentication failed (`401` / `403`); a workspace path the policy refuses is the `400` above |

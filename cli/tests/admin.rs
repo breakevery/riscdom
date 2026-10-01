@@ -12,6 +12,8 @@
 //! `lib::tests`, and `--wait` itself end to end by `toolchain download --wait`
 //! (the one async path that can finish without touching the network).
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -38,12 +40,15 @@ fn run(tag: &str, args: &[&str]) -> Output {
 
 /// One command, with the workspace and data dir a test needs.
 fn run_in(workspace: &Path, data_dir: &Path, args: &[&str]) -> Output {
+    // The control plane is a real `riscdom-server` now (v1.0 batch DT): the CLI
+    // starts none of its own. `skip_if_no_server` has already run by here.
+    let server = common::Server::start(workspace, data_dir).expect("a riscdom-server");
     let mut command = Command::new(env!("CARGO_BIN_EXE_riscdom"));
     command
-        .arg("--workspace")
-        .arg(workspace)
-        .arg("--data-dir")
-        .arg(data_dir)
+        .arg("--remote")
+        .arg(&server.addr)
+        .arg("--token-file")
+        .arg(&server.token_file)
         .env_remove("DEEPSEEK_API_KEY")
         .env_remove("DEEPSEEK_BASE_URL")
         .env_remove("DEEPSEEK_MODEL");
@@ -112,6 +117,9 @@ fn data_dir_with_a_toolchain(tag: &str) -> PathBuf {
 
 #[test]
 fn the_exports_write_into_the_workspace_and_say_how_much() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("export-ws");
     let data_dir = unique_dir("export-data");
 
@@ -185,6 +193,9 @@ fn the_exports_write_into_the_workspace_and_say_how_much() {
 
 #[test]
 fn an_export_outside_the_workspace_is_a_bad_request() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("escape-ws");
     let data_dir = unique_dir("escape-data");
     let output = run_in(
@@ -214,6 +225,9 @@ fn an_export_outside_the_workspace_is_a_bad_request() {
 
 #[test]
 fn the_theme_and_the_language_are_written_or_refused() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("theme-ws");
     let data_dir = unique_dir("theme-data");
 
@@ -244,6 +258,9 @@ fn the_theme_and_the_language_are_written_or_refused() {
 
 #[test]
 fn the_alert_and_the_two_path_clears() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("clears-ws");
     let data_dir = unique_dir("clears-data");
 
@@ -270,6 +287,9 @@ fn the_alert_and_the_two_path_clears() {
 
 #[test]
 fn the_two_path_setters_refuse_a_file_that_is_not_there() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("path-ws");
     let data_dir = unique_dir("path-data");
     let missing = format!("does-not-exist-{}", std::process::id());
@@ -288,6 +308,9 @@ fn the_two_path_setters_refuse_a_file_that_is_not_there() {
 
 #[test]
 fn llm_set_accepts_the_key_inline_and_from_a_file() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("llm-ws");
     let data_dir = unique_dir("llm-data");
 
@@ -375,6 +398,9 @@ fn llm_set_accepts_the_key_inline_and_from_a_file() {
 
 #[test]
 fn llm_load_key_reports_a_provider_with_no_stored_key() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("loadkey-ws");
     let data_dir = unique_dir("loadkey-data");
     let output = run_in(
@@ -388,6 +414,9 @@ fn llm_load_key_reports_a_provider_with_no_stored_key() {
 
 #[test]
 fn the_model_configuration_is_cleared_only_after_a_confirmation() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("llmclear-ws");
     let data_dir = unique_dir("llmclear-data");
 
@@ -405,6 +434,9 @@ fn the_model_configuration_is_cleared_only_after_a_confirmation() {
 
 #[test]
 fn the_toolchain_download_acknowledges_and_waiting_watches_it_finish() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let workspace = unique_dir("download-ws");
 
     // Without `--wait`: the `202` acknowledgement, and the CLI is done.
@@ -451,6 +483,9 @@ fn the_toolchain_download_acknowledges_and_waiting_watches_it_finish() {
 
 #[test]
 fn cancelling_when_nothing_is_running_is_a_conflict() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let output = run("cancel", &["--json", "toolchain", "cancel"]);
     assert_eq!(exit_code(&output), 3, "stderr: {}", stderr(&output));
     let body = error_body(&output);
@@ -466,6 +501,9 @@ fn cancelling_when_nothing_is_running_is_a_conflict() {
 
 #[test]
 fn the_qemu_download_reports_the_unpinned_decision() {
+    if common::skip_if_no_server() {
+        return;
+    }
     // No QEMU release is pinned (the project guides instead of downloading), so the
     // endpoint answers the documented `503 unavailable` with `cause: "qemu"` and the
     // guidance — on every platform. Nothing is downloaded, and nothing can be.
@@ -496,6 +534,9 @@ fn the_qemu_download_reports_the_unpinned_decision() {
 
 #[test]
 fn cancelling_a_qemu_download_that_is_not_running_is_a_conflict() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let output = run("qemu-cancel", &["--json", "qemu", "cancel"]);
     assert_eq!(exit_code(&output), 3, "stderr: {}", stderr(&output));
     let body = error_body(&output);
@@ -511,6 +552,9 @@ fn cancelling_a_qemu_download_that_is_not_running_is_a_conflict() {
 
 #[test]
 fn the_preflight_acknowledgement_answers() {
+    if common::skip_if_no_server() {
+        return;
+    }
     // `preflight run` is not driven here (it compiles and boots a guest); its
     // `ack` half is safe: it records the escape hatch and answers with the view.
     let output = run("preflight-ack", &["preflight", "ack"]);

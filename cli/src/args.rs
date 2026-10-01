@@ -139,12 +139,8 @@ options:
   --provider-id <id>            the provider preset `llm set` configures
   --remember                    `llm set`: also store the key in the OS
                                 credential store
-  --remote <host:port>          talk to a running riscdom-server instead of
-                                starting one inside this process
-  --data-dir <dir>              where settings, sessions and the token live
-                                (default: this platform's host data dir)
-  --workspace <dir>             the workspace the embedded server owns
-                                (default: the current directory)
+  --remote <host:port>          the riscdom-server to talk to (required: the CLI
+                                is a client only)
   --token-file <path>           read the bearer token from this file
   --token <value>               pass the bearer token on the command line
                                 (warns: it lands in the shell history)
@@ -619,10 +615,8 @@ pub const DEFAULT_SERIAL_EXPORT: &str = "serial.log";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Args {
     pub command: Command,
-    /// `--remote host:port`, when given.
+    /// `--remote host:port` — required by `Session::open` (v1.0 batch DT).
     pub remote: Option<String>,
-    pub data_dir: Option<PathBuf>,
-    pub workspace: PathBuf,
     pub token_file: Option<PathBuf>,
     /// `--token`, when given.
     pub token: Option<String>,
@@ -685,8 +679,6 @@ struct Flags {
 /// `--limit` wins. Anything unknown is an error rather than a guess.
 pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
     let mut remote: Option<String> = None;
-    let mut data_dir: Option<PathBuf> = None;
-    let mut workspace: Option<PathBuf> = None;
     let mut token_file: Option<PathBuf> = None;
     let mut token: Option<String> = None;
     let mut json = false;
@@ -708,8 +700,6 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
             "--wait" | "-w" => wait = true,
             "--remember" => flags.remember = true,
             "--remote" => remote = Some(value("--remote")?),
-            "--data-dir" => data_dir = Some(PathBuf::from(value("--data-dir")?)),
-            "--workspace" => workspace = Some(PathBuf::from(value("--workspace")?)),
             "--token-file" => token_file = Some(PathBuf::from(value("--token-file")?)),
             "--token" => token = Some(value("--token")?),
             "--out" => flags.out = Some(value("--out")?),
@@ -759,8 +749,6 @@ pub fn parse(argv: Vec<String>) -> Result<Parsed, String> {
     Ok(Parsed::Command(Box::new(Args {
         command,
         remote,
-        data_dir,
-        workspace: workspace.unwrap_or_else(|| PathBuf::from(".")),
         token_file,
         token,
         json,
@@ -1487,18 +1475,12 @@ mod tests {
             "127.0.0.1:7821",
             "sessions",
             "clear-all",
-            "--data-dir",
-            "/tmp/data",
-            "--workspace",
-            "/tmp/ws",
             "--token-file",
             "/tmp/token",
         ]);
         assert!(args.json);
         assert!(args.yes);
         assert_eq!(args.remote.as_deref(), Some("127.0.0.1:7821"));
-        assert_eq!(args.data_dir, Some(PathBuf::from("/tmp/data")));
-        assert_eq!(args.workspace, PathBuf::from("/tmp/ws"));
         assert_eq!(args.token_file, Some(PathBuf::from("/tmp/token")));
         assert_eq!(args.command, Command::SessionsClearAll);
     }
@@ -2180,9 +2162,11 @@ mod tests {
     }
 
     #[test]
-    fn the_workspace_defaults_to_the_current_directory() {
+    fn a_command_without_a_remote_parses() {
+        // The refusal is `Session::open`'s, not the parser's: `--remote` is a
+        // run-time requirement (v1.0 batch DT), so its absence is an error only
+        // when a session is opened.
         let args = args_of(&["health"]);
-        assert_eq!(args.workspace, PathBuf::from("."));
         assert!(args.remote.is_none());
         assert!(!args.json);
         assert!(!args.yes);

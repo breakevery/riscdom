@@ -26,7 +26,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub use args::{Args, Command, Parsed, USAGE};
-pub use client::{exit_code_for, Client, Embedded, Error, Reply, Session};
+pub use client::{exit_code_for, Client, Error, Reply, Session};
 pub use sse::{Frame, SseStream};
 
 /// How long `--follow` waits for the stream to catch up after the run's own
@@ -66,7 +66,7 @@ pub fn run(parsed: Parsed, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         return report(&args, &error, err);
     }
 
-    // One session: remote, or the control plane embedded in this process.
+    // One session: the control plane named by `--remote` (v1.0 batch DT).
     let session = match Session::open(&args) {
         Ok(session) => session,
         Err(error) => return report(&args, &error, err),

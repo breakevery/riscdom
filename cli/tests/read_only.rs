@@ -1,11 +1,13 @@
 //! End-to-end tests for the CLI: the real `riscdom` binary, a real control plane.
 //!
-//! Nothing here touches QEMU or the network beyond loopback. The local mode starts
-//! the control plane inside the CLI's own process, so a test only has to point
-//! `--workspace` and `--data-dir` at temporary directories.
+//! Nothing here touches QEMU or the network beyond loopback. The CLI is a client
+//! and starts nothing (v1.0 batch DT / M8-4a), so `run` starts a real
+//! `riscdom-server` and points the CLI at it with `--remote`.
 //!
 //! The binary is driven the way `worker/tests/stdio.rs` drives its executor:
 //! `CARGO_BIN_EXE_riscdom` is the path cargo built, and the test reads its streams.
+
+mod common;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -23,18 +25,28 @@ fn unique_dir(tag: &str) -> PathBuf {
     dir
 }
 
-/// Run the CLI with the local-mode flags a test needs, and no credential flags.
+/// Run the CLI against a real control plane of its own.
 fn run(tag: &str, args: &[&str]) -> Output {
     let workspace = unique_dir(&format!("{tag}-ws"));
     let data_dir = unique_dir(&format!("{tag}-data"));
+    let server = common::Server::start(&workspace, &data_dir).expect("a riscdom-server");
     let mut command = Command::new(env!("CARGO_BIN_EXE_riscdom"));
     command
-        .arg("--workspace")
-        .arg(&workspace)
-        .arg("--data-dir")
-        .arg(&data_dir);
+        .arg("--remote")
+        .arg(&server.addr)
+        .arg("--token-file")
+        .arg(&server.token_file);
     command.args(args);
     command.output().expect("the CLI runs")
+}
+
+/// Run the CLI with exactly the arguments given — for a command that names its own
+/// `--remote`, or that needs no control plane at all.
+fn run_raw(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_riscdom"))
+        .args(args)
+        .output()
+        .expect("the CLI runs")
 }
 
 fn exit_code(output: &Output) -> i32 {
@@ -68,6 +80,9 @@ fn token_file(dir: &Path, name: &str, token: &str) -> PathBuf {
 
 #[test]
 fn help_prints_the_usage_and_exits_zero() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let output = run("help", &["--help"]);
     assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
     let text = stdout(&output);
@@ -78,6 +93,9 @@ fn help_prints_the_usage_and_exits_zero() {
 
 #[test]
 fn version_prints_the_version_and_exits_zero() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let output = run("version", &["--version"]);
     assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
     assert!(
@@ -89,6 +107,9 @@ fn version_prints_the_version_and_exits_zero() {
 
 #[test]
 fn an_unknown_command_is_a_usage_error() {
+    if common::skip_if_no_server() {
+        return;
+    }
     for args in [
         vec!["nope"],
         vec![],
@@ -109,6 +130,9 @@ fn an_unknown_command_is_a_usage_error() {
 
 #[test]
 fn health_answers_in_json_locally() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let output = run("health-json", &["--json", "health"]);
     assert_eq!(exit_code(&output), 0, "{}", stderr(&output));
     let value = json(&output);
@@ -119,6 +143,9 @@ fn health_answers_in_json_locally() {
 
 #[test]
 fn the_json_mode_passes_the_control_plane_through_and_the_human_mode_does_not() {
+    if common::skip_if_no_server() {
+        return;
+    }
     let json_output = run("mode-json", &["--json", "status"]);
     assert_eq!(exit_code(&json_output), 0, "{}", stderr(&json_output));
     let value: serde_json::Value = serde_json::from_str(&stdout(&json_output)).expect("JSON");
@@ -145,6 +172,9 @@ fn the_json_mode_passes_the_control_plane_through_and_the_human_mode_does_not() 
 
 #[test]
 fn the_read_only_commands_answer_and_agree_with_their_mode() {
+    if common::skip_if_no_server() {
+        return;
+    }
     // Each of these must succeed against a fresh workspace, with no model, no VM
     // and no snapshot in it.
     for args in [
@@ -262,16 +292,18 @@ fn the_read_only_commands_answer_and_agree_with_their_mode() {
 
 #[test]
 fn a_wrong_token_is_refused_with_four() {
-    // A real control plane, started the way the CLI starts one, with a token we
-    // know: the test needs to present a *different* one on purpose.
+    if common::skip_if_no_server() {
+        return;
+    }
+    // A real control plane, with a token we know: the test needs to present a
+    // *different* one on purpose.
     let workspace = unique_dir("auth-ws");
     let data_dir = unique_dir("auth-data");
     let token = "cli-test-token-0123456789abcdef";
     token_file(&data_dir, "token", token);
 
-    let server = riscdom_cli::client::start_embedded(&workspace, Some(&data_dir))
-        .expect("an embedded control plane");
-    let remote = server.base_url().trim_start_matches("http://").to_string();
+    let server = common::Server::start(&workspace, &data_dir).expect("a riscdom-server");
+    let remote = server.addr.clone();
 
     let wrong = unique_dir("auth-wrong");
     let wrong_token = token_file(&wrong, "token", "not-the-token");
@@ -297,14 +329,12 @@ fn a_wrong_token_is_refused_with_four() {
         .expect("the CLI runs");
     assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
     assert_eq!(json(&output)["status"], "ok");
-
-    server.abort();
 }
 
 #[test]
 fn a_remote_that_is_not_there_is_a_local_failure() {
     // Port 1 on loopback: nothing listens there, and nothing may be started.
-    let output = run("refused", &["--json", "--remote", "127.0.0.1:1", "health"]);
+    let output = run_raw(&["--json", "--remote", "127.0.0.1:1", "health"]);
     assert_eq!(exit_code(&output), 1, "stderr: {}", stderr(&output));
     let body: serde_json::Value = serde_json::from_str(&stderr(&output)).expect("JSON error body");
     assert_eq!(body["code"], "cli_error", "{body}");
@@ -318,17 +348,14 @@ fn a_remote_that_is_not_there_is_a_local_failure() {
 fn a_missing_token_file_is_an_authentication_failure() {
     let dir = unique_dir("no-token");
     let missing = dir.join("nope");
-    let output = run(
-        "no-token-run",
-        &[
-            "--json",
-            "--remote",
-            "127.0.0.1:1",
-            "--token-file",
-            &missing.display().to_string(),
-            "health",
-        ],
-    );
+    let output = run_raw(&[
+        "--json",
+        "--remote",
+        "127.0.0.1:1",
+        "--token-file",
+        &missing.display().to_string(),
+        "health",
+    ]);
     assert_eq!(exit_code(&output), 4, "stderr: {}", stderr(&output));
     let body: serde_json::Value = serde_json::from_str(&stderr(&output)).expect("JSON error body");
     assert_eq!(body["code"], "cli_error", "{body}");
@@ -340,6 +367,9 @@ fn a_missing_token_file_is_an_authentication_failure() {
 
 #[test]
 fn the_capability_aggregate_merges_six_reads_into_one_answer() {
+    if common::skip_if_no_server() {
+        return;
+    }
     // JSON mode: the five keys of the shape, each an endpoint's own answer (only
     // `node_id` is lifted out of `/v0/identity`; nothing else is touched).
     let output = run("caps-json", &["--json", "node", "capabilities"]);

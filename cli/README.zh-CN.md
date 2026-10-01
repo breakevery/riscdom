@@ -2,7 +2,7 @@
 
 # riscdom —— 命令行控制平面客户端
 
-`riscdom` 让你在 shell 里驱动 RiscDom 控制平面：与桌面应用和 AI 监工用的是同一套 HTTP + SSE 接口。它是一个**客户端**，不是进入内核的第二条路——每条命令都经控制平面，本地模式只不过是在本进程内、由内核挑一个回环端口把控制平面起起来。
+`riscdom` 让你在 shell 里驱动 RiscDom 控制平面：与桌面应用和 AI 监工用的是同一套 HTTP + SSE 接口。它是一个**客户端**，不是进入内核的第二条路——每条命令都经控制平面，而控制平面是**你自己跑的 `riscdom-server`**（v1.0 批 DT / M8-4a：CLI 不再自己起任何控制平面）。
 
 ```text
 riscdom [options] <command> [args]
@@ -144,9 +144,7 @@ riscdom [options] <command> [args]
 | `--model <model>` | 模型名 |
 | `--provider-id <id>` | `llm set` 配置的服务商预设 |
 | `--remember` | `llm set`：同时把 key 存进操作系统凭据存储 |
-| `--remote <host:port>` | 连一个已在运行的 `riscdom-server`，而不是自己起一个 |
-| `--data-dir <dir>` | settings、会话与 token 所在（默认：本平台宿主数据目录） |
-| `--workspace <dir>` | 内嵌控制平面所属的 workspace（默认：当前目录） |
+| `--remote <host:port>` | 要连的 `riscdom-server`；**必需**（CLI 只是客户端） |
 | `--token-file <path>` | 从文件读 bearer token |
 | `--token <value>` | 在命令行上传 token——会落入 shell history，CLI 会打印警告 |
 | `--limit <n>` | `runs list` / `audit events` 请求多少行 |
@@ -157,19 +155,21 @@ riscdom [options] <command> [args]
 
 选项可以出现在子命令之前、之间或之后。
 
-## 两种模式，同一条代码路径
+## 一种入口：`--remote`
 
-- **本地（默认）。** CLI 在自己进程内把控制平面起在 `127.0.0.1:0`——由内核挑一个空闲回环端口，因此两次运行永不争端口——然后对它说 HTTP。什么都不留：命令结束进程即退出。
-- **远程（`--remote host:port`）。** 连你已经跑着的 `riscdom-server`。适合另一台机器或容器里的 daemon。
+**`--remote <host:port>` 是必需的。** CLI 从前在缺这个开关时会在自己进程内起一个控制平面；那条本地模式已经不在了（v1.0 批 DT / M8-4a）—— 它现在是 `riscdom-server`，因为「起控制平面的程序」是控制平面的程序，不是这个客户端的。先跑
 
-两者走同一份客户端代码，所以本地能用的命令远程也能用，反之亦然。
+```text
+riscdom-server --bind 127.0.0.1:7821 --workspace . --data-dir ~/.riscdom
+```
+
+再把 CLI 指向它。缺 `--remote` 的运行会被拒绝，并给出一条点名该程序的错误消息。
 
 ## token
 
 控制平面要求 `Authorization: Bearer <token>`（没有匿名模式；服务端 `--no-auth` 是唯一的例外，且会打印警告）。
 
-- **本地模式**替你读 `<data-dir>/token`。首次运行时该文件还不存在，内嵌控制平面会**生成**它——与 `riscdom-server` 完全同一套逻辑，运维无需手抄 token。
-- **远程模式**，按优先级：
+- **token 是服务端的**（`<data-dir>/token`；`riscdom-server` 首次使用时生成它，并打印它的路径——从不打印值）。CLI 按优先级用三种方式之一读取：
   1. `--token-file <path>`——命令行上只有路径；
   2. `RISCDOM_TOKEN`——也不在命令行上；
   3. `--token <value>`——能用，但该值会落入 shell history 与 `ps`，CLI 会打印警告。
@@ -249,7 +249,7 @@ token 从不被打印、从不被记录：失败只说**哪个文件**读不到�
 | 码 | 含义 |
 |---|---|
 | `0` | 成功（2xx），或 `--help` / `--version` |
-| `1` | 本地失败：连不上、token 文件读不到、workspace 打不开、runtime 起不来 |
+| `1` | 本地失败：连不上，或 token 文件读不到 |
 | `2` | 用法错误，或控制平面驳回了请求（`400`） |
 | `3` | 控制平面拒绝或失败（`404` / `405` / `409` / `5xx`） |
 | `4` | 认证失败（`401` / `403`）；workspace 策略拒绝的路径属于上面的 `400` |

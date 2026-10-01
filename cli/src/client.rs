@@ -1,18 +1,16 @@
-//! Talking to the control plane: the embedded server, the HTTP client, the
-//! token, the confirmation prompt, and the exit-code map.
+//! Talking to the control plane: the HTTP client, the token, the confirmation
+//! prompt, and the exit-code map.
 //!
-//! Both modes are one path. Without `--remote` the CLI starts the control plane
-//! **inside this process** on a loopback port the OS picks (`127.0.0.1:0`), then
-//! speaks HTTP to it exactly as it would to a remote one — the CLI never calls
-//! `AppState` directly.
+//! **The CLI is a client and nothing else** (v1.0 batch DT / M8-4a): it speaks HTTP
+//! to a `riscdom-server`, never calls `AppState` directly, and never starts a
+//! control plane of its own. A run without `--remote` is a usage error naming the
+//! program to start.
 
 use crate::args::Args;
 use crate::args::Command;
 use crate::sse::SseStream;
 use std::io::IsTerminal;
-use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 /// Success (a 2xx answer).
@@ -281,30 +279,6 @@ impl Client {
     }
 }
 
-/// The control plane running inside this process, on its own loopback port.
-pub struct Embedded {
-    addr: SocketAddr,
-    token: String,
-    running: server::Running,
-}
-
-impl Embedded {
-    pub fn base_url(&self) -> String {
-        format!("http://{}", self.addr)
-    }
-
-    /// The token the embedded server requires, so the client can present it.
-    pub fn token(&self) -> &str {
-        &self.token
-    }
-
-    /// Stop accepting connections. The process is about to exit anyway; this is
-    /// what makes the intent explicit.
-    pub fn abort(&self) {
-        self.running.abort();
-    }
-}
-
 /// A session: how to reach the control plane, and the token to use.
 ///
 /// Three clients, because the timeout is not one number: a read answers now, a
@@ -313,36 +287,30 @@ pub struct Session {
     read: Client,
     control: Client,
     stream: Client,
-    /// `Some` in local mode: the embedded server must outlive the request.
-    embedded: Option<Embedded>,
 }
 
 impl Session {
-    /// Open a session: remote when `--remote` is given, embedded otherwise.
+    /// Open a session: `--remote <host:port>` is **required** (v1.0 batch DT).
+    ///
+    /// The local mode this used to fall back to is gone: it started the control
+    /// plane inside this process, and that belongs to `riscdom-server` (v1.0 batch
+    /// DS, decisions §163). A caller that wants a node of its own starts that
+    /// program and passes its address.
     pub fn open(args: &Args) -> Result<Self, Error> {
-        match &args.remote {
-            Some(remote) => {
-                let base = remote_base_url(remote);
-                let token = remote_token(args)?;
-                Ok(Self {
-                    read: Client::new(base.clone(), token.clone(), Some(READ_TIMEOUT))?,
-                    control: Client::new(base.clone(), token.clone(), Some(CONTROL_TIMEOUT))?,
-                    stream: Client::new(base, token, None)?,
-                    embedded: None,
-                })
-            }
-            None => {
-                let embedded = start_embedded(&args.workspace, args.data_dir.as_deref())?;
-                let base = embedded.base_url();
-                let token = Some(embedded.token().to_string());
-                Ok(Self {
-                    read: Client::new(base.clone(), token.clone(), Some(READ_TIMEOUT))?,
-                    control: Client::new(base.clone(), token.clone(), Some(CONTROL_TIMEOUT))?,
-                    stream: Client::new(base, token, None)?,
-                    embedded: Some(embedded),
-                })
-            }
-        }
+        let Some(remote) = &args.remote else {
+            return Err(Error::refused(
+                "no --remote given: the local mode is gone — it is `riscdom-server` now. \
+                 Start that program and pass --remote <host:port>"
+                    .to_string(),
+            ));
+        };
+        let base = remote_base_url(remote);
+        let token = remote_token(args)?;
+        Ok(Self {
+            read: Client::new(base.clone(), token.clone(), Some(READ_TIMEOUT))?,
+            control: Client::new(base.clone(), token.clone(), Some(CONTROL_TIMEOUT))?,
+            stream: Client::new(base, token, None)?,
+        })
     }
 
     pub fn get(&self, path: &str) -> Result<Reply, Error> {
@@ -371,14 +339,6 @@ impl Session {
     /// A control client whose requests can be moved to another thread.
     pub fn control_client(&self) -> Client {
         self.control.clone()
-    }
-}
-
-impl Drop for Session {
-    fn drop(&mut self) {
-        if let Some(embedded) = &self.embedded {
-            embedded.abort();
-        }
     }
 }
 
@@ -497,62 +457,6 @@ pub fn resolve_key_file(command: &mut Command) -> Result<(), Error> {
             "llm set needs --api-key <key> or --api-key-file <path>".to_string(),
         )),
     }
-}
-
-/// Start the control plane inside this process, on a loopback port the OS picks.
-///
-/// Public because it is the whole of the local mode, and because the integration
-/// tests need a real control plane to talk to. The token is the host's own
-/// (`<data-dir>/token`, generated on first use by the same code the standalone
-/// server runs), installed as `TokenAuth`; the client then presents it, so the
-/// local path exercises the authenticated one.
-pub fn start_embedded(workspace: &Path, data_dir: Option<&Path>) -> Result<Embedded, Error> {
-    let state = match data_dir {
-        Some(dir) => host_core::AppState::with_data_dir(workspace.to_path_buf(), dir.to_path_buf()),
-        None => host_core::AppState::new(workspace.to_path_buf()),
-    }
-    .map_err(|e| Error::local(format!("cannot open the workspace state: {e}")))?;
-    let state = Arc::new(state);
-    // v1.0 batch AK: a node that runs the server role judges the nodes below it; the judgement rows
-    // land on this node's chain. The install needs the `Arc`, so it happens here, not in construction.
-    state.install_connection_sink();
-
-    let file = server::token::load_or_create(state.data_dir()).map_err(|e| {
-        Error::local(format!(
-            "cannot use the token in {}: {e}",
-            state.data_dir().display()
-        ))
-    })?;
-    let token = file.token().to_string();
-
-    let authn: Arc<dyn server::Authn> = Arc::new(server::TokenAuth::new(token.clone()));
-    let bind: SocketAddr = "127.0.0.1:0"
-        .parse()
-        .expect("a loopback literal is an address");
-    // No heartbeat: the CLI subscribes only for `--follow`, and a frame nobody
-    // needs is not worth a thread in every short-lived invocation.
-    let config = server::ServerConfig::new(bind)
-        .with_heartbeat(None)
-        .with_authn(authn);
-    let http = server::Server::new(Arc::clone(&state), config);
-
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .build()
-        .map_err(|e| Error::local(format!("cannot start the async runtime: {e}")))?;
-    let running = runtime
-        .block_on(http.start())
-        .map_err(|e| Error::local(format!("cannot bind a loopback port: {e}")))?;
-    let addr = running.local_addr();
-    // The accept loop is a task in that runtime, so the runtime has to keep being
-    // polled: park it on a thread of its own (the process exit ends it).
-    std::thread::spawn(move || runtime.block_on(std::future::pending::<()>()));
-
-    Ok(Embedded {
-        addr,
-        token,
-        running,
-    })
 }
 
 #[cfg(test)]
