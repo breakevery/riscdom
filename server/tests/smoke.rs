@@ -414,6 +414,16 @@ fn open_stream(
     last_event_id: Option<&str>,
     needles: &[&str],
 ) -> (TcpStream, String) {
+    open_stream_path(addr, "/v0/events", last_event_id, needles)
+}
+
+/// The same, with the path (and its query) spelled out — how a filter is asked for (v1.0 M6-3b).
+fn open_stream_path(
+    addr: SocketAddr,
+    path: &str,
+    last_event_id: Option<&str>,
+    needles: &[&str],
+) -> (TcpStream, String) {
     let mut stream = TcpStream::connect(addr).expect("connect");
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
@@ -422,7 +432,7 @@ fn open_stream(
         Some(id) => format!("Last-Event-ID: {id}\r\n"),
         None => String::new(),
     };
-    let request = format!("GET /v0/events HTTP/1.1\r\nHost: localhost\r\n{resume}\r\n");
+    let request = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\n{resume}\r\n");
     stream.write_all(request.as_bytes()).expect("write request");
     let text = read_until(&mut stream, needles);
     (stream, text)
@@ -851,6 +861,60 @@ fn a_dispatched_tasks_events_carry_the_id_the_caller_gave() {
     assert!(
         envelope.contains("\"task_id\":\"task-dev-a-1-1\""),
         "the dispatch's envelope names the task: {envelope}"
+    );
+}
+
+#[test]
+fn a_task_filter_narrows_the_stream_to_one_task() {
+    // v1.0 M6-3b, over HTTP: `?task_id=` is the one filter the server enforces. The event under
+    // test is the preflight's, which belongs to **no** task — so a stream filtered to a task that
+    // does not exist must not carry it, while an unfiltered one must (that control is what keeps
+    // this from passing vacuously).
+    let (addr, _sink, _ws) = start_server(Arc::new(NoAuth));
+
+    let (mut filtered, filtered_hello) = open_stream_path(
+        addr,
+        "/v0/events?task_id=task-nobody-1-1",
+        None,
+        &["\"kind\":\"hello\""],
+    );
+    // Short, so the negative read below does not sit on the default ten-second timeout.
+    filtered
+        .set_read_timeout(Some(Duration::from_millis(800)))
+        .expect("read timeout");
+    let (mut open, open_hello) = open_stream(addr, None, &["\"kind\":\"hello\""]);
+
+    // `hello` describes the stream itself, so no filter hides it — and it echoes the one
+    // parameter this server honours.
+    assert!(
+        filtered_hello.contains("\"task_id\":\"task-nobody-1-1\""),
+        "{filtered_hello}"
+    );
+    assert!(
+        open_hello.contains("\"task_id\":null"),
+        "an unfiltered stream echoes no task: {open_hello}"
+    );
+
+    // One real event (the preflight runs on its own thread and answers `202` at once).
+    let (status, body) = post(addr, "/v0/preflight/run", "{}");
+    assert_eq!(status, 202, "{body}");
+
+    // The open stream hears it...
+    let text = read_until(&mut open, &["\"event\":\"preflight:progress\""]);
+    assert!(text.contains("\"event\":\"preflight:progress\""), "{text}");
+
+    // ...and the filtered one never does. An event tied to no task is not `task-nobody-1-1`'s, and
+    // what the filtered stream did receive describes the stream rather than a task.
+    let text = read_until(&mut filtered, &["\"event\":\"preflight:progress\""]);
+    assert!(
+        !text.contains("\"kind\":\"event\""),
+        "a stream filtered to a task carries no other events: {text}"
+    );
+    // Nothing else arrived at all: the only frame this connection received is the `hello` read
+    // above, which came from the handshake rather than from the buffer.
+    assert!(
+        text.trim().is_empty(),
+        "the filtered stream stayed quiet: {text}"
     );
 }
 

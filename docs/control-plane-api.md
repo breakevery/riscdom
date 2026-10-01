@@ -291,7 +291,7 @@ the tables above. They are part of this document's surface all the same.
 |---|---|---|---|
 | `/v0/health` | GET | `health.read` | `{"status":"ok","version":"0.8.0","uptime_ms":N}` |
 | `/v0/status` | GET | `status.read` | `{"status","version","uptime_ms","connections","sse_subscribers","agents","agent_id"}` |
-| `/v0/events` | GET | `events.subscribe` | The SSE event stream (see [control-plane-events.md](control-plane-events.md)). |
+| `/v0/events` | GET | `events.subscribe` | The SSE event stream (see [control-plane-events.md](control-plane-events.md)). `?task_id=<id>` narrows it to one task's events (v1.0 M6-3b); `?event=` / `?agent_id=` are accepted and not yet honoured. |
 
 ### 5.4 Notes on the tables
 

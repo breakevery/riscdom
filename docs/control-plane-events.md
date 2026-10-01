@@ -203,21 +203,25 @@ refusal rather than progress.
 
 ## 4. Filtering
 
-A client may subscribe to a subset. This is a design shape for v0.9; the mechanism is
-built in the implementation batch.
+**One parameter is enforced today: `task_id` (v1.0 M6-3b).** The other two — `event` and
+`agent_id` — are still the design shape they have been since v0.9: they are accepted, echoed back in
+`hello`, and **ignored**, so a client that sends them receives the whole stream exactly as before.
 
 - **Query parameters, repeatable:**
   `GET /v0/events?event=agent:tool_call&event=vm:state&agent_id=dev-12345-1&task_id=task-12345-1`
-  - `event` — any of the twenty names; repeat to select several. Absent means all.
-  - `agent_id` — select one agent's events.
-  - `task_id` — select one task's events.
+  - `event` — any of the twenty names; repeat to select several. Absent means all. **Not honoured yet.**
+  - `agent_id` — select one agent's events. **Not honoured yet.**
+  - `task_id` — **select one task's events. This one is enforced**: the server drops frames that
+    belong to another task, in the live stream **and** in `Last-Event-ID` replay. An event tied to no
+    task is not any task's, so it is dropped too. A blank `?task_id=` is treated as absent (the whole
+    stream) rather than as a task named "".
 - **Server-side filter.** The server drops non-matching frames before they are written,
   so a filtered stream costs a client no bandwidth for events it will ignore.
 - **Client-side filter is still required.** A client must tolerate receiving an event it
   did not ask for (a future server, a bug, a changed default) and ignore it. Filtering is
   an optimisation, never a correctness guarantee.
 - **`hello` and `gap` are never filtered.** They describe the stream itself, so they are
-  always delivered.
+  always delivered — and so is a comment heartbeat, which is not an event at all.
 
 ## 5. Frame examples
 

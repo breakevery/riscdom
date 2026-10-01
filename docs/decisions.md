@@ -4604,3 +4604,46 @@ it out, and it is only meaningful now that events carry ids.
 §5.1/§5.2 count, no capability name, no SDK change, no dependency; `audit/src/hash.rs` is untouched —
 `compute_hash` has no `task_id` column, and a `task_id` inside a detail is hashed only as part of that
 detail, exactly as `m.task.dispatch` already was.**
+
+## 154. One filter is enforced: `task_id` on the stream
+
+**Date**: 2026-10-01 ｜ **Status**: Decided and implemented (batch DC / M6-3b)
+
+**Decision**: §4's filtering was documented as a design shape "built in the implementation batch" — and
+**none of the three parameters was implemented, for any of them**. This batch builds the mechanism for
+`task_id` **only**:
+
+- **A frame carries its scope.** `WireFrame` gains a `scope: FrameScope` — `Stream` for `hello`, `gap`
+  and a comment (they describe the stream itself), `Task(Option<String>)` for an event. Its
+  `passes(task_id)` is the whole predicate: no filter passes everything, a `Stream` frame always passes,
+  and an **event belongs to the asked-for task only when it names it** — an event tied to no task is not
+  that task's.
+- **The filter is per connection.** `SseHub::subscribe(task_id)` hands back a `Subscriber` (receiver +
+  filter) whose `recv`/`try_recv` **skip** the frames the filter excludes. The hub still fans one frame
+  out to everyone — a broadcast cannot narrow per subscriber — so "drop before it is written" is exactly
+  what the subscriber's read does.
+- **Both halves are filtered.** `open_stream` applies it to the `Last-Event-ID` replay **and** (through
+  the subscriber) to the live frames, so a filtered reconnect replays only its task's events and still
+  receives the `gap` frame when the hole is too old to fill.
+- **`event` and `agent_id` are untouched**: accepted, echoed, and still **ignored**, so a client that
+  sends them is served exactly as it was — **no behaviour change** for them.
+- **`hello.filters` now echoes the request's `task_id`**, and the object is written in **one** place
+  (`server/src/envelope.rs::filters`) instead of two copies of the same literal.
+- **The query is parsed for this route only, and a blank value means "no filter"** — a task named ""
+  would be a filter that matches nothing.
+
+**Why**: §12's client follows one node and wants its own task's story (M6-3a gave the events the id).
+`task_id` is the parameter a client can already send (both SDKs have it) and the one the server can
+honour without deciding anything about `event`/`agent_id` — whose enforcement would be the real
+behaviour change, and is left to its own batch. The mechanism is deliberately general enough to grow
+(`FrameScope` is what a future `event`/`agent_id` filter would extend) without pretending to work it has
+not done.
+
+**Impact**: `server/src/sse.rs` (`FrameScope`, `WireFrame::passes`, `Subscriber`, `subscribe(task_id)`,
+`hello(agent_id, task_id)`, the three constructors) + unit tests; `server/src/envelope.rs` (the one
+`filters` helper); `server/src/http.rs` (`local`/`open_stream` take the task; the query is read; both
+halves filtered); `server/tests/smoke.rs` (`open_stream_path` + one end-to-end filter test);
+`docs/control-plane-events.md` §4 + zh; `docs/control-plane-api.md` + zh (the `/v0/events` row);
+`CHANGELOG.md` + zh; `docs/handoff.md` + zh. **No route row, no §5.1/§5.2 count, no capability name, no
+SDK change, no dependency; `emit`'s signature is unchanged; `audit/src/hash.rs`, `net/`, `cli/`, `ui/`
+are untouched.**

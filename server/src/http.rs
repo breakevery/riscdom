@@ -292,11 +292,16 @@ impl Shared {
     }
 
     /// The endpoints this crate answers itself.
-    fn local(&self, kind: Local, last_event_id: Option<&str>) -> Response<RespBody> {
+    fn local(
+        &self,
+        kind: Local,
+        last_event_id: Option<&str>,
+        task_id: Option<&str>,
+    ) -> Response<RespBody> {
         match kind {
             Local::Health => self.health(),
             Local::Status => self.status(),
-            Local::Events => self.open_stream(last_event_id),
+            Local::Events => self.open_stream(last_event_id, task_id),
         }
     }
 
@@ -306,11 +311,19 @@ impl Shared {
     /// The subscription is taken **before** the replay is computed, so a frame
     /// published during the handover is delivered live and then skipped by the
     /// ordinal check in the body — never lost, never sent twice.
-    fn open_stream(&self, last_event_id: Option<&str>) -> Response<RespBody> {
-        let rx = self.hub.subscribe();
+    ///
+    /// `task_id` narrows the stream to one task (v1.0 M6-3b). The filter applies to both halves —
+    /// the replay and the live frames — and never to `hello` or `gap`, which describe the stream
+    /// itself (`docs/control-plane-events.md` §4).
+    fn open_stream(
+        &self,
+        last_event_id: Option<&str>,
+        task_id: Option<&str>,
+    ) -> Response<RespBody> {
+        let subscriber = self.hub.subscribe(task_id.map(str::to_string));
         let mut pending: VecDeque<Bytes> = VecDeque::new();
         pending.push_back(Bytes::from(
-            self.hub.hello(self.app.agent_id()).bytes.clone(),
+            self.hub.hello(self.app.agent_id(), task_id).bytes.clone(),
         ));
 
         let mut last_seq = 0u64;
@@ -319,33 +332,37 @@ impl Shared {
             Replay::Frames(frames) => {
                 for frame in frames {
                     last_seq = last_seq.max(frame.seq);
-                    pending.push_back(Bytes::from(frame.bytes.clone()));
+                    if frame.passes(task_id) {
+                        pending.push_back(Bytes::from(frame.bytes.clone()));
+                    }
                 }
             }
             Replay::Gap { lost_after, frames } => {
+                // The `gap` frame is the stream talking about itself, so it goes out whatever the
+                // filter says; a client that lost frames has to hear that it did.
                 pending.push_back(Bytes::from(self.hub.gap(&lost_after).bytes.clone()));
                 for frame in frames {
                     last_seq = last_seq.max(frame.seq);
-                    pending.push_back(Bytes::from(frame.bytes.clone()));
+                    if frame.passes(task_id) {
+                        pending.push_back(Bytes::from(frame.bytes.clone()));
+                    }
                 }
             }
         }
 
         type Item = Result<Frame<Bytes>, std::io::Error>;
-        type Seed = (
-            broadcast::Receiver<Arc<crate::sse::WireFrame>>,
-            VecDeque<Bytes>,
-            u64,
-        );
+        type Seed = (crate::sse::Subscriber, VecDeque<Bytes>, u64);
         let frames = stream::unfold(
-            (rx, pending, last_seq) as Seed,
-            |(mut rx, mut pending, last_seq)| async move {
+            (subscriber, pending, last_seq) as Seed,
+            |(mut subscriber, mut pending, last_seq)| async move {
                 if let Some(bytes) = pending.pop_front() {
                     let item: Item = Ok(Frame::data(bytes));
-                    return Some((item, (rx, pending, last_seq)));
+                    return Some((item, (subscriber, pending, last_seq)));
                 }
                 loop {
-                    match rx.recv().await {
+                    // `Subscriber::recv` is what drops the frames this connection's filter
+                    // excludes; nothing else in the stream knows about filtering.
+                    match subscriber.recv().await {
                         Ok(frame) => {
                             // A frame the replay already covered, or one older
                             // than the cursor: the client has it.
@@ -353,7 +370,7 @@ impl Shared {
                                 continue;
                             }
                             let item: Item = Ok(Frame::data(Bytes::from(frame.bytes.clone())));
-                            return Some((item, (rx, pending, last_seq)));
+                            return Some((item, (subscriber, pending, last_seq)));
                         }
                         // A subscriber that fell behind loses what it missed; the
                         // `Last-Event-ID` handshake is how a client repairs that.
@@ -496,7 +513,18 @@ async fn handle(
     }
 
     match resolution {
-        Resolution::Local { kind, .. } => shared.local(kind, last_event_id.as_deref()),
+        // The events route is the one `Local` route that reads a query parameter (v1.0 M6-3b):
+        // `?task_id=` narrows the stream to one task. A blank value is treated as absent — an
+        // empty "task" would otherwise be a filter that matches nothing. `event` and `agent_id`
+        // are advertised in `hello` and deliberately still ignored, so they are not read here.
+        Resolution::Local { kind, .. } => {
+            let task_id = routes::parse_query(query.as_deref())
+                .get("task_id")
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            shared.local(kind, last_event_id.as_deref(), task_id.as_deref())
+        }
         Resolution::MethodNotAllowed { allowed } => error_response(
             405,
             "method_not_allowed",

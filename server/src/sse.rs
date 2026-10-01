@@ -42,12 +42,41 @@ pub struct WireFrame {
     pub bytes: Vec<u8>,
     /// The ordinal behind `id`.
     pub seq: u64,
+    /// What a subscriber's `task_id` filter sees here (v1.0 M6-3b).
+    pub scope: FrameScope,
+}
+
+/// What a subscriber's `task_id` filter sees in a frame (v1.0 M6-3b).
+///
+/// **Only `task_id` is enforced today.** `hello`, `gap` and comments carry [`FrameScope::Stream`]
+/// and are never hidden — they describe the stream itself (`docs/control-plane-events.md` §4) —
+/// while the other two advertised parameters (`event`, `agent_id`) stay unenforced until their own
+/// batch, so a client that sends them is served exactly as it was before this one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FrameScope {
+    /// The frame describes the stream rather than a task's work.
+    Stream,
+    /// An event, and the task it belongs to (`None` when it belongs to none).
+    Task(Option<String>),
 }
 
 impl WireFrame {
     /// The `id:` value, when there is one.
     pub fn id(&self) -> Option<&str> {
         self.id.as_deref()
+    }
+
+    /// Would a subscriber that asked for `task_id` see this frame?
+    ///
+    /// No filter means every frame; a filter never hides `hello`/`gap`/comments; and an event
+    /// belongs to the asked-for task only when it names it — an event with no task at all is
+    /// **not** that task's.
+    pub fn passes(&self, task_id: Option<&str>) -> bool {
+        match (task_id, &self.scope) {
+            (None, _) => true,
+            (Some(_), FrameScope::Stream) => true,
+            (Some(want), FrameScope::Task(id)) => id.as_deref() == Some(want),
+        }
     }
 }
 
@@ -76,6 +105,47 @@ fn comment_bytes(text: &str) -> Vec<u8> {
     format!(": {text}\n\n").into_bytes()
 }
 
+/// One subscriber's view of the stream (v1.0 M6-3b).
+///
+/// The receiver and the filter travel together, because the filter is a property of *this*
+/// connection: the hub fans one frame out to everyone, and each subscriber drops what it did not ask
+/// for before it is written.
+pub struct Subscriber {
+    rx: broadcast::Receiver<Arc<WireFrame>>,
+    /// The one task this subscriber asked for; `None` means the whole stream.
+    task_id: Option<String>,
+}
+
+impl Subscriber {
+    /// The task this subscriber asked for, if any.
+    pub fn task_id(&self) -> Option<&str> {
+        self.task_id.as_deref()
+    }
+
+    /// The next frame this subscriber should see.
+    ///
+    /// A frame the filter excludes is skipped rather than sent, which is what §4 means by "the
+    /// server drops non-matching frames before they are written".
+    pub async fn recv(&mut self) -> Result<Arc<WireFrame>, broadcast::error::RecvError> {
+        loop {
+            let frame = self.rx.recv().await?;
+            if frame.passes(self.task_id.as_deref()) {
+                return Ok(frame);
+            }
+        }
+    }
+
+    /// [`Self::recv`], without waiting — what a poller (and a test) uses.
+    pub fn try_recv(&mut self) -> Result<Arc<WireFrame>, broadcast::error::TryRecvError> {
+        loop {
+            let frame = self.rx.try_recv()?;
+            if frame.passes(self.task_id.as_deref()) {
+                return Ok(frame);
+            }
+        }
+    }
+}
+
 /// The fan-out point: every SSE subscriber attaches here.
 pub struct SseHub {
     tx: broadcast::Sender<Arc<WireFrame>>,
@@ -95,9 +165,15 @@ impl SseHub {
         })
     }
 
-    /// Attach a subscriber.
-    pub fn subscribe(&self) -> broadcast::Receiver<Arc<WireFrame>> {
-        self.tx.subscribe()
+    /// Attach a subscriber, optionally narrowed to one task (v1.0 M6-3b).
+    ///
+    /// `task_id` is the one filter the server enforces today; the frame's own [`FrameScope`] says
+    /// whether it applies.
+    pub fn subscribe(&self, task_id: Option<String>) -> Subscriber {
+        Subscriber {
+            rx: self.tx.subscribe(),
+            task_id,
+        }
     }
 
     /// How many subscribers are attached right now (the `/v0/status` figure).
@@ -118,6 +194,7 @@ impl SseHub {
             id: Some(id.clone()),
             bytes: envelope_bytes(&envelope, &id),
             seq,
+            scope: FrameScope::Task(envelope.task_id.clone()),
         });
         if let Ok(mut buffer) = self.buffer.lock() {
             buffer.push_back(Arc::clone(&frame));
@@ -135,13 +212,18 @@ impl SseHub {
             id: None,
             bytes: comment_bytes(text),
             seq: self.next_seq(),
+            // A heartbeat describes the stream, so no filter hides it.
+            scope: FrameScope::Stream,
         });
         let _ = self.tx.send(frame);
     }
 
     /// The frame a client receives first: `hello`, describing what the buffer
     /// holds. Per connection, and never buffered itself.
-    pub fn hello(&self, agent_id: &str) -> Arc<WireFrame> {
+    ///
+    /// `filters` echoes what this connection asked for: `task_id` is the one the server enforces
+    /// (v1.0 M6-3b), and the other two are advertised as the empty defaults they have been.
+    pub fn hello(&self, agent_id: &str, task_id: Option<&str>) -> Arc<WireFrame> {
         let (from, to) = match self.buffer.lock() {
             Ok(buffer) => (
                 buffer.front().map(|f| f.seq).unwrap_or(0),
@@ -156,7 +238,7 @@ impl SseHub {
             None,
             serde_json::json!({
                 "buffer": { "from": from, "to": to },
-                "filters": { "event": [], "agent_id": null, "task_id": null },
+                "filters": crate::envelope::filters(task_id),
             }),
         );
         let seq = self.next_seq();
@@ -165,6 +247,8 @@ impl SseHub {
             id: Some(id.clone()),
             bytes: envelope_bytes(&envelope, &id),
             seq,
+            // `hello` describes the stream itself and is never filtered.
+            scope: FrameScope::Stream,
         })
     }
 
@@ -183,6 +267,9 @@ impl SseHub {
             id: Some(id.clone()),
             bytes: envelope_bytes(&envelope, &id),
             seq,
+            // `gap` describes the stream itself and is never filtered: a client that could not
+            // hear it would not know it had to re-sync.
+            scope: FrameScope::Stream,
         })
     }
 
@@ -327,6 +414,81 @@ mod tests {
         event_envelope(name, "dev-1-1", serde_json::json!({ "name": name }))
     }
 
+    /// An event that belongs to `task` — what a dispatch's own events look like (v1.0 M6-3b).
+    fn event_of(task: Option<&str>, name: &str) -> Envelope {
+        envelope(
+            kind::EVENT,
+            Some(name),
+            "dev-1-1",
+            task,
+            serde_json::json!({ "name": name }),
+        )
+    }
+
+    #[test]
+    fn a_task_filter_keeps_that_task_and_drops_every_other_event() {
+        // v1.0 M6-3b: `task_id` is the one filter the server enforces. An event belongs to the
+        // asked-for task only when it names it — an event with no task at all is not that task's —
+        // while `hello`, `gap` and comments describe the stream and are never hidden.
+        let hub = SseHub::new(8);
+        let mut filtered = hub.subscribe(Some("task-a".to_string()));
+        let mut open = hub.subscribe(None);
+
+        hub.publish_event(event_of(Some("task-b"), "agent:final"));
+        hub.publish_event(event_of(None, "vm:state"));
+        hub.publish_event(event_of(Some("task-a"), "agent:final"));
+        hub.publish_comment("keep-alive");
+
+        // The open subscriber sees all four, in order.
+        let mut seen = Vec::new();
+        while let Ok(frame) = open.try_recv() {
+            seen.push(String::from_utf8(frame.bytes.clone()).expect("utf-8"));
+        }
+        assert_eq!(seen.len(), 4, "{seen:?}");
+        assert!(seen[0].contains("\"task_id\":\"task-b\""), "{}", seen[0]);
+        assert!(seen[1].contains("\"task_id\":null"), "{}", seen[1]);
+
+        // The filtered one sees its own task's event and the comment — nothing else.
+        let kept = String::from_utf8(
+            filtered
+                .try_recv()
+                .expect("the task's own event")
+                .bytes
+                .clone(),
+        )
+        .expect("utf-8");
+        assert!(kept.contains("\"task_id\":\"task-a\""), "{kept}");
+        let comment = String::from_utf8(filtered.try_recv().expect("the comment").bytes.clone())
+            .expect("utf-8");
+        assert_eq!(comment, ": keep-alive\n\n");
+        assert!(
+            filtered.try_recv().is_err(),
+            "the other task's event and the untasked one were both dropped"
+        );
+    }
+
+    #[test]
+    fn a_frame_with_no_filter_passes_and_a_stream_frame_always_passes() {
+        // The predicate on its own: `None` is the whole stream, and a `Stream`-scoped frame is
+        // never hidden whatever the filter says (§4's `hello`/`gap` exception).
+        let hub = SseHub::new(8);
+        let event = hub.publish_event(event_of(Some("task-a"), "agent:final"));
+        let untasked = hub.publish_event(event_of(None, "vm:state"));
+        let comment = {
+            hub.publish_comment("keep-alive");
+            hub.hello("dev-1-1", Some("task-a"))
+        };
+
+        assert!(event.passes(None), "no filter, everything");
+        assert!(event.passes(Some("task-a")));
+        assert!(!event.passes(Some("task-b")));
+        assert!(
+            !untasked.passes(Some("task-a")),
+            "an event tied to no task is nobody's"
+        );
+        assert!(comment.passes(Some("task-b")), "hello is never filtered");
+    }
+
     #[test]
     fn an_envelope_frame_has_id_data_and_a_terminating_blank_line() {
         let hub = SseHub::new(8);
@@ -345,7 +507,7 @@ mod tests {
     #[test]
     fn a_comment_frame_is_a_comment_line_and_is_not_buffered() {
         let hub = SseHub::new(8);
-        let mut rx = hub.subscribe();
+        let mut rx = hub.subscribe(None);
         hub.publish_comment("keep-alive");
         let frame = rx.try_recv().expect("one frame");
         assert_eq!(
@@ -359,8 +521,8 @@ mod tests {
     #[test]
     fn the_hub_fans_out_to_every_subscriber() {
         let hub = SseHub::new(8);
-        let mut a = hub.subscribe();
-        let mut b = hub.subscribe();
+        let mut a = hub.subscribe(None);
+        let mut b = hub.subscribe(None);
         assert_eq!(hub.subscribers(), 2);
         hub.publish_event(event("vm:state"));
         assert!(a.try_recv().is_ok());
@@ -370,7 +532,7 @@ mod tests {
     #[test]
     fn the_sink_pushes_a_wrapped_event() {
         let hub = SseHub::new(8);
-        let mut rx = hub.subscribe();
+        let mut rx = hub.subscribe(None);
         let sink = HttpEventSink::new(Arc::clone(&hub), "dev-9-1");
         sink.emit("vm:state", serde_json::json!({ "running": true }));
         let frame = rx.try_recv().expect("one frame");
@@ -387,7 +549,7 @@ mod tests {
         // v1.0 M6-3a: the transport is where the envelope is built, so the task identity has to
         // reach it — bound at construction, which is when the caller knows which task it serves.
         let hub = SseHub::new(8);
-        let mut rx = hub.subscribe();
+        let mut rx = hub.subscribe(None);
 
         HttpEventSink::new(Arc::clone(&hub), "dev-9-1")
             .for_task(Some("task-dev-a-1-1".to_string()))
@@ -488,7 +650,7 @@ mod tests {
         let hub = SseHub::new(8);
         hub.publish_event(event("a"));
         let last = hub.publish_event(event("b"));
-        let hello = hub.hello("dev-1-1");
+        let hello = hub.hello("dev-1-1", None);
         let wire = String::from_utf8(hello.bytes.clone()).expect("utf-8");
         assert!(wire.contains("\"kind\":\"hello\""), "{wire}");
         assert!(wire.contains("\"from\":1"), "{wire}");

@@ -506,7 +506,15 @@ current request authorising it (§2).
   `POST /v0/tasks` mints its `id` in the handler so the sink is bound before the call; the worker binds what
   it read on stdin. **`emit`'s signature is unchanged**, and with no id the envelopes still say `null`. **No
   route row, no capability name, no SDK change, no dependency; `audit/src/hash.rs` untouched.** The SSE
-  `task_id` filter stays open (M6-3b). **Decision §153.**
+  `task_id` filter stays open (M6-3b). **Decision §153** — and **DC (§154) is that follow-up: the filter is
+  now enforced.**
+- **And one filter is enforced on the stream** (v1.0 batch DC / M6-3b, 2026-10-01): `GET /v0/events?task_id=<id>`
+  narrows a subscriber to one task — the server drops other tasks' frames live **and** in `Last-Event-ID`
+  replay, while `hello`/`gap`/comments are never hidden. `WireFrame` gained a `FrameScope` and
+  `SseHub::subscribe(task_id)` a `Subscriber` whose reads skip what the filter excludes. **`event` and
+  `agent_id` are untouched** (accepted, ignored, exactly as before); `hello.filters` echoes `task_id` and
+  is written in one place. **No route row, no capability name, no SDK change, no dependency.**
+  **Decision §154.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

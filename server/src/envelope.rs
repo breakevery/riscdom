@@ -11,11 +11,25 @@ use host_core::events::{envelope, kind, Envelope};
 /// define its own).
 pub use host_core::events::{Envelope as Frame, ENVELOPE_VERSION};
 
+/// The `filters` object a `hello` frame carries: **the one place its vocabulary is written down**
+/// (v1.0 M6-3b).
+///
+/// `task_id` is echoed back from what the connection asked for, because it is the one parameter the
+/// server **enforces** (`docs/control-plane-events.md` §4). `event` and `agent_id` are still
+/// advertised as the empty defaults they have always been: they are accepted and ignored until
+/// their own batch, so a client that sends them sees no change.
+pub fn filters(task_id: Option<&str>) -> serde_json::Value {
+    serde_json::json!({
+        "event": [],
+        "agent_id": null,
+        "task_id": task_id,
+    })
+}
+
 /// The frame a client receives first on `/v0/events`.
 ///
-/// `buffer` describes what the stream can replay — still empty, because
-/// `Last-Event-ID` replay is a later batch — and `filters` echoes what this
-/// connection asked for.
+/// `buffer` describes what the stream can replay, and `filters` echoes what this connection asked
+/// for.
 pub fn hello(agent_id: &str) -> Envelope {
     envelope(
         kind::HELLO,
@@ -24,7 +38,7 @@ pub fn hello(agent_id: &str) -> Envelope {
         None,
         serde_json::json!({
             "buffer": { "from": 0, "to": 0 },
-            "filters": { "event": [], "agent_id": null, "task_id": null },
+            "filters": filters(None),
         }),
     )
 }

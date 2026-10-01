@@ -1668,3 +1668,35 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **不在本批（M6-3b，仍开放）**：流文档里的 `task_id` **过滤器**。`hello` 广告着 `filters: {…, "task_id": null}`，两个 SDK 也能发它，但服务器完全没有过滤逻辑（`docs/control-plane-events.md` §4 把这个机制叫作「在实现批次建」）；owner 把它留在下一批，而它也只有到现在事件带了 id 之后才有意义。
 
 **影响**：`host-core/src/events.rs`（trait 的 `with_task`）、`host-core/src/dispatch.rs`（`HostAgentHandle::run`）、`host-core/src/lib.rs`（`TaskId` re-export）+ `host-core/tests/dispatch.rs`；`server/src/sse.rs`（`HttpEventSink` + 它的单测）、`server/src/routes.rs`（两个 handler）、`server/tests/smoke.rs`（一个端到端流测试）；`host-tauri/src/events.rs` + `commands.rs`；`worker/src/main.rs` + `worker/tests/stdio.rs`；`docs/control-plane-api.md` + zh、`docs/control-plane-events.md` + zh、`docs/roadmap-v1.0.md` + zh（§12 `[open]` → `[settled]`）、`docs/cross-device-dispatch.md` §8 + zh、`CHANGELOG.md` + zh、`docs/handoff.md` + zh。**无路由行、无 §5.1/§5.2 计数、无 capability 名、无 SDK 改动、无依赖；`audit/src/hash.rs` 未动 —— `compute_hash` 没有 `task_id` 列，而 detail 里的 `task_id` 只作为那份 detail 的一部分参与哈希，与 `m.task.dispatch` 一直以来的情形完全一致。**
+
+## 154. 一个过滤器被强制执行：流上的 `task_id`
+
+**日期**：2026-10-01 ｜ **状态**：已定且已实现（批 DC / M6-3b）
+
+**决策**：§4 的过滤一直被写作「设计形状，机制在实现批次里建」—— 而 **三个参数一个都没实现**。本批只为
+`task_id` 建机制：
+
+- **帧自带作用域。** `WireFrame` 多一个 `scope: FrameScope` —— `hello`、`gap` 与注释是 `Stream`（它们描述流自身），
+  事件是 `Task(Option<String>)`。它的 `passes(task_id)` 就是整个谓词：没有过滤器则全过，`Stream` 帧恒过，而
+  **事件只有点名了那个任务才算那个任务的** —— 不属于任何任务的事件不是任何人的。
+- **过滤器属于每个连接。** `SseHub::subscribe(task_id)` 交回一个 `Subscriber`（接收端 + 过滤条件），它的
+  `recv`/`try_recv` **跳过**被排除的帧。hub 仍把一帧扇给所有人（广播无法按订阅者收窄），所以「写入前丢弃」
+  正是订阅者读取时做的事。
+- **两半都过。** `open_stream` 把它用在 `Last-Event-ID` 重放**与**（经订阅者）实时帧上：被过滤的重连只重放它那个任务的事件，
+  而在缺口太老无法补齐时**仍然**收到 `gap` 帧。
+- **`event` 与 `agent_id` 未动**：仍被接受、仍被回显、仍**被忽略**，所以发它们的客户端得到的东西一字不变 —— 对它们**零行为变更**。
+- **`hello.filters` 现在回显请求里的 `task_id`**，而那个对象只在**一处**写出（`server/src/envelope.rs::filters`），不再是同一字面量的两份拷贝。
+- **只为这条路由解析 query，且空值意为「不过滤」** —— 一个叫“”的任务会是一个匹配不到任何东西的过滤器。
+
+**缘由**：§12 的客户端跟一个节点，想读的是它自己那个任务的故事（M6-3a 已给事件带上 id）。`task_id` 是客户端
+已经能发（两个 SDK 都有）、而服务器能在**不**对 `event`/`agent_id` 做任何决定的前提下兑现的那个参数 —— 后两者
+一旦生效才是真正的行为变更，留给它们自己的批次。机制刻意做得足以生长（`FrameScope` 就是将来的
+`event`/`agent_id` 过滤器所要扩展的地方），但不假装做了没做的事。
+
+**影响**：`server/src/sse.rs`（`FrameScope`、`WireFrame::passes`、`Subscriber`、`subscribe(task_id)`、
+`hello(agent_id, task_id)`、三个构造点）+ 单测；`server/src/envelope.rs`（那一处 `filters` 助手）；
+`server/src/http.rs`（`local`/`open_stream` 接收 task；读 query；两半都过滤）；`server/tests/smoke.rs`
+（`open_stream_path` + 一个端到端过滤测试）；`docs/control-plane-events.md` §4 + zh；
+`docs/control-plane-api.md` + zh（`/v0/events` 行）；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。
+**无路由行、无 §5.1/§5.2 计数、无 capability 名、无 SDK 改动、无依赖；`emit` 签名不变；
+`audit/src/hash.rs`、`net/`、`cli/`、`ui/` 未动。**

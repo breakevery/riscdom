@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The stream can be narrowed to one task** (v1.0 batch DC / M6-3b): `GET /v0/events?task_id=<id>` is now
+  **enforced** — the server drops frames belonging to another task, in the live stream and in
+  `Last-Event-ID` replay, while `hello`, `gap` and comment heartbeats are never hidden. A `WireFrame`
+  carries a `FrameScope` (`Stream` / `Task(Option<String>)`) and `SseHub::subscribe(task_id)` hands back a
+  `Subscriber` whose reads skip what the filter excludes. **`event` and `agent_id` are untouched** — still
+  accepted and still ignored, so nothing changes for a client that sends them; `hello.filters` now echoes
+  the request's `task_id`, and its vocabulary is written in one place instead of two. **No route row, no
+  §5.1/§5.2 count, no capability name, no SDK change, no dependency; `emit`'s signature is unchanged.**
+  **Decision §154.**
+
 - **A run's events name the task that caused them** (v1.0 batch DB / M6-3a, and the end of roadmap §12's
   `task_id` gap): the identity was on every hop and had nowhere to go, because `EventSink::emit` has no room
   for it and `event_envelope` hardcodes `null`. Now the **sink carries it, bound at construction** —
@@ -20,7 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now mints its `id` in the handler so the sink can be bound before the call; the worker binds the task it read
   on stdin. Absent an id the envelopes still say `null`, exactly as before. **No route row, no §5.1/§5.2
   count, no capability name, no SDK change, no dependency; `emit`'s signature is unchanged and `audit/src/hash.rs`
-  is untouched** (`compute_hash` has no `task_id` column). **The SSE `task_id` filter is still open (M6-3b).**
+  is untouched** (`compute_hash` has no `task_id` column). **(Its own follow-up — the SSE `task_id` filter
+  — landed in DC, the entry above.)**
   **Decision §153.**
 
 - **The runtime table gets a reader: `GET /v0/online`** (v1.0 batch CZ / M6-2b-2, the second half of M6-2b):

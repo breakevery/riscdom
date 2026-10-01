@@ -201,7 +201,7 @@ pub struct Actor {
 |---|---|---|---|
 | `/v0/health` | GET | `health.read` | `{"status":"ok","version":"0.8.0","uptime_ms":N}` |
 | `/v0/status` | GET | `status.read` | `{"status","version","uptime_ms","connections","sse_subscribers","agents","agent_id"}` |
-| `/v0/events` | GET | `events.subscribe` | SSE 事件流（见 [control-plane-events.zh-CN.md](control-plane-events.zh-CN.md)）。 |
+| `/v0/events` | GET | `events.subscribe` | SSE 事件流（见 [control-plane-events.zh-CN.md](control-plane-events.zh-CN.md)）。`?task_id=<id>` 把它收窄到某一个任务的事件（v1.0 M6-3b）；`?event=` / `?agent_id=` 被接受但尚未生效。 |
 
 ### 5.4 表格附注
 
