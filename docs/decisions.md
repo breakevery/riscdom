@@ -4725,3 +4725,41 @@ parse) + `net/tests/suppression.rs`; `audit/src/segment.rs` (an `anchor` word on
 `docs/handoff.md` + zh. **No route row, no §5.1/§5.2 count, no capability name, no SDK change, no dependency;
 `audit/src/hash.rs` and `merge_segment` are untouched, `verify_chain`'s logic is unchanged (a detail gained a
 field), and the append-only triggers are untouched.**
+
+## 157. The reference M grows a level: the workgroup's snapshot
+
+**Date**: 2026-10-01 ｜ **Status**: Decided and implemented (batch DJ / M6-6, DI-1)
+
+**Decision**: The first piece of M6-6, and it is **one flag on the reference implementation** — no kernel
+change, no new route, no new tool:
+
+- **`--level node|lan`** on `examples/python/supervisor.py`, defaulting to `node`, which is exactly what every
+  earlier version did. §9's "three levels are the same kind of thing, what differs is what it can see" is
+  taken literally: the **tool set is unchanged** (18 of the schema's 80), and only the **snapshot** changes.
+- **A `lan` snapshot reads the workgroup**: the entry node's own three reads, plus `/v0/online` (the server
+  role's runtime table — the node list, landed in M6-2b-2) and `/v0/peers` (this node's own file), plus one
+  entry per node the deployer configured, read through **that node's own control plane**.
+- **Nodes are named by address and their tokens by file.** `--node <node_id>=<host:port>` and
+  `--node-token-file <node_id>=<path>`, both repeatable. A token is **never** an argument (the shell history
+  and the process list are readable) — that rule is `dispatch.py`'s, and a node whose address has no token
+  file is a usage error rather than a node that silently reads nothing.
+- **A node that cannot be reached is recorded, not fatal.** The entry node's reads still fail as one (the
+  conservative property the loop rests on), while an unreachable peer is written as
+  `{"unreachable": <reason>}` and the model decides with the partial view — §9's conservative rule is the
+  answer to a partial view, and refusing to look at the rest of the workgroup would be the opposite.
+- **`M_TOOLS` does not change.** The LAN snapshot is read by the client itself; the model needs no new tool,
+  and the acts still go to the entry node (`POST /v0/tasks` with `node` — M6-1), which needs no peer token.
+
+**Why**: M6-6 asks for a reference M, and the honest first step is the one that makes it *see more* without
+making it *do more*. Everything the LAN level needs was already on the HTTP surface (M6-2's capability
+queries, M6-1's dispatch-by-name), so the batch is Python and docs — which is what "the kernel ships
+mechanism, the caller owns policy" looks like from the caller's side (red line 1).
+
+**Not in this batch**: the **cross-region** level (a list of LAN Ms; **DI-2**) and a **config file**
+(`--config`; **DI-3**). Both are out of M6-6's scope by the owner's decision.
+
+**Impact**: `examples/python/supervisor.py` (`--level`, `--node`, `--node-token-file`, `build_peers`,
+`Supervisor.level`/`peers`, `online`/`known_peers`, `lan_snapshot`, `FakeNode`'s agent id and its two new
+answers, and a LAN check in `--self-test`); `examples/python/README.md` + zh; `docs/multi-agent-foundation.md`
++ zh; `CHANGELOG.md` + zh; `docs/handoff.md` + zh. **No Rust file is touched, no route or capability name is
+added, no dependency is added (Python standard library only), and the audit chain is not written to.**

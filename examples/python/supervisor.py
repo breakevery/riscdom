@@ -310,9 +310,17 @@ class Supervisor(ControlPlane):
         token: str,
         timeout: float = 30.0,
         caller: str | None = None,
+        level: str = "node",
+        peers: dict[str, "Supervisor"] | None = None,
     ) -> None:
         super().__init__(server, token, timeout)
         self.caller = caller
+        # Which M this is (v1.0 M6-6 / DI-1). `node` reads the one node this client speaks to;
+        # `lan` reads the **workgroup** — the node list from `/v0/online`, then each node's own
+        # control plane. The tool set is the same at either level; only what the snapshot can
+        # **see** changes (roadmap §9: one kind of thing, different radii).
+        self.level = level
+        self.peers = peers or {}
 
     def _request(self, method: str, path: str, body: bytes | None = None) -> bytes:
         """The parent's request, with M's name on it.
@@ -401,14 +409,31 @@ class Supervisor(ControlPlane):
     def vm_status(self) -> dict:
         return self.get("/v0/vm/status")
 
+    def online(self) -> list[dict]:
+        """The server role's runtime table: the nodes registered with this node (v1.0 M6-2b-2).
+
+        `null` when this node runs no server role — an honest "nothing to show", not an empty
+        workgroup, which is why it reads as an empty list here rather than as an error.
+        """
+        table = self.get("/v0/online")
+        return list(table) if isinstance(table, list) else []
+
+    def known_peers(self) -> list[dict]:
+        """Who this node knows: its own `peers.json` (v1.0 AC-3). `null` when it has none."""
+        table = self.get("/v0/peers")
+        return list(table) if isinstance(table, list) else []
+
     def snapshot(self) -> dict:
         """Everything a turn decides from, read in one place and failing as one.
 
         The aggregation is the conservative loop's whole safety property: if any read
         raises, the caller has nothing to act on, so it acts on nothing. The thin
         wrappers above stay public so a decision layer — or a test — can ask one question
-        without paying for the rest.
+        without paying for the rest. At `lan` level the same property holds for the entry
+        node's own reads; the **other** nodes are read by [`Self::lan_snapshot`].
         """
+        if self.level == "lan":
+            return self.lan_snapshot()
         registry = self.sandboxes()
         names = [row.get("name", "") for row in registry.get("sandboxes", [])]
         instances: dict[str, list[dict]] = {}
@@ -422,6 +447,41 @@ class Supervisor(ControlPlane):
             "sandboxes": registry,
             "instances": instances,
             "pending_requests": self.pending_requests(),
+        }
+
+    def lan_snapshot(self) -> dict:
+        """What a **workgroup**-level M decides from (v1.0 M6-6 / DI-1).
+
+        The entry node's own three reads (exactly what the single-node snapshot makes), plus
+        the two things that describe the workgroup (`/v0/online` — the server role's runtime
+        table — and `/v0/peers` — this node's own file), plus one entry per node the deployer
+        configured, read through that node's **own** control plane.
+
+        A node that cannot be reached is **recorded**, not fatal. §9's conservative rule is the
+        answer to a partial view, and a supervisor that refused to look at the rest of its
+        workgroup because one node was down would be the opposite of conservative. The entry
+        node's reads still fail as one, exactly as they do at `node` level.
+        """
+        nodes: dict[str, dict] = {}
+        for node_id, peer in sorted(self.peers.items()):
+            try:
+                nodes[node_id] = {
+                    "status": peer.status(),
+                    "capabilities": peer.capabilities(),
+                    "executors": peer.executors(),
+                }
+            except (TransportError, ApiError) as error:
+                nodes[node_id] = {"unreachable": str(error)}
+        return {
+            "level": "lan",
+            "entry": {
+                "status": self.status(),
+                "capabilities": self.capabilities(),
+                "executors": self.executors(),
+            },
+            "online": self.online(),
+            "peers": self.known_peers(),
+            "nodes": nodes,
         }
 
     # ----- controls ------------------------------------------------------------
@@ -806,6 +866,33 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--server", default=DEFAULT_SERVER, help=f"host:port (default {DEFAULT_SERVER})")
+    parser.add_argument(
+        "--level",
+        choices=("node", "lan"),
+        default="node",
+        help=(
+            "which M this is: `node` (the default, and what every earlier version did) reads "
+            "the one node --server names; `lan` reads the workgroup — the node list from "
+            "`/v0/online`, then each configured node's own control plane (v1.0 M6-6)"
+        ),
+    )
+    parser.add_argument(
+        "--node",
+        action="append",
+        default=[],
+        metavar="<node_id>=<host:port>",
+        help="a node's control plane, as `lan` reads it; repeat per node",
+    )
+    parser.add_argument(
+        "--node-token-file",
+        action="append",
+        default=[],
+        metavar="<node_id>=<path>",
+        help=(
+            "the file that holds that node's bearer token; repeat per node "
+            "(a token is never an argument: it would land in the shell history and the process list)"
+        ),
+    )
     parser.add_argument("--token-file", help="read the node's bearer token from this file")
     parser.add_argument(
         "--agent-id",
@@ -881,6 +968,34 @@ def build_decider(args: argparse.Namespace, out=print):
     return LLMDecider(chat, tools, max_rounds=args.max_rounds)
 
 
+def build_peers(args: argparse.Namespace, agent_id: str) -> dict[str, "Supervisor"]:
+    """The other nodes a `lan`-level M reads: the address flags, and the tokens' **files**.
+
+    A token is never an argument — the shell history and the process list are both readable —
+    so a node is named by its address and its token by the file that holds it. A node whose
+    address has no token file is a **usage error**: a workgroup where one node silently reads
+    nothing would be a snapshot that lies about its own radius.
+    """
+    tokens: dict[str, str] = {}
+    for pair in args.node_token_file:
+        node_id, separator, path = pair.partition("=")
+        if not separator or not node_id or not path:
+            raise ValueError(f"--node-token-file wants <node_id>=<path>, got {pair!r}")
+        tokens[node_id] = path
+    peers: dict[str, "Supervisor"] = {}
+    for pair in args.node:
+        node_id, separator, address = pair.partition("=")
+        if not separator or not node_id or not address:
+            raise ValueError(f"--node wants <node_id>=<host:port>, got {pair!r}")
+        path = tokens.get(node_id)
+        if not path:
+            raise ValueError(f"--node {node_id} has no --node-token-file")
+        peers[node_id] = Supervisor(
+            address, dispatch.read_token(path), args.timeout, caller=agent_id
+        )
+    return peers
+
+
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     if args.self_test:
@@ -898,11 +1013,14 @@ def main(argv: list[str]) -> int:
     try:
         token = dispatch.read_token(args.token_file)
         decider = build_decider(args)
+        peers = build_peers(args, agent_id) if args.level == "lan" else {}
     except (TransportError, ValueError) as error:
         print(f"supervisor: {error}", file=sys.stderr)
         return error.code if isinstance(error, TransportError) else EXIT_USAGE
 
-    supervisor = Supervisor(args.server, token, args.timeout, caller=agent_id)
+    supervisor = Supervisor(
+        args.server, token, args.timeout, caller=agent_id, level=args.level, peers=peers
+    )
     try:
         if args.events:
             print(f"supervisor: {agent_id} — an AI dispatcher, reading the node")
@@ -932,10 +1050,11 @@ class FakeNode:
     tests' business.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, agent_id: str = "dev-1-1") -> None:
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
         self.token = "self-test-token"
+        self.agent_id = agent_id
         self.requests: list[str] = []
         self.posted: list[tuple[str, dict]] = []
         # The caller each request declared (v1.0 gap 3/N), in arrival order: the header is
@@ -943,6 +1062,11 @@ class FakeNode:
         self.callers: list[str | None] = []
         self.event_ids_seen: list[str | None] = []
         self.fail_path: str | None = None
+        # What a `lan`-level snapshot reads here (v1.0 M6-6 / DI-1): the server role's runtime
+        # table and this node's own peer file. Both default to "nothing", which is a node with
+        # no workgroup — an answer, not a gap.
+        self.online: list[dict] = []
+        self.known_peers: list[dict] = []
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -986,7 +1110,7 @@ class FakeNode:
                     self.wfile.write(body)
                     return
                 answers = {
-                    "/v0/status": {"status": "ok", "version": "0.9.9", "agents": 1, "agent_id": "dev-1-1"},
+                    "/v0/status": {"status": "ok", "version": "0.9.9", "agents": 1, "agent_id": outer.agent_id},
                     "/v0/capabilities": {"capabilities": ["agent.run", "sandbox.read"]},
                     "/v0/executors": {"executors": [{"agent_id": "executor-0"}]},
                     "/v0/sandboxes": {
@@ -1000,6 +1124,8 @@ class FakeNode:
                     "/v0/audit/status": {"count": 3, "chain": {"Intact": {"length": 3}}},
                     "/v0/audit/events": [],
                     "/v0/vm/status": {"running": False, "since_ms": None},
+                    "/v0/online": outer.online,
+                    "/v0/peers": outer.known_peers,
                 }
                 if path in answers:
                     self._send(200, answers[path])
@@ -1484,6 +1610,58 @@ def self_test() -> int:
         outside = [name for name in imported_modules() if name not in allowed]
         if outside:
             failures.append(f"non-stdlib imports: {outside}")
+        # 21. The `lan` level (v1.0 M6-6 / DI-1): the workgroup comes from `/v0/online`, each
+        #     configured node answers for **itself** through its own control plane, and a node
+        #     nobody listens for is **recorded** rather than fatal (§9's conservative rule is the
+        #     answer to a partial view).
+        entry = FakeNode()
+        entry.online = [
+            {
+                "node_id": "dev-2-2",
+                "addresses": [],
+                "capabilities": ["dispatch"],
+                "rooms": [],
+                "last_heartbeat_ms": 1,
+                "judged_at_ms": None,
+                "state": "online",
+            }
+        ]
+        entry_address = entry.start()
+        peer = FakeNode("dev-2-2")
+        peer_address = peer.start()
+        try:
+            lan = Supervisor(
+                entry_address,
+                entry.token,
+                timeout=5.0,
+                caller="m-self-test",
+                level="lan",
+                peers={
+                    "dev-2-2": Supervisor(peer_address, peer.token, timeout=5.0),
+                    "dev-3-3": Supervisor("127.0.0.1:1", "unused", timeout=0.5),
+                },
+            )
+            state = lan.snapshot()
+            if state.get("level") != "lan":
+                failures.append(f"a lan snapshot says which level it is: {state.get('level')}")
+            if state["entry"]["status"].get("agent_id") != entry.agent_id:
+                failures.append("the entry node is read as itself")
+            if [row.get("node_id") for row in state["online"]] != ["dev-2-2"]:
+                failures.append(f"the workgroup comes from /v0/online: {state['online']}")
+            if state["nodes"]["dev-2-2"]["status"].get("agent_id") != "dev-2-2":
+                failures.append(f"a peer answers for itself: {state['nodes']}")
+            if "unreachable" not in state["nodes"]["dev-3-3"]:
+                failures.append(f"a node nobody listens for is recorded: {state['nodes']}")
+            if "GET /v0/peers" not in " ".join(entry.requests):
+                failures.append("a lan snapshot reads this node's own peer table")
+            # …and a `node`-level M is unchanged by all of this: it reads its own node alone.
+            node.requests.clear()
+            Supervisor(address, node.token, timeout=5.0, caller="m-self-test").snapshot()
+            if "GET /v0/online" in " ".join(node.requests):
+                failures.append("a node-level snapshot must not read the workgroup")
+        finally:
+            entry.stop()
+            peer.stop()
     finally:
         node.stop()
 

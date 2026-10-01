@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The reference M grows a level** (v1.0 batch DJ / M6-6, the first piece): `examples/python/supervisor.py`
+  gains **`--level node|lan`** (default `node` — unchanged behaviour). At `lan`, the snapshot reads the
+  **workgroup**: `/v0/online` (the server role's runtime table), `/v0/peers`, and each configured node's own
+  control plane — named by `--node <node_id>=<host:port>` with its token in a file
+  (`--node-token-file <node_id>=<path>`; a token is never an argument). A node that cannot be reached is
+  **recorded** (`{"unreachable": …}`), not fatal. **`M_TOOLS` is unchanged (18)**, no route or capability is
+  added, and **no Rust file is touched** — the batch is Python and docs, which is the caller's side of red
+  line 1. Cross-region level and `--config` are DI-2 / DI-3. **Decision §157.**
+
 - **What the centre was told is on its own chain, and the anchor link is closed** (v1.0 batch DH / M6-5-4, the
   end of the M6-5 line): a digest a node reports is recorded by the node that **runs the server role** as one
   `host.audit.digest_received` row (`{node_id, chain, length}`), **once per change** — a report that repeats

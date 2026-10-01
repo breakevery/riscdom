@@ -140,3 +140,22 @@ directory isolation, and a Tauri-free executor binary.
    `riscdom-*` entries in the system temp directory; `scripts/clean-temp.ps1` / `clean-temp.sh` clear
    them (dry run by default, `-Force` / `--force` to delete). One-off artefacts from manual debugging
    (a `wdbg-*` prefix, say) are outside that filter and are the operator's to remove.
+
+## 8. The reference M's level (v1.0 M6-6, DI-1)
+
+**Items 4 and 5 above are answered in **shape**, not in policy.** `examples/python/supervisor.py` takes
+**`--level node|lan`** (default `node`), and at `lan` its snapshot is the **workgroup**: the node list from
+`/v0/online` (the server role's runtime table, M6-2b-2), this node's own `/v0/peers`, and each node the
+deployer names with `--node <id>=<host:port>` (its token in a file, `--node-token-file <id>=<path>`), read
+through that node's **own** control plane.
+
+**[settled] The tool set is unchanged.** §9's three levels differ in **what they can see**, not in what they
+may do: the same 18 tools, and the acts still go to the entry node (`POST /v0/tasks` with `node`, M6-1), which
+is also why no peer token is needed to *act* — only to read.
+
+**[settled] A node that cannot be reached is recorded, not fatal.** The entry node's reads still fail as one,
+which is the property the conservative loop rests on; an unreachable peer is written as
+`{"unreachable": …}`, and §9's rule is the answer to a partial view — a supervisor that refused to look at
+the rest of its workgroup would be the opposite of conservative.
+
+**Not here**: the **cross-region** level (a list of LAN Ms) and a **config file**. Neither changes the kernel.

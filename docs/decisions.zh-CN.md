@@ -1733,3 +1733,21 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **缘由**：「中心被告知了什么、顺序如何」是关于**中心**的事实，所以它属于中心的链 —— 它本来就有一条，而 §6.2 的要点正是它持有的是摘要、不是消息。而锚点那一环是 §4/M6-5-2b 唯一表达不了的东西：流能自证段内自洽，却不能证明它开在发送方声称的地方。开段行自己的哈希正好就是那个声明，它早就在发送方的链上，只是从未旅行。
 
 **影响**：`net/src/relay.rs`（`DigestSink`、字段、`set_digest_sink`、`fire_digest`、`Local::Digest` 分支）；`net/src/lib.rs`（导出）；`net/src/suppression.rs`（`SegmentDone.anchor_hash`、body、宽松读）+ `net/tests/suppression.rs`；`audit/src/segment.rs`（两个 detail 构造器各加一个 `anchor` 词）；`host-core/src/state.rs`（`digest_heard`、`connection_digest_sink`、紧挨判断 sink 的装点、`deliver_segment` 填哈希、`receive_segment` 校验）+ 两个单测；`docs/cross-chain-verification.md` §5/§6 + zh；`docs/connection.md` §7 + zh；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。**无路由行、无 §5.1/§5.2 计数、无 capability 名、无 SDK 改动、无依赖；`audit/src/hash.rs` 与 `merge_segment` 未动，`verify_chain` 逻辑不变（只是某个 detail 多了一个字段），append-only 触发器未动。**
+
+## 157. 参考 M 长出一个层级：workgroup 的快照
+
+**日期**：2026-10-01 ｜ **状态**：已定且已实现（批 DJ / M6-6，DI-1）
+
+**决策**：M6-6 的第一块，而且它只是**参考实现上的一个 flag** —— 不改内核、不加路由、不加工具：
+
+- **`--level node|lan`**（`examples/python/supervisor.py`），默认 `node`，也就是先前每个版本的行为。§9 的「三级是同一类东西，差在能看见什么」被字面执行：**工具集不变**（schema 80 条里的 18 条），变的只是**快照**。
+- **`lan` 快照读 workgroup**：入口节点自己的三项读，加上 `/v0/online`（服务器角色的运行时表 —— 节点列表，M6-2b-2 已落）与 `/v0/peers`（本节点自己的文件），再加上每个由部署者配置的节点 —— 经**那个节点自己的控制面**读。
+- **节点用地址指名，token 用文件给。** `--node <node_id>=<host:port>` 与 `--node-token-file <node_id>=<path>`，均可重复。token **绝不**作参数（shell 历史与进程表都可读）—— 这条规则是 `dispatch.py` 的；地址没有对应 token 文件的节点是**用法错误**，而不是一个默默什么都不读的节点。
+- **读不到的节点被记下，而不是致命。** 入口节点自己的读仍然「要么全成要么全败」（循环赖以成立的保守属性），而到不了的同侪写成 `{"unreachable": <原因>}`，由模型拿着**不完整**的视图做决定 —— §9 的保守规则正是对不完整视图的回答，而因为一个节点宕了就不看余下的 workgroup，恰恰是它的反面。
+- **`M_TOOLS` 不变。** LAN 快照由客户端自己读；模型不需要新工具，而行动仍走入口节点（`POST /v0/tasks` 带 `node` —— M6-1），不需要同侪的 token。
+
+**缘由**：M6-6 要的是一个参考 M，而诚实的第一步是让它**看得更多**、而不是**做得更多**。LAN 级需要的东西全都已经在 HTTP 面上（M6-2 的能力查询、M6-1 的按名派发），所以本批是 Python 与文档 —— 这正是「内核发机制、调用方拥有策略」（红线 1）从调用方那一侧看的样子。
+
+**不在本批**：**跨区域**级（一张 LAN M 清单；**DI-2**）与**配置文件**（`--config`；**DI-3**）—— 二者都按 owner 裁决不属 M6-6。
+
+**影响**：`examples/python/supervisor.py`（`--level`、`--node`、`--node-token-file`、`build_peers`、`Supervisor.level`/`peers`、`online`/`known_peers`、`lan_snapshot`、`FakeNode` 的 agent id 与它的两个新应答、以及 `--self-test` 里一项 LAN 检查）；`examples/python/README.md` + zh；`docs/multi-agent-foundation.md` + zh；`CHANGELOG.md` + zh；`docs/handoff.md` + zh。**不碰任何 Rust 文件，不加路由或 capability 名，不加依赖（Python 仅标准库），不写链。**

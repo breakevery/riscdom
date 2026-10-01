@@ -11,6 +11,8 @@
 
 ### 新增
 
+- **参考 M 长出一个层级**（v1.0 批 DJ / M6-6，第一块）：`examples/python/supervisor.py` 多出 **`--level node|lan`**（默认 `node` —— 行为不变）。在 `lan` 下，快照读的是 **workgroup**：`/v0/online`（服务器角色的运行时表）、`/v0/peers`，以及每个被配置的节点**自己的**控制面 —— 节点用 `--node <node_id>=<host:port>` 指名，它的 token 放在文件里（`--node-token-file <node_id>=<path>`；**token 永不作参数**）。读不到的节点被**记下**（`{"unreachable": …}`），而不是致命。**`M_TOOLS` 不变（18 条）**，不加路由、不加 capability，且**不碰任何 Rust 文件** —— 本批只是 Python 与文档，也就是红线 1 的调用方那一侧。跨区域级与 `--config` 是 DI-2 / DI-3。**决策 §157。**
+
 - **中心被告知的东西记在它自己的链上，而锚点那一环收口了**（v1.0 批 DH / M6-5-4，M6-5 整条线的终点）：节点上报的 digest，由**跑服务器角色的那个节点**记为一条 `host.audit.digest_received` 行（`{node_id, chain, length}`），**按变化记** —— 重复自己的报告什么都不写 —— 经新增的 `net::DigestSink`（照 §6.7 的判断 sink；独立 `riscdom-relay` 无链、不装）。**不造自己的汇总链。** 而 `segment_done` 现在带 **`anchor_hash`**（发送方 `segment_opened` 行的哈希），中心用 `events[0].prev_hash` 查它；判定以 `anchor: "ok" | "broken" | "skipped"` 与 `checked`、`linkage` 并列旅行。**无路由行、无 capability 名、无 SDK 改动、无依赖；`merge_segment`、`audit/src/hash.rs` 与触发器未动，`verify_chain` 逻辑不变。** **决策 §156。**
 
 - **在另一个节点上做出的请求会到达本节点的队列**（v1.0 批 DG / M6-4a）：ask 是一条普通的 `m.request.ask` 链行，所以它本来就随站入节点的段到达 —— 缺的是**读者**。`receive_segment` 现在**只把折叠合并刚写下的那些行**经构造函数同样的 `restore` 折进活的待批队列，于是远端 ask 无需重启就出现在 `GET /v0/sandboxes/requests`；碰撞按 id 报告（绝不被裁定），而 **forked** 合并什么都不折进来。**无新帧、无新路由、无新事件名；`merge_segment`、`compute_hash`、`verify_chain` 与触发器未动。** **决策 §155。**

@@ -530,6 +530,14 @@ current request authorising it (§2).
   the centre checks against `events[0].prev_hash`; the verdict is `anchor: "ok" | "broken" | "skipped"` beside
   `checked` and `linkage`. **`merge_segment`, `audit/src/hash.rs` and the triggers are untouched.**
   **Decision §156.**
+- **And the reference M grows a level** (v1.0 batch DJ / M6-6, 2026-10-01, the first piece of M6-6):
+  `examples/python/supervisor.py` gains **`--level node|lan`** (default `node`, exactly the old behaviour).
+  At `lan` the snapshot reads the **workgroup** — `/v0/online` (the server role's runtime table), `/v0/peers`,
+  and each node named by `--node <id>=<host:port>` with its token in a file
+  (`--node-token-file <id>=<path>`; a token is never an argument) — and a node nobody listens for is
+  **recorded** (`{"unreachable": …}`) rather than fatal. **`M_TOOLS` is unchanged (18)** and **no Rust file is
+  touched**: the batch is Python and docs, which is the caller's side of red line 1. The cross-region level and
+  `--config` are DI-2 / DI-3. **Decision §157.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new
