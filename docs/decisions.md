@@ -5243,3 +5243,41 @@ the same shape the rest of M8-4 uses (the consumer takes the kernel by tag, not 
 `examples/` and `scripts/` are **untouched**, and this entry is the only kernel-side change. **No tag
 moved in any repository. `compute_hash`, `verify_chain` and the append-only triggers are untouched.**
 **`riscdom-server`'s CI is green again.**
+
+## 170. `v1.0.1` marks the split's close-out — a tag, not a release
+
+**Date**: 2026-10-02 ｜ **Status**: Done (v1.0 batch ED / M8-4d)
+
+**Decision**: the split (M8-4a…M8-4d) and its close-out are marked with a **lightweight `v1.0.1`
+tag**, and **no Release**:
+
+- **Two of the three repositories carry it**: `riscdom` `v1.0.1` → **`cb8f94f`** (its `main`) and
+  `riscdom-server` `v1.0.1` → **`ed06459`** (its `main`). **`riscdom-adminapp` is not tagged**: its
+  `main` is still `v1.0.0`'s commit (`abbe731`), so a second tag would point at the same commit as
+  the first and say nothing new — and it would re-run that repository's `bundle` job for an artifact
+  nobody wants. All three `v1.0.0` tags are untouched (`891c237`, `a41c505`, `abbe731`).
+- **Both new tags are lightweight** (`git cat-file -t` says `commit`), following §162's precedent —
+  every `riscdom` tag before `v1.0.0` is annotated; `v1.0.0` and `v1.0.1` are not.
+- **No Release was created, on purpose.** `v1.0.1` carries **no binary change**: the kernel's nine
+  commits since `v1.0.0` moved `ui/` and `host-tauri/` out (`M8-4b`), moved `server/` out and made
+  the packer relay-only (`M8-4c`), and reconciled the three repositories (`M8-4d`, EC-1/EC-2) — the
+  relay's code is unchanged; `riscdom-server`'s two commits are documents and a test-path fix; and
+  `riscdom-adminapp` did not move at all. **`v1.0.0`'s Release keeps its full meaning** (twelve
+  assets, `Latest`), and `v1.0.1` is a **tag-level maintenance marker** for "the split is closed
+  out". None of the three repositories' CI creates a Release (ED-1: they leave run artifacts only),
+  so the tag pushes published nothing.
+- **The tag pushes ran CI, and it is green**: `riscdom` `v1.0.1` → `gate` + `secret scanning` +
+  `relay-bundle` (macos + ubuntu), run `36969363297` success (6m18s); `riscdom-server` `v1.0.1` →
+  `gate` + `server-bundle` (macos + ubuntu), run `36969372075` success (2m37s).
+- **`[Unreleased]` stays `[Unreleased]`.** The CHANGELOG is not rolled to `[1.0.1]`: this is a
+  tag-level marker, and the entries under `[Unreleased]` (batches DT…EC-2) will go out with v1.x's
+  first substantive change. Rolling it is a v1.x decision, not this batch's.
+
+**Why**: a tag that announces a change should name a change. Two of the repositories changed; one did
+not. Marking exactly those two keeps the tags honest and the story clear — "the split is closed out
+here" — without a third tag that would duplicate an existing one, and without re-issuing binaries
+that are byte-identical to `v1.0.0`'s.
+
+**Impact**: two lightweight tags (`cb8f94f`, `ed06459`), this entry and the handoff's §1. **No file
+in `riscdom-server` or `riscdom-adminapp` changed; no Release exists for `v1.0.1`; no `v1.0.0` tag
+moved. `compute_hash`, `verify_chain` and the append-only triggers are untouched.**

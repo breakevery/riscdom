@@ -2008,3 +2008,19 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 **缘由**：绿色的 CI 是一个声明；一个从不跑 test target 的 gate，做出的是一个没人核对过的声明。这个修法让内核继续做单一真源，并给消费者恰好需要的东西 —— 与 M8-4 其余部分同一形状（消费者按 tag 取内核，而不是靠拷贝）。
 
 **影响**：`riscdom-server` 在 `docs/` 下多了四份文档，`src/routes.rs` 的四处 `include_str!` 路径由 `../../docs/…` 改为 `../docs/…`（`ed06459`）；内核的 `sdk/`、`examples/`、`scripts/` **未动**，本仓侧只有本条。**没有任何仓的 tag 移动。`compute_hash`、`verify_chain` 与只追加触发器未动。** **`riscdom-server` 的 CI 已重新变绿。**
+
+## 170. `v1.0.1` 是拆仓收尾的标记 —— 一个 tag，不是一次发布
+
+**日期**：2026-10-02 ｜ **状态**：已完成（v1.0 批 ED / M8-4d）
+
+**决策**：拆仓（M8-4a…M8-4d）及其收尾，以一个**轻量 `v1.0.1` tag** 为标记，且**不发 Release**：
+
+- **三个仓里只有两个带它**：`riscdom` `v1.0.1` → **`cb8f94f`**（其 `main`）、`riscdom-server` `v1.0.1` → **`ed06459`**（其 `main`）。**`riscdom-adminapp` 不打标**：它的 `main` 仍是 `v1.0.0` 的提交（`abbe731`），第二个 tag 只会指向前一个 tag 的同一提交、说不出新东西 —— 而且会白跑一次它那个 `bundle` 作业去产没人要的 artifact。三个 `v1.0.0` tag 均未动（`891c237`、`a41c505`、`abbe731`）。
+- **两个新 tag 都是轻量**（`git cat-file -t` 输出 `commit`），照 §162 先例 —— `riscdom` 在 `v1.0.0` 之前的每个 tag 都是 annotated；`v1.0.0` 与 `v1.0.1` 不是。
+- **刻意不建 Release。** `v1.0.1` **没有二进制变化**：内核自 `v1.0.0` 以来的 9 个提交把 `ui/` 与 `host-tauri/` 搬走（`M8-4b`）、把 `server/` 搬走并让打包器只打 relay（`M8-4c`）、以及三仓对账（`M8-4d`，EC-1/EC-2）—— relay 的代码未变；`riscdom-server` 那两个提交是文档与一处测试路径修复；而 `riscdom-adminapp` 根本没动。**`v1.0.0` 的 Release 保持完整语义**（十二个资产、`Latest`），`v1.0.1` 只是「拆仓已收尾」的 **tag 级维护标记**。三仓 CI 都不建 Release（ED-1：只留 run artifact），所以两次 tag 推送什么也没发布。
+- **tag 推送跑了 CI，且是绿的**：`riscdom` `v1.0.1` → `gate` + `secret scanning` + `relay-bundle`（macos + ubuntu），run `36969363297` success（6m18s）；`riscdom-server` `v1.0.1` → `gate` + `server-bundle`（macos + ubuntu），run `36969372075` success（2m37s）。
+- **`[Unreleased]` 仍是 `[Unreleased]`。** CHANGELOG 不落成 `[1.0.1]`：这是 tag 级标记，`[Unreleased]` 下的条目（批 DT…EC-2）将随 v1.x 首个实质变化一并发出。落不落是 v1.x 的决定，不是本批的。
+
+**缘由**：一个宣告变化的 tag，应当指向一次变化。三个仓里两个变了、一个没变。只标这两个，让 tag 保持诚实、故事保持清楚 —— 「拆仓到此收尾」—— 既不添一个与已有 tag 重复的第三个，也不用重新发一遍与 `v1.0.0` 逐字节相同的二进制。
+
+**影响**：两个轻量 tag（`cb8f94f`、`ed06459`）、本条与 handoff 的 §1。**`riscdom-server` 与 `riscdom-adminapp` 无任何文件改动；`v1.0.1` 没有 Release；没有任何 `v1.0.0` tag 移动。`compute_hash`、`verify_chain` 与只追加触发器未动。**

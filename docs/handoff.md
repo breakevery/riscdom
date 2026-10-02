@@ -617,7 +617,7 @@ current request authorising it (§2).
   lines of the local `.git/info/exclude`. **Decision §167.** **M8-4d remains.**
 - **And the three repositories are reconciled, which closes v1.0's main body** (v1.0 batch EB-2 /
   M8-4d, 2026-10-01): the tags and the mains line up — this repository `v1.0.0` = `891c237` /
-  `main` = `60ca3b9`; **`riscdom-server`** `v1.0.0` = `a41c505` / `main` = **`ed06459`** (its docs
+  `main` = `cb8f94f`; **`riscdom-server`** `v1.0.0` = `a41c505` / `main` = **`ed06459`** (its docs
   commit and the EC-2 drift-guard fix — **the tag does not move**); **`riscdom-adminapp`** `v1.0.0` =
   `abbe731` / `main` =
   `abbe731` — and all three `v1.0.0` tags are **lightweight** (every earlier `riscdom` tag is
@@ -633,6 +633,15 @@ current request authorising it (§2).
   document). **No code, no crate, no test, no CI job and no tag moved.** **Decision §168** (and §169:
   `riscdom-server`'s route-table drift guards compile again after the EC-2 fix). **The split
   (M8-4a…M8-4d) is complete and v1.0's main body is closed; v1.x is next.**
+- **And the split is marked with `v1.0.1`** (v1.0 batch ED / M8-4d, 2026-10-02): **two repositories**
+  carry a lightweight `v1.0.1` — this repository at `cb8f94f` and **`riscdom-server`** at `ed06459`
+  — and **`riscdom-adminapp` is deliberately not tagged** (its `main` is still `v1.0.0`'s commit,
+  `abbe731`). **No Release**: `v1.0.1` has no binary change (the kernel's nine commits moved `ui/`,
+  `host-tauri/` and `server/` out; the server's two are documents and a test-path fix), so the
+  published `v1.0.0` Release keeps its full meaning and `v1.0.1` is a tag-level marker. Both tag
+  pushes ran CI green (`riscdom` `36969363297` 6m18s; `riscdom-server` `36969372075` 2m37s). Tag
+  list: `riscdom` `v1.0.0` = `891c237` / `v1.0.1` = `cb8f94f`; `riscdom-server` `v1.0.0` = `a41c505`
+  / `v1.0.1` = `ed06459`; `riscdom-adminapp` `v1.0.0` = `abbe731` (only). **Decision §170.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new
