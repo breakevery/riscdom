@@ -47,10 +47,11 @@ RiscDom（中文名 **智芯城**）是一个桌面应用：AI 在 QEMU RISC-V �
 ```
 
 依赖方向（单向，无环）：`host-core → {agent, sandbox, audit, net}`、
-`agent → sandbox → audit`，以及 `net → audit`。桌面程序 —— Tauri 外壳（`host-tauri`）与其
-前端（`ui/src-tauri`）—— **不在这里**：它是
-[`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp)，消费本内核、并通过控制平面与节点
-对话。
+`agent → sandbox → audit`，以及 `net → audit`。**有两个程序不在这里**：桌面程序 —— Tauri 外壳
+（`host-tauri`）与其前端（`ui/src-tauri`）—— 是
+[`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp)；单节点控制平面（`server`）是
+[`riscdom-server`](https://github.com/breakevery/riscdom-server)。两者都消费本内核、并通过控制平面
+与节点对话。
 
 ## 环境要求
 
@@ -129,7 +130,8 @@ riscdom/
 
 桌面程序（`host-tauri` + `ui`）现在是
 [`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp)（v1.0 M8-4b）：v0.9 时它
-住在内核里，自 v1.0 起自成一座仓。
+住在内核里，自 v1.0 起自成一座仓。单节点控制平面（`server`）是
+[`riscdom-server`](https://github.com/breakevery/riscdom-server)（v1.0 M8-4a），出于同样的理由。
 
 ## 测试
 

@@ -47,6 +47,10 @@ workspace crates `audit` / `sandbox` / `agent` / `cli` / `host-core` /
 the bilingual-link check
 (`scripts/check-bilingual.ps1` / `.sh`).
 
+`cli/tests/{admin,control,read_only}.rs` need a real `riscdom-server` binary (`RISCDOM_SERVER_BIN`,
+or one beside the test binaries); the control plane left for its own repository in v1.0 M8-4c, so
+without one those tests **skip** — and still count as passed. See [cli/README.md](cli/README.md).
+
 The desktop program's own checks — the front end build, its seventeen probes, the ui string
 registry and the wix-version guard — run in **`riscdom-adminapp`**, which owns those sources.
 

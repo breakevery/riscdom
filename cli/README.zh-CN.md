@@ -294,4 +294,22 @@ riscdom toolchain download --wait
 
 ## 与 `riscdom-server` 的关系
 
-`riscdom-server` 是作为长期进程的控制平面；`riscdom` 是它的客户端。一次性命令由 CLI 在调用期间起一个控制平面；若要有东西稍后再连上来（daemon），就起 `riscdom-server`，再用 `--remote` 指过去。
+`riscdom-server` 是作为长期进程的控制平面；`riscdom` 是它的客户端。自 v1.0 批 DT 起，CLI 是**纯客户端**：`--remote` 为必需，它自己不启任何控制平面 —— 起好 `riscdom-server`（它自己的仓：<https://github.com/breakevery/riscdom-server>），再用 `--remote` 指过去。
+
+## 跑 CLI 的集成测试
+
+`cli/tests/{admin,control,read_only}.rs` 是端到端测试：它们启一个真的 `riscdom-server`，用 `--remote` 驱着 CLI 打它。CLI 不自启任何东西（v1.0 批 DT），而控制平面已在 **v1.0 M8-4c** 离开本仓，所以这些测试在两个地方之一找它的二进制：
+
+- **`RISCDOM_SERVER_BIN`** 环境变量（设了的话）；或
+- 测试二进制旁边（`target/<profile>/riscdom-server[.exe]`）。
+
+**两处都没有时测试会 skip** —— 打印原因 —— 而不是失败：一个客户端的套件不该因为一个住在别的仓的程序没在这里构建而变红。
+
+```sh
+git clone https://github.com/breakevery/riscdom-server
+cargo build --release --manifest-path riscdom-server/Cargo.toml --bin riscdom-server
+RISCDOM_SERVER_BIN="$PWD/riscdom-server/target/release/riscdom-server" \
+  cargo test -p cli --test admin
+```
+
+**当心陈旧二进制。** v1.0 M8-4c 之前在 `target/<profile>/riscdom-server` 留下的旧副本**仍会被算作找到了** —— 判定依据是文件在不在、而不是它的版本 —— 所以一份陈旧拷贝会让测试**跑去打一个旧控制平面**，而不是 skip。若不是为这次运行构建的，就删掉它。

@@ -49,10 +49,12 @@ Full text: [PROJECT_CONSTITUTION.md](PROJECT_CONSTITUTION.md).
 ```
 
 Dependency direction (one-way, acyclic): `host-core → {agent, sandbox, audit, net}`,
-`agent → sandbox → audit`, and `net → audit`. The desktop program — the Tauri shell
-(`host-tauri`) and its front end (`ui/src-tauri`) — is **not here**: it is
-[`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp), which consumes this
-kernel and talks to a node over the control plane.
+`agent → sandbox → audit`, and `net → audit`. **Two programs are not here**: the desktop
+program — the Tauri shell (`host-tauri`) and its front end (`ui/src-tauri`) — is
+[`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp), and the single-node
+control plane (`server`) is
+[`riscdom-server`](https://github.com/breakevery/riscdom-server). Both consume this kernel
+and talk to a node over the control plane.
 
 ## Requirements
 
@@ -136,7 +138,9 @@ riscdom/
 
 The desktop program (`host-tauri` + `ui`) is
 [`riscdom-adminapp`](https://github.com/breakevery/riscdom-adminapp) (v1.0 M8-4b): it consumed
-the kernel in v0.9 and is its own repository from v1.0.
+the kernel in v0.9 and is its own repository from v1.0. The single-node control plane
+(`server`) is [`riscdom-server`](https://github.com/breakevery/riscdom-server) (v1.0 M8-4a) for
+the same reason.
 
 ## Tests
 

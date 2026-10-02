@@ -11,7 +11,7 @@ branch `main`. The close-out of every batch is the same: gate green → `scripts
 (which runs the gate itself) → push — and none of those remote-facing steps happens without the
 current request authorising it (§2).
 
-## 1. Snapshot — `v0.9.9` is the release (update this section when a release ships)
+## 1. Snapshot — `v1.0.0` is the release (update this section when a release ships)
 
 - **The connection layer's identity and signing are frozen, and M4 is five pieces** (v1.0 M4a,
   2026-09-28). [`docs/connection.md`](connection.md) is the specification: node identity (an Ed25519
@@ -615,6 +615,22 @@ current request authorising it (§2).
   Release is unaffected** — its assets are uploaded copies — so a future `v1.x` tag here produces relay
   archives only. The `ui/` build residue (27,174 untracked files) is gone, and so are the four `ui/`
   lines of the local `.git/info/exclude`. **Decision §167.** **M8-4d remains.**
+- **And the three repositories are reconciled, which closes v1.0's main body** (v1.0 batch EB-2 /
+  M8-4d, 2026-10-01): the tags and the mains line up — this repository `v1.0.0` = `891c237` /
+  `main` = `f6bd5e9`; **`riscdom-server`** `v1.0.0` = `a41c505` / `main` = **`fa5d163`** (this batch's
+  docs commit — **the tag does not move**); **`riscdom-adminapp`** `v1.0.0` = `abbe731` / `main` =
+  `abbe731` — and all three `v1.0.0` tags are **lightweight** (every earlier `riscdom` tag is
+  annotated; these are not, §162's precedent). `riscdom-server`'s `docs/server-distribution.md` + zh
+  stopped describing the relay and now cover the **control plane alone** (its `../net/`, `../server/`,
+  `scripts/pack.*` and `ui/` references are gone; the kernel's own documents are reached by URL at
+  `v1.0.0`), and this repository's `README.md` + zh now link **all three repositories**. The CLI's
+  cross-repository test mechanism — `RISCDOM_SERVER_BIN`, else a binary beside the test binaries,
+  else **skip** — is written down in `cli/README.md` + zh, `CONTRIBUTING.md` + zh and the gate's own
+  comment, **including the warning that a stale `target/<profile>/riscdom-server` also counts as
+  found**, so the tests run against an old control plane instead of skipping. The
+  `RELEASE_NOTES.md:66` / zh:54 `linux-x64` asset typo is **recorded, not fixed** (a released
+  document). **No code, no crate, no test, no CI job and no tag moved.** **Decision §168.** **The
+  split (M8-4a…M8-4d) is complete and v1.0's main body is closed; v1.x is next.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

@@ -40,6 +40,8 @@ gate 就是**「全绿」的唯一清单**：CI 跑的是同一个文件（`.git
 （`python scripts/scan-encoding.py --check`——查 mojibake 与 BOM；无 Python 时会大声跳过）→ 双语文档链接检查
 （`scripts/check-bilingual.ps1` / `.sh`）。
 
+`cli/tests/{admin,control,read_only}.rs` 需要一个真的 `riscdom-server` 二进制（`RISCDOM_SERVER_BIN`，或测试二进制旁边那份）；控制平面已在 v1.0 M8-4c 离开去自己的仓，所以没有它时那些测试会 **skip** —— 且仍计为 passed。见 [cli/README.md](cli/README.md)。
+
 桌面程序自己的检查 —— 前端构建、十七个探针、ui 字符串注册表与 wix 版本守卫 —— 在
 **`riscdom-adminapp`** 里跑，那些源码归它。
 

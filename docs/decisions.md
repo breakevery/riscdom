@@ -5150,3 +5150,52 @@ semantics changed**: `compute_hash`, `verify_chain` and the append-only triggers
 `net/` and `host-core/` are untouched. **M8-4d (reconciliation: each new lock committed against
 `v1.0.0`, the cross-repository CLI test mechanism, and `riscdom-server`'s own docs trimmed to the
 server) remains, with its own authorisation.**
+
+## 168. The three repositories are reconciled
+
+**Date**: 2026-10-01 ｜ **Status**: Done (v1.0 batch EB-2 / M8-4d)
+
+**Decision**: M8-4d closes the split, and **v1.0's main body is complete**:
+
+- **Three tags, three mains, reconciled** (v1.0 M8-4d): `riscdom` `v1.0.0` = `891c237`, `main` =
+  `f6bd5e9`; `riscdom-server` `v1.0.0` = **`a41c505`**, `main` = **`fa5d163`** (this batch's docs
+  commit — **the tag does not move**); `riscdom-adminapp` `v1.0.0` = `abbe731`, `main` = `abbe731`.
+  All three `v1.0.0` tags are **lightweight** (every earlier `riscdom` tag is annotated; these are
+  not, by §162's precedent).
+- **The v1.0.0 release's twelve assets** are: three relay archives (this repository's
+  `relay-bundle`), three control-plane archives (`riscdom-server`'s `server-bundle`), six desktop
+  packages (`riscdom-adminapp`'s `bundle`). The five **Windows** ones (three archives, two
+  installers) are built **by hand** — no repository has a Windows runner (M7b-4). The published
+  release is unaffected by any of the split: an asset is an uploaded copy.
+- **The CLI's end-to-end tests have a cross-repository mechanism, and it is documented rather than
+  built.** `cli/tests/{admin,control,read_only}.rs` (42 tests) drive a real `riscdom-server` and
+  find its binary through **`RISCDOM_SERVER_BIN`** or beside the test binaries; with neither they
+  **skip** (and still count as passed). That mechanism predates this batch; what this batch adds is
+  the **warning** that a stale `target/<profile>/riscdom-server[.exe]` also counts as found, so the
+  tests run against an old control plane instead of skipping — `cli/README.md` + zh,
+  `CONTRIBUTING.md` + zh and the gate's own comment now say so.
+- **`riscdom-server`'s `docs/server-distribution.md` is the control plane's alone now**: the "two
+  programs" framing, the relay section and the references to `scripts/pack.*`, `ui/` and
+  `../net/README.md` are gone, and what remains points at the kernel's documents by URL at `v1.0.0`
+  (`connection.md`, `qemu-setup.md`, `backup.md`) and at `../.github/workflows/ci.yml` for how that
+  repository actually packages. **Its tag stays at `a41c505`; the document is a `main` advance.**
+- **This repository's `README.md` + zh link all three repositories now** (they linked
+  `riscdom-adminapp` only); a `riscdom-server` edge joined them.
+- **Known, recorded, not fixed**: `RELEASE_NOTES.md:66` (+ zh:54) names the control-plane archive
+  `riscdom-server-1.0.0-linux-x64.tar.gz` — the asset is `…linux-x86_64.tar.gz` — and attributes it
+  to the tag's `server-bundle` job. It is a **released** document, so it is left as it went out.
+- **Left to v1.x**: the four `riscdom-adminapp` probes that SKIP on kernel sources gain a
+  `RISCDOM_KERNEL_DIR` (§166's upgrade path, cost over value now); the Windows runner (M7b-4); and
+  everything the roadmap calls v1.x.
+
+**Why**: a split is finished when the three repositories can each be built, tagged and explained
+without the others being wrong — not when the last file moves. §163 split the work into four
+batches; this is the fourth, and it is about making the three stories agree.
+
+**Impact**: this repository's `README.md` + zh, `CONTRIBUTING.md` + zh, `cli/README.md` + zh,
+`scripts/gate.sh` (comment), the handoff's §1, the CHANGELOG and this entry; and
+`riscdom-server`'s `docs/server-distribution.md` + zh (`fa5d163`). **No code changed in any
+repository** — no crate, no test, no CI job, no packaging script, no capability, no route. **No tag
+moved**: `891c237`, `a41c505` and `abbe731` are the same commits they were. **`compute_hash`,
+`verify_chain` and the append-only triggers are untouched.** **The split (M8-4a…M8-4d) is
+complete.**

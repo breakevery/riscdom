@@ -81,6 +81,10 @@ echo "==> cargo clippy (cli + host-core + worker + net + riscdom-backup + riscdo
 # `--no-deps`: the crates we own are linted, their dependencies are only built.
 cargo clippy -p cli -p host-core -p worker -p net -p riscdom-backup -p riscdom-sdk --all-targets --no-deps -- -D warnings || fail "cargo clippy cli + host-core + worker + net + riscdom-backup + riscdom-sdk"
 
+# `cli/tests/{admin,control,read_only}.rs` are end-to-end: they drive a real `riscdom-server`,
+# found through `RISCDOM_SERVER_BIN` or beside the test binaries. The control plane left for its
+# own repository in v1.0 M8-4c, so with neither present those tests **skip** (and still count as
+# passed) — which is normal here; see cli/README.md.
 if have_guest_tools; then
   echo "==> cargo test (--include-ignored, minus the ones that need a key or the OS keyring)"
   cargo test --no-fail-fast -- --include-ignored --skip real_deepseek_writes_and_runs_hello_world --skip real_api_streams_content_deltas --skip os_keyring_persists_to_credential_manager || fail "cargo test"

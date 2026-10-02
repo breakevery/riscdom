@@ -1949,3 +1949,44 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 只会产 relay 归档，这正是本批的本意。**内核语义未变**：`compute_hash`、`verify_chain` 与只追加触发器未动，
 `net/` 与 `host-core/` 也未动。**M8-4d（对账：每个新 lock 对着 `v1.0.0` 提交、跨仓 CLI 测试机制、以及把
 `riscdom-server` 自己的文档裁成只讲 server）仍在，各自需授权。**
+
+## 168. 三个仓已对账
+
+**日期**：2026-10-01 ｜ **状态**：已完成（v1.0 批 EB-2 / M8-4d）
+
+**决策**：M8-4d 收住了拆仓，且 **v1.0 主体完成**：
+
+- **三个 tag、三条 main，已对账**（v1.0 M8-4d）：`riscdom` `v1.0.0` = `891c237`、`main` = `f6bd5e9`；
+  `riscdom-server` `v1.0.0` = **`a41c505`**、`main` = **`fa5d163`**（本批的文档提交 —— **tag 不动**）；
+  `riscdom-adminapp` `v1.0.0` = `abbe731`、`main` = `abbe731`。三个 `v1.0.0` tag **均为轻量**（`riscdom`
+  更早的每个 tag 都是 annotated；这三个不是，照 §162 的先例）。
+- **v1.0.0 的十二个资产**：三个 relay 归档（本仓 `relay-bundle`）、三个控制平面归档（`riscdom-server` 的
+  `server-bundle`）、六个桌面包（`riscdom-adminapp` 的 `bundle`）。其中五个 **Windows** 资产（三个归档 +
+  两个安装包）由**人工构建** —— 没有任何仓有 Windows runner（M7b-4）。已发布的 release 不受拆仓影响：
+  资产是上传好的副本。
+- **CLI 的端到端测试有一个跨仓机制，本批做的是把它写下来而不是造它。**
+  `cli/tests/{admin,control,read_only}.rs`（42 条）驱着一个真的 `riscdom-server`，通过
+  **`RISCDOM_SERVER_BIN`** 或测试二进制旁边那份找它；两处都没有时它们 **skip**（且仍计为 passed）。该
+  机制早于本批；本批加的是那条**警告**：陈旧的 `target/<profile>/riscdom-server[.exe]` 也会被算作找到，
+  于是测试会跑去打一个旧控制平面而不是 skip —— `cli/README.md` + zh、`CONTRIBUTING.md` + zh 与 gate
+  自己的注释现在都这么说。
+- **`riscdom-server` 的 `docs/server-distribution.md` 现在只讲控制平面**：「两个程序」的叙述、relay 节、
+  以及对 `scripts/pack.*`、`ui/`、`../net/README.md` 的引用都已去掉；剩下的部分以 `v1.0.0` 的 URL 指向
+  内核文档（`connection.md`、`qemu-setup.md`、`backup.md`），并以 `../.github/workflows/ci.yml` 说明该仓
+  实际怎么打包。**它的 tag 停在 `a41c505`；文档只是 `main` 前进。**
+- **本仓 `README.md` + zh 现在链齐三个仓**（此前只链 `riscdom-adminapp`）；补上了一条
+  `riscdom-server` 边。
+- **已知、已记、未改**：`RELEASE_NOTES.md:66`（+ zh:54）把控制平面归档写成
+  `riscdom-server-1.0.0-linux-x64.tar.gz` —— 实际资产是 `…linux-x86_64.tar.gz` —— 并把它归给 tag 的
+  `server-bundle` 作业。那是一份**已发布**的文档，所以按它发布时的样子留着。
+- **留给 v1.x**：`riscdom-adminapp` 那四个在内核源码上 SKIP 的探针加上 `RISCDOM_KERNEL_DIR`（§166 的
+  升级路径，当下成本>价值）；Windows runner（M7b-4）；以及 roadmap 称为 v1.x 的一切。
+
+**缘由**：拆仓的结束不在最后一个文件搬完，而在三个仓各自都能被构建、打 tag、解释，且不会让对方变错。
+§163 把工作拆成四批；这是第四批，目的是让三个故事彼此合得上。
+
+**影响**：本仓的 `README.md` + zh、`CONTRIBUTING.md` + zh、`cli/README.md` + zh、`scripts/gate.sh`
+（注释）、handoff §1、CHANGELOG 与本条；以及 `riscdom-server` 的 `docs/server-distribution.md` + zh
+（`fa5d163`）。**没有任何仓的代码被改动** —— 无 crate、无测试、无 CI 作业、无打包脚本、无 capability、
+无路由。**没有任何 tag 移动**：`891c237`、`a41c505`、`abbe731` 仍是它们原来的提交。**`compute_hash`、
+`verify_chain` 与只追加触发器未动。** **拆仓（M8-4a…M8-4d）完成。**

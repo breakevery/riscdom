@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The three repositories are reconciled, and v1.0's main body closes** (v1.0 batch EB-2 / M8-4d):
+  `riscdom-server`'s `docs/server-distribution.md` + zh now cover the **control plane alone** (the relay
+  section, `scripts/pack.*`, `ui/` and `../net/` references are gone; the kernel's documents are reached
+  by URL at `v1.0.0`), this repository's `README.md` + zh link **all three repositories**, and the CLI's
+  cross-repository test mechanism (`RISCDOM_SERVER_BIN`, else beside the binaries, else **skip** — with
+  the warning that a stale `target/<profile>/riscdom-server` also counts as found) is documented in
+  `cli/README.md` + zh, `CONTRIBUTING.md` + zh and the gate. `riscdom-server`'s `main` = `fa5d163`;
+  **no tag moved** and no crate, test, CI job or capability changed. **Decision §168.**
 - **The control plane is its own repository** (v1.0 batch DU/DV/DW / M8-4a): the `server` crate, its history
   and its packaging are live in **`riscdom-server`** (`main` = `a41c505`, tagged `v1.0.0`, built against the
   kernel's `v1.0.0` tag), and the CLI became a pure client first (batch DT): `--remote` is required. **This

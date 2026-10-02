@@ -326,7 +326,32 @@ riscdom toolchain download --wait
 
 ## Relationship to `riscdom-server`
 
-`riscdom-server` is the control plane as a long-lived process; `riscdom` is the
-client. For a one-off command the CLI starts a control plane for the duration of
-the call. For a daemon — something else will connect later — start
-`riscdom-server` and point the CLI at it with `--remote`.
+`riscdom-server` is the control plane as a long-lived process; `riscdom` is its client. Since
+v1.0 batch DT the CLI is a **pure client**: `--remote` is required and it starts no control
+plane of its own — start `riscdom-server` (its own repository,
+<https://github.com/breakevery/riscdom-server>) and point the CLI at it.
+
+## Running the CLI's integration tests
+
+`cli/tests/{admin,control,read_only}.rs` are end-to-end: they start a real `riscdom-server` and
+drive the CLI against it with `--remote`. The CLI starts nothing (v1.0 batch DT), and the control
+plane left this repository in **v1.0 M8-4c**, so those tests look for its binary in one of two
+places:
+
+- the **`RISCDOM_SERVER_BIN`** environment variable, when it is set; or
+- beside the test binaries (`target/<profile>/riscdom-server[.exe]`).
+
+**When neither is there the tests skip** — printing the reason — rather than failing: a client's
+suite must not go red because a program that lives in another repository is not built here.
+
+```sh
+git clone https://github.com/breakevery/riscdom-server
+cargo build --release --manifest-path riscdom-server/Cargo.toml --bin riscdom-server
+RISCDOM_SERVER_BIN="$PWD/riscdom-server/target/release/riscdom-server" \
+  cargo test -p cli --test admin
+```
+
+**Mind a stale binary.** A `target/<profile>/riscdom-server` left over from before v1.0 M8-4c
+still counts as found — the decision is the file's presence, not its version — so a stale copy
+makes the tests **run** against an old control plane instead of skipping. Delete it if you did not
+build one for this run.
