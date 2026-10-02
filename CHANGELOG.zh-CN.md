@@ -15,6 +15,7 @@
 
 ### 变更
 
+- **控制平面的漂移守卫又能编译了**（v1.0 批 EC-2 / M8-4d）：`riscdom-server` 的 `src/routes.rs` 用 `../../docs/…` 读它那两份文档 —— crate 搬到仓根后就越出仓界 —— 于是 `clippy --all-targets` 与 `cargo test` 失败，**它的 CI 自 M8-4a 起就一直红**（三次 run）。内核保留单一真源；server 现在在 `docs/` 下随附那些文档的快照（`control-plane-api.md`、`tool-schema-control-plane.md`，+ zh），每份头部一行溯源注释，并改读 `../docs/…`。`riscdom-server` `main` = `ed06459`；**无 tag 移动**。**决策 §169。**
 - **三个仓已对账，v1.0 主体收束**（v1.0 批 EB-2 / M8-4d）：`riscdom-server` 的 `docs/server-distribution.md` + zh 现在只讲**控制平面**（relay 一节、`scripts/pack.*`、`ui/` 与 `../net/` 的引用都去掉了；内核文档以 `v1.0.0` 的 URL 抵达），本仓 `README.md` + zh 链**齐三个仓**，而 CLI 的跨仓测试机制（`RISCDOM_SERVER_BIN`，否则二进制旁边那份，否则 **skip** —— 并附陈旧二进制也会被算作找到的警告）写进了 `cli/README.md` + zh、`CONTRIBUTING.md` + zh 与 gate。`riscdom-server` 的 `main` = `fa5d163`；**无 tag 移动**，也无 crate、测试、CI 作业或 capability 变化。**决策 §168。**
 - **控制平面已经是它自己的仓**（v1.0 批 DU/DV/DW / M8-4a）：`server` crate、它的历史与它的打包已在 **`riscdom-server`** 上线（`main` = `a41c505`，tag `v1.0.0`，对内核的 `v1.0.0` tag 构建），而 CLI 先一步变成纯客户端（批 DT）：`--remote` 变为必需。**本仓未变**：`server/` 与它的打包留到 **M8-4c**，因为 `ui/src-tauri` 以 path 依赖该 crate，而 `ui/` 在 **M8-4b** 才离开。**决策 §164。**
 

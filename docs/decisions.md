@@ -5199,3 +5199,47 @@ repository** — no crate, no test, no CI job, no packaging script, no capabilit
 moved**: `891c237`, `a41c505` and `abbe731` are the same commits they were. **`compute_hash`,
 `verify_chain` and the append-only triggers are untouched.** **The split (M8-4a…M8-4d) is
 complete.**
+
+## 169. The control plane's drift guards compile again — and M8-4a's verification gap
+
+**Date**: 2026-10-02 ｜ **Status**: Done (v1.0 batch EC-2 / M8-4d)
+
+**Decision**: the fix is a **snapshot, not a move**, and the gap that hid the bug is written down:
+
+- **The gap**: M8-4a verified `riscdom-server` with `cargo check` from a fresh clone — **not** with
+  `cargo clippy --all-targets` and `cargo test`. A crate's own tests are where the documents its
+  route tables are asserted against are read, so the gap hid a compile error for two batches.
+- **The bug**: `riscdom-server/src/routes.rs` read those documents with
+  `include_str!("../../docs/…")` — four lines (2 documents × en/zh) inside `#[cfg(test)] mod tests`.
+  That path was right while the crate sat at `<kernel>/server/`; at the repository root `../../docs/`
+  leaves the repository, so `clippy --all-targets` and `cargo test` could not compile the test target
+  (four `couldn't read …: No such file or directory`). **Its CI was red on all three runs**
+  (`36846374684` main, `36847813364` tag `v1.0.0`, `36885795736` main). `cargo build` — which builds no
+  test target — always passed, which is why the release and its archives were fine.
+- **The fix (ii)**: the **kernel keeps the single source of truth**. The two documents
+  (`control-plane-api.md`, `tool-schema-control-plane.md`, and their `.zh-CN.md` twins) are
+  **snapshotted into `riscdom-server/docs/`**, each headed by one HTML comment naming the kernel's
+  `v1.0.0` (`891c237`) as its source, and `routes.rs` reads `../docs/…`. `riscdom-server` `main` =
+  **`ed06459`** (`fa5d163` → `ed06459`); **no tag moved** (`v1.0.0` still `a41c505`).
+- **Why not (i) — moving the documents out**: the kernel references those two documents in **~51
+  files / 257 lines**, and not only in prose: `sdk/rust/src/lib.rs` reads
+  `tool-schema-control-plane.md` with a **compile-time `include_str!`**, `sdk/typescript`'s
+  `test/endpoints.test.ts` reads it at **test-run time**, the python supervisor example reads it at
+  **run time** (`--tool-schema`), and `scripts/check-tool-schema.mjs` drives both documents. Moving
+  them would break the kernel's own gate, and the kernel would need a copy anyway — so (i)
+  degenerates into (ii) plus a large refactor, out of this batch's scope.
+- **`scripts/check-tool-schema.mjs` is unchanged**: the documents it reads never left the kernel, so
+  the document-side guard stays whole.
+- **Left to v1.x**: a **cross-repository drift check** for the snapshot. (ii)'s one cost is two
+  copies; the snapshot is pinned to `v1.0.0`, so it cannot drift without that tag moving, but nothing
+  asserts it yet.
+
+**Why**: a green CI is a claim; a gate that never ran the test target makes a claim nobody checked.
+The fix keeps the kernel the single source of truth and gives the consumer exactly what it needs —
+the same shape the rest of M8-4 uses (the consumer takes the kernel by tag, not by copy).
+
+**Impact**: `riscdom-server` gained four documents under `docs/` and `src/routes.rs`'s four
+`include_str!` paths moved `../../docs/…` → `../docs/…` (`ed06459`); the kernel's `sdk/`,
+`examples/` and `scripts/` are **untouched**, and this entry is the only kernel-side change. **No tag
+moved in any repository. `compute_hash`, `verify_chain` and the append-only triggers are untouched.**
+**`riscdom-server`'s CI is green again.**

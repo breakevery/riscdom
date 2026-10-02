@@ -1990,3 +1990,21 @@ riscdom audit events --action-prefix host.audit.chain_rejected     # 它被拒�
 （`fa5d163`）。**没有任何仓的代码被改动** —— 无 crate、无测试、无 CI 作业、无打包脚本、无 capability、
 无路由。**没有任何 tag 移动**：`891c237`、`a41c505`、`abbe731` 仍是它们原来的提交。**`compute_hash`、
 `verify_chain` 与只追加触发器未动。** **拆仓（M8-4a…M8-4d）完成。**
+
+## 169. 控制平面的漂移守卫又能编译了 —— 以及 M8-4a 的验证缺口
+
+**日期**：2026-10-02 ｜ **状态**：已完成（v1.0 批 EC-2 / M8-4d）
+
+**决策**：修法是**快照，不是搬移**，并把当初掩盖 bug 的那个缺口写下来：
+
+- **缺口**：M8-4a 用一个全新克隆做 `cargo check` 验了 `riscdom-server` —— 但**没做**
+  `cargo clippy --all-targets` 与 `cargo test`。而一个 crate 自己的测试，正是它读「路由表被断言对着的那两份文档」的地方，所以这个缺口把一处编译错误藏了两个批次。
+- **bug**：`riscdom-server/src/routes.rs` 用 `include_str!("../../docs/…")` 读那两份文档 —— 四行（2 份文档 × en/zh），位于 `#[cfg(test)] mod tests` 内。crate 还在 `<kernel>/server/` 时这条路径是对的；搬到仓根后 `../../docs/` 就跨出了仓界，于是 `clippy --all-targets` 与 `cargo test` 编不出 test target（四处 `couldn't read …: No such file or directory`）。**它的 CI 三次全红**（`36846374684` main、`36847813364` tag `v1.0.0`、`36885795736` main）。`cargo build`（不编 test target）一直是过的，所以发布与归档都没问题。
+- **修法 (ii)**：**内核保留单一真源**。那两份文档（`control-plane-api.md`、`tool-schema-control-plane.md`，及其 `.zh-CN.md` 双胞胎）**快照进 `riscdom-server/docs/`**，每份头部一行 HTML 注释点明来源是内核的 `v1.0.0`（`891c237`），而 `routes.rs` 改读 `../docs/…`。`riscdom-server` `main` = **`ed06459`**（`fa5d163` → `ed06459`）；**无 tag 移动**（`v1.0.0` 仍 `a41c505`）。
+- **为何不用 (i)（把文档搬出去）**：内核在 **~51 文件 / 257 行**里引用这两份文档，且不止散文 —— `sdk/rust/src/lib.rs` 以**编译期 `include_str!`** 读 `tool-schema-control-plane.md`，`sdk/typescript` 的 `test/endpoints.test.ts` 在**测试运行期**读它，python 监工示例在**运行期**读它（`--tool-schema`），`scripts/check-tool-schema.mjs` 驱动两份文档。搬走会打断内核自己的 gate，而内核无论如何仍需要一份拷贝 —— 于是 (i) 退化成 (ii) 加一场大重构，超出本批边界。
+- **`scripts/check-tool-schema.mjs` 未改**：它读的文档从未离开内核，文档侧守卫完整保留。
+- **留给 v1.x**：为这份快照加一条**跨仓漂移检查**。(ii) 唯一的代价是两份拷贝；快照钉在 `v1.0.0`，所以只要那个 tag 不动它就不会漂，但目前还没有东西断言这一点。
+
+**缘由**：绿色的 CI 是一个声明；一个从不跑 test target 的 gate，做出的是一个没人核对过的声明。这个修法让内核继续做单一真源，并给消费者恰好需要的东西 —— 与 M8-4 其余部分同一形状（消费者按 tag 取内核，而不是靠拷贝）。
+
+**影响**：`riscdom-server` 在 `docs/` 下多了四份文档，`src/routes.rs` 的四处 `include_str!` 路径由 `../../docs/…` 改为 `../docs/…`（`ed06459`）；内核的 `sdk/`、`examples/`、`scripts/` **未动**，本仓侧只有本条。**没有任何仓的 tag 移动。`compute_hash`、`verify_chain` 与只追加触发器未动。** **`riscdom-server` 的 CI 已重新变绿。**

@@ -617,8 +617,9 @@ current request authorising it (§2).
   lines of the local `.git/info/exclude`. **Decision §167.** **M8-4d remains.**
 - **And the three repositories are reconciled, which closes v1.0's main body** (v1.0 batch EB-2 /
   M8-4d, 2026-10-01): the tags and the mains line up — this repository `v1.0.0` = `891c237` /
-  `main` = `f6bd5e9`; **`riscdom-server`** `v1.0.0` = `a41c505` / `main` = **`fa5d163`** (this batch's
-  docs commit — **the tag does not move**); **`riscdom-adminapp`** `v1.0.0` = `abbe731` / `main` =
+  `main` = `60ca3b9`; **`riscdom-server`** `v1.0.0` = `a41c505` / `main` = **`ed06459`** (its docs
+  commit and the EC-2 drift-guard fix — **the tag does not move**); **`riscdom-adminapp`** `v1.0.0` =
+  `abbe731` / `main` =
   `abbe731` — and all three `v1.0.0` tags are **lightweight** (every earlier `riscdom` tag is
   annotated; these are not, §162's precedent). `riscdom-server`'s `docs/server-distribution.md` + zh
   stopped describing the relay and now cover the **control plane alone** (its `../net/`, `../server/`,
@@ -629,8 +630,9 @@ current request authorising it (§2).
   comment, **including the warning that a stale `target/<profile>/riscdom-server` also counts as
   found**, so the tests run against an old control plane instead of skipping. The
   `RELEASE_NOTES.md:66` / zh:54 `linux-x64` asset typo is **recorded, not fixed** (a released
-  document). **No code, no crate, no test, no CI job and no tag moved.** **Decision §168.** **The
-  split (M8-4a…M8-4d) is complete and v1.0's main body is closed; v1.x is next.**
+  document). **No code, no crate, no test, no CI job and no tag moved.** **Decision §168** (and §169:
+  `riscdom-server`'s route-table drift guards compile again after the EC-2 fix). **The split
+  (M8-4a…M8-4d) is complete and v1.0's main body is closed; v1.x is next.**
 - **The cross-region server is frozen** (v1.0 M4d, 2026-09-28): [`docs/connection.md`](connection.md) §6 —
   a **deployer-run** dedicated deployment (never the project's), four roles with bounded knowledge,
   routing on the signed `to` alone, authorisation by the §3 model (**no new credential, no new

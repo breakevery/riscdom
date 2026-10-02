@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The control plane's drift guards compile again** (v1.0 batch EC-2 / M8-4d): `riscdom-server`'s
+  `src/routes.rs` read its two documents with `../../docs/…` — outside the repository once the crate
+  moved to the repository root — so `clippy --all-targets` and `cargo test` failed and **its CI was red
+  from M8-4a** (three runs). The kernel keeps the single source of truth; the server now ships
+  snapshots of those documents under `docs/` (`control-plane-api.md`, `tool-schema-control-plane.md`,
+  + zh), each headed by a provenance comment, and reads `../docs/…`. `riscdom-server` `main` =
+  `ed06459`; **no tag moved**. **Decision §169.**
 - **The three repositories are reconciled, and v1.0's main body closes** (v1.0 batch EB-2 / M8-4d):
   `riscdom-server`'s `docs/server-distribution.md` + zh now cover the **control plane alone** (the relay
   section, `scripts/pack.*`, `ui/` and `../net/` references are gone; the kernel's documents are reached
